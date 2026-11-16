@@ -1,5 +1,9 @@
-"""A ``Series`` of records returned as a table is kept as that table: an edge that names a field reads its column,
-a node gets plain records, and the table is checked column by column when the node returns it."""
+"""Tests for a node that returns a table where its type says a ``Series`` of records.
+
+A node declared ``-> Series[Contact]`` may return a polars table, one row per record. The run stores the table as it
+is. An edge that names a field, such as ``contacts.result.email``, reads that column. A node further on still gets
+plain records. And the table is checked column by column when the node returns it.
+"""
 
 import json
 from typing import Any, NotRequired, TypedDict
@@ -36,7 +40,7 @@ RECEIVED: list[Any] = []
 
 @node("contacts", title="Contacts", description="For a test.")
 def contacts(text: str) -> Series[Contact]:
-    return FRAME  # type: ignore[return-value]  a table returned for a Series of records is the Series of its records
+    return FRAME  # type: ignore[return-value]  a table may stand for a Series of its records
 
 
 @node("listed", title="Listed", description="For a test.")
@@ -116,7 +120,7 @@ def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(sou
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
     assert RECEIVED == [records, ["ida@x.dk", None], ["ida", "bo"], *records] and all(
         type(record) is dict for record in RECEIVED[3:]
-    )  # nodes called in id order
+    )  # the nodes are called in the order of their ids
     assert run.results["c"]["result"] == records  # a host reads plain records too
 
 
@@ -299,7 +303,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
         "hi a",
         "hi b",
         None,
-    ]  # the two records before it were read and called
+    ]  # the calls for the two records before it ran
 
 
 def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_table() -> None:
@@ -349,7 +353,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
     )
     run = graph.run(text="x")
 
-    assert run.outputs["result"] == 1  # bo has no email, so mail was not called for him
+    assert run.outputs["result"] == 1  # bo has no email, so mail isn't called for him
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == [
         "IDA@X.DK"
     ]
@@ -368,7 +372,7 @@ def test_a_call_that_takes_a_table_is_reused_when_the_table_has_the_same_cells()
     run = graph.run(table=frame)
 
     run = run.again(table=pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}))
-    assert len(calls) == 1  # the same cells
+    assert len(calls) == 1  # the same cells, so the call is reused
     for changed in (
         pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}),
         frame.rename({"age": "years"}),
@@ -387,7 +391,7 @@ def people(text: str) -> Table[Contact]:
 
 @node("records", title="Records", description="For a test.")
 def records(table: Table[Contact]) -> Series[Contact]:
-    return table  # type: ignore[return-value]  a table returned for a Series of records is the Series of its records
+    return table  # type: ignore[return-value]  a table may stand for a Series of its records
 
 
 def _people_as_records() -> Any:

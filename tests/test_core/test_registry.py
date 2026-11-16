@@ -1,11 +1,9 @@
-"""``NodeRegistry`` — the nodes a host offers, by id.
+"""Tests for ``NodeRegistry``, the nodes a host offers, by id.
 
-Nodes go on a registry as routes go on a FastAPI router: ``@registry.node``
-declares and adds, ``add`` takes a plain ``@node`` from elsewhere, and
-``add_subregistry`` copies another registry's nodes in. Every node that
-enters takes the registry's defaults by one rule. ``replace``, ``remove``
-and ``filter`` change or narrow what is offered; looping yields the
-definitions.
+A registry works much like a FastAPI router. ``@registry.node`` declares a node and adds it. ``add`` takes a plain
+``@node`` written somewhere else, and ``add_subregistry`` copies in another registry's nodes. Every node that comes
+in gets the registry's defaults, by the same rule. ``replace``, ``remove`` and ``filter`` change or narrow what is
+offered. Looping over a registry gives its definitions.
 """
 
 import json
@@ -225,7 +223,10 @@ def test_remove_takes_a_node_out_and_the_types_only_it_declared():
 
 
 def test_a_deprecation_may_name_an_alternative_the_registry_does_not_have():
-    """Which nodes a registry offers is the host's choice, so narrowing one never breaks a deprecation notice."""
+    """A deprecated node may point to an alternative that isn't on the registry.
+
+    Which nodes a registry offers is up to the host. Leaving the alternative out should never break the notice.
+    """
     registry = NodeRegistry()
 
     registry.add(_node("old", deprecation=Deprecation(alternative="new", migration="Use new.")))
@@ -505,8 +506,10 @@ def test_a_parameter_without_a_default_is_required_and_one_with_a_default_keeps_
 
 
 def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
-    """``**values`` gets the inputs a ``compute_added_inputs`` hook adds; the hook declares them, so a ``**values``
-    without the hook is refused."""
+    """``**values`` takes the inputs that a ``compute_added_inputs`` hook adds.
+
+    Only the hook says what those inputs are. So a node with ``**values`` and no hook is refused.
+    """
 
     @node(
         "varkw",
@@ -528,7 +531,7 @@ def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
 
 
 def test_var_positional_is_refused():
-    """A ``*args`` parameter has no name an edge could land on."""
+    """A ``*args`` parameter is refused, since it has no name an edge could connect to."""
     with pytest.raises(NodeDeclarationError, match="passes every input by name"):
 
         @node("varpos", title="VarPos", description="Dynamic", category="test")
@@ -557,7 +560,7 @@ class AnotherText(str):
 
 
 def _declare_text() -> type:
-    """What a notebook cell does when it runs again: the same class body, a new class."""
+    """Declares ``text`` again, as a notebook cell does when it runs twice: the same class body, but a new class."""
 
     @host_type("text", title="Text")
     class Text(str):
@@ -631,8 +634,12 @@ def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a
 
 
 def test_every_class_an_input_or_output_type_names_is_on_the_registry_and_a_table_names_none():
-    """A union names each member, a ``Literal`` its values' types and a generic its class and its arguments'. ``None``
-    names no class a value is made of, and a table is known by its columns, so its id is no class a registry has."""
+    """The registry has every class that a node's input and output types name, and a table names none.
+
+    A union names each of its members. A ``Literal`` names the types of its values. A generic names its own class and
+    the classes of its arguments. ``None`` names no class. A table is known by its columns, not by a class, so it
+    adds nothing to the registry.
+    """
 
     @host_type("cash", title="Cash")
     class Cash(float):
@@ -731,7 +738,10 @@ def test_a_type_clash_on_add_names_both_classes_and_adds_nothing():
 
 
 def test_a_subclass_that_declares_its_parents_id_cannot_sit_beside_its_parent():
-    """A subclass is a type of its own; under its parent's id it would travel as the parent."""
+    """A subclass that declares its parent's id can't go on a registry beside its parent.
+
+    A subclass is a type of its own. Under its parent's id, its values would be read back as the parent.
+    """
 
     @host_type("text", title="Short")
     class Short(Text):
@@ -769,7 +779,10 @@ def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
 
 
 def test_a_registry_is_a_container_and_not_a_mapping():
-    """``in``, ``[]``, ``len`` and looping over definitions, and no ``get`` answering a typo with ``None``."""
+    """A registry supports ``in``, ``[]``, ``len`` and looping over its definitions, but it isn't a mapping.
+
+    It has no ``get``, which would answer a typo with ``None``.
+    """
     from collections.abc import Container, Mapping
 
     registry = _registry_with(echo)
@@ -824,8 +837,11 @@ def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_de
 
 
 def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -> None:
-    """An editor calls ``describe()`` each time it opens its list of nodes, so a subgraph's inputs and outputs are
-    worked out once: the hook of the node inside it is called once per compile."""
+    """``describe()`` compiles a subgraph once, and again only after the registry changes.
+
+    An editor calls ``describe()`` each time it opens its list of nodes. Compiling the subgraph each time would call
+    the hooks of the nodes inside it again and again. Here the hook runs once, and once more after ``replace``.
+    """
     registry = NodeRegistry()
     hook_calls: list[str] = []
 

@@ -1,8 +1,12 @@
-"""A subgraph is one node of the outer graph, and its inner nodes behave as they would in one graph.
+"""Tests for subgraphs: a graph used as one node of another graph.
 
-Most tests run a graph with a subgraph node ``e`` and assert the same result as the same nodes in one graph: for
-``shout-inner`` (``upper -> exclaim``) inside a loop over ``words``, ``e``'s output ``result`` on ``"ab cd"`` is
-``["AB!", "CD!"]``, as ``exclaim.result`` is in the graph ``words -> upper -> exclaim``.
+From outside, a subgraph is one node. Inside, its nodes should behave just as they would if every node were in one
+graph.
+
+So most tests run a graph with a subgraph node ``e``, and check that it gives the same result as the same nodes in
+one graph. Take ``shout-inner``, which is ``upper -> exclaim``. Inside a loop over ``words`` and given ``"ab cd"``,
+``e``'s output ``result`` is ``["AB!", "CD!"]``. That is what ``exclaim.result`` is in the graph
+``words -> upper -> exclaim``.
 """
 
 from __future__ import annotations
@@ -236,9 +240,11 @@ def _sources(node_id: str, output: str) -> dict[str, Any]:
 def chain(
     *nodes: tuple[str, str], inputs: Sequence[str] = ("text",), outputs: Sequence[str] = ("result",)
 ) -> dict[str, Any]:
-    """Nodes in a line, each reading the ``result`` of the one before into its ``text``. Each of ``inputs`` is an input
-    of the first node and a graph input of its name; each of ``outputs`` is an output of the last node and a graph
-    output of its name."""
+    """Returns a record of nodes in a line, each reading the ``result`` of the one before into its ``text``.
+
+    Each of ``inputs`` is an input of the first node, and a graph input of the same name. Each of ``outputs`` is an
+    output of the last node, and a graph output of the same name.
+    """
     (first, _), (last, _) = nodes[0], nodes[-1]
     records = {
         node_id: {"node": definition_id, "inputs": {"text": _sources(before[0], "result")}}
@@ -257,8 +263,10 @@ def chain(
 
 
 def side_by_side(*nodes: tuple[str, str]) -> dict[str, Any]:
-    """Nodes side by side, each given the graph input ``text``, and each node's ``result`` a graph output named by
-    the node."""
+    """Returns a record of nodes side by side, each given the graph input ``text``.
+
+    Each node's ``result`` is a graph output, named after the node.
+    """
     return {
         "nodes": {
             node_id: {"node": definition_id, "inputs": {"text": {"graph_input": "text"}}}
@@ -302,7 +310,7 @@ INNER = {
     "shout-wrapping": chain(
         ("in", "shout-inner")
     ),  # a subgraph inside a subgraph, with no question
-    "greet-each-word-inner": {  # a loop inside over its text's words; each call greets with the subgraph's greeting
+    "greet-each-word-inner": {  # loops over the words of its text, and greets each with the subgraph's greeting
         "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "g": {
@@ -426,8 +434,11 @@ def compile_graph(
     inputs: Mapping[str, str] | None = None,
     outputs: Mapping[str, str] | None = None,
 ):
-    """The compiled ``make_graph`` of ``nodes`` (node id to the id of its definition in ``REGISTRY``), joined by
-    exactly ``edges``, with these ``constants``, ``defaults``, graph ``inputs`` and ``outputs``."""
+    """Compiles ``make_graph`` of ``nodes``, joined by exactly ``edges``, and returns the graph.
+
+    ``nodes`` maps each node id to the id of its definition in ``REGISTRY``. The graph gets these ``constants``,
+    ``defaults``, graph ``inputs`` and ``outputs``.
+    """
     record = make_graph(
         *((node_id, REGISTRY[definition_id]) for node_id, definition_id in nodes.items()),
         edges=list(edges),
@@ -440,7 +451,7 @@ def compile_graph(
 
 
 def inner_nodes(inner: str) -> tuple[dict[str, str], list[tuple[str, str]]]:
-    """The nodes of the subgraph ``inner``'s record and the edges between them, to draw into another graph."""
+    """Returns the nodes of the subgraph ``inner`` and the edges between them, to copy into another graph."""
     nodes = {node_id: record["node"] for node_id, record in INNER[inner]["nodes"].items()}
     edges = [
         (f"{source['node']}.{source['output']}", f"{node_id}.{name}")
@@ -452,15 +463,17 @@ def inner_nodes(inner: str) -> tuple[dict[str, str], list[tuple[str, str]]]:
 
 
 def inside_a_loop(inner: str, splitter: str = "words"):
-    """``splitter`` wired into the subgraph ``inner``, so the subgraph node is called once per item."""
+    """Returns a graph where ``splitter`` feeds the subgraph ``inner``, so the subgraph node is called once per item."""
     graph = compile_graph({"w": splitter, "e": inner}, [("w.result", "e.text")])
     assert not graph.problems, graph.problems
     return graph
 
 
 def in_one_graph(inner: str, splitter: str = "words"):
-    """The inner nodes of ``inner`` in one graph after ``splitter``, with no subgraph: what ``inside_a_loop``
-    must behave as."""
+    """Returns the inner nodes of ``inner`` in one graph after ``splitter``, with no subgraph.
+
+    This is what ``inside_a_loop`` must behave like.
+    """
     record = INNER[inner]
     first = next(
         node_id
@@ -665,7 +678,7 @@ def test_two_collected_branches_of_a_loop_inside_a_subgraph_cannot_share_one_inp
         {**inner, **nodes},
         [*inner_edges, ("s.result", "n1.items"), ("l.result", "n2.items"), *collecting],
     )
-    # n1 and n2 are each called whichever branch d chose for a word, so both have a value and g.value would get two
+    # n1 and n2 are both called, whichever branch d chose for a word. So both have a value, and g.value would get two
     assert (
         problems(inside)
         == problems(one_graph)
@@ -683,13 +696,15 @@ def test_two_lists_collected_from_opposite_branches_inside_a_subgraph_are_refuse
         {"w": "words", **inner, "p": "pair"},
         [("w.result", "d.text"), *inner_edges, ("s.result", "p.first"), ("l.result", "p.second")],
     )
-    # a word is short or long, so it is left out of one list; p takes one item of each, and no word is in both
+    # a word is short or long, so each list leaves some words out. p takes one item of each, but no word is in both
     assert problems(inside) == problems(one_graph) == [("lists_from_different_loops", ("p",))]
 
 
 def subgraph_of(node_id: str) -> str:
-    """The id of a subgraph of the one node ``node_id``, whose ``text`` it is given and whose ``short`` and ``long``
-    it returns, registered when first asked for."""
+    """Returns the id of a subgraph made of the one node ``node_id``, and registers it the first time.
+
+    The subgraph passes its ``text`` to the node, and returns the node's ``short`` and ``long``.
+    """
     subgraph_id = f"only-{node_id}"
     if subgraph_id not in REGISTRY:
         record = chain(("d", node_id), outputs=("short", "long"))
@@ -720,7 +735,10 @@ def test_a_subgraph_runs_once_or_per_item_as_its_nodes_do_in_one_graph():
 
 
 def test_two_uses_of_one_subgraph_keep_their_own_outcomes_when_one_is_called_once_and_one_per_item():
-    """``shout-inner`` is compiled once and used twice; each use has its own calls, also after a save."""
+    """Two uses of one subgraph keep their own outcomes, when one is called once and the other once per item.
+
+    ``shout-inner`` is compiled once and used twice. Each use has its own calls, and still does after a save.
+    """
     graph = compile_graph(
         {"w": "words", "a": "shout-inner", "b": "shout-inner"},
         [("w.result", "b.text")],
@@ -1061,7 +1079,7 @@ def test_a_cancel_inside_a_subgraph_keeps_the_calls_on_threads_and_resume_repeat
     assert cancelled.status == "cancelled" and cancelled.cause.type == "run_cancelled"
     assert (
         CALLS["fetch"] in (1, 2)
-    )  # the calls that had a thread when the cancel was seen; those waiting for a thread were dropped
+    )  # the calls that had a thread when the cancel came. Those still waiting for a thread were dropped
     assert cancelled.results["e"] == {"result": [None, None, None, None]}
     resumed = Run.from_json(cancelled.to_json(), graph).resume()
     assert resumed.status == "complete" and resumed.results["e"]["result"] == [
@@ -1146,7 +1164,7 @@ def test_a_checkpoint_taken_mid_run_resumes_with_no_inner_call_repeated():
 
 
 def _outcome_count(run, subgraph_node: str, node_id: str) -> int:
-    """How many calls of the inner node ``node_id`` of ``subgraph_node`` have an outcome in ``run``."""
+    """Returns how many calls of the inner node ``node_id`` of ``subgraph_node`` have an outcome in ``run``."""
     return run.progress.nodes[f"{subgraph_node}/{node_id}"].finished
 
 
@@ -1365,7 +1383,7 @@ def test_tables_returned_per_item_reach_a_table_input_one_per_item_wherever_they
 
 
 def what_a_host_reads(run) -> tuple[Any, ...]:
-    """Everything a host reads of ``run``."""
+    """Returns everything a host reads of ``run``."""
     waiting = [waiting_call.model_dump() for waiting_call in run.waiting]
     not_called = [call.model_dump() for call in run.not_called]
     return (

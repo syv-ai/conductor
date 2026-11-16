@@ -1,6 +1,7 @@
-"""A type means the same wherever it is read: on an edge, in a list, under a limit, in an answer.
+"""Tests that a type means the same thing wherever conductor reads it.
 
-Each test names one place where an annotation could be read two ways, and checks that it is read one way.
+The same type hint can turn up in many places: on an edge, inside a list, under a limit, in a person's answer. Each
+test picks one place where a hint could be read two ways, and checks that it is read only one way.
 """
 
 import datetime
@@ -46,8 +47,11 @@ class Money(BaseModel):
 
 
 def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **values: Any) -> Any:
-    """``definition`` as node ``q`` with ``values`` as its constants, and each of ``more`` as a node named by its id;
-    the outputs of ``q`` are the graph's outputs. The run, resumed."""
+    """Runs a small graph to its end, and returns the run.
+
+    ``definition`` is the node ``q``, with ``values`` as its constants. Each of ``more`` is a node named by its id.
+    The outputs of ``q`` are the graph's outputs.
+    """
     nodes: dict[str, Any] = {
         "q": {
             "node": definition.id,
@@ -596,7 +600,10 @@ def _returning_its_input(hint: Any) -> Any:
 
 
 def _shout_checked_by(check: Any, calls: list[str]) -> Graph[None]:
-    """A graph of the node ``shout``, whose input is checked by ``check``; each call appends its text to ``calls``."""
+    """Returns a graph of one node, ``shout``, whose input is checked by ``check``.
+
+    Each call of ``shout`` appends its text to ``calls``.
+    """
 
     @node("shout", title="Shout", description="For a test.")
     def shout(text: Annotated[str, AfterValidator(check)]) -> str:
@@ -607,8 +614,11 @@ def _shout_checked_by(check: Any, calls: list[str]) -> Graph[None]:
 
 
 def test_a_function_in_a_hint_is_told_apart_by_where_it_is_written() -> None:
-    """A node redeclared with another function of the same name in its hint is another node: its call is made again,
-    where the same function lets the previous call be reused."""
+    """Two functions of the same name in a hint are told apart by where they are written.
+
+    With the same function in its hint, a node reuses its previous call. Declared again with another function of the
+    same name, it is another node, so its call is made again.
+    """
 
     def local(text: str) -> str:
         return text

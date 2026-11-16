@@ -1,4 +1,8 @@
-"""``conductor.testing.check_registry``: each check passes on nodes that keep the contract and names each that doesn't."""
+"""Tests for ``conductor.testing.check_registry``, which checks every node of a registry in one go.
+
+A host calls it from one test of its own. Each of its checks should pass for nodes that keep the rules, and name each
+node that breaks one.
+"""
 
 from typing import Annotated, Any
 
@@ -33,7 +37,7 @@ def found(registry: NodeRegistry, **options: Any) -> list[tuple[str, tuple[str |
 
 
 def behind(problem: Problem) -> list[str]:
-    """The codes of the problems a ``check_registry`` problem is made of."""
+    """Returns the codes of the problems that one ``check_registry`` problem was made from."""
     return [one["type"] for one in problem.ctx["problems"]]
 
 
@@ -213,7 +217,11 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
 
 
 def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
-    """The problems behind it are in ``ctx.problems``, and ``reason`` is their messages alone, joined by "; ", for every kind alike."""
+    """A ``check_registry`` problem's ``reason`` is the messages of the problems behind it.
+
+    Those problems are in ``ctx.problems``. The ``reason`` is just their messages, joined by "; ". This holds for
+    every kind alike.
+    """
 
     @node("size", title="Size v1", description="For a test.")
     def size_v1(n: int) -> int:

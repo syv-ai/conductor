@@ -1,7 +1,11 @@
-"""``run.progress``, and ``run.resume(only_costs_nothing=True)``, which calls only the nodes that cost nothing.
+"""Tests for ``run.progress`` and for ``run.resume(only_costs_nothing=True)``.
 
-The graph here is ``upload -> read -> approve``: ``upload`` costs nothing and returns the documents it is given,
-``read`` finds the invoices in a document (it stands for a call that costs something), and ``approve`` asks a
+``run.progress`` says how far a run has come: for each node, how many calls are finished, how many wait for a person,
+and how many are known so far. ``only_costs_nothing=True`` calls only the nodes whose ``Policy`` says they cost
+nothing.
+
+Most tests use the graph ``upload -> read -> approve``. ``upload`` costs nothing and returns the documents it is
+given. ``read`` finds the invoices in a document, and stands in for a call that costs something. ``approve`` asks a
 person about each invoice.
 """
 
@@ -114,7 +118,7 @@ def test_known_grows_while_a_series_above_is_missing_somewhere() -> None:
         approve,
         edges=[("upload.result", "read.document"), ("read.result", "approve.invoice")],
     )
-    # one document read, the other not
+    # one document is read, and the other fails
     run = graph.with_inputs(files=["d2", "d1"]).resume()
 
     assert run.cause is not None and run.cause.loc == ("read", 1)

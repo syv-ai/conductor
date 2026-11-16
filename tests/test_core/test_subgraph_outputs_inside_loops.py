@@ -1,10 +1,15 @@
-"""A subgraph offers an output returned inside loops as one ``Series`` per loop, and a node of the outer graph that
-reads it is called as it would be with the same nodes in one graph.
+"""Tests for a subgraph output that is made inside loops.
 
-The subgraph of most tests is ``documents -> lines -> shout``: ``documents`` returns a list of documents (``None``
-for an empty one), ``lines`` is called once per document and returns its lines, ``shout`` is called once per line.
-So ``shout`` is inside two loops, and its outputs are a list per document. Each test runs the same nodes in one graph
-(``in_one_graph``) and through the subgraph (``through_subgraph``) and asserts that both give the same result.
+A node inside a subgraph may be called once per item of a list. The subgraph then offers that node's output as a
+``Series``, one level per loop. A node in the outer graph that reads it should be called just as it would be if all
+the nodes were in one graph.
+
+Most tests use the subgraph ``documents -> lines -> shout``. ``documents`` returns a list of documents, with
+``None`` for an empty one. ``lines`` is called once per document and returns its lines. ``shout`` is called once per
+line. So ``shout`` is inside two loops, and its output is a list of lines per document.
+
+Each test runs the same nodes twice: in one graph (``in_one_graph``) and through the subgraph
+(``through_subgraph``). Both must give the same result.
 """
 
 from __future__ import annotations
@@ -90,7 +95,7 @@ REGISTRY.subgraph(
 
 
 def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: str) -> Any:
-    """The ``result`` of the node ``node_id`` after a run of the graph of ``nodes`` and ``edges`` on ``text``."""
+    """Runs the graph of ``nodes`` and ``edges`` on ``text``, and returns the ``result`` of the node ``node_id``."""
     graph = Graph.compile(
         make_graph(*nodes, edges=edges, outputs={"shown": f"{node_id}.result"}), REGISTRY
     )
@@ -314,8 +319,12 @@ def test_one_value_per_document_beside_the_list_of_that_documents_lines_reach_on
 def test_a_node_taking_items_of_a_list_inside_a_subgraph_and_of_one_outside_is_refused_saying_what_to_do() -> (
     None
 ):
-    """``whisper`` is called once per line inside the subgraph; outside, each title is split into a list of its
-    own. A node that takes one item of each is inside two loops side by side, and no edge outside can nest them."""
+    """A node can't take one item of a loop inside a subgraph and one item of a loop outside it.
+
+    Inside the subgraph, ``whisper`` is called once per line. Outside, each title is split into a list of its own. A
+    node that takes one item of each sits in two loops side by side, and no edge outside can nest one in the other.
+    The problem says what to do instead.
+    """
     edges = [
         ("titled.title", "lines.document"),
         ("lines.result", "pair.b"),

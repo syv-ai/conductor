@@ -1,9 +1,12 @@
-"""No problem quotes the value it was made for.
+"""Tests that no problem ever quotes the value it was made for.
 
-A host may stream problems to a browser, so a value a graph is given, returns, saves or is answered with never
-appears in a problem's ``msg``, its ``ctx`` or its text. Each case below feeds one value that pydantic would quote,
-in one of the ways it quotes one (its own ``input``, a validator's message, an ``assert``, a union's tag, a key of a
-dict), into each place a value enters and can be refused.
+A host may send problems straight to a browser, and a value can be private. So a value that is refused never shows
+up in a problem's ``msg``, its ``ctx`` or its text. That holds for a graph input, a constant, a value on an edge, a
+value a node returns, a person's answer and a value in a saved run.
+
+Pydantic quotes a value in several ways: in its own ``input``, in a validator's message, in an ``assert``, in a
+union's tag and in a key of a dict. Each case below makes a value that pydantic would quote in one of those ways. It
+feeds that value into each place a value enters and can be refused.
 """
 
 from dataclasses import dataclass
@@ -70,7 +73,8 @@ class _Counts(BaseModel):
     counts: dict[str, int]
 
 
-#: Each type with a value of it, and a value it refuses that carries ``SECRET`` in one way pydantic quotes a value.
+#: Each type, with a value it accepts and a value it refuses. The refused value carries ``SECRET`` in one of the ways
+#: pydantic quotes a value.
 TYPES = {
     "pydantic-input": (int, 1, SECRET),
     "a-validator-message": (_Code, {"code": "ok"}, {"code": SECRET}),
@@ -204,8 +208,8 @@ def _json(value: Any) -> str:
     return to_json(value).decode()
 
 
-#: Each place a value enters, as a function that feeds it a type, a value of it and a value it refuses, with the
-#: code of the problem it refuses with.
+#: Each place a value enters, with the code of the problem a refused value gets there. Each function is given a type,
+#: a value it accepts and a value it refuses, and feeds the refused one in.
 WHERE_VALUES_ENTER = {
     "a-graph-input": (_graph_input, "invalid_input"),
     "a-constant": (_constant, "invalid_value"),

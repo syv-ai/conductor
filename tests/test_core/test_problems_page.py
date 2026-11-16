@@ -1,4 +1,9 @@
-"""Every message conductor writes says what to do, and every example on the problems page makes the problem it is listed under."""
+"""Tests for the messages of conductor's problems, and for the problems page.
+
+Every kind of problem conductor can report has a message, and an entry with an example on the problems page
+(``python -m conductor.about problems``). These tests check that each message says how to fix the problem, and that
+each example on the page really makes the problem it sits under.
+"""
 
 from __future__ import annotations
 
@@ -18,15 +23,19 @@ from pytest import MonkeyPatch
 _ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
 _TEMPLATE = (_PACKAGE / "about" / "problems.md").read_text()
-#: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
-#: person can act on, and an answer's ``reason`` is pydantic's account of what the answer lacks.
+#: The kinds whose message has no fix of its own. A node's failure uses the node's own words. An outside failure
+#: has nothing a person can act on. And an answer's ``reason`` is pydantic's account of what is wrong with it.
 _NO_FIX = {"node_error", "external_failed", "invalid_answer"}
-#: The kinds whose message is the one the node gave its ``NodeError``, so an example's message is not the kind's own.
+#: The kinds whose message is the one the node gave its ``NodeError``. So an example's message isn't the kind's own.
 _MESSAGE_IS_THE_NODES = {"node_error"}
 
 
 def test_every_message_says_what_to_do() -> None:
-    """A message carries its fix: a clause after what is wrong, which may be the alternatives to pick from."""
+    """Each message says what is wrong, and then how to fix it.
+
+    The test looks for a second clause after a full stop, colon or semicolon. The fix may be a list of the values to
+    pick from. The kinds in ``_NO_FIX`` are left out.
+    """
     sentences = [(kind.code, kind.sentence) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS]]
     without = [
         code
@@ -37,12 +46,16 @@ def test_every_message_says_what_to_do() -> None:
 
 
 def _setup() -> str:
-    """The setup at the top of the problems page: its first Python block."""
+    """Returns the setup at the top of the problems page, which every example builds on: its first Python block."""
     return re.findall(r"```python\n(.*?)```", _TEMPLATE, re.S)[0]
 
 
 def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
-    """Whether ``problem`` is of ``kind``: its code and variant, and a message the kind's sentence writes."""
+    """Whether ``problem`` is a problem of ``kind``.
+
+    Its code and variant must match the kind's. Its message must be one the kind's sentence could write, with any text
+    in place of each ``{field}``.
+    """
     if (problem.type, problem.ctx.get("variant")) != (kind.code, kind.variant):
         return False
     if kind.code in _MESSAGE_IS_THE_NODES:
@@ -54,8 +67,10 @@ def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
 
 
 def _examples(page: str) -> dict[tuple[str, str | None], str]:
-    """The example of each kind of problem on a page as it is printed, by the kind's code and variant: the first
-    Python block in the section the kind's heading starts; empty for a kind with none."""
+    """Returns the example of each kind of problem on the printed page, by the kind's code and variant.
+
+    A kind's example is the first Python block in its section. A kind with no example gets an empty string.
+    """
     examples = {}
     for code, variant, body in re.findall(
         r"^### `(\w+)`(?:, variant `(\w+)`)?\n(.*?)(?=^##|\Z)", page, re.S | re.M
@@ -75,9 +90,12 @@ _KINDS = [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
 def test_a_kinds_example_makes_its_problem_and_no_other(
     kind: ProblemKind[...], monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The example runs after the page's setup, alone, and its last line gives problems of this kind only."""
+    """Each example on the page makes problems of its own kind, and of no other.
+
+    The example runs on its own, after the page's setup. Its last line gives the problems it made.
+    """
     monkeypatch.chdir(tmp_path)
-    page = ModuleType("problems_page")  # a dataclass in an example looks its module up by name
+    page = ModuleType("problems_page")  # a dataclass in an example looks up its module by name
     monkeypatch.setitem(sys.modules, page.__name__, page)
     example = _PAGE_EXAMPLES[kind.code, kind.variant]
     assert example, f"{kind.code} has no example"
@@ -95,8 +113,9 @@ def test_a_kinds_example_makes_its_problem_and_no_other(
     assert made and [problem for problem in made if not _is_of_kind(kind, problem)] == []
 
 
-#: The helper of the page's setup that meets a problem where each section's text says it is met: in
-#: ``graph.problems``, in a refused call's ``InvalidCallError``, as a run's cause, or in a ``NodeDeclarationError``.
+#: The helper in the page's setup that each section's examples get their problems with. Each section says where a
+#: host finds its problems: in ``graph.problems``, in a refused call's ``InvalidCallError``, as a run's cause, or in
+#: a ``NodeDeclarationError``.
 _MET_BY = {
     "Compiling a graph": "problems",
     "Refused calls": "refused",
@@ -112,7 +131,11 @@ _SECTIONED = [*PROBLEMS, *DECLARATION_PROBLEMS]
 def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(
     kind: ProblemKind[...],
 ) -> None:
-    """The example's last line calls its section's helper, and the test above runs it, so the problem is met there."""
+    """Each example gets its problem where its section of the page says a host finds it.
+
+    The example's last line calls its section's helper. The test above runs that line, so the problem really turns up
+    there.
+    """
     *_, last = ast.parse(_PAGE_EXAMPLES[kind.code, kind.variant]).body
     assert (
         isinstance(last, Expr)
@@ -123,7 +146,10 @@ def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(
 
 
 def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:
-    """The examples compile graphs of the setup's nodes, and most never call them; ``check_registry`` calls each."""
+    """Every node in the page's setup runs without a problem.
+
+    Most examples only compile graphs of these nodes and never call them. So ``check_registry`` calls each one here.
+    """
     page = ModuleType("problems_page")
     monkeypatch.setitem(sys.modules, page.__name__, page)
     exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102

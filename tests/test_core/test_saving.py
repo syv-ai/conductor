@@ -1,11 +1,12 @@
-"""Saving a run and reading it back: ``saved = run.to_json()`` and ``Run.from_json(saved, graph)``.
+"""Tests for saving a run and reading it back: ``saved = run.to_json()`` and ``Run.from_json(saved, graph)``.
 
-A saved run is strict JSON. A node's outputs are saved as one list per output, with one entry per call, each value
-written by the output's declared type, so a value reads back as itself, a float that is not finite included.
-``Run.from_json`` refuses a saved run that does not fit the graph with the problem ``saved_run_unreadable`` (damaged)
-or ``saved_run_of_another_graph``, and ``to_json`` refuses a value with no JSON form with ``run_unwritable``. Each
-problem says where, as ``ctx["where"]`` (a path into the JSON such as ``outcomes.echo.outputs.result.1``, or an
-output such as ``o.result``), and never quotes a saved value.
+A saved run is strict JSON. A node's outputs are saved as one list per output, with one entry per call. Each value
+is written by its output's declared type, so it reads back as itself. That includes a float that isn't finite.
+
+Some saved runs can't be read back. ``Run.from_json`` refuses a damaged one with ``saved_run_unreadable``, and one
+saved from another graph with ``saved_run_of_another_graph``. ``to_json`` refuses a value with no JSON form with
+``run_unwritable``. Each problem says where it is, in ``ctx["where"]``. That is a path into the JSON, such as
+``outcomes.echo.outputs.result.1``, or an output, such as ``o.result``. A problem never quotes a saved value.
 """
 
 import datetime as dt
@@ -47,8 +48,10 @@ from tests.test_core.nodes import registry_of
 
 @pytest.fixture(autouse=True)
 def _every_saved_run_reads_back_and_saves_the_same(monkeypatch: MonkeyPatch) -> None:
-    """Every ``run.to_json()`` in this file also reads its text back into the graph and checks that the run read back
-    saves to the same bytes."""
+    """Makes every ``run.to_json()`` in this file check itself.
+
+    Each call also reads its text back into the graph, and checks that the run read back saves to the same bytes.
+    """
     write = Run.to_json
 
     def written_and_read(run: Run) -> str:
@@ -72,7 +75,7 @@ def _refused(graph: Any, saved: dict[str, Any]) -> Any:
 
 
 def _strict(text: str) -> Any:
-    """``text`` read as JSON that refuses ``NaN`` and ``Infinity``."""
+    """Reads ``text`` as strict JSON, which refuses ``NaN`` and ``Infinity``."""
 
     def refuse(constant: str) -> Any:
         raise ValueError(f"not strict JSON: {constant}")
@@ -113,10 +116,10 @@ def test_a_text_that_spells_the_skipped_sentinel_reads_back_as_text():
 
 
 def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:
-    """A graph that waits for a person right after ``definition``, and the list of values its last node is called with.
+    """Returns a graph that waits for a person right after ``definition``, and the values its last node gets.
 
-    ``definition`` is node ``m``. Node ``c`` asks a person about ``m.result``; node ``s`` takes ``m.result`` and the
-    answer, and appends the first to the list. With ``per_item``, ``m`` is called once per item of ``split``.
+    ``definition`` is the node ``m``. Node ``c`` asks a person about ``m.result``. Node ``s`` takes ``m.result`` and
+    the answer, and appends ``m.result`` to the list. With ``per_item``, ``m`` is called once per item of ``split``.
     """
     seen: list[Any] = []
 
@@ -247,8 +250,11 @@ def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
 
 
 def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_declared_at_its_position():
-    """A ``tuple`` inside a ``dict`` output or a model's field is a list in the saved run; a position declared
-    ``float`` reads back as the float, and one declared ``Any`` as its text, ``"Infinity"``."""
+    """A float that isn't finite, inside a tuple, reads back by the type declared at its position.
+
+    A ``tuple`` inside a ``dict`` output or a model's field is a list in the saved run. A position declared ``float``
+    reads back as the float. A position declared ``Any`` reads back as its text, ``"Infinity"``.
+    """
 
     @host_type("Point", title="Point")
     class Point(BaseModel):
@@ -279,8 +285,11 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_declared_a
 
 
 def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back_as_its_text():
-    """A ``nan`` under ``dict``, ``Any`` or a model's ``Any`` field reads back from a saved run as the text it was
-    written as, ``"NaN"``, as a date under ``Any`` reads back as text: an author who wants the float declares ``float``."""
+    """A float that isn't finite reads back as its text where its type doesn't say ``float``.
+
+    A ``nan`` under ``dict``, ``Any`` or a model's ``Any`` field reads back as the text it was written as, ``"NaN"``.
+    A date under ``Any`` reads back as text in the same way. An author who wants the float back declares ``float``.
+    """
 
     @host_type("Loose", title="Loose")
     class Loose(BaseModel):
@@ -560,7 +569,7 @@ class _Clock(TypedDict):
 
 _NANOSECOND = pl.Series(
     [1], dtype=pl.Int64
-)  # one nanosecond: Python's time, datetime and timedelta hold microseconds
+)  # one nanosecond, finer than Python's time, datetime and timedelta, which stop at microseconds
 
 
 class _Moment(TypedDict):
@@ -839,14 +848,17 @@ def test_a_returned_table_reads_back_with_the_same_column_types_and_cells():
     assert after.schema == before.schema == pl.DataFrame(columns).schema
     assert str(after.to_dict(as_series=False)) == str(
         before.to_dict(as_series=False)
-    )  # str, so a NaN equals itself
+    )  # compared as text, so a NaN equals itself
 
 
 @pytest.mark.slow
 def test_reading_a_table_costs_less_than_writing_it():
-    """Whether a table reads back from its JSON is decided by its column types, so reading it writes nothing out and
-    only casts the columns it converts: reading a 2,000-row table of ten columns, half of them ``Int32``, costs less
-    than writing it as JSON. A reader that wrote each table out and read it back would cost more than the write."""
+    """Reading a table back from its JSON costs less than writing it.
+
+    Whether a table's JSON reads back is decided by its column types. So reading writes nothing out, and only casts
+    the columns it has to convert. Reading a 2,000-row table of ten columns, half of them ``Int32``, should cost less
+    than writing it as JSON. A reader that wrote each table out and read it back would cost more than the write.
+    """
     table = pl.DataFrame(
         {
             f"c{i}": pl.Series(range(2_000), dtype=pl.Int32)
@@ -961,7 +973,11 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
 
 
 def test_saving_a_run_whose_node_has_outcomes_and_reusable_outcomes_names_the_output_with_no_json_form():
-    """The value with no JSON form is in this run's outcomes of ``odd``, which also has outcomes it may reuse."""
+    """Saving names the output with no JSON form, even when its node also has outcomes it may reuse.
+
+    The value with no JSON form is in this run's outcomes of ``odd``. ``odd`` also has outcomes from before that it
+    may reuse.
+    """
 
     @node("split", title="Split", description="For a test.")
     def split(text: str) -> Series[str]:
@@ -1027,8 +1043,10 @@ def test_a_returned_table_column_json_cannot_write_is_refused_naming_the_column(
 
 
 def _saved_echoes() -> tuple[Any, dict[str, Any]]:
-    """A graph in which ``split`` returns three items and ``echo`` is called once per item, and its complete saved run
-    as a dict."""
+    """Returns a graph and its complete saved run, as a dict.
+
+    In the graph, ``split`` returns three items, and ``echo`` is called once per item.
+    """
 
     @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
@@ -1066,7 +1084,11 @@ class Counted(TypedDict):
 def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets(
     damage: str, at: str
 ) -> None:
-    """A store may hand back JSON something else wrote; ``true`` is no more a number there than given by a caller."""
+    """A ``true`` saved where a number belongs is refused, with the same reason a caller would get.
+
+    A store may hand back JSON that something else wrote. ``true`` is no more a number there than when a caller
+    passes it.
+    """
 
     @node("whole", title="Whole", description="For a test.")
     def whole(x: int, f: float) -> int:
@@ -1267,7 +1289,10 @@ def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
 
 
 def _jsonb(text: str) -> str:
-    """``text`` as Postgres ``jsonb`` gives it back: every object's keys shorter first, then bytewise."""
+    """Returns ``text`` the way Postgres ``jsonb`` gives it back, with every object's keys reordered.
+
+    ``jsonb`` puts shorter keys first, then sorts keys of the same length bytewise.
+    """
 
     def order(value: Any) -> Any:
         if isinstance(value, dict):
@@ -1281,7 +1306,7 @@ def _jsonb(text: str) -> str:
 
 
 def _shuffled(text: str, seed: int) -> str:
-    """``text`` with every object's keys in a random order."""
+    """Returns ``text`` with the keys of every object in a random order."""
     from random import Random
 
     chance = Random(seed)
@@ -1394,7 +1419,7 @@ def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_
     _CALLS.clear()
     again = Run.from_json(
         reorder(resumed.to_json()), stored
-    ).again()  # a dict constant read back with its keys in another order is the same value, so nothing is called
+    ).again()  # a dict constant with its keys in another order is the same value, so nothing is called again
     assert again.results["o"] == straight.results["o"] and _CALLS == []
 
 
@@ -1492,7 +1517,7 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
 
     graph = Graph.compile(make_graph(same), registry_of(same))
     problem = _refused(graph, {})
-    # the graph's fingerprint is read first, to know the saved run is of this graph
+    # the graph's fingerprint is read first, to check that the saved run is of this graph
     assert problem.ctx["where"] == "graph" and "KeyError" not in problem.msg
     saved = json.loads(graph.run(text="x").to_json())
     del saved["inputs"]
@@ -1514,7 +1539,7 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
         (
             "outcomes.split.keys",
             lambda s: s["outcomes"]["split"].__setitem__("keys", [[]]),
-        ),  # item indexes are never written: an entry's place in the list says them
+        ),  # item indexes are never saved: an entry's place in the list gives them
         (
             "outcomes.split",
             lambda s: s["outcomes"]["split"].__setitem__("skipped", {"result": [7]}),
@@ -1592,15 +1617,15 @@ def ok_word(word: str) -> bool:
         (
             "outcomes.upper",
             lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": "word"}),
-        ),  # not called for a None, on a call that is done
+        ),  # a call that is done can't also be not called for a None
         (
             "outcomes.ok",
             lambda s: s["outcomes"]["ok"].__setitem__("not_called_because", {"0": "word"}),
-        ),  # not called for a None, on a call that waits
+        ),  # a call that waits can't also be not called for a None
         (
             "graph",
             lambda s: s.clear(),
-        ),  # an empty saved run: the graph's fingerprint, which says which graph it is of, is read first
+        ),  # an empty saved run: the graph's fingerprint is read first, since it says which graph the run is of
         ("inputs.split.text", lambda s: s["inputs"].__setitem__("split.text", ["a"])),
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
         ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),
@@ -1701,7 +1726,7 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
         {"result": [2]},
     )
     assert saved["s"]["outputs"] == {"result": ["ab", None, None, "cd"]}
-    # c asks about ab and cd, is not called after s's None and is skipped after s's SKIPPED
+    # c asks about ab and cd. It isn't called after s's None, and is skipped after s's SKIPPED
     assert (
         saved["c"]["states"],
         saved["c"]["not_called_because"],
@@ -1793,7 +1818,11 @@ def test_a_run_is_written_to_the_same_bytes_in_every_process():
 
 
 def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refused_where_it_says_so():
-    """A failed run is saved with how its last resume ended early, its status and its cause, and a complete one with nothing there."""
+    """A saved run whose ``ended_early`` doesn't add up is refused, and the problem says where.
+
+    A failed run is saved with how its last resume ended early: its status and its cause. A complete run has nothing
+    there. So a failed status with no cause is refused, and so is an early end whose status is ``complete``.
+    """
 
     @node("boom", title="Boom", description="Fails on 'x'.")
     def boom(text: str) -> str:

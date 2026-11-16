@@ -1,8 +1,11 @@
-"""Upgrading a node of a graph record from the version it was saved at to a later one.
+"""Tests for upgrading a node in a graph record to a later version of it.
 
-A node definition's ``Upgrade`` steps are checked when it is declared. ``registry.upgrade`` applies them to one node
-of a graph record: what each input gets (a constant, a graph input or edges), its version, and the edges out
-of an output it renames. ``Graph.compile`` never upgrades: a node pinned at an old version runs that version.
+A graph record says which version of each node it was saved with. A node's later version can say how to move a
+record forward, with an ``Upgrade`` step. Those steps are checked when the node is declared.
+
+``registry.upgrade`` applies the steps to one node of a record. It updates what each input gets (a constant, a graph
+input or edges), the node's version, and the edges out of any output it renames. ``Graph.compile`` never upgrades on
+its own: a node pinned at an old version runs that version.
 """
 
 from collections.abc import Mapping
@@ -113,7 +116,7 @@ def _graph(version: int = 1) -> GraphRecord:
 
 
 def _inputs(record: GraphRecord, node_id: str) -> dict:
-    """What each input of the node ``node_id`` gets, as the record's JSON writes it."""
+    """Returns what each input of the node ``node_id`` gets, as it is in the record's JSON."""
     return record.model_dump(mode="json")["nodes"][node_id].get("inputs", {})
 
 
@@ -275,8 +278,13 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
 
 
 def _versions_of_summed(kind: str, upgrade: Upgrade | None):
-    """Two versions of the node ``summed``, as functions or as subgraphs: the first takes ``a`` and ``b``, the
-    second only ``a``. Returns the newer version and the nodes the subgraphs use."""
+    """Declares two versions of the node ``summed``, as functions or as subgraphs.
+
+    The first version takes ``a`` and ``b``. The second takes only ``a``.
+
+    Returns:
+        The newer version, and the nodes the subgraphs use.
+    """
 
     @node("join", title="Join", description="For a test.")
     def join(a: int, b: int) -> int:
@@ -472,8 +480,11 @@ def test_a_renamed_input_takes_its_value_with_it():
 
 
 def test_an_edge_follows_its_output_when_a_later_step_reuses_the_outputs_old_name():
-    """Step 1 renames ``result`` to ``first``; step 2 declares an output named ``result`` again and renames it to
-    ``second``. An edge saved at version 1 read the output that version 3 calls ``first``."""
+    """An edge follows its output through a rename, even when a later step reuses the output's old name.
+
+    Step 1 renames ``result`` to ``first``. Step 2 adds a new output named ``result``, and renames that one to
+    ``second``. An edge saved at version 1 read the output that version 3 calls ``first``, so it ends up there.
+    """
 
     def reuse_outputs():
         return {}
@@ -522,8 +533,10 @@ def test_an_edge_follows_its_output_when_a_later_step_reuses_the_outputs_old_nam
 
 
 def test_upgrading_a_subgraph_sets_only_its_version():
-    """A subgraph whose later version takes the same graph inputs, with no ``Upgrade`` to run: the node gets the later
-    version and keeps its inputs as saved."""
+    """Upgrading a subgraph that has no ``Upgrade`` step changes only its version.
+
+    The later version takes the same graph inputs, so the node keeps its inputs as they were saved.
+    """
 
     def inner_graph(inner_id: str) -> GraphRecord:
         return GraphRecord(
@@ -575,7 +588,11 @@ def _newer_out() -> _Y:
 def test_an_upgrade_that_drops_an_output_without_renaming_it_is_refused_where_it_is_declared(
     upgrade: Upgrade,
 ) -> None:
-    """A rewrite reads the node's constants, never the edges out of it, so it cannot say where an output went."""
+    """An upgrade that drops an output without renaming it is refused when the node is declared.
+
+    A ``rewrite`` sees only the node's constants, never the edges out of it. So it can't say where a dropped output
+    went.
+    """
     with pytest.raises(
         NodeDeclarationError, match="the new version drops x, which the version it replaces has"
     ) as raised:
@@ -673,8 +690,10 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
 
 
 def test_a_subgraphs_input_rename_moves_only_the_edge_into_that_exact_input():
-    """The subgraph's inputs are ``a``, ``ab`` and ``cb``: renaming ``a`` leaves the edges into ``ab`` and ``cb``
-    where they are."""
+    """Renaming a subgraph's input moves only the edges into that exact input.
+
+    The subgraph's inputs are ``a``, ``ab`` and ``cb``. Renaming ``a`` leaves the edges into ``ab`` and ``cb`` alone.
+    """
 
     @node("takes-b", title="Takes b", description="For a test.")
     def takes_b(b: str) -> str:
@@ -776,8 +795,11 @@ def test_a_rename_carries_a_constant_a_graph_input_and_edges_as_they_are():
 
 
 def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
-    """An input gets one of a constant, a graph input or edges: a rewrite that gives a value to an input edges lead
-    into would give it two, so the record validator refuses what the step wrote."""
+    """A rewrite that gives a value to an input with edges into it is refused.
+
+    An input gets exactly one of a constant, a graph input or edges. A value on an input with edges would give it two.
+    So the record's validator refuses what the step wrote.
+    """
 
     def fed_v1(text: str) -> str:
         return text

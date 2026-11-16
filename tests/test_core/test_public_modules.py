@@ -1,9 +1,11 @@
-"""The public modules: ``conductor``, ``conductor.widgets``, ``conductor.events``, ``conductor.testing`` and
-``conductor.about``.
+"""Tests for conductor's five public modules.
 
-Everything a caller outside the library needs is exported from one of these, and each lists its names in
-``__all__``. Every name listed exists, and a type checker accepts every one (``mypy --strict`` and pyright each
-refuse an import a package does not export explicitly).
+A caller outside the library imports only from ``conductor``, ``conductor.widgets``, ``conductor.events``,
+``conductor.testing`` and ``conductor.about``. Each lists its names in ``__all__``. These tests check that every name
+listed exists, and that type checkers accept an import of it.
+
+The type checkers matter because ``mypy --strict`` and pyright both refuse an import that a package doesn't export
+explicitly. A name left out of ``__all__`` would break a caller's type check.
 """
 
 import importlib
@@ -28,7 +30,7 @@ PUBLIC_MODULES = (
 
 
 def _imports_of_every_name() -> str:
-    """A module that imports every name each public module lists."""
+    """Returns the source of a module that imports every name the public modules list."""
     modules = {name: importlib.import_module(name).__all__ for name in PUBLIC_MODULES}
     return "".join(
         f"from {module} import {', '.join(names)}\n" for module, names in modules.items() if names

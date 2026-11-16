@@ -1,9 +1,8 @@
-"""What a caller sees of conductor without running anything in particular.
+"""Tests for what a caller sees of conductor from the outside.
 
-How the public objects print, what a problem and an event are as records,
-which errors a caller catches, that the reference's quick start runs as
-written, and that the library imports with no host installed and uses
-none of a host's words.
+They cover how the public objects print, and what a problem and an event look like as records. They check which
+errors a caller can catch, and that the quick start in the reference runs as written. And they check that the
+library imports with no host installed, and uses none of a host's words.
 """
 
 from __future__ import annotations
@@ -153,7 +152,10 @@ def test_a_record_prints_only_what_is_not_at_its_default():
 
 
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
-    """The repr is the data, not the history: a value equal to the default is not news."""
+    """A record's repr leaves out a field whose value equals its default, even when it was set.
+
+    The repr shows the data, not how the record was built.
+    """
     assert repr(Deprecation(header=None)) == "Deprecation()"
     assert repr(Problem(type="cycle", msg="m", ctx={})) == "Problem(type='cycle', msg='m')"
 
@@ -281,7 +283,7 @@ def test_an_unknown_input_names_the_inputs_the_node_has():
 
 
 def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
-    """A host streams problems to a browser, so what a person typed stays out of them."""
+    """A host may send problems straight to a browser, so a problem never shows what a person typed."""
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -379,7 +381,10 @@ def test_the_errors_a_caller_catches_share_one_base():
 
 
 def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
-    """The family is the class: an ``ExternalError`` is retried, nothing else is."""
+    """A failure is retried because of its class, not because of a flag on it.
+
+    An ``ExternalError`` is a kind of ``NodeError``. It is retried, and a plain ``NodeError`` never is.
+    """
     assert issubclass(ExternalError, NodeError)
     assert not hasattr(NodeError("x"), "retryable")
 
@@ -387,7 +392,7 @@ def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
 # --- events as records ------------------------------------------------------
 
 
-#: Every event's fields, all required in the schema a generated client reads, by its ``type``.
+#: Each event's fields, by the event's ``type``. Every field is required in the JSON schema a generated client reads.
 SHAPES = {
     "run_start": ["type", "waiting"],
     "node_start": ["loc", "type"],
@@ -446,8 +451,10 @@ def _strict(document: str | bytes) -> Any:
 
 
 def _streamed_events() -> list[Any]:
-    """The events of a real run whose output is a frame with NaN and a float that is not finite, with a checkpoint
-    after each call."""
+    """Returns the events of a real run, with a checkpoint after each call.
+
+    The run's output is a table with a NaN in it, and a float that isn't finite.
+    """
     registry = NodeRegistry()
 
     @registry.node("frame", title="Frame", description="For a test.")
@@ -617,7 +624,7 @@ def test_the_quick_start_runs_inside_a_running_loop_as_in_a_notebook():
 # --- the library stands alone ------------------------------------------------
 
 
-#: What each package may import besides the standard library (``pydantic_core`` comes with pydantic).
+#: What each package may import besides the standard library. ``pydantic_core`` comes with pydantic.
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "polars", "typing_extensions"},
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "polars", "regex"},
@@ -632,7 +639,8 @@ IMPORTS = {
     },
 }
 
-#: What each ``pyproject.toml`` declares, extras included, so a host's package cannot arrive unseen.
+#: The dependencies each ``pyproject.toml`` declares, extras included. A host's package can't be added without this
+#: test noticing.
 DISTRIBUTIONS = {
     "conductor": {
         "pydantic",
@@ -651,11 +659,12 @@ SOURCES = sorted(
     if p.is_file() and p.suffix in {".py", ".pyi", ".txt", ".md"}
 ) + sorted(PACKAGES.glob("*/pyproject.toml"))
 
-#: A line as words: identifiers split at case and underscores, lowercased, so
-#: ``FlowStore``, ``run_flow`` and ``flowId`` read "flow store", "run flow" and "flow id".
+#: The pattern that splits a line into words. Identifiers are split at capitals and underscores, so ``FlowStore``,
+#: ``run_flow`` and ``flowId`` give "flow store", "run flow" and "flow id" once lowercased.
 _WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 
-#: A host's words, matched against a line's words: its own names, its access model and its domain.
+#: Words that belong to a host, not to conductor: its own names, its access model and its domain. Each pattern is
+#: matched against a line's words.
 HOST_WORDS = {
     "the host's organisation": r"\b(aka|akademikerne)\b",
     # FastAPI's application object is ``app``: ``app = FastAPI()``, ``app.include_router(...)``.
@@ -664,11 +673,11 @@ HOST_WORDS = {
         r"\b(owner id|org wide|resource shares?|user groups?|runner identity|runner authority|compliance officer|user role)\b"
     ),
     "a host's domain": r"\b(risikovurdering\w*|godkend\w*)\b",
-    # The library's record is a graph; "data flow" and "control flow" are English.
+    # Conductor's word is graph. "data flow" and "control flow" are plain English, so they pass.
     "a host's word for a graph": r"(?<!data )(?<!control )\b(work)?flows?\b",
 }
 
-#: A host's words that only their spelling gives away: role constants and the letters its titles use.
+#: A host's words that only their spelling gives away: its role constants, and the letters of its own language.
 HOST_TEXT = {
     "a host's role": r"\b(ADMIN|REVIEWER|DEVELOPER|COMPLIANCE_OFFICER)\b",
     "Danish text": r"[æøåÆØÅ«»]",

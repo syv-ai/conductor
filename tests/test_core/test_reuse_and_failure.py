@@ -1,8 +1,10 @@
-"""How a run fails, and what ``run.again`` reuses from the previous run.
+"""Tests for how a run fails, and for what ``run.again`` reuses from the previous run.
 
-A node's own failure is a problem on the run, never an exception out of it; only an outside service's failure is
-retried, and a failure never quotes a value. ``again`` calls a node only for an item whose arguments differ from those
-of the node's call in the previous run, so a CSV edited on one row sends one mail.
+When a node fails, the failure is a problem on the run, never an exception out of it. Only an outside service's
+failure is retried, and a failure never quotes a value.
+
+``again`` runs the graph once more, and calls a node only for the items whose arguments changed since the previous
+run. So when one row of a CSV is edited, only one mail is sent again.
 """
 
 import asyncio
@@ -46,12 +48,13 @@ def _record(
     edges: Sequence[tuple[str, str]] = (),
     constants: Mapping[str, Any] | None = None,
 ) -> GraphRecord:
-    """``make_graph`` of ``nodes`` by id, joined by exactly ``edges``, with ``constants`` by ``"node.input"``."""
+    """Returns ``make_graph`` of ``nodes`` by id, joined by exactly ``edges``, with ``constants`` keyed by
+    ``"node.input"``."""
     return make_graph(*nodes.items(), edges=list(edges), constants=constants or {})
 
 
 def _alone(definition: Any, **values: Any) -> Any:
-    """A graph of one node, ``n``, with these constants."""
+    """Returns a graph of one node, ``n``, with these constants."""
     return Graph.compile(
         _record(
             {"n": definition}, constants={f"n.{name}": value for name, value in values.items()}
@@ -77,8 +80,11 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 
 
 def test_a_code_fingerprint_is_the_same_on_every_compile_and_names_the_loop_the_node_is_inside():
-    """A waiting call's id and a saved run contain the code fingerprint, so compiling the same record again gives
-    the same one, and the same node inside the loop over another output gets another."""
+    """A node's code fingerprint is the same on every compile, and changes with the loop the node is inside.
+
+    A waiting call's id and a saved run both contain the fingerprint. So compiling the same record again must give the
+    same one. The same node inside a loop over another output gets another.
+    """
 
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str]:
@@ -100,7 +106,11 @@ def test_a_code_fingerprint_is_the_same_on_every_compile_and_names_the_loop_the_
 
 
 def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothing(caplog):
-    """``{}['missing']`` under ``Policy(retries=3)`` is a bug, not weather: one call, no retry, and the problem says only that the node failed."""
+    """An error from the node's own code is a bug, so it is never retried and its text stays out of the problem.
+
+    ``{}['missing']`` under ``Policy(retries=3)`` is called once, with no retry. The problem says only that the node
+    failed. The error's text goes to the log.
+    """
     calls: list[int] = []
 
     @node(
@@ -125,7 +135,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
         {"error": "KeyError"},
     )
     assert "secret" not in json.dumps([e.model_dump(mode="json") for e in events])
-    assert "the secret" in caplog.text  # the text goes to the log, with its traceback
+    assert "the secret" in caplog.text  # the error's text goes to the log, with its traceback
     assert events[-1].run.status == "failed" and events[-1].run.cause == failed.cause
 
 
@@ -216,7 +226,8 @@ def _double(n: int) -> int:
 
 
 def _runs_another_graph(given: Mapping[str, Any], policy: Policy) -> FunctionDefinition:
-    """A node whose function runs a graph of ``double`` with ``given`` and lets its ``InvalidCallError`` escape."""
+    """Returns a node whose function runs a graph of ``double`` with ``given``, and lets its ``InvalidCallError``
+    escape."""
     inner = Graph.compile(make_graph(_double), registry_of(_double))
 
     @node("outer", title="Outer", description="For a test.", policy=policy)
@@ -233,7 +244,11 @@ def _runs_another_graph(given: Mapping[str, Any], policy: Policy) -> FunctionDef
 def test_an_invalid_call_error_the_node_lets_escape_is_its_own_failure_not_a_refusal(
     given, concurrency
 ):
-    """The node's body called ``graph.run`` wrongly: a bug in the node, ``execution_failed``, however many problems the error has."""
+    """An ``InvalidCallError`` that a node lets escape is the node's own failure, not a refusal of the run.
+
+    The node's code called ``graph.run`` wrongly. That is a bug in the node, so the run fails with
+    ``execution_failed``, however many problems the error has.
+    """
     run = _alone(_runs_another_graph(given, Policy(concurrency=concurrency))).run()
 
     assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx) == (
@@ -245,7 +260,10 @@ def test_an_invalid_call_error_the_node_lets_escape_is_its_own_failure_not_a_ref
 
 
 def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_value_error():
-    """``InvalidCallError`` is a ``ValueError``; from the node's own body it is retried like any exception ``retry_on`` names."""
+    """An ``InvalidCallError`` from a node's code is retried when ``retry_on`` names ``ValueError``.
+
+    ``InvalidCallError`` is a ``ValueError``. So it is retried like any other exception that ``retry_on`` names.
+    """
     calls: list[int] = []
     outer = _runs_another_graph({"n": "many"}, Policy())
 
@@ -265,7 +283,11 @@ def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_va
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
-    """A node that knows the outside world failed says so with ``ExternalError``; the message it wrote is what people read."""
+    """An ``ExternalError`` is retried, and keeps the message the node wrote.
+
+    A node raises ``ExternalError`` when something outside it failed, like a service that is down. The message the
+    node wrote is what people read.
+    """
     calls: list[int] = []
 
     @node(
@@ -380,7 +402,7 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
 
 
 def test_a_failed_item_is_retried_alone():
-    """A node that runs per item retries the item that failed; the items that completed are not run again."""
+    """A node that runs per item retries only the item that failed. The items that completed aren't run again."""
     calls: list[str] = []
 
     @node("split", title="Split", description="For a test.")
@@ -507,7 +529,7 @@ def test_a_cancelled_run_keeps_the_calls_it_finished_and_resume_calls_none_of_th
 
 
 def _mails() -> tuple[Any, list[str]]:
-    """A graph that mails each address of a list, and the calls it made."""
+    """Returns a graph that mails each address of a list, and the list of mails it sends."""
     sent: list[str] = []
 
     @node("mail", title="Mail", description="For a test.")
@@ -673,7 +695,10 @@ def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edi
 
 
 def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_before():
-    """Each output checks its own columns: a graph compiled and freed before never passes its column types to another."""
+    """Each table output checks its own columns.
+
+    A graph that was compiled and freed earlier never passes its column types on to another.
+    """
     import weakref
     from datetime import date
     from typing import TypedDict
@@ -710,7 +735,7 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
         assert isinstance(value, date) == (kind == "date"), (i, value)
         freed = weakref.ref(graph)
         del graph
-        assert freed() is None, i  # freed at once, so the next graph can get its id
+        assert freed() is None, i  # freed at once, so the next graph can get the same id
 
 
 # -- what again reuses, item by item -----------------------------------------------------------
@@ -781,7 +806,11 @@ def test_a_document_inserted_first_is_the_only_one_read_and_the_others_lines_mov
 
 
 def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
-    """CSV text, read to a table, filtered by a ``min`` the caller gives, its names read whole; the calls of the filter and the reader."""
+    """Returns a graph that reads CSV text into a table, and keeps the rows older than a ``min`` the caller gives.
+
+    A last node joins the names that are left into one text. Also returns the lists of calls of the filter and of
+    that last node.
+    """
     filtered: list[str] = []
     counted: list[str] = []
 
@@ -980,7 +1009,10 @@ def test_an_input_given_again_overrides_the_first_value_and_the_previous_run_is_
 
 
 def _csv_mails() -> tuple[Any, list[str]]:
-    """A CSV of names and emails, and a ``body`` (default ``hej``) sent to each email; the mails sent."""
+    """Returns a graph that sends a ``body`` (by default ``hej``) to each email in a CSV of names and emails.
+
+    Also returns the list of mails it sends.
+    """
     sent: list[str] = []
 
     class Person(TypedDict):
@@ -1217,8 +1249,10 @@ def test_again_cancelled_and_resumed_reuses_what_again_run_to_the_end_reuses():
 
 
 def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_from_json():
-    """A node that returned ``SKIPPED`` was called: ``again`` reuses that outcome like any other, and the node
-    downstream of it is skipped again."""
+    """A call that returned ``SKIPPED`` has an outcome, which ``again`` reuses like any other.
+
+    The node after it is skipped again. This holds on the live run and on one read back from JSON.
+    """
     calls: list[str] = []
 
     @node("only-long", title="Only long", description="For a test.")
@@ -1413,7 +1447,10 @@ def _answered(names: list[str], answers: list[bool]) -> Any:
 
 
 def test_identical_items_keep_their_own_answers_kth_to_kth_when_an_item_is_inserted_above():
-    """Bo yes, Bo no, Al yes; with Eva above, the first Bo is still yes and the second still no."""
+    """Identical items keep their own answers, in order, when an item is added above them.
+
+    Bo is answered yes, Bo no, Al yes. With Eva added at the top, the first Bo is still yes and the second still no.
+    """
     run = _answered(["bo", "bo", "al"], [True, False, True])
 
     moved = run.again(items=["eva", "bo", "bo", "al"])
@@ -1451,8 +1488,11 @@ def test_a_third_identical_item_is_asked_and_two_previous_answers_cover_only_two
 def test_a_node_that_may_ask_reuses_each_return_once_in_item_order_and_calls_again_for_an_identical_item_beyond_them(
     through_json: bool,
 ) -> None:
-    """``stamp`` may ask, and returned for both "bo"s without asking. Run again with "al" above and a third "bo": the two
-    "bo"s keep their own returns, first to first, and the third is called, as a third answer would be asked."""
+    """``stamp`` may ask, but it returned for both "bo"s without asking.
+
+    The run goes again with "al" above them and a third "bo". The two "bo"s keep their own returns, first to first. The
+    third "bo" is called, just as a third answer would be asked for.
+    """
     counter = iter(range(1, 100))
     calls: list[str] = []
 
@@ -1525,9 +1565,10 @@ def test_identical_items_share_one_outcome_and_a_third_reuses_it_without_a_call(
 
 
 def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_waits_and_mails_once():
-    """A answered; B changes Bo and waits; C reverts to A's input: Bo keeps A's answer and is not mailed twice.
+    """An answer survives an edit and its revert while the edited item still waits, and only one mail is sent.
 
-    The node was not complete in B, so the reusable outcome from A that B did not use is still there for C.
+    Run A is answered. Run B changes Bo, and waits. Run C reverts to A's input. Bo keeps A's answer and isn't mailed
+    twice. The node wasn't complete in B, so A's outcome that B didn't use is still there for C to reuse.
     """
     sent: list[str] = []
 
@@ -1738,7 +1779,8 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_ag
 
 
 #: One node, ``ask``, written four ways. Each is compiled from its own text, so the functions inside have the same
-#: qualified names: those are constants of the node's code, and they would differ between four functions of this file.
+#: qualified names. Those names are part of the node's code, and they would differ between four functions in this
+#: file.
 _ASK = {
     "without docstrings": """
 def ask(name: str) -> bool:
@@ -1809,7 +1851,7 @@ def _waiting_id(source: str) -> str:
 
 
 def test_a_docstring_of_a_node_or_of_a_function_or_class_inside_it_is_not_part_of_its_code():
-    """Adding or changing a docstring keeps a waiting call's id; another message gives another id."""
+    """Adding or changing a docstring keeps a waiting call's id, but a different message gives a different id."""
     ids = {way: _waiting_id(source) for way, source in _ASK.items()}
 
     assert ids["without docstrings"] == ids["with docstrings"] == ids["with other docstrings"]
@@ -1885,8 +1927,11 @@ def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_a
 
 
 def test_a_node_redeclared_with_the_same_code_to_no_longer_ask_is_called_again_and_never_takes_the_answers():
-    """``approve`` asks through a helper, so turning ``asks`` off leaves its code as it was. Bo was answered yes and then
-    no; with "al" inserted above, the answers must not land on the wrong Bo, so every call is made again."""
+    """A node redeclared with ``asks`` turned off is called again, and never takes the earlier answers.
+
+    ``approve`` asks through a helper, so turning ``asks`` off leaves its code as it was. Bo was answered yes, and then
+    no. With "al" added above, the answers must not land on the wrong Bo, so every call is made again.
+    """
     asking = {"on": True}
     calls: list[str] = []
 
@@ -2134,7 +2179,10 @@ def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_
 
 
 def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_finished_first():
-    """Item 1's upstream call finishes before item 0's, so item 1 is tried first; it still reuses the second answer."""
+    """Identical items reuse earlier answers in item order, whichever thread finished first.
+
+    Item 1's upstream call finishes before item 0's, so item 1 is tried first. It still reuses the second answer.
+    """
     from threading import Event as ThreadEvent
 
     first_done = ThreadEvent()
@@ -2174,9 +2222,11 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
 
 
 def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_whatever_thread_finished_first():
-    """``stamp`` may ask, runs on threads and returned for two "bo"s without asking. Run again with "al" above and a third
-    "bo", where the second "bo" is fetched before the first: the two keep their own returns, first to first, and the
-    third is called."""
+    """``stamp`` may ask and runs on threads. It returned for two "bo"s without asking.
+
+    The run goes again with "al" above them and a third "bo", and the second "bo" is fetched before the first. The two
+    "bo"s still keep their own returns, first to first, and the third is called.
+    """
     from threading import Event as ThreadEvent
     from threading import Lock
 
@@ -2234,9 +2284,12 @@ def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_wh
 def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person_before_it_takes_an_answer(
     name: str, results: list[Any], asked: list[str]
 ) -> None:
-    """Items "a" and "b" both reach ``approve`` as "bo" and are answered yes, then no. Run again with "x" in place of "a":
-    ``pre`` asks which name "x" is, and "b" takes no answer until then. Told "bo", "x" is the first "bo" and takes yes;
-    told "zz", "b" is the first "bo" and takes yes, and "zz" is asked."""
+    """An identical item waits to take an answer while an earlier item's upstream node is asking a person.
+
+    Items "a" and "b" both reach ``approve`` as "bo", and are answered yes, then no. The run goes again with "x" in
+    place of "a". ``pre`` asks which name "x" is, and "b" takes no answer until then. Told "bo", "x" is the first "bo"
+    and takes yes. Told "zz", "b" is the first "bo" and takes yes, and "zz" is asked.
+    """
 
     @node("pre", title="Pre", description="For a test.", asks=True)
     def pre(name: str) -> str:
@@ -2270,8 +2323,11 @@ def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person
 
 
 def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_back_last():
-    """Two equal pages, each with the line "a", answered yes on page 0 and no on page 1. Run again, page 0's lines come
-    back from their thread after page 1's: page 1's line takes no answer before page 0's lines are known."""
+    """Identical pages keep their own answers, even when the first page's lines come back last.
+
+    Two equal pages each have the line "a", answered yes on page 0 and no on page 1. On the next run, page 0's lines
+    come back from their thread after page 1's. Page 1's line takes no answer until page 0's lines are known.
+    """
     from threading import Event as ThreadEvent
     from threading import Lock
 
@@ -2315,7 +2371,10 @@ def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_
 
 
 def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and_calls_nothing():
-    """split -> ask_a -> ask_b; a@0 waits, b@1 and b@2 wait: ``again`` with the same inputs keeps all three and calls nothing."""
+    """``again`` with the same inputs keeps the questions of two nodes waiting, and calls nothing.
+
+    The graph is ``split -> ask_a -> ask_b``. ``a@0`` waits, and so do ``b@1`` and ``b@2``. ``again`` keeps all three.
+    """
     calls: list[str] = []
 
     @node("split", title="Split", description="For a test.")
@@ -2391,7 +2450,11 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
 
 
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
-    """A complete node drops the reusable outcomes it did not reuse, so the saved run does not keep every previous run's."""
+    """A saved run stays the same size over many one-row edits of a 10,000-row input.
+
+    A node that completes drops the reusable outcomes it didn't reuse. So the saved run doesn't pile up the outcomes
+    of every earlier run.
+    """
 
     class Line(TypedDict):
         name: str
@@ -2449,7 +2512,10 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
 
 
 def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit_left_unchanged():
-    """The author changes the last node's prompt: its 300 calls run again, the 300 calls upstream of it do not."""
+    """An edited graph reuses the previous run's outcomes for the nodes the edit left alone.
+
+    The author changes the last node's prompt. Its 300 calls run again, but the 300 calls before it don't.
+    """
     calls: list[str] = []
 
     @node("enrich", title="Enrich", description="For a test.")
@@ -2579,8 +2645,11 @@ def test_again_and_with_inputs_take_inputs_by_name_in_a_mapping_as_graph_run_doe
 
 
 def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused():
-    """Reuse compares input types too: an input whose limit or choices changed may refuse the same value, so the node
-    is called again and the value on the edge is checked against the limit of the graph that runs."""
+    """An outcome from a call made under another limit, or other choices, is never reused.
+
+    Reuse compares input types too. An input whose limit or choices changed may refuse the same value. So the node is
+    called again, and the value on the edge is checked against the limit of the graph that runs.
+    """
     called: list[int] = []
 
     @node("give", title="Give", description="For a test.")

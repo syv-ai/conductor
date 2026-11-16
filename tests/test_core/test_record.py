@@ -1,9 +1,11 @@
-"""The graph record: its shape, what the record validator refuses, the problems compiling it reports, and ``make_graph``.
+"""Tests for the graph record, the JSON a host saves for a graph, and for ``make_graph``, which writes one from Python.
 
-A graph record is ``{"nodes": {id: {"node": ..., "inputs": {...}}}, "outputs": {name: {"node": ..., "output":
-...}}}``. ``Graph.compile`` reads it into a ``Graph``. A record that is not this shape is refused as it is read, with
-``invalid_record``; what a record of this shape says that cannot be meant is a problem of that graph, never an
-exception.
+A graph record looks like ``{"nodes": {id: {"node": ..., "inputs": {...}}}, "outputs": {name: {"node": ...,
+"output": ...}}}``. ``Graph.compile`` turns it into a ``Graph``.
+
+A record can be wrong in two ways. If it doesn't have this shape, it is refused as it is read, with
+``invalid_record``. If it has the shape but says something that can't work, such as a graph output that names a node
+the record doesn't have, that is a problem of the graph, in ``graph.problems``. It is never an exception.
 """
 
 import json
@@ -85,7 +87,10 @@ def _problems(record: GraphRecord) -> list[tuple[str, tuple]]:
 
 
 def _refused(record: Any) -> list[tuple[str, tuple, str]]:
-    """The problems the record validator raises for ``record``, JSON text or plain data, as ``(type, loc, ctx.error)``."""
+    """Returns the problems the record validator raises for ``record``, as ``(type, loc, ctx["error"])``.
+
+    ``record`` may be JSON text or plain data.
+    """
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record if isinstance(record, str) else json.dumps(record), REGISTRY)
     return [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems]
@@ -100,7 +105,7 @@ def test_a_node_record_and_a_graph_record_have_these_fields_in_this_order():
 
 
 def test_a_bare_node_saves_as_its_node():
-    """Empty fields and the version 1 are left out when saved."""
+    """Empty fields, and a version of 1, are left out when a node record is saved."""
     assert NodeRecord(node="upper").model_dump() == {"node": "upper"}
     assert NodeRecord(
         node="upper", version=2, inputs={"text": InputEntry(constant="hi")}
@@ -198,7 +203,10 @@ def test_display_is_the_hosts_own_and_takes_any_key():
 
 @pytest.mark.parametrize("not_a_name", ["a.b", "a/x", "a@1", "a~c", ""])
 def test_a_source_names_a_node_and_an_output_each_a_name(not_a_name: str):
-    """Every part of a source but its field is a name; a field of a record may have dots of its own."""
+    """Each part of a source is a valid name, except its field.
+
+    A field of a record may have dots of its own, but the node and the output may not.
+    """
     with pytest.raises(ValidationError):
         GraphRecord.model_validate(
             {
@@ -277,7 +285,10 @@ def test_the_json_schema_gives_an_input_one_entry_of_a_constant_a_graph_input_a_
 
 
 def test_the_order_of_an_inputs_sources_never_tells_two_records_apart():
-    """Several sources of one input are alternatives from opposite branches, so nothing depends on their order."""
+    """The order of an input's sources never makes two records different.
+
+    Several sources on one input come from branches where only one is chosen. So nothing depends on their order.
+    """
 
     def record(*sources: str) -> GraphRecord:
         return GraphRecord.model_validate(
@@ -516,8 +527,12 @@ _SOURCE = {"node": "a", "output": "result"}
 def test_each_refusal_of_the_record_validator_is_one_problem_at_its_place_saying_why(
     text: str, loc: tuple, error: str
 ):
-    """A fault of an input's entry is at the input; a name or a field that is not one is where it is written; a key
-    written twice is found while the JSON is read, before any place in the record is known. Each fault is one problem."""
+    """Each fault the record validator finds is one problem, at the place of the fault, saying why.
+
+    A fault in an input's entry is placed at the input. A name or a field that isn't valid is placed where it is
+    written. A key written twice is found while the JSON is parsed, before any place in the record is known, so it is
+    placed at the record itself.
+    """
     assert _refused(text) == [("invalid_record", loc, error)]
 
 
@@ -739,8 +754,11 @@ def test_inputs_naming_one_graph_input_each_get_the_callers_one_value():
 
 
 def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required_whatever_each_inputs_own_default():
-    """``text``'s ``value`` has a default of its own and ``upper``'s ``text`` has none: neither plays a part, so both
-    read the caller's one value and the caller must give it."""
+    """One graph input on two node inputs, with no default in the record, is required.
+
+    ``text``'s ``value`` has a default of its own, and ``upper``'s ``text`` has none. Neither counts. Both inputs get
+    the caller's one value, so the caller must give it.
+    """
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -800,7 +818,11 @@ def test_one_graph_input_given_two_different_defaults_in_the_record_is_used_two_
 
 
 def test_a_graph_output_naming_a_node_or_an_output_the_record_lacks_is_the_graphs_problem_at_no_node():
-    """The node is called ``outputs`` so that a problem at the node's id would show as one of that node's."""
+    """A graph output that names a missing node or output is a problem of the graph, at no node.
+
+    The node here is called ``outputs`` on purpose. A problem placed at that node's id would then look like one of
+    the node's own, and the test would catch it.
+    """
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -859,7 +881,10 @@ PLAIN = registry_of(_hello, _shout, _email, _count)
 
 
 def _made(**arguments: Any) -> list[tuple[str, tuple]]:
-    """The problems ``make_graph`` raises for ``arguments`` as ``(type, loc)``; its nodes are ``_hello`` and ``_shout``."""
+    """Returns the problems ``make_graph`` raises for ``arguments``, as ``(type, loc)``.
+
+    The graph's nodes are ``_hello`` and ``_shout``.
+    """
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, _shout, **arguments)
     return [(p.type, p.loc) for p in refused.value.problems]
@@ -1109,7 +1134,7 @@ def test_make_graph_declares_each_open_input_of_a_node_no_edge_leads_into_and_ea
     record = make_graph(_hello, _shout)
 
     assert record.nodes["hello"].inputs == {"name": InputEntry(graph_input="name")}
-    # shout is led into: its optional input keeps the node's default
+    # an edge leads into shout, so its optional input keeps the node's default
     assert "times" not in record.nodes["shout"].inputs
     assert record.outputs == {"result": Source("shout", "result")}
 
@@ -1277,7 +1302,10 @@ def test_a_list_as_a_constant_or_a_default_for_an_input_of_one_value_is_invalid_
 
 
 def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_first_then_the_inputs_in_order():
-    """The graph inputs are in the order of their nodes' ids: ``b``'s before ``u``'s."""
+    """Every fault in a caller's inputs is reported at once: unknown names first, then the inputs in order.
+
+    The graph inputs are in the order of their nodes' ids, so ``b``'s come before ``u``'s.
+    """
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -1339,9 +1367,12 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
 def test_a_list_a_graph_input_whose_type_takes_a_list_refuses_gives_its_reason_not_to_make_a_series(
     hint: Any, given: list[Any], reason: str
 ) -> None:
-    """Only a list given to an input whose type takes no list is a question of looping. Any other refusal gives
-    the reason the type gives, as it does for a constant: a list type's own limit, and for a union the union's own
-    refusal, which names its first option's fault."""
+    """When an input whose type takes a list refuses a list, the problem gives the type's reason.
+
+    It doesn't suggest making the input a ``Series``. That advice is only for a list given to an input whose type
+    takes no list. Any other refusal gives the type's own reason, as it does for a constant. Here that is a list
+    type's own limit, and a union's own refusal, which names the fault with its first option.
+    """
 
     def take(words: hint) -> str:  # type: ignore[valid-type]
         return "taken"
@@ -1544,7 +1575,11 @@ def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id_and_the_names_its
 
 
 def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_record_gives_no_default():
-    """``b`` has a default; ``c`` and ``d`` are each named by two entries with a default on one of them, so each has one."""
+    """``make_graph`` makes an outer graph input only for a subgraph's graph input that has no default.
+
+    ``b`` has a default. ``c`` and ``d`` are each named by two entries, with a default on one of them, so each has a
+    default too.
+    """
     halves = subgraph("halves", title="Halves", description="For a test.")(
         GraphRecord.model_validate(
             {
@@ -1670,7 +1705,10 @@ def test_a_subgraph_nodes_inputs_are_given_by_the_names_it_offers():
 
 
 def test_an_outer_record_never_names_an_inner_node_of_a_subgraph():
-    """No name has a dot, so ``x.text`` is no input of ``pair``: the record validator refuses it."""
+    """An outer record can never name a node inside a subgraph.
+
+    No name has a dot, so ``x.text`` isn't an input of ``pair``, and the record validator refuses it.
+    """
     record = {
         "nodes": {
             "c": {
@@ -1865,8 +1903,11 @@ def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_in
 
 
 def test_collecting_items_that_a_branch_not_chosen_skipped_all_of_is_skipped():
-    """A branch chosen per document, read by every line of the document, skips each line where it is not chosen, so
-    that document's join is skipped too."""
+    """When a branch not chosen skipped every item being collected, the collecting call is skipped too.
+
+    A branch is chosen per document, and every line of the document reads it. Where the branch isn't chosen, each
+    line is skipped, so that document's join is skipped as well.
+    """
 
     @node("pair-two", title="Pair two", description="For a test.")
     def pair_two(a: str, b: str) -> str:
@@ -2039,7 +2080,10 @@ def test_a_graphs_fingerprint_is_the_one_its_saved_runs_name():
 
 
 def test_make_graph_refuses_a_constant_and_a_default_for_one_input():
-    """A default makes the input a graph input, and an input gets exactly one of a constant or a graph input."""
+    """``make_graph`` refuses a constant and a default for the same input.
+
+    A default makes the input a graph input, and an input gets exactly one of a constant or a graph input.
+    """
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"hello.name": "a"}, defaults={"hello.name": "b"})
 

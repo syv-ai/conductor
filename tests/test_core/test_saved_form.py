@@ -1,5 +1,9 @@
-"""A saved run: it reads back as the same run and resumes to the same result, a float that is not finite is read by
-its declared type, and a damaged saved run is refused at the place pydantic names."""
+"""Tests for a run saved as JSON and read back.
+
+A saved run reads back as the same run, and resumes to the same result. A float that isn't finite, such as ``inf``
+or ``nan``, is read back by the type its output declares. And a damaged saved run is refused, with a problem that
+names the place pydantic found wrong.
+"""
 
 import asyncio
 import datetime
@@ -144,8 +148,10 @@ def _record(
     inputs: Mapping[str, str],
     outputs: Mapping[str, str],
 ) -> GraphRecord:
-    """``make_graph`` of ``nodes`` (node id to the id of its definition in ``registry``), joined by exactly ``edges``,
-    with these graph ``inputs`` and ``outputs``."""
+    """Returns ``make_graph`` of ``nodes``, joined by exactly ``edges``, with these graph ``inputs`` and ``outputs``.
+
+    ``nodes`` maps each node id to the id of its definition in ``registry``.
+    """
     return make_graph(
         *((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()),
         edges=list(edges),
@@ -155,8 +161,11 @@ def _record(
 
 
 def _everything() -> Any:
-    """A graph with a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph
-    and tables."""
+    """Returns a graph with a bit of everything a saved run has to keep.
+
+    It has a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph and
+    tables.
+    """
     registry = _registry()
     return Graph.compile(
         _record(
@@ -197,7 +206,7 @@ def _inputs(text: str) -> dict[str, str]:
 
 
 def _same(a: Any, b: Any) -> bool:
-    """Whether two results are the same, a table by its columns and a ``nan`` as itself."""
+    """Whether two results are the same. Tables are compared by their columns, and a ``nan`` equals itself."""
     if isinstance(a, pl.DataFrame):
         return isinstance(b, pl.DataFrame) and a.equals(b)
     if isinstance(a, dict):
@@ -212,7 +221,10 @@ def _same(a: Any, b: Any) -> bool:
 
 
 def _jsonb(text: str) -> str:
-    """``text`` as Postgres ``jsonb`` gives it back: every object's keys shorter first, then bytewise."""
+    """Returns ``text`` the way Postgres ``jsonb`` gives it back, with every object's keys reordered.
+
+    ``jsonb`` puts shorter keys first, then sorts keys of the same length bytewise.
+    """
 
     def order(value: Any) -> Any:
         if isinstance(value, dict):
@@ -279,7 +291,7 @@ def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() ->
         "done",
         "done",
         "done",
-    ]  # a node inside a subgraph, as any node
+    ]  # a node inside a subgraph is saved like any other node
     assert saved["outcomes"]["e/m"]["states"] == [
         None,
         "done",
@@ -309,7 +321,7 @@ def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_out
     again = Run.from_json(first.to_json(), graph).with_inputs({"lines": "a,ccc,dd"})
     restored = Run.from_json(
         again.to_json(), graph
-    )  # saved before resume(): the previous run's outcomes are in it
+    )  # saved before resume(), so the previous run's outcomes are still in it
 
     assert restored.to_json() == again.to_json()
     assert _same(_finished(restored.resume()).outputs, _finished(again.resume()).outputs)
@@ -319,13 +331,15 @@ def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_out
 
 
 def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() -> None:
-    """Whatever a saved run is damaged into, ``Run.from_json`` returns a run or refuses it with a problem; it never raises
-    another error."""
+    """However a saved run is damaged, ``Run.from_json`` either reads it back or refuses it with a problem.
+
+    It never raises any other error.
+    """
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs(
         {"lines": "a,ccc,ab,xax"}
-    ).resume()  # it waits on "ab"; its outcomes for "bb" and "b" are kept as reusable
+    ).resume()  # it waits on "ab", and keeps its outcomes for "bb" and "b" to reuse
     saved = json.loads(waiting.to_json())
     assert waiting.status == "waiting" and saved["reusable"] and saved["outcomes"]
     random.seed(7)
@@ -401,18 +415,18 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
 
     results = Run.from_json(run.to_json(), graph).results
 
-    assert math.isnan(results["reading"]["result"].value)  # a float field of a model: the float
-    assert results["reading"]["result"].note == "Infinity"  # under Any: its JSON form, the text
+    assert math.isnan(results["reading"]["result"].value)  # a float field of a model gets the float
+    assert results["reading"]["result"].note == "Infinity"  # under Any: its JSON text
     assert results["loose"]["result"] == {
         "nan": "NaN",
         "when": "2026-01-01",
         "text": "x",
-    }  # under Any: its JSON form, as a date is
-    assert results["float-or-text"]["result"] == "Infinity"  # a type that takes the text takes it
+    }  # under Any, each value gets its JSON form, as a date does
+    assert results["float-or-text"]["result"] == "Infinity"  # a type that takes text gets it
     assert results["typed-frame"]["result"]["size"].to_list() == [
         1.5,
         math.inf,
-    ]  # a float column: the float
+    ]  # a float column gets the float
     assert results["frame"]["result"]["ratio"].is_nan().all()
 
 
@@ -474,7 +488,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
         (
             lambda s: s["outcomes"]["typed"]["outputs"]["result"][0]["columns"].pop(1),
             "outcomes.typed.outputs.result.0",
-        ),  # the column its row type names
+        ),  # a column its row type names is gone
         (lambda s: s["outcomes"]["e/q"]["states"].__setitem__(0, 5), "outcomes.e/q.states.0"),
         (lambda s: s.pop("ended_early"), "ended_early"),
         (lambda s: s.__setitem__("keys", []), "keys"),
@@ -559,7 +573,7 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
         },
         "rows": [
             {"text": "a", "size": "Infinity"}
-        ],  # a series of records is its records, however the run keeps it
+        ],  # a series of records is written as its records, however the run stores it
     }
 
 
@@ -596,7 +610,10 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
 
 
 def test_a_key_a_saved_run_does_not_declare_is_refused_where_it_is() -> None:
-    """A saved run reads only the keys its records declare, so a key it does not know is refused, not dropped."""
+    """A key that a saved run doesn't declare is refused, not dropped, and the problem says where it is.
+
+    A saved run reads only the keys its records declare.
+    """
     graph = _everything()
     written = json.loads(graph.run(_inputs("a,bb")).to_json())
     for record, where in (
@@ -612,8 +629,11 @@ def test_a_key_a_saved_run_does_not_declare_is_refused_where_it_is() -> None:
 
 
 def test_a_run_read_back_goes_on_as_the_run_it_was_saved_from() -> None:
-    """A run that reuses calls of the run before it is saved with what it may still reuse: read back, it waits for
-    the same calls, has the same results and progress, and reuses the same calls when it goes on."""
+    """A run read back from JSON goes on just as the run it was saved from would.
+
+    The run reuses calls of the run before it, and is saved with what it may still reuse. Read back, it waits for the
+    same calls and has the same results and progress. When it goes on, it reuses the same calls.
+    """
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()
@@ -630,7 +650,10 @@ def test_a_run_read_back_goes_on_as_the_run_it_was_saved_from() -> None:
 
 
 def _went_on(run: Any) -> list[tuple[Any, ...]]:
-    """Each node's calls as ``run``, its waiting calls answered, goes on: how many outcomes and how many reused."""
+    """Answers the waiting calls of ``run``, lets it go on, and returns what each node did.
+
+    Each item is a node's place, how many outcomes it has and how many of them were reused.
+    """
     for call in run.waiting:
         run = run.answer(call, "bee")
 
@@ -645,7 +668,10 @@ def _went_on(run: Any) -> list[tuple[Any, ...]]:
 
 
 def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -> None:
-    """An output that is not a series is saved with no ``skipped_items``, even when its value is a list; a series can have them."""
+    """Only a ``Series`` output can be saved with items on a branch not chosen.
+
+    An output that isn't a series is saved with no ``skipped_items``, even when its value is a list.
+    """
 
     @node("listed", title="Listed", description="For a test.")
     def listed(text: str) -> list[str]:

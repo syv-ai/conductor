@@ -1,11 +1,14 @@
-"""How a run goes: what its events say, how ``resume()`` and ``stream()`` end (complete, failed, cancelled, timed
+"""Tests for how a run goes.
+
+They cover what a run's events say, how ``resume()`` and ``stream()`` end (complete, failed, cancelled or timed
 out), and what a saved run keeps.
 
-``resume()`` calls every node that is ready, until the run is complete, waits for a person, fails or stops, and keeps
-the outcome of each call. ``run.stream()`` does the same and yields events, the last one ``run_end``; breaking out of
-the loop, cancelling the task that reads it, or setting ``cancel`` stops it. A node's ``Policy`` decides how it is
-called: one item at a time on the thread that called ``resume()``, or on threads, with retries and a timeout on each
-attempt.
+``resume()`` calls every node that is ready, and keeps the outcome of each call. It goes on until the run is
+complete, waits for a person, fails or stops. ``run.stream()`` does the same and yields events, the last of them
+``run_end``. Breaking out of the loop, cancelling the task that reads it, or setting ``cancel`` stops it.
+
+A node's ``Policy`` decides how it is called. Either it is called one item at a time on the thread that called
+``resume()``, or on threads of its own, with retries and a timeout on each attempt.
 """
 
 import asyncio
@@ -72,8 +75,11 @@ def _record(
     edges: Sequence[tuple[str, str]],
     constants: Mapping[str, Any],
 ) -> GraphRecord:
-    """``make_graph`` of ``nodes`` (node id to the id of its definition in ``registry``), joined by exactly ``edges``,
-    with ``constants`` by ``"node.input"``."""
+    """Returns ``make_graph`` of ``nodes``, joined by exactly ``edges``, with these ``constants``.
+
+    ``nodes`` maps each node id to the id of its definition in ``registry``. ``constants`` are keyed by
+    ``"node.input"``.
+    """
     return make_graph(
         *((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()),
         edges=list(edges),
@@ -82,7 +88,8 @@ def _record(
 
 
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
-    """A graph in which ``split`` returns ``items`` items and ``definition``, as node ``slow``, is called once per item."""
+    """Returns a graph in which ``split`` returns ``items`` items, and ``definition``, as node ``slow``, is called once
+    per item."""
     return Graph.compile(
         GraphRecord.model_validate(
             {
@@ -111,7 +118,10 @@ def _bounded(coroutine: Any) -> Any:
 
 
 def _count_twice(calls: list[Any]) -> tuple[int, int]:
-    """The number of calls after 0.3 seconds and after 0.6: equal when no call was still running."""
+    """Counts the calls after 0.3 seconds, and again after 0.6.
+
+    The two counts are equal when no call was still running.
+    """
     time.sleep(0.3)
     seen = len(calls)
     time.sleep(0.3)
@@ -489,7 +499,7 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
 
 
 def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the_run_a_checkpoint_and_a_saved_run():
-    """Calls on threads return in any order; what a run says of a node's calls is in item order all the same."""
+    """Calls on threads may return in any order, but a run always lists a node's calls in item order."""
 
     @node(
         "first-is-last",
@@ -499,7 +509,7 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
     )
     def first_is_last(text: str) -> str | None:
         if text == "0":
-            time.sleep(0.3)  # the first item returns after every other
+            time.sleep(0.3)  # the first item returns after all the others
         return None
 
     @node("needs-text", title="Needs text", description="For a test.")
@@ -547,7 +557,10 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
 
 @pytest.mark.parametrize("items", [None, 3])
 def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(items: int | None):
-    """A call that returns on a thread makes its downstream nodes ready; a call made ready twice is still one call."""
+    """A node that each of two upstream nodes makes ready is still called only once.
+
+    A call that returns on a thread makes the nodes after it ready. A call made ready twice is still one call.
+    """
     calls: list[tuple[str, str]] = []
 
     @node(
@@ -608,8 +621,11 @@ def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(item
 def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume_calls_nothing(
     shape: str, concurrency: int
 ):
-    """``resume()`` tries each node after its upstream nodes, so one call of it completes a graph that asks no person,
-    whether the first node is called on the caller's thread or on others."""
+    """One ``resume()`` completes a graph that asks no person, and a second ``resume()`` calls nothing.
+
+    ``resume()`` tries each node after the nodes before it. So one call is enough, whether the first node is called on
+    the caller's thread or on others.
+    """
     calls: list[str] = []
 
     @node("first", title="First", description="For a test.", policy=Policy(concurrency=concurrency))
@@ -653,7 +669,7 @@ def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume
 
 
 def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight():
-    """A timed-out attempt is not retried, and its thread counts against the node's concurrency until it returns."""
+    """A timed-out attempt isn't retried. Its thread still counts against the node's concurrency until it returns."""
     in_flight, most = 0, 0
     lock = threading.Lock()
 
@@ -705,8 +721,10 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
 
 
 class _AtOnce:
-    """Counts the calls of a node that run at once. Each call waits, at most ``seconds``, until more than ``cap``
-    calls run, so calls that may overlap do, and calls that may not show it by never getting there.
+    """Counts how many calls of a node run at once.
+
+    Each call waits, for at most ``seconds``, until more than ``cap`` calls are running. So calls that are allowed to
+    overlap really do overlap. Calls that aren't allowed to show it by never getting there.
 
     Attributes:
         most: The most calls that ran at once.
@@ -719,7 +737,10 @@ class _AtOnce:
         self.changed = Condition()
 
     def call(self, release: ThreadEvent | None = None) -> None:
-        """One call: it runs until more than ``cap`` calls run or ``seconds`` pass, then until ``release`` is set."""
+        """Makes one call.
+
+        It runs until more than ``cap`` calls run or ``seconds`` pass, then until ``release`` is set.
+        """
         with self.changed:
             self.now, self.calls = self.now + 1, self.calls + 1
             self.most = max(self.most, self.now)
@@ -737,7 +758,8 @@ class _AtOnce:
 
 
 def _in_two_places(definition: Any, items: int) -> Graph:
-    """A graph in which ``split`` returns ``items`` items and ``definition`` is called once per item in two places, ``a`` and ``b``."""
+    """Returns a graph in which ``split`` returns ``items`` items, and ``definition`` is called once per item in two
+    places, ``a`` and ``b``."""
     return Graph.compile(
         make_graph(
             ("split", split),
@@ -752,8 +774,10 @@ def _in_two_places(definition: Any, items: int) -> Graph:
 
 
 def _in_threads(*functions: Callable[[], Any]) -> list[Any]:
-    """Call each of ``functions`` on a thread of its own, all at once, and return what each returned; what one
-    raised is raised here."""
+    """Calls each of ``functions`` on a thread of its own, all at once, and returns what each returned.
+
+    If one of them raised, the error is raised again here.
+    """
     returned: list[Any] = [None] * len(functions)
     raised: list[BaseException] = []
 
@@ -776,7 +800,10 @@ def _in_threads(*functions: Callable[[], Any]) -> list[Any]:
 
 @pytest.mark.parametrize("concurrency", [1, 2])
 def test_concurrency_caps_the_calls_of_a_node_in_two_places_of_two_runs_at_once(concurrency: int):
-    """``concurrency`` counts every call of the definition in the process: two places in a graph, two runs at once."""
+    """``concurrency`` counts every call of the node in the whole process.
+
+    That includes calls from two places in one graph, and from two runs at once.
+    """
     at_once = _AtOnce(concurrency)
 
     @node(
@@ -798,8 +825,10 @@ def test_concurrency_caps_the_calls_of_a_node_in_two_places_of_two_runs_at_once(
 
 
 def test_a_node_that_sets_no_concurrency_is_called_one_item_at_a_time_in_each_run_whatever_other_runs_do():
-    """``Policy()`` limits nothing across runs: each run calls the node one item at a time, and two runs at once
-    call it at once."""
+    """``Policy()`` sets no limit across runs.
+
+    Each run calls the node one item at a time, but two runs at once may each be in a call of it.
+    """
     at_once = _AtOnce(1)
 
     @node("free", title="Free", description="For a test.")
@@ -823,8 +852,11 @@ def test_a_node_that_sets_no_concurrency_is_called_one_item_at_a_time_in_each_ru
 def test_a_run_waiting_for_calls_another_run_makes_starts_once_that_run_ends_early_and_its_calls_return(
     ends: str,
 ):
-    """Run ``first`` holds both calls ``concurrency=2`` allows, and ends early while they run; run ``second`` waits
-    for them, then makes its own calls, two at a time."""
+    """A run waiting for another run's calls starts once that run ends early and its calls return.
+
+    Run ``first`` takes both calls that ``concurrency=2`` allows, and ends early while they run. Run ``second`` waits
+    for them to return, then makes its own calls, two at a time.
+    """
     at_once, release = _AtOnce(2, seconds=0.2), ThreadEvent()
 
     @node("held", title="Held", description="For a test.", policy=Policy(concurrency=2))
@@ -874,9 +906,12 @@ def test_a_run_waiting_for_calls_another_run_makes_starts_once_that_run_ends_ear
 
 
 def test_a_run_waiting_for_a_node_another_run_calls_calls_its_other_nodes_and_can_end_while_it_waits():
-    """``gate`` has ``concurrency=1`` and is called on each run's own thread. While run ``holder`` is in a call of
-    it, run ``waiter`` calls ``other`` and times out still waiting for ``gate``, its thread never blocked; once
-    ``holder`` is done, ``waiter`` resumes and calls ``gate``."""
+    """A run waiting for a node that another run is calling goes on with its other nodes, and can end while it waits.
+
+    ``gate`` has ``concurrency=1`` and is called on each run's own thread. While run ``holder`` is in a call of
+    ``gate``, run ``waiter`` calls ``other``. It then times out, still waiting for ``gate``, and its thread is never
+    blocked. Once ``holder`` is done, ``waiter`` resumes and calls ``gate``.
+    """
     holding, release = ThreadEvent(), ThreadEvent()
     gate_calls: list[str] = []
 
@@ -927,8 +962,8 @@ def test_a_run_waiting_for_a_node_another_run_calls_calls_its_other_nodes_and_ca
 
 
 def _one_node_per_item(definition: Any) -> Graph:
-    """A graph in which ``split`` returns the items of the graph input ``text`` and ``definition``, as node ``slow``,
-    is called once per item."""
+    """Returns a graph in which ``split`` returns the items of the graph input ``text``, and ``definition``, as node
+    ``slow``, is called once per item."""
     return Graph.compile(
         make_graph(
             ("split", split),
@@ -941,8 +976,11 @@ def _one_node_per_item(definition: Any) -> Graph:
 
 
 def test_a_run_that_raises_out_of_resume_leaves_no_call_of_a_capped_node_counted():
-    """Calls handed to the pool but not yet on a thread are cancelled when ``resume()`` raises; each is counted out,
-    so a later run of the node is not kept waiting for them."""
+    """When ``resume()`` raises, no call of a capped node is left counted.
+
+    Calls handed to the pool but not yet on a thread are cancelled, and each is counted out. So a later run of the
+    node isn't kept waiting for them.
+    """
 
     @node("exits", title="Exits", description="For a test.", policy=Policy(concurrency=2))
     def exits(text: str) -> str:
@@ -958,8 +996,10 @@ def test_a_run_that_raises_out_of_resume_leaves_no_call_of_a_capped_node_counted
 
 
 def test_a_run_woken_by_another_runs_call_stops_at_its_timeout_while_it_works_through_its_waiting_calls():
-    """``stop`` is asked before each waiting call that starts, so a run woken with 100 calls waiting ends at its
-    timeout, not after all 100."""
+    """A run woken with 100 calls waiting still ends at its timeout, not after all 100.
+
+    Whether to stop is checked before each waiting call starts.
+    """
     holding, made = ThreadEvent(), []
 
     @node(
@@ -971,7 +1011,7 @@ def test_a_run_woken_by_another_runs_call_stops_at_its_timeout_while_it_works_th
     def one_at_a_time(text: str) -> str:
         if text == "hold":
             holding.set()
-            ThreadEvent().wait(0.3)  # holds the one call there may be for 0.3 s
+            ThreadEvent().wait(0.3)  # holds the only call allowed, for 0.3 s
         else:
             made.append(text)
             ThreadEvent().wait(0.02)
@@ -1020,8 +1060,11 @@ def test_a_run_that_calls_a_capped_node_on_its_own_thread_lets_a_run_waiting_for
 
 
 def test_a_run_cancelled_while_it_waits_for_another_runs_call_says_no_node_start_for_that_node():
-    """``NodeStart`` comes when a call of the node really starts: ``svc`` waits behind another run, ``after`` sets
-    the cancel, and the stream ends with no ``NodeStart`` for ``svc``."""
+    """``NodeStart`` comes only when a call of the node really starts.
+
+    ``svc`` waits behind another run, and ``after`` sets the cancel. The stream then ends with no ``NodeStart`` for
+    ``svc``.
+    """
     holding, release = ThreadEvent(), ThreadEvent()
     cancel: list[Callable[[], None]] = []
 
@@ -1072,8 +1115,11 @@ def test_a_run_cancelled_while_it_waits_for_another_runs_call_says_no_node_start
 
 
 def _held_x() -> tuple[Any, ThreadEvent, ThreadEvent]:
-    """``x``, a node with ``concurrency=1`` whose call with the text ``"hold"`` holds it until ``release`` is set
-    (``holding`` is set once it does), with the two events."""
+    """Returns the node ``x`` and two events, ``holding`` and ``release``.
+
+    ``x`` has ``concurrency=1``. Its call with the text ``"hold"`` sets ``holding``, then keeps the node busy until
+    ``release`` is set.
+    """
     holding, release = ThreadEvent(), ThreadEvent()
 
     @node("x", title="X", description="For a test.", policy=Policy(concurrency=1))
@@ -1087,7 +1133,7 @@ def _held_x() -> tuple[Any, ThreadEvent, ThreadEvent]:
 
 
 def _x_then(x: Any, y: Any) -> Graph:
-    """A graph of ``x`` and ``y`` side by side, with no edge: a run tries ``x`` first, then calls ``y``."""
+    """Returns a graph of ``x`` and ``y`` side by side, with no edge. A run tries ``x`` first, then calls ``y``."""
     return Graph.compile(
         make_graph(
             ("x", x),
@@ -1101,8 +1147,11 @@ def _x_then(x: Any, y: Any) -> Graph:
 
 
 def test_a_run_woken_while_its_thread_is_busy_elsewhere_holds_up_no_run_that_asked_after_it():
-    """Run ``first`` waits for ``x`` and meanwhile calls ``y`` on its own thread; ``y`` waits for run ``last`` to be
-    done. ``last`` asks for ``x`` after ``first``, and takes it as soon as it is free."""
+    """A run woken while its thread is busy elsewhere doesn't hold up a run that asked after it.
+
+    Run ``first`` waits for ``x``, and meanwhile calls ``y`` on its own thread. ``y`` waits for run ``last`` to be
+    done. ``last`` asks for ``x`` after ``first``, and gets it as soon as it is free.
+    """
     x, holding, release = _held_x()
     first_in_y, last_done = ThreadEvent(), ThreadEvent()
 
@@ -1137,8 +1186,11 @@ def test_a_run_woken_while_its_thread_is_busy_elsewhere_holds_up_no_run_that_ask
 
 
 def test_a_node_whose_function_runs_a_graph_using_a_capped_node_is_not_kept_from_it_by_the_run_it_was_called_by():
-    """Run ``first`` waits for ``x`` and meanwhile calls ``y``, whose function runs a graph using ``x``: that inner
-    run takes ``x`` when it is free, though ``first`` asked before it."""
+    """A node whose function runs a graph using a capped node isn't kept from it by its own outer run.
+
+    Run ``first`` waits for ``x``, and meanwhile calls ``y``. ``y``'s function runs a graph that uses ``x``. That inner
+    run gets ``x`` as soon as it is free, even though ``first`` asked before it.
+    """
     x, holding, release = _held_x()
     inner_starts = ThreadEvent()
     only_x = Graph.compile(make_graph(("x", x), outputs={"result": "x.result"}), registry_of(x))
@@ -1165,8 +1217,11 @@ def test_a_node_whose_function_runs_a_graph_using_a_capped_node_is_not_kept_from
 
 
 def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypatch: MonkeyPatch):
-    """A ``KeyboardInterrupt`` raised in ``ThreadPoolExecutor.submit`` after the call was handed to a thread: the
-    call is counted out once, so a later run still has at most ``concurrency`` calls at once."""
+    """A ``KeyboardInterrupt`` inside ``ThreadPoolExecutor.submit`` counts the call out exactly once.
+
+    The interrupt comes after the call was handed to a thread. Since the call is counted out once, a later run still
+    has at most ``concurrency`` calls at once.
+    """
     started = ThreadEvent()
     at_once = _AtOnce(1)
 
@@ -1206,9 +1261,12 @@ def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypat
 
 @pytest.mark.slow
 def test_a_run_kept_waiting_for_a_capped_node_while_its_thread_is_busy_elsewhere_slows_no_other_run_of_it():
-    """Run ``hog`` makes 200 calls of ``x`` on its own thread. Run ``busy`` asks for ``x`` while ``hog`` has it, and
-    then spends the rest of ``hog``'s run in ``y``: ``hog`` doesn't wait for it after each call, so it takes about
-    as long as alone."""
+    """A run kept waiting for a capped node, while its thread is busy elsewhere, slows no other run of that node.
+
+    Run ``hog`` makes 200 calls of ``x`` on its own thread. Run ``busy`` asks for ``x`` while ``hog`` has it, and then
+    spends the rest of ``hog``'s run in ``y``. ``hog`` doesn't wait for ``busy`` after each call, so it takes about as
+    long as it would alone.
+    """
     hog_started, hog_done = ThreadEvent(), ThreadEvent()
 
     @node("x", title="X", description="For a test.", policy=Policy(concurrency=1))
@@ -1293,8 +1351,10 @@ def _broken_check(text: str) -> str:
 def test_a_defect_outside_the_nodes_function_reaches_the_caller_rather_than_hanging_the_stream(
     policy: Policy,
 ) -> None:
-    """A type whose own check raises something other than a refusal is a defect, not the node's failure: it ends
-    the stream by raising, wherever the node is called."""
+    """A type whose own check raises something other than a refusal is a bug, not the node's failure.
+
+    The error ends the stream by raising, wherever the node is called. It never leaves the stream hanging.
+    """
 
     @node("echo", title="Echo", description="For a test.", policy=policy)
     def echo(text: str) -> Annotated[str, AfterValidator(_broken_check)]:
@@ -1309,8 +1369,10 @@ def test_a_defect_outside_the_nodes_function_reaches_the_caller_rather_than_hang
 
 
 def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list[str], ThreadEvent]:
-    """The node ``mail``, the list of texts it was called with, and the event that releases it: item 0 fails at
-    once, every other item waits for ``release``."""
+    """Returns the node ``mail``, the list of texts it was called with, and the event that releases it.
+
+    Item 0 fails at once. Every other item waits for ``release``.
+    """
     calls: list[str] = []
     release = ThreadEvent()
 
@@ -1388,7 +1450,10 @@ def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_
 
 
 def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failure_is_kept_or_logged():
-    """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
+    """A call still running after a failure keeps its question, or logs its own failure.
+
+    A person's question is kept like any finished call. A second failure goes to the log, not onto the run.
+    """
     release = ThreadEvent()
 
     @node(
@@ -1513,9 +1578,13 @@ def test_a_cancel_set_mid_run_ends_the_run_cancelled_at_once():
 
 
 def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run_before_the_remaining_items():
-    """The second run calls ``echo`` for no item: each item's outcome from the previous run is reused, and deciding
-    that writes the item to compare it with the previous one. The test sets the cancel from inside the tenth such
-    write and blocks there until the event loop has set it, so the cancel is set while 90 items are still to go."""
+    """A cancel set while the previous run's outcomes are being reused ends the run before the remaining items.
+
+    The second run calls ``echo`` for no item, since each item's outcome from the previous run is reused. To decide
+    that, it writes each item out to compare it with the previous one. The test sets the cancel from inside the
+    tenth such write, and blocks there until the event loop has set it. So the cancel is set while 90 items are
+    still to go.
+    """
     writes: list[Callable[[], None]] = []
 
     @host_type("Line", title="Line")
@@ -1635,9 +1704,12 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
 
 
 def _stopped_in_the_call(stop: str, then: Callable[[], Any]) -> Any:
-    """The run of ``lines`` then ``echo`` with ``max_items=2``, where ``lines`` sets ``cancel`` (``stop`` is
-    ``cancel``), or sleeps past ``timeout``, in its first call, and then does ``then``. It runs on the scheduler's own thread, so ``stop``
-    is not asked again before the call ends. Returns the run as it ended."""
+    """Runs ``lines`` then ``echo`` with ``max_items=2``, and returns the run as it ended.
+
+    In its first call, ``lines`` stops the run and then does ``then``. When ``stop`` is ``"cancel"`` it sets
+    ``cancel``. Otherwise it sleeps past ``timeout``. The call runs on the scheduler's own thread, so whether to stop
+    isn't checked again before the call ends.
+    """
     stop_now: list[Callable[[], None]] = []
 
     @node("lines", title="Lines", description="For a test.")
@@ -1678,8 +1750,10 @@ def _stopped_in_the_call(stop: str, then: Callable[[], Any]) -> Any:
 def test_a_series_over_the_item_limit_returned_by_a_call_that_ran_while_a_cancel_or_a_timeout_came_leaves_the_run_stopped(
     stop: str,
 ):
-    """The call's outcome is kept and ends the run at the item limit before ``stop`` is asked again: the first
-    reason to stop stands."""
+    """The call's outcome is kept, and ends the run at the item limit before the cancel or timeout is checked again.
+
+    The first reason to stop is the one that stands.
+    """
     ended = _stopped_in_the_call(stop, lambda: ["a", "b", "c"])
 
     assert (ended.status, ended.cause.type) == ("stopped", "item_limit")
@@ -1692,10 +1766,13 @@ def test_a_series_over_the_item_limit_returned_by_a_call_that_ran_while_a_cancel
 def test_a_call_that_fails_after_a_cancel_ends_the_run_cancelled_and_after_the_timeout_failed_and_is_made_again_on_resume(
     stop: str, ends: str, cause: str
 ):
-    """A node can be told of a cancel, and a node that stops a slow call then raises, so a failure after a cancel
-    ends the run ``cancelled``. Nothing tells a node that the timeout passed, so a failure after it is the node's own
-    and ends the run ``failed`` with the node's cause. Either way the call has no outcome, and a resume makes it
-    again."""
+    """A call that fails after a cancel ends the run ``cancelled``, and one that fails after the timeout ends it
+    ``failed``.
+
+    A node can be told of a cancel, and a node that stops a slow call then raises. So a failure after a cancel ends
+    the run ``cancelled``. Nothing tells a node that the timeout passed, so a failure after it is the node's own. It
+    ends the run ``failed``, with the node's cause. Either way the call has no outcome, and a resume makes it again.
+    """
     calls: list[str] = []
 
     def fail_the_first_time() -> list[str]:
@@ -1716,7 +1793,7 @@ def test_a_call_that_fails_after_a_cancel_ends_the_run_cancelled_and_after_the_t
 
 
 def test_a_call_longer_than_the_timeout_that_fails_ends_the_run_failed_on_every_resume():
-    """Each resume makes the call again past its timeout, and the node's own failure is what the run says."""
+    """Each resume makes the call again, and it runs past the timeout again. The run reports the node's own failure."""
     calls: list[str] = []
 
     @node("slow", title="Slow", description="For a test.")
@@ -1895,8 +1972,10 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
 
 
 def test_node_start_comes_first_for_a_node_whose_items_are_reused_from_the_previous_run():
-    """A run given new inputs after an answered run reuses the previous items before calling the new one;
-    ``node_start`` is still the first event about the node."""
+    """``node_start`` is still the first event about a node whose items are reused from the previous run.
+
+    A run given new inputs after an answered run reuses the earlier items before it calls the new one.
+    """
 
     @node("read", title="Read", description="For a test.")
     def read(text: str) -> Series[str]:
@@ -2207,7 +2286,10 @@ def test_seconds_given_as_a_decimal_are_read_as_a_float_and_the_run_keeps_that_f
 
 
 def test_each_checkpoint_of_a_run_reusing_the_previous_runs_outcomes_resumes_without_a_call():
-    """A checkpoint keeps the reusable outcomes not yet reused, whether it is saved after the stream ended or at once."""
+    """A checkpoint keeps the reusable outcomes that aren't reused yet.
+
+    That holds whether the checkpoint is saved after the stream ended or straight away.
+    """
     calls: list[int] = []
     llm = _counting_llm(calls, 0.0005)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
