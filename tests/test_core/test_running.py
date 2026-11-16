@@ -1908,12 +1908,29 @@ def test_a_series_over_the_item_limit_returned_by_a_call_that_ran_while_a_cancel
     assert (ended.status, ended.cause.type) == ("stopped", "item_limit")
 
 
-def test_a_series_reused_over_the_item_limit_starts_its_node_before_it_completes():
-    """Only a node skipped by a branch not chosen completes with no ``node_start``.
+def test_a_node_looped_over_an_empty_series_completes_with_no_node_start():
+    @node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.splitlines()
 
-    A reused outcome comes without a call, so it starts its node when it is written, even when its series is over
-    the item limit and stops the run.
-    """
+    @node("shout", title="Shout", description="For a test.")
+    def shout(line: str) -> str:
+        return line.upper()
+
+    prepared = Graph.compile(make_graph(lines, shout), registry_of(lines, shout)).with_inputs(
+        text=""
+    )
+
+    async def events() -> list[Any]:
+        return [event async for event in prepared.stream()]
+
+    started = [event.loc for event in _bounded(events()) if isinstance(event, NodeStart)]
+    assert started == [("lines",)]
+
+
+def test_a_series_reused_over_the_item_limit_starts_its_node_before_it_completes():
+    """A reused outcome comes without a call, so it starts its node when it is written, even when its series is
+    over the item limit and stops the run. Only a node never called completes with no ``node_start``."""
 
     @node("lines", title="Lines", description="For a test.")
     def lines(text: str) -> Series[str]:
