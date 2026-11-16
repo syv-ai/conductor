@@ -14,6 +14,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 from conductor._internal.base import SKIPPED
+from conductor._internal.problem import value_fault
 
 
 def set_has_no_order() -> PydanticCustomError:
@@ -22,7 +23,7 @@ def set_has_no_order() -> PydanticCustomError:
     That is a ``Series``, or a value written into a graph record. A set's order changes from one process to the
     next, so its items would come in a different order each time.
     """
-    return PydanticCustomError(
+    return value_fault(
         "set_has_no_order",
         "a set has no order, so its items could come in a different order each time",
     )

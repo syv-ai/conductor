@@ -19,10 +19,9 @@ from pydantic import (
     WrapValidator,
     model_validator,
 )
-from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import ConductorModel, Name, Source
-from conductor._internal.problem import value_free_errors
+from conductor._internal.problem import value_fault, value_free_errors
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
@@ -47,7 +46,7 @@ def _one_fault(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
         return handler(value)
     except ValidationError as error:
         [first, *_] = value_free_errors(error)
-        raise PydanticCustomError(first["type"], first["msg"]) from None
+        raise value_fault(first["type"], first["msg"]) from None
 
 
 #: A field whose value a graph carries, such as a constant: a fault inside it is reported at the field.
@@ -63,11 +62,11 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
         PydanticCustomError: ``no_sources`` if the list is empty, ``repeated_source`` if a source is listed twice.
     """
     if not sources:
-        raise PydanticCustomError("no_sources", "an input's sources must list at least one output")
+        raise value_fault("no_sources", "an input's sources must list at least one output")
     seen: set[Source] = set()
     for source in sources:
         if source in seen:
-            raise PydanticCustomError(
+            raise value_fault(
                 "repeated_source", "{source} is listed twice", {"source": str(source)}
             )
         seen.add(source)
@@ -113,12 +112,12 @@ class InputEntry(ConductorModel):
                 more than one. ``default_without_graph_input`` if it has a default but no graph input.
         """
         if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
-            raise PydanticCustomError(
+            raise value_fault(
                 "one_of_constant_graph_input_sources",
                 "an input must get exactly one of a constant, a graph input or sources",
             )
         if self.default is not MISSING and self.graph_input is MISSING:
-            raise PydanticCustomError(
+            raise value_fault(
                 "default_without_graph_input",
                 "the entry has a default but no graph_input, and only a graph input can have a default",
             )

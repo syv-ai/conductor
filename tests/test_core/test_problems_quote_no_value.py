@@ -5,7 +5,7 @@ up in a problem's ``msg``, its ``ctx`` or its text. That holds for a graph input
 value a node returns, a person's answer and a value in a saved run.
 
 Pydantic quotes a value in several ways: in its own ``input``, in a validator's message, in an ``assert``, in a
-union's tag and in a key of a dict. Each case below makes a value that pydantic would quote in one of those ways. It
+union's tag, in a key of a dict and in the message of a host's own pydantic error. Each case below makes a value that pydantic would quote in one of those ways. It
 feeds that value into each place a value enters and can be refused.
 """
 
@@ -25,7 +25,7 @@ from conductor import (
     node,
 )
 from pydantic import BaseModel, Discriminator, field_validator
-from pydantic_core import to_json
+from pydantic_core import PydanticCustomError, to_json
 
 from tests.test_core.nodes import registry_of
 
@@ -68,6 +68,30 @@ class _Asserted(BaseModel):
         return value
 
 
+@host_type("QuotedByContext", title="Quoted by context")
+class _QuotedByContext(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def refuse(cls, value: str) -> str:
+        if value != "ok":
+            raise PydanticCustomError("not_allowed", "{value} is not allowed", {"value": value})
+        return value
+
+
+@host_type("QuotedByText", title="Quoted by text")
+class _QuotedByText(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def refuse(cls, value: str) -> str:
+        if value != "ok":
+            raise PydanticCustomError("not_allowed", f"{value} is not allowed")
+        return value
+
+
 @host_type("QuotedCounts", title="Counts")
 class _Counts(BaseModel):
     counts: dict[str, int]
@@ -81,6 +105,8 @@ TYPES = {
     "an-assert": (_Asserted, {"code": "ok"}, {"code": SECRET}),
     "a-union-tag": (_Pet, {"pet": {"kind": "cat"}}, {"pet": {"kind": SECRET}}),
     "a-dict-key": (_Counts, {"counts": {"a": 1}}, {"counts": {SECRET: "many"}}),
+    "a-custom-error-context": (_QuotedByContext, {"code": "ok"}, {"code": SECRET}),
+    "a-custom-error-text": (_QuotedByText, {"code": "ok"}, {"code": SECRET}),
 }
 
 

@@ -22,10 +22,12 @@ from . import call_problems, compile_problems, declaration_problems, run_problem
 from .catalogue import PROBLEMS
 from .declaration_problems import DECLARATION_PROBLEMS
 from .errors import (
+    OWN_MESSAGE,
     ExternalError,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
+    value_fault,
     value_free_errors,
 )
 from .type import Problem, ProblemCatalogue, ProblemKind
@@ -36,6 +38,7 @@ __all__ = [
     "InvalidCallError",
     "NodeDeclarationError",
     "NodeError",
+    "OWN_MESSAGE",
     "PROBLEMS",
     "Problem",
     "ProblemCatalogue",
@@ -44,5 +47,6 @@ __all__ = [
     "compile_problems",
     "declaration_problems",
     "run_problems",
+    "value_fault",
     "value_free_errors",
 ]

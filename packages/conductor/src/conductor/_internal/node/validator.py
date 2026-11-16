@@ -23,7 +23,6 @@ from typing import Any
 from pydantic import TypeAdapter, ValidationError
 from pydantic_core import (
     CoreSchema,
-    PydanticCustomError,
     SchemaValidator,
     core_schema,
 )
@@ -41,6 +40,7 @@ from conductor._internal.problem import (
     NodeDeclarationError,
     compile_problems,
     run_problems,
+    value_fault,
 )
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import (
@@ -166,12 +166,12 @@ def _several_outputs(
             quoted = [f"'{name}'" for name in fault.given]
             holders = f"{comma_separated(quoted[:-1])} and {quoted[-1]}"
             holding = "both" if len(quoted) == 2 else "all"
-            raise PydanticCustomError(
+            raise value_fault(
                 "alternatives_both_given",
                 f"{holders} are in the exclusive group '{fault.group}', and {holding} have a value",
                 {"given": fault.given, "group": fault.group},
             )
-        raise PydanticCustomError(
+        raise value_fault(
             "no_alternative_given",
             "no output of the exclusive group '{group}' ({members}) has a value",
             {"group": fault.group, "members": comma_separated(fault.members)},
@@ -252,7 +252,7 @@ def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict
 
     def by_name(returned: Any) -> dict[str, Any]:
         if not isinstance(returned, cls):
-            raise PydanticCustomError(
+            raise value_fault(
                 "not_the_class",
                 "the node must return a {cls}, not a {got}",
                 {"cls": cls.__name__, "got": type(returned).__name__},
@@ -273,20 +273,20 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
 
     def by_name(returned: Any) -> dict[str, Any]:
         if not isinstance(returned, Mapping):
-            raise PydanticCustomError(
+            raise value_fault(
                 "not_a_mapping",
                 "the node must return its outputs as a mapping of {names}, not a {got}",
                 {"names": listed, "got": type(returned).__name__},
             )
         for name in names:
             if name not in returned:
-                raise PydanticCustomError(
+                raise value_fault(
                     "output_missing",
                     "'{name}' is missing from the outputs the node returned",
                     {"name": name},
                 )
         if unknown := sorted(set(returned) - declared):
-            raise PydanticCustomError(
+            raise value_fault(
                 "output_unknown",
                 "'{name}' isn't one of the node's outputs",
                 {"name": str(unknown[0])},

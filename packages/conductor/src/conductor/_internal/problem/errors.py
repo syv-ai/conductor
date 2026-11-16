@@ -44,14 +44,48 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic_core import ErrorDetails, PydanticCustomError
+from pydantic_core.core_schema import ErrorType
 
 from .run_problems import external_failed, node_error
 from .type import Problem
 
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
+
+#: The types of pydantic's own errors. pydantic writes their messages, from the type and its limits.
+_PYDANTIC_TYPES = frozenset(get_args(ErrorType))
+
+#: The ``ctx`` keys by which some of pydantic's own messages quote the value or an exception's text: ``error`` (a
+#: validator's exception in ``value_error``, a parser's in ``uuid_parsing`` or ``date_parsing``), ``tag`` (a union's
+#: tag, read from the value), ``encoding_error`` (the byte that isn't base64) and ``tz_actual`` (a datetime's offset).
+_QUOTING_KEYS = frozenset({"error", "tag", "encoding_error", "tz_actual"})
+
+#: The ``ctx`` that marks a pydantic error whose message conductor wrote to quote no value. ``value_fault`` adds it
+#: to an error conductor raises, and a schema's ``custom_error_context`` gives it to the error the schema reports.
+OWN_MESSAGE: Mapping[str, bool] = MappingProxyType({"conductor": True})
+
+
+def value_fault(
+    error_type: str, message: str, ctx: Mapping[str, Any] | None = None
+) -> PydanticCustomError:
+    """Makes the pydantic error conductor raises when it refuses a value.
+
+    Conductor writes ``message`` to name only what a developer or a host wrote, such as a column of a row type, and
+    never the value. So ``value_free_errors`` keeps it, where it replaces the message of an error a host's validator
+    raised.
+
+    Args:
+        error_type: The error's type, like ``"column_missing"``.
+        message: The message, a template with ``{key}`` for each key of ``ctx``.
+        ctx: The values the message is made from.
+
+    Returns:
+        The error to raise.
+    """
+    return PydanticCustomError(error_type, message, {**(ctx or {}), **OWN_MESSAGE})
 
 
 def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
@@ -59,8 +93,9 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
 
     A problem's ``ctx.errors`` is made from this. Each error keeps its ``type``. Its ``loc`` is emptied, since
     pydantic's ``loc`` may contain a key of the value. A caller that knows the type can put back the steps the type
-    declares. Its ``msg`` is kept when it only talks about the type, as a limit's message does. It is replaced when it
-    came from what a validator raised or from a tag of the value, since those may quote the value.
+    declares. Its ``msg`` is kept when pydantic or conductor wrote it about the type, as a limit's message is. Any
+    other message is replaced: one a host's validator raised, with a type of its own, and one of pydantic's that
+    quotes the value or an exception's text, like ``value_error``'s.
 
     For example, an ``int`` refusing ``"many"`` gives::
 
@@ -76,12 +111,19 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
         {
             "type": fault["type"],
             "loc": [],
-            "msg": _VALIDATOR_PREFIX
-            if {"error", "tag"} & fault.get("ctx", {}).keys()
-            else fault["msg"],
+            "msg": fault["msg"] if _names_no_value(fault) else _VALIDATOR_PREFIX,
         }
         for fault in error.errors()
     ]
+
+
+def _names_no_value(fault: ErrorDetails) -> bool:
+    """Says whether the message of one of pydantic's errors was written by pydantic or conductor to quote no value."""
+    ctx = fault.get("ctx", {})
+    written_by_conductor = OWN_MESSAGE.items() <= ctx.items()
+    return written_by_conductor or (
+        fault["type"] in _PYDANTIC_TYPES and not _QUOTING_KEYS & ctx.keys()
+    )
 
 
 #: Checks the ``ctx`` a node gives its ``NodeError``. It may only have JSON values, since a problem is saved and

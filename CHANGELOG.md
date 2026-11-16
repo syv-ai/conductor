@@ -267,6 +267,11 @@ What changes in how you work, before the name-by-name tables:
   (`("record", "nodes", "a", "inputs", "x", "constant")`), and a key written twice in the record's JSON
   (`repeated_key`) isn't quoted. A problem may name what a developer or host wrote: ids, places, field names (a
   `compute_...` hook's too, even one built from a constant), waiting ids and a type's limits.
+- **A host's own pydantic error quotes nothing of the value.** In `reason` and `ctx.errors`, an error keeps its
+  message only when pydantic or conductor wrote it. A `PydanticCustomError` a host type's validator raises, with
+  the value in its `ctx` or in its text, keeps its `type`, and its message is "The value did not pass its type's
+  own check.", as a `ValueError`'s is. So do pydantic's `bytes_invalid_encoding` and `timezone_offset`, whose
+  messages quote a byte or the offset of the value.
 - **`conductor.testing` exports `REGISTRY_CHECK_PROBLEMS`**, the catalogue of `check_registry`'s codes, beside
   `check_registry`. The reference says what it, `PROBLEMS` and `DECLARATION_PROBLEMS` each hold, and its translation
   test names all three.

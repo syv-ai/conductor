@@ -23,9 +23,14 @@ import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema, PydanticCustomError, core_schema
+from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.problem import NodeDeclarationError, declaration_problems
+from conductor._internal.problem import (
+    OWN_MESSAGE,
+    NodeDeclarationError,
+    declaration_problems,
+    value_fault,
+)
 from conductor._internal.types import Type
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
@@ -54,7 +59,7 @@ def _frame_of(columns: Iterable[tuple[str, list[Any], Any]], *, strict: bool) ->
             ]
         )
     except (PolarsError, TypeError):  # polars' own message may quote a cell, so it isn't passed on
-        raise PydanticCustomError(
+        raise value_fault(
             "not_a_table",
             "the columns don't make a table: a name may be used twice, the columns may differ in length, or a column's cells may not share one type",
         ) from None
@@ -302,19 +307,19 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
         if kept is None:
             saved = _saved_dtype(dtype)
             if saved is None:
-                raise PydanticCustomError(
+                raise value_fault(
                     "column_not_saved",
                     "column '{column}' is {type}, which can't be written as JSON",
                     {"column": name, "type": str(dtype)},
                 )
-            raise PydanticCustomError(
+            raise value_fault(
                 "column_not_saved",
                 "column '{column}' is {type}, and a saved run would read it back as {saved}",
                 {"column": name, "type": str(dtype), "saved": str(saved)},
             )
         for check in checks:
             if (fault := check(frame[name])) is not None:
-                raise PydanticCustomError(
+                raise value_fault(
                     "column_not_saved", "column '{column}' " + fault, {"column": name}
                 )
         if kept != dtype:
@@ -326,7 +331,7 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
     # a UInt64 cell too big for an Int64, in the column itself or inside a list or struct
     except InvalidOperationError:
         failed = next(name for name, kept in casts.items() if not _casts(frame[name], kept))
-        raise PydanticCustomError(
+        raise value_fault(
             "column_not_saved",
             "column '{column}' is {type}, and has a whole number too big for an Int64, which is what a saved run reads its whole numbers back as",
             {"column": failed, "type": str(frame.schema[failed])},
@@ -402,13 +407,13 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             )
         for name, column in columns.items():
             if name not in frame.columns:
-                raise PydanticCustomError(
+                raise value_fault(
                     "column_missing",
                     "the column '{column}' is missing, and the row type needs it",
                     {"column": name},
                 )
             if not column.optional and frame[name].null_count():
-                raise PydanticCustomError(
+                raise value_fault(
                     "column_blank",
                     "column '{column}' has a blank cell, and its type doesn't allow blanks",
                     {"column": name},
@@ -475,6 +480,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         discriminator=_table_form,
         custom_error_type="not_a_table",
         custom_error_message="a table must be a frame, or a list of records with one object per row",
+        custom_error_context=dict(OWN_MESSAGE),
     )
     kept = core_schema.no_info_after_validator_function(as_saved, any_form)
     # The same schema for JSON and for Python. It is deliberately not a function schema at the top: that way, a
