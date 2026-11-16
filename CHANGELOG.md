@@ -272,6 +272,10 @@ What changes in how you work, before the name-by-name tables:
   the value in its `ctx` or in its text, keeps its `type`, and its message is "The value did not pass its type's
   own check.", as a `ValueError`'s is. So do pydantic's `bytes_invalid_encoding` and `timezone_offset`, whose
   messages quote a byte or the offset of the value.
+- **A hint that is no type at all is `type_not_supported`.** `def f() -> 5` raised a bare `TypeError` at `@node`,
+  and a `compute_outputs` hook that returned `{"out": 5}` made `Graph.compile` raise it. Now `@node` raises
+  `NodeDeclarationError` with `type_not_supported`, and the hook is `compute_hook_failed` with `ctx.error`
+  `type_not_supported`, as a hook's undeclared class is with `type_not_named`.
 - **`conductor.testing` exports `REGISTRY_CHECK_PROBLEMS`**, the catalogue of `check_registry`'s codes, beside
   `check_registry`. The reference says what it, `PROBLEMS` and `DECLARATION_PROBLEMS` each hold, and its translation
   test names all three.

@@ -949,7 +949,7 @@ def row_field_optional(*, row: str, field: str) -> str:
 @DECLARATION_PROBLEMS.problem()
 def type_not_supported(*, type: str) -> str:
     """An input's or output's type is one pydantic can't validate or write as JSON, such as a record with a field of a plain
-    class.
+    class, or a hint that is no type at all, like ``-> 5``.
 
     To fix it, use a type pydantic can validate and write as JSON: a pydantic model, a dataclass, or a subclass of a
     builtin such as ``class Text(str)``. A class that needs a way of its own can give its own

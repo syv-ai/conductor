@@ -615,15 +615,18 @@ class Type:
             return one is other
 
 
-def _host_name(cls: type) -> tuple[str, str]:
+def _host_name(cls: Any) -> tuple[str, str]:
     """Returns the id and title a host's class declared with ``@host_type``.
 
     For a generic pydantic model ``Box``, pydantic makes a class ``Box[int]``. Its id is ``box[int]``, and its
     title is ``Box``'s.
 
     Raises:
-        NodeDeclarationError: ``type_not_named`` if the class has no declaration.
+        NodeDeclarationError: ``type_not_supported`` if ``cls`` isn't a class or a hint at all, like ``5`` or
+            ``"str"``. ``type_not_named`` if the class has no declaration.
     """
+    if not isinstance(cls, type):
+        raise NodeDeclarationError(declaration_problems.type_not_supported(type=repr(cls)))
     generic = vars(cls).get("__pydantic_generic_metadata__")
     if generic is not None and generic["origin"] is not None:
         declared = declaration_of(generic["origin"])
