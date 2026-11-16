@@ -354,7 +354,8 @@ What changes in how you work, before the name-by-name tables:
   and a `str` enum member are taken as their text, and one that isn't text JSON can write, such as `1.5` or a `str`
   with a lone surrogate, is refused as `invalid_answer`, variant `reason` (`ctx.got`, its class).
 - **The runs router takes a decline.** `POST /runs/{id}/declines` with `{"waiting_id", "reason"}`, and
-  `Worker.decline(run_id, waiting_id, *, reason=None, allows=)`, decline one question. The decline is queued as an
+  `Worker.decline(run_id, waiting_id, *, reason=None, allows=)`, decline one question. The `reason` is a `str` or
+  left out: `Worker.decline` raises pydantic's `ValidationError` for any other value before it reads the run. The decline is queued as an
   answer is, in the row's `queued` (whose entries are tagged `kind`: `answers` or `decline`); the run takes what was queued in order, the first of an answer and a
   decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined` and isn't
   resumed. A run that isn't running is checked first, so a refused decline is a 422 (`not_waiting`,

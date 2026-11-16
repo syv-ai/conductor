@@ -12,7 +12,15 @@ from typing import Annotated, Any, Literal
 
 from conductor import GraphRecord, read_json
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, WithJsonSchema
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    WithJsonSchema,
+)
 
 
 def declared(model: type[BaseModel]) -> dict[str, Any]:
@@ -111,9 +119,9 @@ class Decline(BaseModel):
     waiting_id: str = Field(
         description="The `id` of the waiting call, as the run's `waiting` lists it."
     )
-    reason: str | None = Field(
+    reason: StrictStr | None = Field(
         default=None,
-        description="Why the person declined, which the run's cause keeps in `ctx.reason`.",
+        description="Why the person declined, which the run's cause keeps in `ctx.reason`; text, or left out.",
     )
 
 

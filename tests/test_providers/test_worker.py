@@ -33,8 +33,8 @@ from conductor import (
     make_graph,
 )
 from conductor_providers.fastapi import RunChanges, StoredRun, Worker
-from pydantic import GetCoreSchemaHandler
-from pydantic_core import core_schema
+from pydantic import GetCoreSchemaHandler, ValidationError
+from pydantic_core import PydanticSerializationError, core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
 
 from tests.test_providers.in_memory import (
@@ -998,6 +998,38 @@ async def test_a_decline_sent_while_another_call_runs_ends_the_runs_events_with_
         "failed",
         "answer_declined",
     )
+
+
+async def test_a_reason_a_decline_cant_keep_raises_and_writes_nothing_whether_or_not_the_run_runs() -> (
+    None
+):
+    """A reason that isn't a ``str`` is refused before the run is read, as the declines body refuses it.
+
+    A ``str`` JSON can't write is refused by the run when it isn't running (``invalid_answer``). On a running run it
+    can't be queued, since the row's state can't be written, so it raises ``PydanticSerializationError``. Either way
+    the row is as it was.
+    """
+    registry, graph, gate, inputs, waiting_id = asking()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        running = await _started(worker, graph, inputs)
+        before = store.rows[running]
+        with pytest.raises(ValidationError):
+            await worker.decline(running, waiting_id, reason=b"no", allows=EVERY_RUN)  # type: ignore[arg-type]
+        with pytest.raises(PydanticSerializationError):
+            await worker.decline(running, waiting_id, reason="\ud800", allows=EVERY_RUN)
+        assert store.rows[running] == before
+        gate.set()
+        await store.ended(running)
+        waiting = store.rows[running]
+        with pytest.raises(InvalidCallError) as refused:
+            await worker.decline(running, waiting_id, reason="\ud800", allows=EVERY_RUN)
+        assert store.rows[running] == waiting
+
+    assert [(problem.type, problem.ctx["variant"]) for problem in refused.value.problems] == [
+        ("invalid_answer", "reason")
+    ]
 
 
 async def test_a_decline_to_a_complete_run_is_not_waiting_and_to_a_stale_id_answer_stale() -> None:
