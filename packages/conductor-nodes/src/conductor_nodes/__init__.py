@@ -1,111 +1,38 @@
-"""conductor-nodes — reusable node library for the conductor DAG engine.
+"""Ready-made nodes for conductor: text, numbers, yes or no, JSON, patterns, loops, tables and choosing a way.
 
-Each submodule exports a ``register(reg)`` function that attaches its nodes
-to a ``conductor.NodeRegistry``. Pick categories individually, or call
-``register_all()`` for everything.
+None of them call out to anything. They only work on the values they are given.
 
-Example:
+``registry`` has every node. Each module also has a ``registry`` of its own, so you can add all the nodes or
+just some::
 
+    import conductor_nodes
     from conductor import NodeRegistry
-    from conductor_nodes import register_all
 
-    reg = NodeRegistry()
-    register_all(reg)
+    mine = NodeRegistry()
+    mine.add_subregistry(conductor_nodes.registry)               # everything
+    mine.add_subregistry(conductor_nodes.text.registry)          # only the text nodes
 
-    # …or just what you need:
-    from conductor_nodes import text, math
-    reg = NodeRegistry()
-    text.register(reg)
-    math.register(reg)
-
-Node IDs are prefixed by category (``text-uppercase``, ``math-add``, …) to
-minimize collisions with application-level node IDs. The canonical for-each
-markers — ``for-each-start`` and ``for-each-end`` — are kept unprefixed to
-match the conductor core's compound-region discovery.
+Each module is one ``category``: ``control``, ``json``, ``logic``, ``math``, ``regex``, ``series``, ``table`` and
+``text``. So ``conductor_nodes.registry.filter(lambda d: d.category == "math")`` gives the same nodes as
+``conductor_nodes.math.registry``.
 """
 
-from __future__ import annotations
+from conductor import NodeRegistry
 
-from typing import TYPE_CHECKING
+from conductor_nodes import control, json_ops, logic, math, regex_ops, series, tables, text
 
-from conductor_nodes import (
-    decision,
-    json_ops,
-    logic,
-    loop,
-    math,
-    regex_ops,
-    signal,
-    subprocess,
-    text,
-    while_loop,
-)
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
-
-
-CATEGORIES: dict[str, object] = {
-    "text": text,
-    "math": math,
-    "logic": logic,
-    "loop": loop,
-    "json": json_ops,
-    "regex": regex_ops,
-    "decision": decision,
-    "while": while_loop,
-    "subprocess": subprocess,
-    "signal": signal,
-}
-
-
-def register_all(registry: "NodeRegistry", *, categories: list[str] | None = None) -> None:
-    """Register every (or a filtered subset of) category's nodes.
-
-    Args:
-        registry: The target ``NodeRegistry``.
-        categories: If provided, only these category names register. Unknown
-            names raise ``KeyError``. If None, every category registers.
-    """
-    names = list(CATEGORIES) if categories is None else categories
-    for name in names:
-        if name not in CATEGORIES:
-            raise KeyError(
-                f"Unknown category '{name}'. Known: {sorted(CATEGORIES)}"
-            )
-        CATEGORIES[name].register(registry)   # type: ignore[attr-defined]
-
-
-def get_default_registry(*, categories: list[str] | None = None) -> "NodeRegistry":
-    """Return a fresh ``NodeRegistry`` pre-populated with standard-library nodes.
-
-    Useful when you want to compose with your own registry via
-    ``my_reg.merge(get_default_registry())``. A new registry is built on
-    every call — no hidden shared state, mutating the result is safe.
-
-    Args:
-        categories: Optional subset of category names (same list as
-            ``register_all``). ``None`` means all categories.
-    """
-    from conductor import NodeRegistry
-
-    reg = NodeRegistry()
-    register_all(reg, categories=categories)
-    return reg
-
+registry = NodeRegistry()
+for _module in (text, math, logic, json_ops, regex_ops, series, tables, control):
+    registry.add_subregistry(_module.registry)
 
 __all__ = [
-    "CATEGORIES",
-    "register_all",
-    "get_default_registry",
-    "text",
-    "math",
-    "logic",
-    "loop",
+    "control",
     "json_ops",
+    "logic",
+    "math",
     "regex_ops",
-    "decision",
-    "while_loop",
-    "subprocess",
-    "signal",
+    "registry",
+    "series",
+    "tables",
+    "text",
 ]

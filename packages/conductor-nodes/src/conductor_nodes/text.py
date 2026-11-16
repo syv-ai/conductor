@@ -1,91 +1,140 @@
-"""Text-manipulation nodes (``text-uppercase``, ``text-lowercase``, etc.)."""
+"""Nodes for text: ``text-uppercase``, ``text-split``, ``text-join``, ``text-list`` and the rest."""
 
-from __future__ import annotations
+from typing import Annotated, Any
 
-from typing import TYPE_CHECKING, Annotated
+from conductor import NodeRegistry, Param, Series
+from conductor.widgets import Textarea
 
-from conductor.widgets import Checkbox, Output, Text, Textarea
-from conductor.widgets import List as ListWidget
-
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
+registry = NodeRegistry(category="text")
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every text node on the supplied registry."""
+@registry.node(
+    "text-uppercase",
+    title="Uppercase",
+    description="Makes every letter in the text a capital letter.",
+)
+def uppercase(
+    text: Annotated[str, Param(widget=Textarea())],
+) -> Annotated[str, Param(title="Uppercased")]:
+    """Returns the text in uppercase."""
+    return text.upper()
 
-    @registry.node("text-uppercase", version=1, name="Uppercase", description="Returns the text in uppercase")
-    def uppercase(
-        text: Annotated[str, Textarea(label="Text")],
-    ) -> Annotated[str, Output(label="Uppercased")]:
-        return text.upper()
 
-    @registry.node("text-lowercase", version=1, name="Lowercase", description="Returns the text in lowercase")
-    def lowercase(
-        text: Annotated[str, Textarea(label="Text")],
-    ) -> Annotated[str, Output(label="Lowercased")]:
-        return text.lower()
+@registry.node(
+    "text-lowercase",
+    title="Lowercase",
+    description="Makes every letter in the text a small letter.",
+)
+def lowercase(
+    text: Annotated[str, Param(widget=Textarea())],
+) -> Annotated[str, Param(title="Lowercased")]:
+    """Returns the text in lowercase."""
+    return text.lower()
 
-    @registry.node("text-trim", version=1, name="Trim", description="Strips leading/trailing whitespace")
-    def trim(
-        text: Annotated[str, Textarea(label="Text")],
-    ) -> Annotated[str, Output(label="Trimmed")]:
-        return text.strip()
 
-    @registry.node("text-length", version=1, name="Length", description="Character count of the text")
-    def length(
-        text: Annotated[str, Textarea(label="Text")],
-    ) -> Annotated[int, Output(label="Length")]:
-        return len(text)
+@registry.node(
+    "text-trim",
+    title="Trim",
+    description="Removes spaces and blank lines from the start and end of the text.",
+)
+def trim(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[str, Param(title="Trimmed")]:
+    """Removes spaces, tabs and blank lines from both ends of the text."""
+    return text.strip()
 
-    @registry.node("text-concat", version=1, name="Concat", description="Concatenates two strings with an optional separator")
-    def concat(
-        a: Annotated[str, Text(label="A")],
-        b: Annotated[str, Text(label="B")],
-        separator: Annotated[str, Text(label="Separator")] = "",
-    ) -> Annotated[str, Output(label="Result")]:
-        return f"{a}{separator}{b}"
 
-    @registry.node(
-        "text-replace", version=1, name="Replace",
-        description="Replaces every occurrence of a substring with another",
-    )
-    def replace(
-        text: Annotated[str, Textarea(label="Text")],
-        needle: Annotated[str, Text(label="Find")],
-        replacement: Annotated[str, Text(label="Replace with")] = "",
-    ) -> Annotated[str, Output(label="Result")]:
-        return text.replace(needle, replacement)
+@registry.node(
+    "text-length", title="Length", description="Counts how many characters the text has."
+)
+def length(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[int, Param(title="Length")]:
+    """Counts the characters of the text."""
+    return len(text)
 
-    @registry.node("text-contains", version=1, name="Contains", description="True if `needle` appears in `text`")
-    def contains(
-        text: Annotated[str, Textarea(label="Text")],
-        needle: Annotated[str, Text(label="Needle")],
-        case_sensitive: Annotated[bool, Checkbox(label="Case sensitive")] = True,
-    ) -> Annotated[bool, Output(label="Contains")]:
-        if case_sensitive:
-            return needle in text
-        return needle.lower() in text.lower()
 
-    @registry.node("text-split", version=1, name="Split", description="Splits text on a separator into a list")
-    def split(
-        text: Annotated[str, Textarea(label="Text")],
-        separator: Annotated[str, Text(label="Separator")] = ",",
-    ) -> Annotated[list[str], Output(label="Parts")]:
-        return text.split(separator)
+@registry.node(
+    "text-concat",
+    title="Join two texts",
+    description="Puts two texts together, with a separator between them if you want one.",
+)
+def concat(a: str, b: str, separator: str = "") -> str:
+    """Puts ``a`` and ``b`` together, with ``separator`` between them."""
+    return f"{a}{separator}{b}"
 
-    @registry.node(
-        "text-join", version=1, name="Join",
-        description="Joins a list of strings with a separator",
-    )
-    def join(
-        parts: Annotated[list[str], ListWidget(label="Parts", item_widget=Text(label="Part"))],
-        separator: Annotated[str, Text(label="Separator")] = ", ",
-    ) -> Annotated[str, Output(label="Joined")]:
-        return separator.join(str(p) for p in parts)
 
-    @registry.node("text-reverse", version=1, name="Reverse", description="Returns the text reversed")
-    def reverse(
-        text: Annotated[str, Textarea(label="Text")],
-    ) -> Annotated[str, Output(label="Reversed")]:
-        return text[::-1]
+@registry.node(
+    "text-replace",
+    title="Replace",
+    description="Replaces every place a piece of text appears with another text.",
+)
+def replace(
+    text: Annotated[str, Param(widget=Textarea())],
+    needle: Annotated[str, Param(title="Find")],
+    replacement: Annotated[str, Param(title="Replace with")] = "",
+) -> str:
+    """Replaces every place ``needle`` appears in the text with ``replacement``."""
+    return text.replace(needle, replacement)
+
+
+@registry.node(
+    "text-contains",
+    title="Contains",
+    description="Tells whether the text contains another piece of text.",
+)
+def contains(
+    text: Annotated[str, Param(widget=Textarea())], needle: str, case_sensitive: bool = True
+) -> Annotated[bool, Param(title="Contains")]:
+    """Whether ``needle`` appears in the text. Set ``case_sensitive`` to false to ignore upper and lower case."""
+    if case_sensitive:
+        return needle in text
+    return needle.lower() in text.lower()
+
+
+@registry.node(
+    "text-split",
+    title="Split text",
+    description="Splits the text wherever the separator appears, so what follows runs once for each part.",
+)
+def split(
+    text: Annotated[str, Param(widget=Textarea())],
+    separator: Annotated[str, Param(min_length=1)] = "\n",
+) -> Annotated[Series[str], Param(title="Parts")]:
+    """Splits the text wherever ``separator`` appears, into a ``Series`` of parts.
+
+    The separator is a new line unless you give another. ``"a\\nb"`` gives ``["a", "b"]``, and an empty text gives
+    ``[]``.
+    """
+    return text.split(separator) if text else []
+
+
+@registry.node(
+    "text-list",
+    title="Text list",
+    description="A list of texts that you enter. Wire a list of items to 'for each' to get the whole list once for each item.",
+)
+def text_list(
+    items: list[str], for_each: Any = None
+) -> Annotated[Series[str], Param(title="Texts")]:
+    """Returns ``items``, the texts written in the graph, as a ``Series``.
+
+    The node never looks at ``for_each``. It is there so you can put the node inside a loop. Wire a ``Series`` into
+    it, and the node runs once for each item, returning the whole list each time. Say ``items`` is ``["q1", "q2"]``
+    and two documents are wired to ``for_each``. Then each document gets both questions, ``["q1", "q2"]``.
+    """
+    return items
+
+
+@registry.node(
+    "text-join",
+    title="Join",
+    description="Joins all the parts into one text, with a separator between them.",
+)
+def join(parts: Series[str], separator: str = ", ") -> Annotated[str, Param(title="Joined")]:
+    """Joins every part into one text, with ``separator`` between them."""
+    return separator.join(parts)
+
+
+@registry.node("text-reverse", title="Reverse", description="Writes the text backwards.")
+def reverse(
+    text: Annotated[str, Param(widget=Textarea())],
+) -> Annotated[str, Param(title="Reversed")]:
+    """Returns the text backwards."""
+    return text[::-1]

@@ -1,185 +1,248 @@
-"""FastAPI ``APIRouter`` factory for conductor."""
+"""``run_router``: the HTTP routes over a ``Worker``.
 
-from __future__ import annotations
+Each route reads its request, calls one method of the worker and answers with what it gave back. The worker does
+the real work: it keeps runs in the store, resumes them, and takes over the runs of a worker that died.
+"""
 
-from collections.abc import Callable, Sequence
-from typing import Any
+from collections.abc import AsyncIterable, AsyncIterator, Callable
+from operator import attrgetter
+from typing import Annotated, Any
 
-from conductor import NodeRegistry
-from conductor.errors import CompilationError
-from conductor.execution.engine import execute, execute_sync
-from conductor.graph.compiler import compile as compile_graph
-from conductor.registry.schema import serialize_registry
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from conductor import (
+    Graph,
+    GraphDescription,
+    GraphRecord,
+    InvalidCallError,
+    RegistryDescription,
+    RunProgress,
+)
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi.routing import APIRoute
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from conductor_providers.fastapi.compile import CompileResult, CompileWarning
-from conductor_providers.fastapi.models import ExecuteRequest
-from conductor_providers.fastapi.sse import sse_frame
+from conductor_providers.fastapi.bodies import Resume, StartRun, declared
+from conductor_providers.fastapi.problems import STATUS
+from conductor_providers.fastapi.state import M, RunView
+from conductor_providers.fastapi.worker import Worker, X
+
+#: A refusal's body: FastAPI's own ``HTTPValidationError``, the shape of a 422, which a conductor ``Problem`` fits, so
+#: a client reads every refusal one way.
+_REFUSED: dict[str, Any] = {
+    "content": {
+        "application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}
+    }
+}
 
 
-def conductor_router(
-    registry: NodeRegistry,
-    *,
-    prefix: str = "",
-    tags: list[str] | None = None,
-    dependencies: Sequence[Any] | None = None,
-    compound_types: list[type] | None = None,
-    context_factory: Callable[[Request], dict[str, Any]] | None = None,
-    entity_resolver: (
-        Callable[[str, Request], list[dict[str, Any]]] | None
-    ) = None,
-    extension_resolver: Any | None = None,
-    strict_types: bool = False,
-) -> APIRouter:
-    """Build a FastAPI ``APIRouter`` serving conductor's standard endpoints.
+def _declare_refusals(route: APIRoute) -> None:
+    """Declare the refusals a route can answer with, worked out from its shape.
 
-    Mounts:
-
-    - ``GET  {prefix}/nodes``           — serialized node catalog
-    - ``POST {prefix}/execute``         — sync execution, returns aggregated results
-    - ``POST {prefix}/execute-stream``  — SSE stream of ``ExecutionEvent`` frames
-    - ``POST {prefix}/compile``         — validation without executing; returns
-      ``CompileResult`` with errors (hard) and warnings (soft type mismatches)
+    A route that takes a run id, in its path or as ``previous`` in its body, can answer 404 for a run that isn't
+    there for the request. One whose body is ``Resume`` can answer 409 for a run that didn't end early. One that
+    takes anything at all can answer 422 for what conductor or FastAPI refuses.
 
     Args:
-        registry: The populated ``NodeRegistry`` to serve.
-        prefix: Path prefix applied to every route (FastAPI convention).
-        tags: OpenAPI tags attached to every route.
-        dependencies: FastAPI dependencies applied to every route (auth, rate
-            limiting, anything ``Depends(...)`` can express).
-        compound_types: Compound types passed to ``compile()`` (e.g.
-            ``[FOR_EACH]``).
-        context_factory: Optional hook invoked per-request on ``/execute`` and
-            ``/execute-stream``. Receives the FastAPI ``Request`` and returns
-            a dict that seeds the node ``FlowStore``. Node functions declaring
-            ``store: FlowStore`` see the seeded keys.
-        entity_resolver: Optional hook backing the ``EntityDropdown`` widget.
-            Receives the entity kind (e.g. ``"document"``) and the FastAPI
-            ``Request``; returns a list of ``{"id": ..., "label": ...}``
-            dicts the frontend renders as choices. If unset, the mounted
-            ``GET {prefix}/entities/{kind}`` route returns 501.
-        strict_types: Passed through to ``compile()``. When True, type
-            warnings become ``CompilationError``s on ``/execute`` and
-            ``/execute-stream`` (``/compile`` always returns warnings as soft).
+        route: The route, whose ``responses`` gain the refusals.
+    """
+    body = (
+        route.openapi_extra["requestBody"]["content"]["application/json"]["schema"]
+        if route.openapi_extra
+        else {}
+    )
+    statuses = set()
+    if "{run_id}" in route.path or "previous" in body.get("properties", {}):
+        statuses.add(404)
+    if route.body_field is not None and route.body_field.field_info.annotation is Resume:
+        statuses.add(409)
+    if route.dependant.path_params or route.body_field is not None or body:
+        statuses.add(422)
+    route.responses = {**route.responses, **dict.fromkeys(sorted(statuses), _REFUSED)}
+
+
+def _body(schema: dict[str, Any]) -> dict[str, Any]:
+    """The ``openapi_extra`` of a route that reads its body as text: a required JSON body of ``schema``."""
+    return {"requestBody": {"required": True, "content": {"application/json": {"schema": schema}}}}
+
+
+async def _refused_as_responses() -> AsyncIterator[None]:
+    """Answers every call a route's worker refuses with the problems.
+
+    The worker raises conductor's ``InvalidCallError`` for every refusal. Its first problem's code picks the status
+    from ``STATUS`` (404 or 409), and any other code is a 422.
+
+    Yields:
+        Nothing; the route runs inside it.
+
+    Raises:
+        HTTPException: For a refused call, with the problems as its ``detail``.
+    """
+    try:
+        yield
+    except InvalidCallError as refused:
+        status = STATUS.get(refused.problems[0].type, 422)
+        detail = [problem.model_dump(mode="json") for problem in refused.problems]
+        raise HTTPException(status, detail) from None
+
+
+def run_router(
+    worker: Worker[M, X],
+    *,
+    metadata: Callable[..., M],
+    run_filter: Callable[..., Callable[[M], bool]],
+) -> APIRouter:
+    """The runs routes over ``worker``; mount them with ``app.include_router(...)``.
+
+    Who may reach the routes that take any graph (``POST /runs``, ``/estimate``, ``/compile``, ``/nodes``) is your
+    call, made the usual FastAPI way: ``app.include_router(router, dependencies=[Depends(is_author)])``.
+
+    Args:
+        worker: The worker the routes call: where runs are kept, the nodes and context a run gets from its
+            metadata, and the settings of its leases.
+        metadata: A FastAPI dependency giving the metadata for this request, of the worker's ``metadata_type``.
+            A run started by the request keeps it, as it is then, and its nodes and context are built from it on
+            every resume. On the routes that store no run (``/nodes``, ``/compile``, ``/estimate``, and ``again``'s
+            check of the new run), it picks the nodes this request may use. Let it hold what identifies the
+            request, such as a user and a team, and nothing that changes.
+        run_filter: A FastAPI dependency giving, for this request, a test of a run's metadata: whether the
+            request may read and act on that run. ``lambda metadata: metadata["user"] == user.id`` lets a person
+            see only their own runs. A run it turns away is a 404, as one that isn't there.
+
+    Returns:
+        The router, whose lifespan runs the worker.
     """
     router = APIRouter(
-        prefix=prefix,
-        tags=tags or ["conductor"],
-        dependencies=list(dependencies) if dependencies else None,
+        lifespan=lambda _: worker.serving(),
+        dependencies=[Depends(_refused_as_responses)],
+        generate_unique_id_function=attrgetter("name"),
     )
-    compound_types = compound_types or []
+    start_body = _body(declared(StartRun))
 
-    def _store_data(request: Request) -> dict[str, Any] | None:
-        return context_factory(request) if context_factory else None
+    async def followed(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        last_event_id: Annotated[int, Header()] = -1,
+    ) -> AsyncIterator[tuple[int, str]]:
+        """The run's events, checked before the stream starts, so a run the request may not see is a 404."""
+        return await worker.events(run_id, last_event_id, allows=allows)
 
     @router.get("/nodes")
-    def list_nodes() -> list[dict[str, Any]]:
-        """Return every registered node as serialized catalog entries."""
-        return serialize_registry(registry)
+    def list_nodes(requester: Annotated[M, Depends(metadata)]) -> RegistryDescription:
+        """The nodes this request may use, as an editor's palette reads them."""
+        return worker.nodes_for(requester).describe()
 
-    @router.post("/execute")
-    def execute_flow(req: ExecuteRequest, request: Request) -> dict[str, Any]:
-        """Run a flow synchronously and return the aggregated results dict."""
-        nodes, edges = req.to_graph()
-        compiled = compile_graph(
-            nodes=nodes,
-            edges=edges,
-            registry=registry,
-            compound_types=compound_types,
-            extension_resolver=extension_resolver,
-            strict_types=strict_types,
+    @router.post("/compile", openapi_extra=_body(declared(GraphRecord)))
+    async def compile_graph(
+        request: Request, requester: Annotated[M, Depends(metadata)]
+    ) -> GraphDescription:
+        """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
+        and every problem. Nothing is run or stored."""
+        return Graph.compile(await request.body(), worker.nodes_for(requester)).describe()
+
+    @router.post("/runs", status_code=202, openapi_extra=start_body)
+    async def start_run(
+        request: Request,
+        requester: Annotated[M, Depends(metadata)],
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+    ) -> RunView:
+        """Start a run of any graph. This is an author's route, so guard it with a dependency of your own."""
+        sent = StartRun.read(await request.body())
+        return await worker.begin(
+            sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
-        results = execute_sync(
-            compiled, store_data=_store_data(request), cache=req.cache or None
+
+    @router.post("/estimate", openapi_extra=start_body)
+    async def estimate_run(
+        request: Request,
+        requester: Annotated[M, Depends(metadata)],
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+    ) -> RunProgress:
+        """How many calls the run ``POST /runs`` would start will make: the nodes whose ``Policy`` says
+        ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
+        call that costs something."""
+        sent = StartRun.read(await request.body())
+        return await worker.estimate(
+            sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
-        return {"results": results}
 
-    @router.post("/execute-stream")
-    async def execute_flow_stream(
-        req: ExecuteRequest, request: Request
-    ) -> StreamingResponse:
-        """Run a flow and stream ``ExecutionEvent``s as Server-Sent Events."""
-        nodes, edges = req.to_graph()
-        compiled = compile_graph(
-            nodes=nodes,
-            edges=edges,
-            registry=registry,
-            compound_types=compound_types,
-            extension_resolver=extension_resolver,
-            strict_types=strict_types,
-        )
-        store_data = _store_data(request)
+    @router.get("/runs/{run_id}")
+    async def read_run(
+        run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
+    ) -> RunView:
+        """The run as it was when it last stopped running: its status, what waits for a person, its outputs once
+        complete, the answers that were refused, and why it ended early if it did."""
+        return await worker.read(run_id, allows=allows)
 
-        async def event_stream() -> Any:
-            async for event in execute(
-                compiled, store_data=store_data, cache=req.cache or None
-            ):
-                yield sse_frame(event)
+    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
+    async def follow_run(
+        events: Annotated[AsyncIterator[tuple[int, str]], Depends(followed)],
+    ) -> AsyncIterable[ServerSentEvent]:
+        """The run's events, from whichever worker runs it, until it stops running. ``Last-Event-ID`` goes on after
+        a reconnect."""
+        async for number, body in events:
+            yield ServerSentEvent(raw_data=body, id=str(number))
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+    @router.post(
+        "/runs/{run_id}/answers",
+        status_code=202,
+    )
+    async def answer_run(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        answers: Annotated[
+            dict[str, Any],
+            Body(
+                description="An answer for each waiting call, by its `id` in the run's `waiting`."
+            ),
+        ],
+    ) -> RunView:
+        """Answer what waits by its ids, and resume the run with the answers.
 
-    @router.get("/entities/{kind}")
-    def list_entities(kind: str, request: Request) -> list[dict[str, Any]]:
-        """Return candidate entities of ``kind`` for the current request.
-
-        Backs the ``EntityDropdown`` widget in conductor-aware frontends.
-        Hosts provide the list via the ``entity_resolver`` hook; the
-        exact shape of each entry is host-defined, but the frontend
-        convention is ``{"id": "...", "label": "..."}``.
+        The run takes them whatever its status, so a run that failed, stopped, timed out or was cancelled with
+        questions waiting is answered and goes on. Every answer it refuses is in the 422. While the run is running,
+        the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
         """
-        if entity_resolver is None:
-            from fastapi import HTTPException
+        return await worker.answer(run_id, answers, allows=allows)
 
-            raise HTTPException(
-                status_code=501,
-                detail=(
-                    "No entity_resolver configured. Pass one to "
-                    "conductor_router(entity_resolver=...) to enable "
-                    f"/entities/{kind} lookups."
-                ),
-            )
-        return entity_resolver(kind, request)
+    @router.post(
+        "/runs/{run_id}/resume",
+        status_code=202,
+    )
+    async def resume_run(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        body: Resume = Resume(),
+    ) -> RunView:
+        """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
+        the item limit of a run that stopped at it, and a resume needs no body."""
+        return await worker.resume(run_id, body.max_items, allows=allows)
 
-    @router.post("/compile")
-    def compile_flow(req: ExecuteRequest) -> CompileResult:
-        """Validate a graph without executing. Returns errors + type warnings.
+    @router.post("/runs/{run_id}/again", status_code=202)
+    async def run_again(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        inputs: Annotated[
+            dict[str, Any],
+            Body(
+                description="The inputs to change, each by its name; the rest stay as the run had them."
+            ),
+        ],
+        requester: Annotated[M, Depends(metadata)],
+    ) -> RunView:
+        """A new run with these inputs changed, of this request's own and on its own nodes. A call that gets what it
+        got before isn't made again."""
+        return await worker.again(run_id, inputs, requester, allows=allows)
 
-        Debounce-friendly (~10-30 ms): hosts can poll this on every graph
-        edit to paint type mismatches and cycles in real time.
-        """
-        nodes, edges = req.to_graph()
-        try:
-            compiled = compile_graph(
-                nodes=nodes,
-                edges=edges,
-                registry=registry,
-                compound_types=compound_types,
-                extension_resolver=extension_resolver,
-                strict_types=False,  # /compile always surfaces warnings as soft
-            )
-        except CompilationError as e:
-            return CompileResult(status="error", errors=[str(e)], warnings=[])
+    @router.post("/runs/{run_id}/cancel")
+    async def cancel_run(
+        run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
+    ) -> RunView:
+        """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``. The calls
+        already made are kept, its questions still wait, and an answer or a resume goes on. A waiting run is resumed
+        for it, with no node call, so like any resume it can end ``failed``. A run that is complete or ended early is
+        answered as it is."""
+        return await worker.cancel(run_id, allows=allows)
 
-        warnings = [
-            CompileWarning(
-                edge_id=w.edge_id,
-                code=w.code,
-                message=w.message,
-                source_node=w.source_node,
-                source_output=w.source_output,
-                source_type=w.source_type,
-                target_node=w.target_node,
-                target_input=w.target_input,
-                target_type=w.target_type,
-            )
-            for w in compiled.type_warnings
-        ]
-        return CompileResult(status="ok", errors=[], warnings=warnings)
-
+    for route in router.routes:
+        if isinstance(route, APIRoute):
+            _declare_refusals(route)
     return router
-
-
-# Silence "imported but unused" warnings: Depends is a documented option for
-# callers to import alongside `conductor_router`, not used in this module.
-_ = Depends

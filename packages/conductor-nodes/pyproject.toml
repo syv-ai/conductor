@@ -1,10 +1,12 @@
 [project]
 name = "syv-conductor-nodes"
-version = "1.12.2"
-description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and loop markers. Categories opt-in via register_all(registry, categories=[...])."
+version = "2.0.0"
+description = "Nodes for conductor that only compute: text, numbers, yes or no, JSON, regular expressions, series, tables and a decision."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -13,10 +15,15 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Typing :: Typed",
 ]
-dependencies = ["syv-conductor", "pydantic>=2.0"]
+dependencies = [
+    "syv-conductor==2.0.0",
+    "pydantic>=2.14",
+    "polars>=2.0",
+    "regex>=2024.11.6",
+]
 
 [project.urls]
-Repository = "https://github.com/syvai/conductor"
+Repository = "https://github.com/syv-ai/conductor"
 
 [build-system]
 requires = ["hatchling"]

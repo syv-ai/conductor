@@ -1,10 +1,12 @@
 [project]
 name = "syv-conductor"
-version = "1.12.2"
-description = "Reusable DAG execution engine — node registration, graph compilation, eager parallel streaming execution, retry, shared references, and human-in-the-loop checkpointing."
+version = "2.0.0"
+description = "Run graphs of typed Python functions: a graph is JSON that compiles with its problems listed, calls a node once per item of a list another node returns, and pauses for a person in a run that saves as JSON."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -13,18 +15,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Typing :: Typed",
 ]
-dependencies = ["pydantic>=2.0"]
+dependencies = [
+    "polars>=2.0",
+    "pydantic>=2.14",
+    # 4.16 is the first whose sentinel pickles and copies to itself and prints as its bare name (REQUIRED, SKIPPED).
+    "typing-extensions>=4.16",
+]
 
 [project.optional-dependencies]
-yaml = ["pyyaml>=6.0"]
-# Sibling-package extras — published in lockstep from this monorepo, so
-# pinned `==` to the matching version to prevent resolver skew.
-nodes = ["syv-conductor-nodes==1.12.2"]
-providers = ["syv-conductor-providers==1.12.2"]
-all = [
-    "syv-conductor-nodes==1.12.2",
-    "syv-conductor-providers[fastapi]==1.12.2",
-]
+# Released from one repository at one version, so pinned `==` to it.
+nodes = ["syv-conductor-nodes==2.0.0"]
+providers = ["syv-conductor-providers==2.0.0"]
+all = ["syv-conductor-nodes==2.0.0", "syv-conductor-providers==2.0.0"]
 
 [project.urls]
 Repository = "https://github.com/syv-ai/conductor"

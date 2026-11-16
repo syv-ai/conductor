@@ -1,59 +1,46 @@
-"""Control-flow / logic nodes that produce the SKIPPED sentinel to branch."""
+"""Nodes that answer yes or no: ``logic-not``, ``logic-equals`` and ``logic-is-empty``.
 
-from __future__ import annotations
+Wire the answer into ``control-decide.when`` to send a value one way or the other.
+"""
 
-from typing import TYPE_CHECKING, Annotated
+from collections.abc import Sized
+from typing import Annotated, Any
 
-from conductor._sentinel import SKIPPED
-from conductor.types import NodeCategory
-from conductor.widgets import Checkbox, Output, Text, Textarea
+from conductor import NodeRegistry, Param
 
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
+registry = NodeRegistry(category="logic")
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every logic node on the supplied registry."""
+@registry.node("logic-not", title="Not", description="Turns yes into no and no into yes.")
+def negate(value: bool) -> Annotated[bool, Param(title="Negated")]:
+    """Turns yes into no and no into yes."""
+    return not value
 
-    @registry.node(
-        "logic-if-empty", version=1, name="If Empty",
-        description="Routes text based on whether it is empty (after strip)",
-        category=NodeCategory.CONTROL,
-    )
-    def if_empty(
-        text: Annotated[str, Textarea(label="Text")],
-    ) -> tuple[
-        Annotated[str, Output(label="Not empty")],
-        Annotated[str, Output(label="Empty")],
-    ]:
-        if text.strip():
-            return (text, SKIPPED)
-        return (SKIPPED, text)
 
-    @registry.node(
-        "logic-if-equals", version=1, name="If Equals",
-        description="Routes based on whether two strings are equal",
-        category=NodeCategory.CONTROL,
-    )
-    def if_equals(
-        a: Annotated[str, Text(label="A")],
-        b: Annotated[str, Text(label="B")],
-        case_sensitive: Annotated[bool, Checkbox(label="Case sensitive")] = True,
-    ) -> tuple[
-        Annotated[str, Output(label="Equal")],
-        Annotated[str, Output(label="Not equal")],
-    ]:
-        left = a if case_sensitive else a.lower()
-        right = b if case_sensitive else b.lower()
-        if left == right:
-            return (a, SKIPPED)
-        return (SKIPPED, a)
+@registry.node(
+    "logic-equals",
+    title="Equals",
+    description="Tells whether the value is the same as the other value.",
+)
+def equals[T](value: T, other: T) -> Annotated[bool, Param(title="Equal")]:
+    """Whether ``value == other``.
 
-    @registry.node(
-        "logic-not", version=1, name="Not",
-        description="Logical negation of a boolean",
-    )
-    def not_(
-        value: Annotated[bool, Checkbox(label="Value")],
-    ) -> Annotated[bool, Output(label="Negated")]:
-        return not value
+    ``other`` takes the type of what is wired to ``value``. So after ``text-length``, a constant ``3`` is the
+    number 3. Texts are compared exactly, upper and lower case included. To ignore case, put ``text-lowercase`` in
+    front.
+    """
+    return value == other
+
+
+@registry.node(
+    "logic-is-empty",
+    title="Is empty",
+    description="Tells whether the value is missing, or is a text, list or table with nothing in it.",
+)
+def is_empty(value: Any) -> Annotated[bool, Param(title="Empty")]:
+    """Whether ``value`` is ``None``, or has a length of 0.
+
+    So ``None``, ``""``, ``[]``, ``{}`` and a table with no rows are empty. ``0`` and ``False`` are not. A text of
+    only spaces isn't empty either. Put ``text-trim`` in front to count it as empty.
+    """
+    return value is None or (isinstance(value, Sized) and len(value) == 0)

@@ -1,94 +1,130 @@
-"""Arithmetic nodes (``math-add``, ``math-subtract``, etc.)."""
+"""Nodes for arithmetic: ``math-add``, ``math-divide``, ``math-min`` and the rest.
 
-from __future__ import annotations
+They take and return ``float`` numbers. Dividing by 0 fails the node with ``division_by_zero``.
+"""
 
-from typing import TYPE_CHECKING, Annotated
+import math
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Annotated
 
-from conductor.widgets import Output, Range, Text
+from conductor import NodeError, NodeRegistry, Param, Series
 
-if TYPE_CHECKING:
-    from conductor import NodeRegistry
+registry = NodeRegistry(category="math")
 
 
-def register(registry: "NodeRegistry") -> None:
-    """Register every math node on the supplied registry."""
+@registry.node("math-add", title="Add", description="Adds two numbers together.")
+def add(a: float, b: float) -> Annotated[float, Param(title="Sum")]:
+    """Returns ``a + b``."""
+    return a + b
 
-    @registry.node("math-add", version=1, name="Add", description="a + b")
-    def add(
-        a: Annotated[float, Text(label="A")],
-        b: Annotated[float, Text(label="B")],
-    ) -> Annotated[float, Output(label="Sum")]:
-        return a + b
 
-    @registry.node("math-subtract", version=1, name="Subtract", description="a - b")
-    def subtract(
-        a: Annotated[float, Text(label="A")],
-        b: Annotated[float, Text(label="B")],
-    ) -> Annotated[float, Output(label="Difference")]:
-        return a - b
+@registry.node(
+    "math-subtract", title="Subtract", description="Takes the second number away from the first."
+)
+def subtract(a: float, b: float) -> Annotated[float, Param(title="Difference")]:
+    """Returns ``a - b``."""
+    return a - b
 
-    @registry.node("math-multiply", version=1, name="Multiply", description="a * b")
-    def multiply(
-        a: Annotated[float, Text(label="A")],
-        b: Annotated[float, Text(label="B")],
-    ) -> Annotated[float, Output(label="Product")]:
-        return a * b
 
-    @registry.node(
-        "math-divide", version=1, name="Divide",
-        description="a / b — raises on b == 0",
-    )
-    def divide(
-        a: Annotated[float, Text(label="A")],
-        b: Annotated[float, Text(label="B")],
-    ) -> Annotated[float, Output(label="Quotient")]:
-        if b == 0:
-            raise ValueError("Division by zero")
-        return a / b
+@registry.node("math-multiply", title="Multiply", description="Multiplies two numbers.")
+def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
+    """Returns ``a * b``."""
+    return a * b
 
-    @registry.node("math-modulo", version=1, name="Modulo", description="a % b")
-    def modulo(
-        a: Annotated[float, Text(label="A")],
-        b: Annotated[float, Text(label="B")],
-    ) -> Annotated[float, Output(label="Remainder")]:
-        if b == 0:
-            raise ValueError("Modulo by zero")
-        return a % b
 
-    @registry.node(
-        "math-round", version=1, name="Round",
-        description="Rounds to the given number of decimals",
-    )
-    def round_(
-        value: Annotated[float, Text(label="Value")],
-        decimals: Annotated[int, Range(label="Decimals", min_val=0, max_val=10, step=1)] = 0,
-    ) -> Annotated[float, Output(label="Rounded")]:
-        return round(value, decimals)
+@registry.node(
+    "math-divide",
+    title="Divide",
+    description="Divides the first number by the second. Dividing by zero is an error.",
+)
+def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
+    """Returns ``a / b``.
 
-    @registry.node(
-        "math-min", version=1, name="Min",
-        description="Minimum of a list of numbers",
-    )
-    def min_(
-        values: Annotated[list[float], Text(label="Values")],
-    ) -> Annotated[float, Output(label="Min")]:
-        if not values:
-            raise ValueError("min requires at least one value")
-        return min(values)
+    Raises:
+        NodeError: ``division_by_zero`` if ``b`` is 0.
+    """
+    if b == 0:
+        raise NodeError(
+            "Cannot divide by 0. Give a second number other than 0.", code="division_by_zero"
+        )
+    return a / b
 
-    @registry.node(
-        "math-max", version=1, name="Max",
-        description="Maximum of a list of numbers",
-    )
-    def max_(
-        values: Annotated[list[float], Text(label="Values")],
-    ) -> Annotated[float, Output(label="Max")]:
-        if not values:
-            raise ValueError("max requires at least one value")
-        return max(values)
 
-    @registry.node("math-abs", version=1, name="Absolute", description="|value|")
-    def abs_(
-        value: Annotated[float, Text(label="Value")],
-    ) -> Annotated[float, Output(label="Absolute")]:
-        return abs(value)
+@registry.node(
+    "math-modulo",
+    title="Remainder",
+    description="Gives what is left over when the first number is divided by the second. Dividing by zero is an error.",
+)
+def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
+    """Returns ``a % b``, what is left over when ``a`` is divided by ``b``.
+
+    Raises:
+        NodeError: ``division_by_zero`` if ``b`` is 0.
+    """
+    if b == 0:
+        raise NodeError(
+            "Cannot divide by 0. Give a second number other than 0.", code="division_by_zero"
+        )
+    return a % b
+
+
+@registry.node(
+    "math-round",
+    title="Round",
+    description="Rounds a number to the number of decimals you choose, with halves rounded away from zero.",
+)
+def round_to(
+    value: float, decimals: Annotated[int, Param(ge=0, le=10)] = 0
+) -> Annotated[float, Param(title="Rounded")]:
+    """Rounds ``value`` to ``decimals`` decimals, with a half rounded away from zero.
+
+    So 2.5 becomes 3, and -2.5 becomes -3. At two decimals, 0.125 becomes 0.13.
+
+    The number is rounded as it is written. The float closest to 0.125 is a tiny bit less than 0.125, so Python's
+    own ``round`` gives 0.12. This node gives 0.13, as a person would expect.
+    """
+    if (
+        not math.isfinite(value) or abs(value) >= 2**52
+    ):  # a float this large has no fraction to round, and inf and nan can't be rounded
+        return value
+    return float(Decimal(str(value)).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP))
+
+
+@registry.node(
+    "math-min",
+    title="Smallest",
+    description="Finds the smallest of the numbers. With no numbers it is an error.",
+)
+def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
+    """Returns the smallest of the numbers.
+
+    Raises:
+        NodeError: ``no_numbers`` if there are none.
+    """
+    if not values:
+        raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
+    return min(values)
+
+
+@registry.node(
+    "math-max",
+    title="Largest",
+    description="Finds the largest of the numbers. With no numbers it is an error.",
+)
+def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
+    """Returns the largest of the numbers.
+
+    Raises:
+        NodeError: ``no_numbers`` if there are none.
+    """
+    if not values:
+        raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
+    return max(values)
+
+
+@registry.node(
+    "math-abs", title="Absolute value", description="Gives the number without its minus sign."
+)
+def absolute(value: float) -> Annotated[float, Param(title="Absolute")]:
+    """Returns ``value`` without its minus sign."""
+    return abs(value)

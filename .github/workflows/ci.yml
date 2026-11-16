@@ -18,7 +18,9 @@ jobs:
         with:
           enable-cache: true
       - name: Ruff check
-        run: uvx ruff check .
+        run: uvx ruff@0.17.0 check .
+      - name: Ruff format
+        run: uvx ruff@0.17.0 format --check .
 
   test:
     runs-on: ubuntu-latest
@@ -29,5 +31,7 @@ jobs:
           enable-cache: true
       - name: Install
         run: uv sync --all-groups
+      - name: Mypy
+        run: uv run mypy packages
       - name: Pytest
-        run: uv run pytest tests/ -q
+        run: uv run pytest tests/ -q -m "not slow"

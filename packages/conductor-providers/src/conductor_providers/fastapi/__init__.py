@@ -1,51 +1,29 @@
-"""FastAPI adapter for conductor.
+"""Conductor served over HTTP: ``run_router``, the ``Worker`` under it, and the ``RunStore`` they keep runs in.
 
-Mount conductor's core endpoints (``/nodes``, ``/execute``, ``/execute-stream``,
-``/compile``) as a FastAPI ``APIRouter`` without hand-rolling the pydantic
-payloads, SSE framing, or compile-result plumbing in every host.
+Make a worker on your store, and mount the router over it. ``metadata`` gives what a new run keeps about itself, such
+as who started it, and ``run_filter`` says which runs a request may see::
 
-Usage::
-
-    from fastapi import FastAPI, Depends
-    from conductor import NodeRegistry
-    from conductor.compound.for_each import FOR_EACH
-    from conductor_providers.fastapi import conductor_router
-
-    registry = NodeRegistry()
-    # ... populate registry ...
-
+    worker = Worker(store, nodes_for=lambda metadata: registry)
     app = FastAPI()
-    app.include_router(
-        conductor_router(
-            registry,
-            prefix="/api/v1/flows",
-            compound_types=[FOR_EACH],
-            dependencies=[Depends(require_admin)],
-        )
-    )
+    app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs))
 
-Optional per-request context injection into the node ``FlowStore``::
-
-    def my_context(request: Request) -> dict[str, Any]:
-        return {"user": request.state.user, "session": request.state.session}
-
-    conductor_router(registry, context_factory=my_context)
-
-Requires ``fastapi`` installed (declared as an optional extra:
-``pip install conductor-providers[fastapi]``).
+Or call the ``Worker`` from routes of your own. Any number of workers can serve
+runs against one store: each takes over the runs of a worker that died, and a
+worker that shuts down hands its runs back.
 """
 
-from conductor_providers.fastapi.compile import CompileResult, CompileWarning
-from conductor_providers.fastapi.models import EdgeInput, ExecuteRequest, NodeInput
-from conductor_providers.fastapi.router import conductor_router
-from conductor_providers.fastapi.sse import sse_frame
+from conductor_providers.fastapi.problems import SERVING_PROBLEMS
+from conductor_providers.fastapi.router import run_router
+from conductor_providers.fastapi.state import RunView
+from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
+from conductor_providers.fastapi.worker import Worker
 
 __all__ = [
-    "conductor_router",
-    "ExecuteRequest",
-    "NodeInput",
-    "EdgeInput",
-    "CompileResult",
-    "CompileWarning",
-    "sse_frame",
+    "run_router",
+    "Worker",
+    "RunStore",
+    "StoredRun",
+    "RunChanges",
+    "RunView",
+    "SERVING_PROBLEMS",
 ]
