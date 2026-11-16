@@ -12,11 +12,14 @@ A newer version names the one it replaces, and an ``Upgrade`` says how a graph m
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import functools
+import inspect
+from ast import AsyncFunctionDef, ClassDef, FunctionDef, Pass
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
+from types import CodeType, MappingProxyType
 from typing import Any, Literal, Protocol, Self
 
 from pydantic import JsonValue
@@ -203,12 +206,16 @@ class FunctionDefinition[**P, R](_Version):
             then becomes its outputs. An ``Ask`` from any other node fails its call (``ask_not_declared``).
         running_calls: The counter of this node's running calls across the process, which ``policy.concurrency``
             limits. ``@node`` makes it, and every copy a registry makes of the definition shares it.
+        source: The function's source, read when ``@node`` declared it, or ``None`` for a lambda or a function with
+            no source file. Its code fingerprint is read from this, so a file replaced on disk later, as a deploy
+            does while old processes still run, doesn't change it.
     """
 
     function: NodeFunction[P, R]
     inputs: Mapping[str, Field]
     outputs: Mapping[str, Field]
     outputs_dataclass: type | None
+    source: str | None
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
@@ -222,6 +229,16 @@ class FunctionDefinition[**P, R](_Version):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Calls the function, as a test or a host would."""
         return self.function(*args, **kwargs)
+
+    @functools.cached_property
+    def code_text(self) -> str:
+        """The function's code as text that's the same on every Python version, without its docstrings.
+
+        A compiled node hashes it into its code fingerprint, which says whether an earlier call can be reused. It's
+        worked out once per definition, on first use, since parsing a function's source is slow next to the rest of
+        the hash.
+        """
+        return _code_text(self.source, inspect.unwrap(self.function).__code__)
 
     @property
     def where_declared(self) -> str:
@@ -355,3 +372,69 @@ def with_defaults(
         extra=MappingProxyType(merged_extra),
         replaces=replaces,
     )
+
+
+def source_of(function: Callable[..., Any]) -> str | None:
+    """Returns a function's source as its file has it now, or ``None`` for a lambda or a function with no source file.
+
+    A lambda's source is the whole line it's on, which may hold other code, so it has none here. A function made by
+    ``exec`` has no file to read.
+    """
+    function = inspect.unwrap(function)
+    if function.__name__ == "<lambda>":
+        return None
+    try:
+        return inspect.getsource(function)
+    except OSError:
+        return None
+
+
+def _code_text(source: str | None, code: CodeType) -> str:
+    """Returns a function's code as text that's the same on every Python version, leaving out docstrings.
+
+    The text is the function's source, parsed and written out again by ``ast.unparse``. It leaves out the
+    function's name and decorators, and the docstrings of the function and of every function and class inside it.
+    So a comment, a blank line, a docstring, the function's name or its ``@node`` line can change, and the text
+    stays the same. A docstring that's all of a body is written as ``pass``.
+
+    A function with no source (``source`` is ``None``) is written from its bytecode, ``code``, instead. Bytecode
+    changes with each Python version, and it keeps docstrings.
+    """
+    if source is None:
+        return _bytecode_text(code)
+    # A function defined inside another is indented, and a string in it may start at column 0, so the source is
+    # parsed inside an "if" rather than dedented.
+    tree = ast.parse(f"if True:\n{source}" if source[0].isspace() else source)
+    definition = next(
+        part for part in ast.walk(tree) if isinstance(part, FunctionDef | AsyncFunctionDef)
+    )
+    definition.name, definition.decorator_list = "", []
+    for part in ast.walk(definition):
+        if (
+            isinstance(part, FunctionDef | AsyncFunctionDef | ClassDef)
+            and ast.get_docstring(part, clean=False) is not None
+        ):
+            part.body = part.body[1:] or [Pass()]
+    return ast.unparse(definition)
+
+
+def _bytecode_text(code: CodeType) -> str:
+    """Returns a function's bytecode, constants and names as text that's the same in every process.
+
+    A function or class defined inside is written out from its own code.
+    """
+    return f"{code.co_code.hex()}:{[_constant_text(c) for c in code.co_consts]}:{code.co_names}"
+
+
+def _constant_text(constant: Any) -> str:
+    """Returns a constant as text that's the same in every process.
+
+    A set's members are sorted, since a set's order depends on the process's hash seed.
+    """
+    if isinstance(constant, CodeType):
+        return _bytecode_text(constant)
+    if isinstance(constant, frozenset):
+        return f"frozenset({sorted(_constant_text(c) for c in constant)})"
+    if isinstance(constant, tuple):
+        return f"({', '.join(_constant_text(c) for c in constant)},)"
+    return repr(constant)

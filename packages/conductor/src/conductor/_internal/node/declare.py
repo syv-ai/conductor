@@ -53,6 +53,7 @@ from .type import (
     Upgrade,
     gone_inputs,
     gone_outputs,
+    source_of,
 )
 
 
@@ -166,6 +167,7 @@ def node(
                 inputs=inputs,
                 outputs=outputs,
                 outputs_dataclass=outputs_dataclass,
+                source=source_of(target),
                 context=context,
                 id=id,
                 version=number,

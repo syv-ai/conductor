@@ -788,7 +788,7 @@ first = sending.run(text="ida@a.dk\nbo@b.dk")                # two mails
 second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added: one mail
 ```
 
-**What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own bytecode and constants, as a saved run records it), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
+**What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own source as Python parses it, without its name, decorators, comments or docstrings, as a saved run records it, so a new Python version keeps the key; a lambda, or a function with no source file such as one made by `exec`, by its bytecode), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
 
 **Which outcome a call reuses.**
 

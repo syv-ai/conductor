@@ -154,8 +154,8 @@ graph = Graph.compile(record, registry)
 print(graph.run(text="a b").outputs)  # {'result': 'A+B'}
 ```
 
-**Worth questioning:** the code in the reuse key is the node function's own bytecode and constants, so a change to a
-helper it calls isn't noticed. A node that depends on more than its inputs sets
+**Worth questioning:** the code in the reuse key is the node function's own source as Python parses it, so a change to
+a helper it calls isn't noticed. A node that depends on more than its inputs sets
 `Policy(reuse_when_inputs_match=False)`. Hashing all the code a node can reach would be slow, and would still miss the
 outside world.
 

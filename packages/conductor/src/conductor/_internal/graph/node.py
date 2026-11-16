@@ -19,9 +19,7 @@ Nothing from a run is stored on a compiled node. It's made once, and every run u
 
 from __future__ import annotations
 
-import dis
 import functools
-import inspect
 import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -148,7 +146,8 @@ class CompiledFunctionNode(_CompiledNodeBase):
         outcome reused once, in item order. One that may not has its outcomes reused any number of times. So the
         outcomes of one are never reused as the other's.
 
-        The code is taken from the function's own bytecode and constants, not from the functions it calls.
+        The code is the function's own parsed source, not the functions it calls, so a new Python version keeps the
+        hash. A lambda, or a function with no source file, is hashed by its bytecode instead.
         """
         definition = self.definition
         fields = [
@@ -158,7 +157,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
                 *self.outputs.values(),
             )
         ]
-        code = _code_text(inspect.unwrap(definition.function).__code__)
+        code = definition.code_text
         # Each loop is written with place_text, like "e/split.result", not with repr. Waiting-call ids and saved
         # runs contain the hash, so it should change only when that text does.
         loops = tuple([place_text(node, output) for node, output in self.loops])
@@ -323,61 +322,3 @@ class CompiledSubgraphNode(_CompiledNodeBase):
 
 #: One node of a compiled graph: a function, or a subgraph.
 CompiledNode = CompiledFunctionNode | CompiledSubgraphNode
-
-
-#: The code flag that says a function has a docstring. Python 3.14 added it, and before that this is ``None``.
-_HAS_DOCSTRING_FLAG: int | None = getattr(inspect, "CO_HAS_DOCSTRING", None)
-
-
-def _code_text(code: Any) -> str:
-    """Returns a function's code as text that's the same in every process, leaving out docstrings.
-
-    The text has the bytecode, the constants and the names. A function or class defined inside is written out from
-    its own code.
-
-    A docstring doesn't change what a node does, so adding, changing or removing one keeps the text the same.
-    Docstrings are left out in two ways:
-
-    - A function's docstring is its first constant, so that constant is written as ``None``. Python 3.12 and 3.13
-      always keep that slot, with ``None`` when there's no docstring. From 3.14, a code flag says whether there is
-      one.
-    - A class body sets ``__doc__`` with two instructions. So a class body is written instruction by instruction,
-      without those two.
-    """
-    if not code.co_flags & inspect.CO_NEWLOCALS:
-        instructions = list(dis.get_instructions(code))
-        kept = [
-            instruction
-            for index, instruction in enumerate(instructions)
-            if not (instruction.opname == "STORE_NAME" and instruction.argval == "__doc__")
-            and not (
-                instruction.opname == "LOAD_CONST"
-                and index + 1 < len(instructions)
-                and instructions[index + 1].argval == "__doc__"
-            )
-        ]
-        return f"{[(i.opname, _constant_text(i.argval) if i.opname == 'LOAD_CONST' else repr(i.argval)) for i in kept]}"
-    constants = list(code.co_consts)
-    if _HAS_DOCSTRING_FLAG is None:
-        has_docstring = (
-            bool(constants) and isinstance(constants[0], str) and code.co_name != "<genexpr>"
-        )
-    else:
-        has_docstring = bool(code.co_flags & _HAS_DOCSTRING_FLAG)
-    if has_docstring:
-        constants[0] = None
-    return f"{code.co_code.hex()}:{[_constant_text(c) for c in constants]}:{code.co_names}"
-
-
-def _constant_text(constant: Any) -> str:
-    """Returns a constant as text that's the same in every process.
-
-    A set's members are sorted, since a set's order depends on the process's hash seed.
-    """
-    if hasattr(constant, "co_code"):
-        return _code_text(constant)
-    if isinstance(constant, frozenset):
-        return f"frozenset({sorted(_constant_text(c) for c in constant)})"
-    if isinstance(constant, tuple):
-        return f"({', '.join(_constant_text(c) for c in constant)},)"
-    return repr(constant)

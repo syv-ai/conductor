@@ -8,12 +8,15 @@ run. So when one row of a CSV is edited, only one mail is sent again.
 """
 
 import asyncio
+import functools
 import json
 import logging
+import runpy
 import time
 from asyncio import Event as AsyncioEvent
 from collections.abc import Mapping, Sequence
 from io import StringIO
+from pathlib import Path
 from random import Random
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -1778,9 +1781,8 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_ag
     assert again.results["e"]["result"] == "ab"
 
 
-#: One node, ``ask``, written four ways. Each is compiled from its own text, so the functions inside have the same
-#: qualified names. Those names are part of the node's code, and they would differ between four functions in this
-#: file.
+#: One node, ``ask``, written four ways. Each is written to a file of its own, so its code is read from its source, and
+#: the functions inside have the same names in all four.
 _ASK = {
     "without docstrings": """
 def ask(name: str) -> bool:
@@ -1831,11 +1833,14 @@ def ask(name: str) -> bool:
 }
 
 
-def _waiting_id(source: str) -> str:
-    """Returns the id of the call that the node ``ask`` written as ``source`` leaves waiting for ``name="ida"``."""
-    namespace: dict[str, Any] = {"Ask": Ask}
-    exec(source, namespace)
-    function = namespace["ask"]
+def _waiting_id(source: str, folder: Path) -> str:
+    """Returns the id of the call that the node ``ask`` written as ``source`` leaves waiting for ``name="ida"``.
+
+    The source is written to a file in ``folder`` and run from there, as a module of a host's would be.
+    """
+    path = folder / f"ask_{len(list(folder.iterdir()))}.py"
+    path.write_text(f"from conductor import Ask\n{source}")
+    function = runpy.run_path(str(path))["ask"]
     record = GraphRecord.model_validate(
         {"nodes": {"a": {"node": "ask", "inputs": {"name": {"graph_input": "name"}}}}}
     )
@@ -1850,12 +1855,132 @@ def _waiting_id(source: str) -> str:
     return waiting.id
 
 
-def test_a_docstring_of_a_node_or_of_a_function_or_class_inside_it_is_not_part_of_its_code():
+def test_a_docstring_of_a_node_or_of_a_function_or_class_inside_it_is_not_part_of_its_code(
+    tmp_path: Path,
+):
     """Adding or changing a docstring keeps a waiting call's id, but a different message gives a different id."""
-    ids = {way: _waiting_id(source) for way, source in _ASK.items()}
+    ids = {way: _waiting_id(source, tmp_path) for way, source in _ASK.items()}
 
     assert ids["without docstrings"] == ids["with docstrings"] == ids["with other docstrings"]
     assert ids["with another message"] != ids["with docstrings"]
+
+
+def _code(function: Any) -> str:
+    """Returns the code value a saved run of a graph of ``function`` alone records, as the node ``echo``."""
+    definition = node("echo", title="Echo", description="For a test.")(function)
+    return json.loads(_alone(definition).run().to_json())["code"]["n"]
+
+
+def _code_from_file(source: str, folder: Path) -> str:
+    """Returns the code value of the function ``echo`` written as ``source`` in a file of its own in ``folder``."""
+    path = folder / f"echo_{len(list(folder.iterdir()))}.py"
+    path.write_text(source)
+    return _code(runpy.run_path(str(path))["echo"])
+
+
+def _echo(text: str = "ab") -> str:
+    return text.upper() + "!"
+
+
+def test_a_code_fingerprint_is_read_from_the_source_so_every_python_version_gives_the_same_one():
+    """A node's code fingerprint is a hash of its parsed source, so it's the same on every Python version.
+
+    The value below is the one Python 3.12 and 3.13 both give. Bytecode differs between the two.
+    """
+    assert _code(_echo) == "e2dec662aea9af33"
+
+
+def test_a_comment_a_line_break_the_name_or_the_decorator_of_a_node_is_not_part_of_its_code(
+    tmp_path: Path,
+):
+    """The code is the parsed source written out again, so only what Python would run counts."""
+    plain = """
+def echo(text: str = "ab") -> str:
+    return text.upper() + "!"
+"""
+    reworded = """
+import functools
+
+@functools.lru_cache
+def other_name(
+    text: str = "ab",  # the text to shout
+) -> str:
+
+    # louder
+    return (text.upper()
+            + "!")
+
+echo = other_name.__wrapped__
+"""
+    another_mark = plain.replace('"!"', '"?"')
+
+    assert _code_from_file(plain, tmp_path) == _code_from_file(reworded, tmp_path)
+    assert _code_from_file(plain, tmp_path) != _code_from_file(another_mark, tmp_path)
+
+
+def test_a_file_replaced_after_node_declared_its_function_keeps_the_code_fingerprint(
+    tmp_path: Path,
+):
+    """The source is read when ``@node`` declares the function, so a deploy that replaces the file later changes nothing.
+
+    The replaced file has other code at the function's line, and fewer lines than the old one.
+    """
+    path = tmp_path / "echo_module.py"
+    path.write_text('\n\ndef echo(text: str = "ab") -> str:\n    return text.upper() + "!"\n')
+    declared = node("echo", title="Echo", description="For a test.")(
+        runpy.run_path(str(path))["echo"]
+    )
+    path.write_text("x = 1\n")
+
+    assert json.loads(_alone(declared).run().to_json())["code"]["n"] == _code(_echo)
+
+
+def test_a_function_defined_inside_another_with_a_string_at_the_left_margin_has_its_source_read():
+    """A nested function's source is indented, and a string in it may start at column 0. Both are read."""
+
+    def first(text: str = "ab") -> str:
+        return (
+            text
+            + """
+!"""
+        )
+
+    def second(text: str = "ab") -> str:
+        return (
+            text
+            + """
+?"""
+        )
+
+    assert _code(first) != _code(second)
+
+
+def test_a_lambda_and_a_function_made_by_exec_are_hashed_by_their_bytecode():
+    """A lambda's source is its whole line, and an ``exec``'d function has none, so both are hashed by bytecode.
+
+    So two lambdas on one line get two codes, and an ``exec``'d function's code changes with its constants.
+    """
+    upper, lower = (lambda text: text.upper()), (lambda text: text.lower())
+    for function in (upper, lower):
+        function.__annotations__ = {"text": str, "return": str}
+        function.__defaults__ = ("ab",)
+
+    def made(mark: str) -> Any:
+        namespace: dict[str, Any] = {}
+        exec(f"def echo(text: str = 'ab') -> str:\n    return text + {mark!r}", namespace)
+        return namespace["echo"]
+
+    assert _code(upper) != _code(lower)
+    assert _code(made("!")) == _code(made("!")) != _code(made("?"))
+
+
+def test_a_partial_is_refused_at_node():
+    """``@node`` reads a function's type hints, which a ``functools.partial`` doesn't have.
+
+    A node made from a partial is written as a ``def`` that calls it, and that ``def``'s source is its code.
+    """
+    with pytest.raises(TypeError):
+        node("echo", title="Echo", description="For a test.")(functools.partial(_echo, "ab"))
 
 
 def test_a_node_redeclared_with_another_docstring_is_reused_on_a_saved_run_and_with_another_constant_is_not():
