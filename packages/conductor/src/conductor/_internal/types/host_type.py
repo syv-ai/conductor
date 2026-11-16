@@ -15,6 +15,7 @@ checks the declaration right away and stores it on the class, where ``declaratio
 from __future__ import annotations
 
 import datetime
+import re
 import typing
 from collections.abc import Callable, Mapping
 from decimal import Decimal
@@ -170,12 +171,35 @@ def declaration_of(cls: type) -> TypeDeclaration:
         parent = next(
             (base for base in cls.__mro__[1:] if "__conductor_type__" in vars(base)), None
         )
+        suggested_id, suggested_title = _suggested_declaration(cls)
         raise NodeDeclarationError(
             declaration_problems.type_not_named(
-                cls=qualified_name(cls), parent=parent.__qualname__ if parent else None
+                cls=qualified_name(cls),
+                suggested_id=suggested_id,
+                suggested_title=suggested_title,
+                parent=parent.__qualname__ if parent else None,
             )
         )
     return declared
+
+
+def _suggested_declaration(cls: type) -> tuple[str, str]:
+    """Returns an id and a title for a class with no ``@host_type``, made from the class's name.
+
+    ``type_not_named`` suggests them, so the developer can paste a declaration that works. The id is the name's
+    words in lower case with ``-`` between them, and the title is the words as a phrase. ``InvoiceLine`` gets
+    ``"invoice-line"`` and "Invoice line", and ``IPAddress`` gets ``"ip-address"`` and "IP address". An id that is
+    one of conductor's own gets ``-type`` after it, so a class ``Record`` gets ``"record-type"``.
+    """
+    words = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", cls.__name__) or [cls.__name__]
+    suggested_id = "-".join(word.lower() for word in words)
+    if suggested_id in OWN_IDS:
+        suggested_id = f"{suggested_id}-type"
+    first, *rest = words
+    title_words = [first[:1].upper() + first[1:]]
+    # An acronym such as "IP" keeps its capitals, and any other word is written in lower case.
+    title_words += [word if word.isupper() else word.lower() for word in rest]
+    return suggested_id, " ".join(title_words)
 
 
 def accepted_classes(cls: type) -> tuple[type, ...]:

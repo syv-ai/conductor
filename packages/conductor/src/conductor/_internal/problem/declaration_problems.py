@@ -1005,16 +1005,21 @@ def type_not_supported_declared(*, id: str, cls: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
-def type_not_named(*, cls: str, parent: str | None = None) -> str:
+def type_not_named(
+    *, cls: str, suggested_id: str, suggested_title: str, parent: str | None = None
+) -> str:
     """An input's or output's type is a class of the host's that has no ``@host_type``.
 
     The id that ``@host_type`` gives is what an editor and a saved graph call the type. A subclass doesn't inherit its
     parent's declaration, so it needs one of its own.
 
-    To fix it, write ``@host_type("...", title="...")`` above the class.
+    To fix it, write ``@host_type`` above the class. The message suggests an id and a title made from the class's
+    name, such as ``@host_type("invoice-line", title="Invoice line")`` for ``InvoiceLine``.
 
     Args:
         cls: The class, by its module and name.
+        suggested_id: An id made from the class's name, such as ``"invoice-line"``.
+        suggested_title: A title made from the class's name, such as ``"Invoice line"``.
         parent: A base class that is declared, if there is one.
 
     Example:
@@ -1032,7 +1037,10 @@ def type_not_named(*, cls: str, parent: str | None = None) -> str:
     why = (
         f" {parent} is declared, but a subclass doesn't inherit its declaration." if parent else ""
     )
-    return f'{cls} is the type of a field, and it has no @host_type. Write @host_type("...", title="...") above the class.{why}'
+    return (
+        f"{cls} is the type of a field, and it has no @host_type. "
+        f'Write @host_type("{suggested_id}", title="{suggested_title}") above the class.{why}'
+    )
 
 
 @DECLARATION_PROBLEMS.problem()

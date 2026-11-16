@@ -234,8 +234,35 @@ def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_lin
     assert (
         refused.problems[0].type == "type_not_named"
         and "Plain" in str(refused)
-        and '@host_type("...", title="...")' in str(refused)
+        and '@host_type("plain", title="Plain")' in str(refused)
     )
+
+
+@pytest.mark.parametrize(
+    ("name", "line"),
+    [
+        ("InvoiceLine", '@host_type("invoice-line", title="Invoice line")'),
+        ("IPAddress", '@host_type("ip-address", title="IP address")'),
+        ("Record", '@host_type("record-type", title="Record")'),
+    ],
+)
+def test_the_line_a_class_that_is_not_declared_is_told_to_write_declares_it(
+    name: str, line: str
+) -> None:
+    """The refusal suggests an id and a title made from the class's name, and pasting them declares the class.
+
+    ``Record`` would give ``"record"``, which is one of conductor's own ids, so it gets ``-type`` after it.
+    """
+    undeclared = dataclasses.make_dataclass(name, [("x", float)])
+
+    def f(value: undeclared) -> str:  # type: ignore[valid-type]
+        return ""
+
+    refused = _refused(lambda: declared(f))
+    assert line in str(refused)
+    problem = refused.problems[0]
+    host_type(problem.ctx["suggested_id"], title=problem.ctx["suggested_title"])(undeclared)
+    assert declared(f).inputs["value"].type.id == problem.ctx["suggested_id"]
 
 
 def test_a_subclass_does_not_inherit_its_parents_declaration() -> None:

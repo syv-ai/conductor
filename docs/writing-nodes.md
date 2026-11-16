@@ -220,7 +220,7 @@ print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 print(city.describe().inputs[0].type)                       # address
 ```
 
-Conductor checks the declaration as soon as the class is defined, so a mistake fails at import. If you forget `@host_type`, the node that uses the class fails where it is declared, with `type_not_named`. A class inside a list or a dict needs the declaration too, and so does a subclass. Put `@host_type` above `@dataclass` when there is one. For a library's class that you can't decorate, call it: `host_type("ip", title="IP address")(ipaddress.IPv4Address)`.
+Conductor checks the declaration as soon as the class is defined, so a mistake fails at import. If you forget `@host_type`, the node that uses the class fails where it is declared, with `type_not_named`, and the message gives a line to paste, such as `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`. A class inside a list or a dict needs the declaration too, and so does a subclass. Put `@host_type` above `@dataclass` when there is one. For a library's class that you can't decorate, call it: `host_type("ip", title="IP address")(ipaddress.IPv4Address)`.
 
 Conductor's own types already have titles: `str` is "Text" and `int` is "Whole number". More on types, and why `@host_type` is a decorator and not a base class, is in `python -m conductor.about types`.
 
