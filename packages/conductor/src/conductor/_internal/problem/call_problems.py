@@ -215,7 +215,7 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
     refused.
 
     To fix it, give the list to a node that returns it as a ``Series``, or give one value. A ``Series`` graph input
-    takes a list, and takes a single value as a list of one.
+    takes a list, and refuses a single value.
 
     Args:
         loc: ``"inputs"`` and the input's name.
