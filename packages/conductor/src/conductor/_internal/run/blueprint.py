@@ -45,6 +45,7 @@ from conductor._internal.base import (
     ItemIndexes,
     Loc,
     NodePath,
+    Source,
     place_text,
 )
 from conductor._internal.graph import (
@@ -112,10 +113,10 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
         edge_validator: Checks, before each call, the inputs whose type is stricter than the outputs their edges
             come from (``validator.py``). ``None`` when no input is.
         looped_outputs: The node's ``Series`` outputs that some edge reads one item at a time, by output name. A run
-            checks each against ``max_items``. The value is the node and output the reading node's graph knows the
-            list by. That is this node, unless the reading node is outside a subgraph this node is inside. Then it
-            is that subgraph node, and its output that gives the list. The ``item_limit`` problem names the list
-            that way.
+            checks each against ``max_items``. The value is the output the reading edge is wired to: the node and
+            output the reading node's graph knows the list by. That is this node, unless the reading node is outside
+            a subgraph this node is inside. Then it is that subgraph node, and its output that gives the list. The
+            ``item_limit`` problem names the list that way.
         upstream: Each function node whose outcomes a call of this node reads, with a number ``n``. The call at
             ``item_indexes`` reads that node's outcome at ``item_indexes[:n]``. If that node is inside more than
             ``n`` loops, the call reads every outcome whose item indexes start with those. In the example, ``join``
@@ -134,9 +135,7 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
     edge_validator: EdgeValidator | None
     upstream: dict[BlueprintFunctionNode, int]
     position: int
-    looped_outputs: dict[str, tuple[BlueprintNode, str]] = dataclasses.field(
-        default_factory=dict[str, tuple["BlueprintNode", str]]
-    )
+    looped_outputs: dict[str, Source] = dataclasses.field(default_factory=dict[str, Source])
     downstream: list[tuple[BlueprintFunctionNode, int]] = dataclasses.field(
         default_factory=list[tuple["BlueprintFunctionNode", int]]
     )
@@ -300,7 +299,7 @@ def _add_blueprint_nodes(
                 compiled_node, parent, node_path, loops, functions
             )
         graph_nodes[compiled_node.id] = nodes[node_path] = node
-        _note_looped_outputs(node, functions, nodes)
+        _note_looped_outputs(node, functions)
     return graph_nodes
 
 
@@ -441,14 +440,12 @@ def function_node_in_run(
 
 
 def _note_looped_outputs(
-    node: BlueprintNode,
-    functions: Mapping[NodePath, BlueprintFunctionNode],
-    nodes: Mapping[NodePath, BlueprintNode],
+    node: BlueprintNode, functions: Mapping[NodePath, BlueprintFunctionNode]
 ) -> None:
     """Records each ``Series`` output that an input of ``node`` reads one item at a time.
 
     The output goes into the ``looped_outputs`` of the function node that returns it, named the way ``node``'s
-    graph names it: by the node the edge is wired to.
+    graph names it: by the output the edge is wired to.
     """
     graph_path = node.node_path[:-1]
     for node_input in node.compiled_node.inputs.values():
@@ -456,10 +453,9 @@ def _note_looped_outputs(
             case EdgeInput(sources=edges, as_list=False):
                 for edge in edges:
                     if edge.per_item:
-                        wired_to = nodes[_path_in_run(graph_path, (edge.wired_to.node,))]
                         function_node_in_run(
                             functions, graph_path, edge.node
-                        ).looped_outputs.setdefault(edge.output, (wired_to, edge.wired_to.output))
+                        ).looped_outputs.setdefault(edge.output, edge.wired_to)
             case EdgeInput() | CollectingInput() | ConstantInput() | GraphInput() | MissingInput():
                 pass
             case _:

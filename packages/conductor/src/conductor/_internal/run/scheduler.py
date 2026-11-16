@@ -1058,17 +1058,19 @@ class Scheduler:
         Returns:
             Whether a series has too many items.
         """
-        for output, (named, series_output) in node.looped_outputs.items():
+        for output, series in node.looped_outputs.items():
             items = length(outcome.outputs[output])
             if items > item_limit:
                 if self.going:
                     loc = outcome_loc(node, item_indexes)
-                    series = place_text((named.compiled_node.id,), series_output)
                     self.end(
                         EndedEarly(
                             "stopped",
                             run_problems.item_limit(
-                                *loc, series=series, items=items, max_items=item_limit
+                                *loc,
+                                series=place_text((series.node,), series.output),
+                                items=items,
+                                max_items=item_limit,
                             ),
                         )
                     )
