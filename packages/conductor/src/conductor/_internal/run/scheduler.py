@@ -661,7 +661,9 @@ class Scheduler:
 
         An attempt of a node that is called on threads goes to a pool thread. If the node has an
         ``attempt_timeout``, the attempt gets its deadline timer here. Any other attempt is made right here, on the
-        scheduler's thread, and its outcome is recorded unless it is retried. If other runs are waiting for the
+        scheduler's thread, and its outcome is recorded unless it is retried. Only one is made per call of this
+        method: if more wait, the run wakes itself, so the run loop takes in what came back and fell due before it
+        makes the next. If other runs are waiting for the
         node, the ones that were parked (waiting for news) get to ask before this run asks again. While no attempt
         can start, the node's ``RunningCalls`` keeps hold of this run, so it can ``wake`` it.
 
@@ -712,6 +714,11 @@ class Scheduler:
             # An exception kept in a local of this frame makes a reference cycle through its traceback. That keeps
             # the call's frames and their values alive until the garbage collector runs.
             del error
+            if waiting:
+                # One call on this thread at a time: the run loop takes in what came meanwhile, then this wake
+                # brings it back for the next.
+                self.wake()
+                return
 
     def _cancel_queued(self, attempt: _Attempt) -> None:
         """Takes ``attempt`` off the pool's queue if no thread has started it yet, and counts it out, since it will

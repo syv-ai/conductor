@@ -1606,6 +1606,57 @@ def test_a_call_that_times_out_after_a_cancel_ends_the_run_failed_with_timeout()
     )  # a cancel before the call still cancels
 
 
+@pytest.mark.slow
+def test_a_threaded_slot_is_filled_between_waiting_calls_on_the_scheduler_thread():
+    """Another run holds ``gate`` (``concurrency=1``, so counted in the whole process) for 0.3 s, so this run's eight
+    ``gate`` calls wait, and then run one after another on the scheduler's own thread, 0.06 s each. A ``work`` slot
+    (``concurrency=2``, on threads) that frees meanwhile is filled after the ``gate`` call that is running, not after
+    all of them (0.48 s)."""
+    log, lock = [], threading.Lock()
+
+    @node("gate", title="Gate", description="For a test.", policy=Policy(concurrency=1))
+    def gate(x: int) -> int:
+        time.sleep(0.3 if x < 0 else 0.06)
+        return x
+
+    @node("items", title="Items", description="For a test.")
+    def items(n: int) -> Series[int]:
+        return list(range(n))
+
+    @node("work", title="Work", description="For a test.", policy=Policy(concurrency=2))
+    def work(x: int) -> int:
+        with lock:
+            log.append(("start", time.monotonic()))
+        time.sleep(0.1)
+        with lock:
+            log.append(("end", time.monotonic()))
+        return x
+
+    registry = registry_of(gate, items, work)
+    blocker = Graph.compile(make_graph(gate), registry)
+    graph = Graph.compile(
+        make_graph(
+            ("items", items),
+            ("g", gate),
+            ("w", work),
+            edges=[("items.result", "g.x"), ("items.result", "w.x")],
+            outputs={"g": "g.result", "w": "w.result"},
+        ),
+        registry,
+    )
+    blocking = Thread(target=lambda: blocker.run(x=-1))
+    blocking.start()
+    time.sleep(0.02)
+    run = graph.run(n=8)
+    blocking.join()
+
+    assert run.status == "complete"
+    starts = sorted(at for kind, at in log if kind == "start")
+    ends = sorted(at for kind, at in log if kind == "end")
+    # each start after the first two follows the end that freed its slot
+    assert max(start - end for start, end in zip(starts[2:], ends)) < 0.1
+
+
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release, both_started = ThreadEvent(), Barrier(2)
 
