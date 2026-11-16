@@ -255,8 +255,9 @@ def add_reusable_from_saved(
 ) -> None:
     """Adds the outcomes one node may reuse from the previous run to ``reusable``, from how they were saved.
 
-    Take the three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}``. Each is added
-    twice: by the item indexes its call had, and by its call's fingerprint.
+    Take the six saved outcomes of ``shout`` in ``SavedReusable``'s example. The first three, which have no item
+    indexes, are added by their call's fingerprint. The last three are added by the item indexes their call had;
+    ``add`` keeps the outcome already added for their fingerprint.
 
     Args:
         reusable: The run's reusable outcomes. Added to.

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, assert_never
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.base import SKIPPED, NodePath, place_text
+from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, place_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
@@ -115,7 +115,7 @@ def saved_run(run: Run) -> SavedRun:
     }
     reusable = {}
     for path, node in function_nodes.items():
-        # every outcome in reused_freely_by_call is in reused_freely too
+        # a node with outcomes in reused_freely_by_call has some in reused_freely too
         if path in run._reusable.reused_freely or path in run._reusable.reused_in_item_order:
             reusable[names[path]] = saved_reusable(
                 codec.reusable_classes[names[path]],
@@ -230,9 +230,11 @@ def saved_reusable(
 ) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run, the way a saved run writes them.
 
-    ``SavedReusable`` shows the JSON. Each outcome is written once, in this order. First come the outcomes known by
-    the item indexes their call had. Then the outcomes known only by their call's fingerprint.
-    Last come the outcomes of a node that may ask: its answers, its returns and its waiting questions.
+    ``SavedReusable`` shows the JSON. The run's two maps of a node that never asks are written as they are, in this
+    order. First comes ``reused_freely``, an outcome per call fingerprint. Then comes ``reused_freely_by_call``, an
+    outcome per call, with its item indexes. An outcome in both is written twice, so reading it back builds both
+    maps as they were. Last come the outcomes of a node that may ask: its answers, its returns and its waiting
+    questions.
 
     Args:
         saved_class: The codec's class for the node's reusable outcomes.
@@ -241,16 +243,16 @@ def saved_reusable(
         reusable: The run's reusable outcomes.
         path: The node's path.
     """
-    by_call = reusable.reused_freely_by_call.get(path, {})
-    outcomes: list[Outcome | None] = [done for _, done in by_call.values()]
-    fingerprints = [fingerprint for fingerprint, _ in by_call.values()]
-    item_indexes = dict(enumerate(by_call))
-    # ``reused_freely`` has these outcomes too: the first call that got those arguments
-    already_saved = set(fingerprints)
-    for fingerprint, done in reusable.reused_freely.get(path, {}).items():
-        if fingerprint not in already_saved:
-            outcomes.append(done)
-            fingerprints.append(fingerprint)
+    freely = reusable.reused_freely.get(path, {})
+    outcomes: list[Outcome | None] = list(freely.values())
+    fingerprints = list(freely)
+    # Written after ``reused_freely``, so reading adds each to ``reused_freely_by_call`` alone: ``add`` keeps the
+    # outcome ``reused_freely`` already has for its fingerprint.
+    item_indexes: dict[int, ItemIndexes] = {}
+    for indexes, (fingerprint, done) in reusable.reused_freely_by_call.get(path, {}).items():
+        item_indexes[len(outcomes)] = indexes
+        outcomes.append(done)
+        fingerprints.append(fingerprint)
     for fingerprint, left in reusable.reused_in_item_order.get(path, {}).items():
         for outcome in left:
             outcomes.append(outcome)

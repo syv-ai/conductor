@@ -1589,6 +1589,31 @@ def test_each_item_keeps_its_own_outcome_through_a_run_made_and_never_resumed_as
     assert saved.again(items=["a", "a"]).results["t"]["result"] == ["a first", "a second"]
 
 
+def test_a_saved_run_reuses_what_the_same_run_in_memory_reuses():
+    returned = iter(["first", "second", "third", "fourth", "fifth"])
+
+    @node("tag", title="Tag", description="For a test.")
+    def tag(text: str) -> str:
+        if text == "boom":
+            raise RuntimeError("boom")
+        return f"{text} {next(returned)}"
+
+    graph = Graph.compile(
+        _record({"each": _each, "t": tag}, [("each.result", "t.text")]), registry_of(_each, tag)
+    )
+    run = graph.run(items=["a", "a"])
+    assert run.results["t"]["result"] == ["a first", "a second"]
+    # t gets an outcome of its own at (0,) and isn't complete, so its reusable outcomes stay
+    failed = run.with_inputs(items=["b", "boom"]).resume()
+    assert failed.status == "failed"
+    edited = failed.with_inputs(items=["a", "a"])
+    saved = edited.to_json()
+
+    in_memory = edited.resume().results["t"]["result"]
+
+    assert Run.from_json(saved, graph).resume().results["t"]["result"] == in_memory
+
+
 def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_waits_and_mails_once():
     """An answer survives an edit and its revert while the edited item still waits, and only one mail is sent.
 

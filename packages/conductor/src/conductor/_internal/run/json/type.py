@@ -78,15 +78,20 @@ class SavedReusable(BaseModel):
     Say the README run has finished, and ``run.with_inputs(text="a\nb\nd")`` makes a new run. The new run may reuse
     the three outcomes of ``shout``. Before it has called anything, it saves them as::
 
-        "shout": {"outcomes": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
-                  "fingerprints": ["<24 hex characters>", "<24 hex characters>", "<24 hex characters>"],
-                  "item_indexes": {"0": [0], "1": [1], "2": [2]}}
+        "shout": {"outcomes": {"states": ["done", "done", "done", "done", "done", "done"],
+                               "outputs": {"result": ["A!", "B!", "C!", "A!", "B!", "C!"]}},
+                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>", "<fp a>", "<fp b>", "<fp c>"],
+                  "item_indexes": {"3": [0], "4": [1], "5": [2]}}
 
-    ``outcomes`` has the shape of ``SavedOutcomes``, a list per output, with each outcome written once. But here a
-    place in the lists isn't a call number of this run: these are calls of the previous run. So what tells the
-    outcomes apart is written beside them, by place: each call's fingerprint, and the item indexes it had. A call
-    fingerprint is a hash of the node's code fingerprint and the arguments as JSON, and for a node that may ask,
-    of the call's item in every loop it was inside too.
+    ``outcomes`` has the shape of ``SavedOutcomes``, a list per output. But here a place in the lists isn't a call
+    number of this run: these are calls of the previous run. So what tells the outcomes apart is written beside them,
+    by place: each call's fingerprint, and the item indexes it had. A call fingerprint (``<fp a>``) is a 24-character hash of the node's code
+    fingerprint and the arguments as JSON, and for a node that may ask, of the call's item in every loop it was
+    inside too.
+
+    A node that never asks keeps its outcomes in two maps, and each is written as it is: first an outcome per
+    fingerprint, then an outcome per call, with its item indexes. So the same outcome may be written twice, as
+    ``A!`` is here, and reading back builds both maps as they were.
 
     Attributes:
         outcomes: The outcomes, as the node's subclass of ``SavedOutcomes`` in the graph's codec.
