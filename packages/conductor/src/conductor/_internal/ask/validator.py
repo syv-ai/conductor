@@ -114,11 +114,12 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                         ]
                     ) from None
         if ask.default is not REQUIRED:
-            for name, default in self._by_output(ask.default, "default").items():
-                # A default would give this branch a value even when the person answers another branch.
-                if outputs[name].is_branch:
-                    reason = f"'{name}' defaults to SKIPPED, so it is a branch, and an Ask can't propose a default for a branch"
-                    raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
+            proposed = self._by_output(ask.default, "default")
+            # The defaults fill an answer in, so they give a value to at most one branch, as an answer does.
+            if len(filled := branches_given(outputs, proposed)) > 1:
+                reason = f"the default fills {comma_separated(filled)}, but they default to SKIPPED, so they are branches of one node"
+                raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
+            for name, default in proposed.items():
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
         return choices, defaults
 
@@ -252,7 +253,8 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         """Reads ``answer`` into outputs, and collects every fault rather than stopping at the first.
 
         A question left out of the answer gets its default. With no default, it is a skipped branch if it isn't
-        required. Otherwise leaving it out is a fault.
+        required. Otherwise leaving it out is a fault. A branch left out is skipped, never given its default, when
+        the answer gives another branch a value: a call gives a value to at most one branch.
 
         Returns:
             The outputs read, by name, and the faults. Each fault is ``(question, reason)``. ``question`` is
@@ -280,13 +282,16 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         ]
         read: dict[str, Any] = {}
         questions = as_asked(outputs, self._choices, self._defaults)
+        given = branches_given(outputs, answer)
         for name, field in outputs.items():
             try:
                 if name in answer:
                     read[name] = _answer_value(field, answer[name], self._choices.get(name))
                     continue
                 question = questions[name]
-                if question.default is not MISSING:
+                if field.is_branch and given:
+                    read[name] = SKIPPED
+                elif question.default is not MISSING:
                     read[name] = _read_as_answer(field.whole, question.default)
                 elif not question.required:
                     read[name] = SKIPPED
@@ -294,7 +299,6 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
                     faults.append((name, f"'{name}' has no answer"))
             except PydanticCustomError as refused:
                 faults.append((name, f"'{name}': {refused.message()}"))
-        given = branches_given(outputs, answer)
         if len(given) > 1:
             faults.append(
                 (

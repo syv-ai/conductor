@@ -105,8 +105,9 @@ What changes in how you work, before the name-by-name tables:
   has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
   `Outcome`), written before this change no longer loads: a required question there has `"default": null`.
   There is no migration.
-  An `Ask` that proposes a default for a branch fails the node (`invalid_ask`), even for a node's only branch: an
-  answer that left that branch out would give it the default, so no other branch could be answered.
+  An `Ask`'s defaults fill an answer in, so they give a value to at most one branch: defaults for two branches of
+  one node fail the node (`invalid_ask`). A branch with a default that an answer leaves out is skipped when the
+  answer gives another branch a value, and gets its default when it gives none.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,

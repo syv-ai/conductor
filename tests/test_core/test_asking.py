@@ -684,23 +684,56 @@ class Route:
     drop: str = SKIPPED
 
 
-@pytest.mark.parametrize("returned", [Route, Routed], ids=["one of two branches", "a lone branch"])
-def test_an_ask_proposing_a_default_for_a_branch_fails_the_node(returned):
-    """An ``Ask`` can't propose a default for a branch, even the node's only branch.
-
-    A default would give the branch a value even when the person answers another one.
-    """
-    branch = next(field.name for field in fields(returned) if field.default is SKIPPED)
+def test_an_ask_proposing_defaults_for_two_branches_fails_the_node():
+    """An ``Ask``'s defaults fill an answer in, so they give a value to at most one branch, as an answer does."""
 
     @node("route", title="Route", description="For a test.", asks=True)
-    def route(text: str) -> returned:  # type: ignore[valid-type]
-        raise Ask(f"Keep {text}?", default={branch: "a"})
+    def route(text: str) -> Route:
+        raise Ask(f"Keep {text}?", default={"keep": "a", "drop": "b"})
 
     _, run = _once(route, text="a")
     assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
     assert run.cause.ctx["reason"] == (
-        f"'{branch}' defaults to SKIPPED, so it is a branch, and an Ask can't propose a default for a branch"
+        "the default fills keep, drop, but they default to SKIPPED, so they are branches of one node"
     )
+
+
+def test_an_ask_may_propose_a_default_for_one_branch_which_another_answered_branch_skips():
+    """A default on one branch fills the answer in. Answering another branch skips it, never gives it the default."""
+
+    @node("route", title="Route", description="For a test.", asks=True)
+    def route(text: str) -> Route:
+        raise Ask(f"Keep {text}?", default={"keep": "a"})
+
+    _, run = _once(route, text="a")
+    keep, drop = run.waiting[0].questions
+    assert (keep.default, keep.required, drop.default, drop.required) == (
+        "a",
+        False,
+        MISSING,
+        False,
+    )
+    assert run.answer("q", {}).resume().results["q"] == {"keep": "a", "drop": None}
+    assert run.answer("q", {"drop": "b"}).resume().results["q"] == {"keep": None, "drop": "b"}
+
+
+@dataclass(frozen=True)
+class Maybe:
+    value: str = SKIPPED
+
+
+@pytest.mark.parametrize("returned", [Maybe, Routed], ids=["the only output", "beside an output"])
+def test_an_ask_may_propose_a_default_for_a_lone_branch(returned):
+    """A node's only branch may be filled in, whether it is the node's only output or not."""
+    branch = next(field.name for field in fields(returned) if field.default is SKIPPED)
+
+    @node("route", title="Route", description="For a test.", asks=True)
+    def route(text: str) -> returned:  # type: ignore[valid-type]
+        raise Ask(f"Keep {text}?", default={branch: "a"} if len(fields(returned)) > 1 else "a")
+
+    _, run = _once(route, text="a")
+    assert run.status == "waiting", run.cause
+    assert [q.default for q in run.waiting[0].questions if q.name == branch] == ["a"]
 
 
 @pytest.mark.parametrize(
