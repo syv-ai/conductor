@@ -99,10 +99,10 @@ class StartRun(BaseModel):
 class Decline(BaseModel):
     """The body of ``POST /runs/{run_id}/declines``: the question a person declines to answer, and why.
 
-    It is also how a decline is queued in a run's state, beside the answers, until the run takes it. There ``kind``
-    tells it from a ``QueuedAnswers``. A body may leave ``kind`` out, since it can only be ``"decline"``.
+    ``kind`` may be left out, since it can only be ``"decline"``.
     """
 
+    # A run's state queues this body as it came, beside the answers, until the run takes it (see state.py).
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["decline"] = Field(

@@ -92,7 +92,8 @@ class RunState(BaseModel):
         status: ``running`` while a worker resumes the run or is about to; else the run's status as it was stored.
         cause: Why the run ended early; ``None`` for a running run, and for one that didn't end early.
         queued: What came for the run's questions while it was running, in the order it came: each
-            mapping of answers as one call sent it, and each decline. The run is given them when it stops. A decline
+            mapping of answers as one call sent it, and each decline as its ``Decline`` body came, which its ``kind``
+            tells from a ``QueuedAnswers``. The run is given them when it stops. A decline
             is also queued for a run that isn't running, so that the worker that claims it applies it.
         refused: By waiting id, the problems of the last answer or decline to that question, when the run refused
             it.
