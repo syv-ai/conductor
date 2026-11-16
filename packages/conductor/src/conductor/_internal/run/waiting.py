@@ -178,15 +178,17 @@ def named_loc(waiting_id: str) -> Loc:
     """Returns the call a waiting id names, as a ``Problem``'s ``loc``, whether or not the id is a right one.
 
     ``"review@0/approve@1~3fa2c0d1"`` names ``("review", 0, "approve", 1)``. When the text after an ``@`` isn't a
-    whole number, the loc ends at the node that index belongs to: ``"approve@x"`` names ``("approve",)``.
+    whole number written as ``write_waiting_id`` writes it, the loc ends at the node that index belongs to:
+    ``"approve@x"`` and ``"approve@01"`` name ``("approve",)``.
     """
     place, _, _ = waiting_id.partition("~")
     loc: list[str | int] = []
     for part in place.split("/"):
         node_id, *indexes = part.split("@")
         loc.append(node_id)
-        try:
-            loc += [int(index) for index in indexes]
-        except ValueError:
-            break
+        for index in indexes:
+            # An index counts only in the spelling write_waiting_id writes, so "01" or " 1" names no item.
+            if not index.isdecimal() or str(number := int(index)) != index:
+                return tuple(loc)
+            loc.append(number)
     return tuple(loc)
