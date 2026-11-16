@@ -15,6 +15,7 @@ import runpy
 import time
 from asyncio import Event as AsyncioEvent
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from random import Random
@@ -2037,7 +2038,7 @@ def test_a_code_fingerprint_is_read_from_the_source_so_every_python_version_give
 
     The value below is the one Python 3.12 and 3.13 both give. Bytecode differs between the two.
     """
-    assert _code(_echo) == "e2dec662aea9af33"
+    assert _code(_echo) == "2870a948f4c6e991"
 
 
 def test_a_comment_a_line_break_the_name_or_the_decorator_of_a_node_is_not_part_of_its_code(
@@ -3062,3 +3063,46 @@ def test_again_with_the_same_inputs_keeps_each_call_its_own_outcome_when_equal_a
     again = first.again(items=["a", "a", "b"])
 
     assert again.results["stamp"]["result"] == ["a1", "a2", "b3"] and calls == ["a", "a", "b"]
+
+
+def test_outputs_redeclared_as_branches_are_called_again_never_reused():
+    """Which outputs are branches is in the code fingerprint.
+
+    A call that gave both ``a`` and ``b`` a value, reused once they are branches wired into one input, would give a
+    call two branches with a value. So the node is called again, and fails as a fresh call does.
+    """
+
+    @dataclass(frozen=True)
+    class Plain:
+        a: int
+        b: int
+
+    @dataclass(frozen=True)
+    class Branched:
+        a: int = SKIPPED
+        b: int = SKIPPED
+
+    def both_of(returned: type) -> Any:
+        """Declares one function, the same code each time, returning ``returned``."""
+
+        def f(n: int) -> Any:
+            return returned(a=n, b=n + 100)
+
+        f.__annotations__["return"] = returned
+        return node("f", title="F", description="For a test.")(f)
+
+    @node("keep", title="Keep", description="For a test.")
+    def keep(x: int) -> int:
+        return x
+
+    plain, branched = both_of(Plain), both_of(Branched)
+    first = Graph.compile(
+        make_graph(plain, keep, edges=[("f.a", "keep.x")]), registry_of(plain, keep)
+    ).run(n=1)
+    graph = Graph.compile(
+        make_graph(branched, keep, edges=[("f.a", "keep.x"), ("f.b", "keep.x")]),
+        registry_of(branched, keep),
+    )
+    assert graph.run(n=1).cause.type == "invalid_output"
+    reused = graph.with_inputs(n=1, previous=first).resume()
+    assert (reused.status, reused.cause.type) == ("failed", "invalid_output")

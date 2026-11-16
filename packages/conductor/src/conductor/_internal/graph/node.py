@@ -135,7 +135,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         """Returns a short hash of what a call's outputs depend on, besides its arguments.
 
         That's the node's ``@node`` id and version, its code, the name and type of each input and output (limits and
-        choices included), the loops it runs in, and whether it may ask a person.
+        choices included), which outputs are branches, the loops it runs in, and whether it may ask a person.
 
         The loops it runs in are its own loops and, inside a subgraph, the loops the subgraph node is in. One
         compiled subgraph may be used in several places, so each blueprint node works its hash out with the loops
@@ -149,7 +149,8 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
         A run can reuse calls from an earlier run (``with_inputs(previous=run)``), but only while this hash is the
         same. So the node is called again if it's redeclared under the same id and version with other code, an
-        input or output of another type, limit or choice, other loops, or ``asks`` turned on or off.
+        input or output of another type, limit or choice, other branches, other loops, or ``asks`` turned on or off.
+        Branches are in it because an outcome that gave two outputs a value can't be reused once they are branches.
 
         ``asks`` is in the hash because the two kinds of node are reused differently. A node that may ask has each
         outcome reused once, in item order. One that may not has its outcomes reused any number of times. So the
@@ -171,13 +172,16 @@ class CompiledFunctionNode(_CompiledNodeBase):
                 *self.outputs.values(),
             )
         ]
+        branches = [name for name, output in self.outputs.items() if output.is_branch]
         code = definition.code_text
         # Each loop is written with place_text, like "e/split.result", not with repr. Waiting-call ids and saved
         # runs contain the hash, so it should change only when that text does.
         own = tuple([place_text(node, output) for node, output in self.loops])
         around = tuple([place_text(node, output) for node, output in outer_loops])
         loops = (*around, "/", *own) if around else own
-        written = repr((definition.id, definition.version, code, fields, loops, definition.asks))
+        written = repr(
+            (definition.id, definition.version, code, fields, branches, loops, definition.asks)
+        )
         return short_hash(written.encode(), 8)
 
     @functools.cached_property
