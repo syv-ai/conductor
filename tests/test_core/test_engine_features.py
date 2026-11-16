@@ -84,8 +84,13 @@ def never(text: str) -> str:
     return SKIPPED
 
 
+#: Holds each of ``boom``'s four calls until all have started, so ``d`` is on its thread when ``c`` fails.
+_all_four_started = Barrier(4)
+
+
 @node("boom", title="Boom", description="For a test.", policy=Policy(concurrency=4))
 def boom(text: str) -> str:
+    _all_four_started.wait(10)
     if text == "c":
         raise ValueError("no c")
     t.sleep(0.05)

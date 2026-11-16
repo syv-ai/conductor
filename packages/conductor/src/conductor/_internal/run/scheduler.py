@@ -60,7 +60,11 @@ The scheduler has five jobs, described below. Its methods come in the same order
    in the process counts it against that limit. Without it, only this ``resume()`` counts it, at that place in the
    graph.
 
-   Only node functions run on pool threads. Outcomes are always written on the scheduler's thread.
+   Only node functions run on pool threads. Outcomes are always written on the scheduler's thread. Between any two
+   calls it makes, the scheduler takes in the attempts back from their threads and the timers that are due
+   (``_take_news``), so a slot on a thread is filled, a retry is made and a deadline is kept while it makes calls
+   of its own. An attempt it sees back only after its deadline, because it was busy with such a call, is timed
+   out by when its function returned.
 
 3. **Reusing in item order.** A run made with ``graph.with_inputs(previous=run)`` reuses an outcome of the earlier
    run in place of a call with the same arguments (``run/reuse.py``). For a node that may ask a person, each of its
@@ -168,6 +172,10 @@ class _Attempt:
         number: 0 for the first attempt at the call, 1 for its first retry, and so on.
         future: The pool's handle on the attempt, once it is handed to a thread. It lets an attempt still in the
             pool's queue be cancelled. It is ``None`` before that, and for an attempt made on the scheduler's thread.
+        deadline: The ``time.monotonic()`` at which its ``attempt_timeout`` runs out, for an attempt on a thread
+            whose node has one. ``None`` otherwise.
+        returned_at: The ``time.monotonic()`` at which its function returned or raised on its thread. The
+            scheduler may see the attempt back later than that, while it makes a call of its own.
     """
 
     node: BlueprintFunctionNode
@@ -175,6 +183,8 @@ class _Attempt:
     arguments: dict[str, Any]
     number: int
     future: Future[None] | None = None
+    deadline: float | None = None
+    returned_at: float | None = None
 
 
 @dataclass(slots=True, order=True)
@@ -189,14 +199,12 @@ class _Timer:
         kind: ``"retry"`` makes ``attempt`` when it is due. ``"deadline"`` means ``attempt`` is on a thread, and
             its ``attempt_timeout`` runs out when the timer is due.
         attempt: The attempt to make, or the attempt whose time runs out.
-        seconds: How long after it was set the timer is due.
     """
 
     when: float
     order: int
     kind: Literal["retry", "deadline"] = field(compare=False)
     attempt: _Attempt = field(compare=False)
-    seconds: float = field(compare=False)
 
 
 @dataclass(slots=True)
@@ -374,7 +382,12 @@ class Scheduler:
         try:
             self._check_item_limit()
             self._put_every_call_on_ready()
-            while not self._stop_if_asked():
+            while True:
+                # Between two calls, so a call back from its thread or a timer that fell due is seen at once. It can
+                # end the run, so stop is asked after it.
+                self._take_news()
+                if self._stop_if_asked():
+                    break
                 if self.ready:
                     position, item_indexes = heapq.heappop(self.ready)
                     self._start_if_ready(self.nodes[position], item_indexes)
@@ -692,7 +705,7 @@ class Scheduler:
                 raise
             if policy.threaded:
                 if policy.attempt_timeout is not None:
-                    self._set_timer(policy.attempt_timeout, "deadline", attempt)
+                    attempt.deadline = self._set_timer(policy.attempt_timeout, "deadline", attempt)
                 continue
             running_calls.finish(give_parked_runs_a_turn=True)
             self._attempt_over(attempt, outputs, error)
@@ -792,13 +805,14 @@ class Scheduler:
         else:
             returned = (attempt, outputs, error)
         finally:
+            attempt.returned_at = time.monotonic()
             self._count_out(attempt)
         self.returned.put(returned)
 
     def _wait(self) -> None:
         """Waits until an attempt is back from its thread, a timer is due, or it is time to ask ``stop`` again.
 
-        Then it handles the attempt that is back, if any, and every timer that is due.
+        Then it takes in everything that came meanwhile (``_take_news``).
         """
         timeout = self.timers[0].when - time.monotonic() if self.timers else None
         if self.stop is not None:
@@ -825,21 +839,40 @@ class Scheduler:
                         returned = self.returned.get(timeout=timeout)
             finally:
                 self.parked = False
-            if returned is None:
-                self._start_every_waiting_call()
-            else:
-                for node in (
-                    self._nodes_waiting()
-                ):  # busy with other news, so a run that woke it doesn't wait for its turn
-                    self._count_of(node).turned_away(self)
-                if isinstance(returned, BaseException):
-                    raise returned
-                self._call_returned(returned)
         except Empty:
             pass
+        else:
+            self._returned(returned)
+        self._take_news()
+
+    def _take_news(self) -> None:
+        """Takes in, without waiting, every attempt back from its thread, then every timer that is due.
+
+        The attempts come first. One that came back before its deadline is then out of ``running``, so its deadline
+        timer finds nothing to time out, however late the scheduler sees it. One that came back after its deadline
+        is timed out by ``_call_returned``.
+        """
+        while not self.returned.empty():
+            self._returned(self.returned.get(block=False))
         now = time.monotonic()
         while self.timers and self.timers[0].when <= now:
             self._due(heapq.heappop(self.timers))
+
+    def _returned(
+        self, returned: tuple[_Attempt, Any, BaseException | Problem | None] | BaseException | None
+    ) -> None:
+        """Handles one thing from ``returned``: ``None`` for a call that ended of a node whose attempts wait here,
+        an attempt back from its thread, or what ``call`` raised on a thread, which is raised here."""
+        if returned is None:
+            self._start_every_waiting_call()
+            return
+        for node in (
+            self._nodes_waiting()
+        ):  # busy with other news, so a run that woke it doesn't wait for its turn
+            self._count_of(node).turned_away(self)
+        if isinstance(returned, BaseException):
+            raise returned
+        self._call_returned(returned)
 
     def _call_returned(
         self, returned: tuple[_Attempt, Any, BaseException | Problem | None]
@@ -847,13 +880,22 @@ class Scheduler:
         """An attempt is back from its thread. Starts the node's next waiting attempt, then retries this one or
         records its outcome.
 
-        The outcome is dropped if the attempt's deadline has passed, since the run has already failed with
-        ``timeout`` for it. It is also dropped if ``end`` dropped the call. There's one exception: the deadline has
-        passed, the function returned without an error, and the run is ending. The call was made, so its outcome
-        is recorded, and a later ``resume()`` doesn't make it again.
+        An attempt that came back after its deadline, while the scheduler was busy with a call of its own, is timed
+        out as its deadline timer would have done in time, and its outcome is dropped. Otherwise its outcome is
+        dropped if its deadline has passed, since the run has already failed with ``timeout`` for it. It is also dropped if ``end`` dropped the call.
+        There's one exception: the deadline has passed, the function returned without an error, and the run is
+        ending. The call was made, so its outcome is recorded, and a later ``resume()`` doesn't make it again.
         """
         attempt, outputs, error = returned
         node, item_indexes = attempt.node, attempt.item_indexes
+        if (
+            attempt.deadline is not None
+            and attempt.returned_at is not None
+            and attempt.returned_at > attempt.deadline
+            and self.running.get((node, item_indexes)) is attempt
+        ):
+            self._time_out(attempt)
+            return
         self._start_waiting_calls(node)
         if (
             self.running.get((node, item_indexes)) is not attempt
@@ -905,16 +947,15 @@ class Scheduler:
 
     def _set_timer(
         self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt
-    ) -> None:
-        """Sets a timer that is due ``seconds`` from now.
+    ) -> float:
+        """Sets a timer that is due ``seconds`` from now, and returns the ``time.monotonic()`` at which it is due.
 
         A ``"retry"`` timer makes ``attempt`` when it is due. A ``"deadline"`` timer is for the ``attempt_timeout``
         of ``attempt``, which starts on a thread now.
         """
-        heapq.heappush(
-            self.timers,
-            _Timer(time.monotonic() + seconds, next(self.timer_order), kind, attempt, seconds),
-        )
+        when = time.monotonic() + seconds
+        heapq.heappush(self.timers, _Timer(when, next(self.timer_order), kind, attempt))
+        return when
 
     def _due(self, timer: _Timer) -> None:
         """Handles a timer that is due.
@@ -923,17 +964,27 @@ class Scheduler:
         thread, the call fails with the problem ``timeout``, which ends the run.
         """
         attempt = timer.attempt
-        node, item_indexes = attempt.node, attempt.item_indexes
         if timer.kind == "retry":
             if self.going:
                 self._make_attempt(attempt)
-        elif self.running.get((node, item_indexes)) is attempt:
+        else:
+            self._time_out(attempt)
+
+    def _time_out(self, attempt: _Attempt) -> None:
+        """The ``attempt_timeout`` of ``attempt`` has run out. If the attempt is still the call's, the call fails
+        with the problem ``timeout``, which ends the run."""
+        node, item_indexes = attempt.node, attempt.item_indexes
+        if self.running.get((node, item_indexes)) is attempt:
             del self.running[(node, item_indexes)]
             self._cancel_queued(attempt)
+            seconds = node.policy.attempt_timeout
+            assert seconds is not None, (
+                "only an attempt whose node has an attempt_timeout has a deadline"
+            )
             self._record(
                 node,
                 item_indexes,
-                run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds),
+                run_problems.timeout(*outcome_loc(node, item_indexes), seconds=seconds),
             )
 
     def _outcome(

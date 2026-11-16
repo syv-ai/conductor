@@ -21,7 +21,7 @@ from asyncio import Event as AsyncioEvent
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-from threading import Condition, Thread
+from threading import Barrier, Condition, Thread
 from threading import Event as ThreadEvent
 from typing import Annotated, Any, TypedDict
 
@@ -1422,8 +1422,108 @@ def test_an_item_failing_at_concurrency_one_starts_no_later_item():
 
 
 @pytest.mark.slow
+def _beside_a_call_on_the_scheduler_thread(
+    threaded: Callable[[ThreadEvent], int], policy: Policy, own: Callable[[ThreadEvent], int]
+) -> Run:
+    """Runs a node called on threads beside one called on the scheduler's own thread, and returns the run.
+
+    ``a_threaded`` comes first by id, so it is on its thread when ``b_own`` blocks the scheduler. Each function gets
+    one shared event, so the test can order what the two do without timing them.
+    """
+    shared = ThreadEvent()
+
+    @node("a_threaded", title="Threaded", description="For a test.", policy=policy)
+    def a_threaded(n: int) -> int:
+        return threaded(shared)
+
+    @node("b_own", title="Own", description="For a test.")
+    def b_own(m: int) -> int:
+        return own(shared)
+
+    graph = make_graph(
+        a_threaded, b_own, edges=[], outputs={"a": "a_threaded.result", "b": "b_own.result"}
+    )
+    return Graph.compile(graph, registry_of(a_threaded, b_own)).run(n=1, m=2)
+
+
+def test_a_call_that_runs_past_its_attempt_timeout_times_out_while_the_scheduler_runs_another_call():
+    """The scheduler sees the threaded call back only after ``b_own`` returns, but it came back after its deadline."""
+
+    def late(back: ThreadEvent) -> int:
+        time.sleep(0.3)
+        back.set()
+        return 1
+
+    def own(back: ThreadEvent) -> int:
+        assert back.wait(BOUND)
+        time.sleep(0.05)  # the threaded call is on the queue by now
+        return 2
+
+    run = _beside_a_call_on_the_scheduler_thread(
+        late, Policy(attempt_timeout=0.1, concurrency=2), own
+    )
+
+    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "timeout", ("a_threaded",))
+
+
+def test_a_call_back_before_its_attempt_timeout_isnt_timed_out_when_the_scheduler_sees_it_after():
+    def in_time(back: ThreadEvent) -> int:
+        back.set()
+        return 1
+
+    def own(back: ThreadEvent) -> int:
+        assert back.wait(BOUND)
+        time.sleep(0.3)  # past the threaded call's deadline
+        return 2
+
+    run = _beside_a_call_on_the_scheduler_thread(
+        in_time, Policy(attempt_timeout=0.1, concurrency=2), own
+    )
+
+    assert (run.status, run.outputs) == ("complete", {"a": 1, "b": 2})
+
+
+def test_a_retry_that_falls_due_while_the_scheduler_makes_its_own_calls_is_made_between_them():
+    """``c_own`` is called for 20 items on the scheduler's own thread, one after another, so something is always
+    ready. The retry of ``a_flaky`` falls due during them, and is made then, not once they are all done."""
+    tries, retried = [], ThreadEvent()
+
+    @node(
+        "a_flaky",
+        title="Flaky",
+        description="For a test.",
+        policy=Policy(retries=1, retry_delay=0.05, concurrency=2),
+    )
+    def a_flaky(n: int) -> int:
+        tries.append(n)
+        if len(tries) == 1:
+            raise ExternalError("not yet")
+        retried.set()
+        return n
+
+    @node("b_items", title="Items", description="For a test.")
+    def b_items(count: int) -> Series[int]:
+        return list(range(count))
+
+    @node("c_own", title="Own", description="For a test.")
+    def c_own(i: int) -> bool:
+        time.sleep(0.03)
+        return retried.is_set()
+
+    graph = make_graph(
+        a_flaky,
+        b_items,
+        c_own,
+        edges=[("b_items.result", "c_own.i")],
+        outputs={"seen": "c_own.result"},
+    )
+    run = Graph.compile(graph, registry_of(a_flaky, b_items, c_own)).run(n=1, count=20)
+
+    assert run.status == "complete" and any(run.outputs["seen"])
+
+
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
-    release = ThreadEvent()
+    release, both_started = ThreadEvent(), Barrier(2)
 
     @node(
         "hangs-or-fails",
@@ -1432,6 +1532,7 @@ def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_
         policy=Policy(concurrency=2, attempt_timeout=0.2),
     )
     def hangs_or_fails(text: str) -> str:
+        both_started.wait(BOUND)
         if text == "0":
             raise ValueError("no")
         release.wait(BOUND)
@@ -1455,12 +1556,13 @@ def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failur
 
     A person's question is kept like any finished call. A second failure goes to the log, not onto the run.
     """
-    release = ThreadEvent()
+    release, all_started = ThreadEvent(), Barrier(4)
 
     @node(
         "mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4), asks=True
     )
     def mixed(text: str) -> str:
+        all_started.wait(BOUND)
         if text == "0":
             raise ValueError("first")
         release.wait(BOUND)
@@ -1480,7 +1582,7 @@ def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failur
 
 
 def test_no_retry_starts_once_the_run_has_failed():
-    release = ThreadEvent()
+    release, both_started = ThreadEvent(), Barrier(2)
     calls: list[str] = []
 
     @node(
@@ -1491,6 +1593,7 @@ def test_no_retry_starts_once_the_run_has_failed():
     )
     def flaky(text: str) -> str:
         calls.append(text)
+        both_started.wait(BOUND)
         if text == "0":
             raise ValueError("no")
         release.wait(BOUND)
