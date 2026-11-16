@@ -972,13 +972,14 @@ class Scheduler:
         """Handles a timer that is due.
 
         For a retry, it makes the attempt, unless ``end`` was called. For a deadline, if the attempt is still on its
-        thread, the call fails with the problem ``timeout``, which ends the run.
+        thread, the call fails with the problem ``timeout``, which ends the run. An attempt whose function returned
+        by then is left alone: it is on its way back, and ``_call_returned`` takes it.
         """
         attempt = timer.attempt
         if timer.kind == "retry":
             if self.going:
                 self._make_attempt(attempt)
-        else:
+        elif attempt.returned_at is None or attempt.returned_at > timer.when:
             self._time_out(attempt)
 
     def _time_out(self, attempt: _Attempt) -> None:
