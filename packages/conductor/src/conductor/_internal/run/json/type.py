@@ -17,7 +17,8 @@ from ..outcome import Unanswered
 from ..state import EndedEarly
 
 #: The config of every class here. A key a class doesn't declare is refused, and ``inf`` and ``nan`` are written
-#: as text. A key whose value is its default, an empty dict or list, is left out of the JSON.
+#: as text. The config doesn't leave defaults out: ``run_to_json`` writes with ``exclude_defaults=True``, so a key
+#: whose value is its default, an empty dict or list, is left out of the JSON.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
 #: What a saved run writes for one call's state. ``"done"`` means it has its outputs, because its function
