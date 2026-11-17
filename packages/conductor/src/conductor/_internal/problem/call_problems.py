@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from conductor._internal.base import SEPARATORS
 from conductor._internal.utils import comma_separated
 
 from .type import ProblemCatalogue
@@ -448,7 +449,8 @@ def invalid_place(*loc: str | int, text: str) -> str:
 
     Each end of an edge, each key of ``constants`` or ``defaults``, and each place in ``inputs`` or ``outputs`` is a
     node's id and a name, joined by a dot. An edge's source may add one field of the record its output returns, like
-    ``"read.result.email"``.
+    ``"read.result.email"``. Neither the id nor the name may be empty or contain a character places are written
+    with, so ``"upper.result~"`` isn't a place either. The message lists those characters.
 
     Args:
         loc: The argument, and where in it. ``("edges", 1, 0)`` is the source of the second edge, and
@@ -458,7 +460,11 @@ def invalid_place(*loc: str | int, text: str) -> str:
     Example:
         refused(lambda: make_graph(upper, constants={"upper": "a"}))
     """
-    return f"{text!r} isn't a place in the graph. Write it as 'node.name'."
+    separators = comma_separated(f"'{separator}'" for separator in SEPARATORS)
+    return (
+        f"{text!r} isn't a place in the graph. Write it as 'node.name', where neither part is empty or contains "
+        f"any of {separators}."
+    )
 
 
 @CALL_PROBLEMS.problem()

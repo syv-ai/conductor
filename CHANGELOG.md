@@ -488,6 +488,12 @@ What changes in how you work, before the name-by-name tables:
   `polars.DataFrame` failed with `invalid_output` ("Input should be a valid list"), while `-> Series[Any]` took the
   same frame as its rows. A `dict` is the row of a bare `Table`, so both now read the frame as one and give every
   column.
+- **A place whose id or name isn't a valid name is `invalid_place` in `make_graph`.** An edge source or a place in
+  `outputs=` such as `"greet.result~"` or `"greet.result.."` raised a bare pydantic `ValidationError`. A target, a
+  key of `constants=` or `defaults=` and a place in `inputs=` such as `"greet.na~me"` was `invalid_record` from the
+  record, and `"gr/eet.result"` was `node_not_in_graph`. Each is now `invalid_place` at the argument it is given in,
+  inside the one `InvalidCallError`. Its message says why: "Write it as 'node.name', where neither part is empty or
+  contains any of '.', '/', '@', '~'." (it ended "Write it as 'node.name'.").
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

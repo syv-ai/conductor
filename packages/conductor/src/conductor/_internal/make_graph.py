@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import FIELD_SEPARATOR, REQUIRED, Source
+from conductor._internal.base import FIELD_SEPARATOR, REQUIRED, Source, is_field, is_name
 from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import (
@@ -113,11 +113,11 @@ def make_graph(
     sources_of: dict[tuple[str, str], list[Source]] = {}
     for i, (source_text, target_text) in enumerate(edges):
         source, target = (
-            _place(source_text, ("edges", i, 0), definitions, problems, field=True),
+            _source(source_text, ("edges", i, 0), definitions, problems),
             _place(target_text, ("edges", i, 1), definitions, problems),
         )
         if source is not None and target is not None:
-            sources_of.setdefault((target[0], target[1]), []).append(Source(*source))
+            sources_of.setdefault((target[0], target[1]), []).append(source)
     graph_input_of = _graph_inputs(
         definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), gap, problems
     )
@@ -246,7 +246,11 @@ def _place(
     """Splits ``text``, a place in the graph, into its parts.
 
     ``"shout.mark"`` gives ``("shout", "mark")``. With ``field``, ``"read.result.email"`` gives
-    ``("read", "result", "email")``.
+    ``("read", "result", "email")``. The node id and the name must each be a name (``is_name``), and a field must
+    be one (``is_field``), so ``"greet.result~"`` isn't a place, since a name can't contain ``~``.
+
+    This is where ``make_graph`` reads its dotted text, so it checks the parts here rather than in a validator: the
+    record validator would see only the parts, and could not say which argument was written wrong.
 
     Returns:
         The parts, or ``None`` when the text isn't a valid place. Then a problem is added to ``problems``. It's
@@ -254,13 +258,28 @@ def _place(
         ``"node.name.field"``). It's ``node_not_in_graph`` when the text names a node that wasn't given.
     """
     parts = tuple(text.split(FIELD_SEPARATOR, 2 if field else 1))
-    if len(parts) < 2 or not all(parts):
+    if len(parts) < 2 or not all(map(is_name, parts[:2])) or not all(map(is_field, parts[2:])):
         problems.append(call_problems.invalid_place(*where, text=text))
         return None
     if parts[0] not in definitions:
         problems.append(call_problems.node_not_in_graph(parts[0], nodes=list(definitions)))
         return None
     return parts
+
+
+def _source(
+    text: str,
+    where: tuple[str | int, ...],
+    definitions: Mapping[str, NodeDefinition],
+    problems: list[Problem],
+) -> Source | None:
+    """Reads ``text`` as where an edge or a graph output gets its value, as ``_place`` reads it with a field.
+
+    ``"read.result.email"`` gives ``Source("read", "result", "email")``. Returns ``None`` when ``_place`` refuses
+    the text, with the problem added to ``problems``.
+    """
+    parts = _place(text, where, definitions, problems, field=True)
+    return None if parts is None else Source(*parts)
 
 
 def _values_by_place(
@@ -359,9 +378,9 @@ def _graph_outputs(
     """
     declared: dict[str, Source] = {}
     for name, text in named.items():
-        place = _place(text, ("outputs", name), definitions, problems, field=True)
-        if place is not None:
-            declared[name] = Source(*place)
+        source = _source(text, ("outputs", name), definitions, problems)
+        if source is not None:
+            declared[name] = source
     named_nodes = {source.node for source in declared.values()}
     for node_id, definition in definitions.items():
         if (

@@ -2410,13 +2410,48 @@ def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_
 
     assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("invalid_place", ("constants", "hello")),
+        # an input's name has no dot
+        ("invalid_place", ("constants", "hello.name..x")),
         ("invalid_place", ("defaults", ".name")),
-        (
-            "invalid_record",
-            ("record", "nodes", "hello", "inputs", "name..x", "[key]"),
-        ),  # an input's name has no dot
     ]
-    assert all("'node.name'" in p.msg for p in refused.value.problems[:2])
+    assert all("'node.name'" in p.msg for p in refused.value.problems)
+
+
+_THE_NAME_RULE = "where neither part is empty or contains any of '.', '/', '@', '~'."
+
+
+@pytest.mark.parametrize(
+    ("arguments", "loc", "text"),
+    [
+        ({"edges": [("hello.result~", "shout.text")]}, ("edges", 0, 0), "hello.result~"),
+        ({"edges": [("hello.result..", "shout.text")]}, ("edges", 0, 0), "hello.result.."),
+        ({"edges": [("hel@lo.result", "shout.text")]}, ("edges", 0, 0), "hel@lo.result"),
+        ({"edges": [("hello.result", "shout.te/xt")]}, ("edges", 0, 1), "shout.te/xt"),
+        (
+            {"edges": [("hello.result", "shout.text")], "outputs": {"x": "shout.result~"}},
+            ("outputs", "x"),
+            "shout.result~",
+        ),
+        (
+            {"edges": [("hello.result", "shout.text")], "inputs": {"who": "hello.na~me"}},
+            ("inputs", "who"),
+            "hello.na~me",
+        ),
+    ],
+)
+def test_make_graph_refuses_a_place_with_a_part_that_is_not_a_name_as_invalid_place(
+    arguments: dict[str, Any], loc: tuple[str | int, ...], text: str
+):
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, _shout, **arguments)
+
+    [problem] = [p for p in refused.value.problems if p.type == "invalid_place"]
+    assert (problem.loc, problem.ctx) == (loc, {"text": text})
+    # the message says why the text is no place, though it is written as node.name
+    assert (
+        problem.msg
+        == f"{text!r} isn't a place in the graph. Write it as 'node.name', {_THE_NAME_RULE}"
+    )
 
 
 def test_make_graph_takes_a_node_with_an_id_of_its_own_and_refuses_one_id_for_two_nodes():
@@ -2447,7 +2482,7 @@ def test_make_graph_refuses_a_text_that_is_not_node_and_name_at_the_argument_and
         ("invalid_place", ("outputs", "r"), {"text": "shout"}),
     ]
     assert all(
-        p.msg.endswith("Write it as 'node.name'.") and "JSON" not in p.msg
+        p.msg.endswith(f"Write it as 'node.name', {_THE_NAME_RULE}") and "JSON" not in p.msg
         for p in [*edge, *constant, *output]
     )
 

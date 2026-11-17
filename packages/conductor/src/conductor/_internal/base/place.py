@@ -71,11 +71,12 @@ INDEX_SEPARATOR = "@"
 #: Comes before the fingerprint at the end of a waiting call's id: ``"loud@1/shout~3f2a"``.
 FINGERPRINT_SEPARATOR = "~"
 
-_SEPARATORS = (FIELD_SEPARATOR, NODE_SEPARATOR, INDEX_SEPARATOR, FINGERPRINT_SEPARATOR)
+#: Every character places are written with. No name may contain one.
+SEPARATORS = (FIELD_SEPARATOR, NODE_SEPARATOR, INDEX_SEPARATOR, FINGERPRINT_SEPARATOR)
 
 #: The pattern of a name: not empty, and none of the separators. ``"shout"`` and ``"text-split"`` are names.
 #: ``"a.b"`` and ``"loud/shout"`` are not.
-_NAME = re.compile(f"^[^{re.escape(''.join(_SEPARATORS))}]+$")
+_NAME = re.compile(f"^[^{re.escape(''.join(SEPARATORS))}]+$")
 
 
 def is_name(text: str) -> bool:
@@ -86,6 +87,15 @@ def is_name(text: str) -> bool:
     return _NAME.match(text) is not None
 
 
+def is_field(text: str) -> bool:
+    """Whether ``text`` can be the name of a field of a record that an edge reads.
+
+    A field's name isn't empty and doesn't start with a dot. It may have dots elsewhere, as in ``"Amount in USD."``,
+    since a field is the last part of a place's text.
+    """
+    return bool(text) and not text.startswith(FIELD_SEPARATOR)
+
+
 def _a_name(text: str) -> str:
     """Returns ``text`` if it is a name, so that pydantic can use it as a check.
 
@@ -93,7 +103,7 @@ def _a_name(text: str) -> str:
         PydanticCustomError: ``not_a_name`` if it isn't one (see ``is_name``).
     """
     if not is_name(text):
-        separators = comma_separated(f"'{separator}'" for separator in _SEPARATORS)
+        separators = comma_separated(f"'{separator}'" for separator in SEPARATORS)
         raise PydanticCustomError(
             "not_a_name",
             "'{text}' isn't a valid name. A name can't be empty, and can't contain any of {separators}",
@@ -133,14 +143,12 @@ class Source:
     @field_validator("field")
     @classmethod
     def _a_field(cls, text: str | None) -> str | None:
-        """Checks the name of a field of a record: it must not be empty or start with a dot.
-
-        A field's name may have dots elsewhere, as in ``"Amount in USD."``.
+        """Checks the name of a field of a record (see ``is_field``).
 
         Raises:
             PydanticCustomError: ``not_a_field`` if the name is empty or starts with a dot.
         """
-        if text is not None and (not text or text.startswith(".")):
+        if text is not None and not is_field(text):
             raise PydanticCustomError(
                 "not_a_field",
                 "'{text}' isn't a valid field name. A field's name can't be empty or start with '.'",
