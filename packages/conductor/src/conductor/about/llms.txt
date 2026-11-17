@@ -1184,7 +1184,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 **The setup.** `worker = conductor_providers.fastapi.Worker(store, nodes_for=, context=None, metadata_type=dict[str, str], max_items=None, lease=30.0, checkpoint_every=5.0, resume_timeout=300.0, poll=0.1)`, then `app.include_router(conductor_providers.fastapi.run_router(worker, metadata=, run_filter=))`.
 
 - The router's lifespan enters `worker.serving()`. A host that calls the worker from routes of its own enters it in its own lifespan.
-- A worker that never served raises `RuntimeError` from a call that would make a run running: `begin`, `again`, an `answer` or `resume` that would resume a run that isn't running, or a `cancel` of a waiting one. An `answer`, `resume` or `decline` of a run that isn't running, whose queue with this call's replies holds a decline the run takes, writes it `failed` with no resume call, so it needs no serving worker. A `decline` makes a run running only when the run, given its queue first, refuses the decline and takes a queued answer. With the router, that is a server FastAPI never started: its test client starts it only when it is used in a `with` block, and the error says so.
+- A worker that never served raises `RuntimeError` from a call that would make a run running: `begin`, `again`, an `answer` or `resume` that would resume a run that isn't running, or a `cancel` of a waiting one. A call that writes the run `failed` with no resume call needs none: "Answers and declines", below, says when a decline does that. With the router, that is a server FastAPI never started: its test client starts it only when it is used in a `with` block, and the error says so.
 - A worker that served and has left takes the call, and hands the run back at once.
 
 **Metadata.** A run keeps its metadata, of the worker's `metadata_type`, which is `M`: `dict[str, str]`, or a pydantic model of the host's.
@@ -1216,8 +1216,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `GET /runs/{run_id}/events` is server-sent events, each frame an event's JSON, from whichever worker runs the run. After a reconnect it goes on from the last event id the client has.
 - Each resume call stores its stream's events, `run_start` to `run_end`. A `run_end` comes alone in two cases: a run that takes a decline queued for it before a resume call starts, which ends with no resume call (`failed`, `answer_declined`), and a resume call that raised before its stream started. The first is a run that isn't running and is sent a decline, answered or resumed, and a running run another worker takes over, or a worker handed back, whose queue holds a decline.
 - The last `run_end` stored says what the run's row says once it stops, since the two are one write. A decline sent while the run runs is taken when the resume call stops, so that call's `run_end` is `failed` with `answer_declined`, though its stream ended `waiting`, or `cancelled` with a cancel asked too. A resume call that ends with the run going on, because it took a queued answer, keeps its stream's own `run_end`.
-- `POST /runs/{run_id}/answers`, `/declines` (`{"waiting_id", "reason"}`), `/resume` (`{"max_items": n}` raises the item limit), `/again` (inputs changed, on the request's nodes) and `/cancel`.
-- A decline the run takes ends it `failed` with `answer_declined`, and the decline doesn't resume it. An answer to another question that still waits, or a resume, resumes the failed run, which asks the declined question again. On a running run, a decline is queued as an answer is, and the run is given what was queued in order when its resume call ends. Of an answer and a decline to one question, the first queued is taken, and the second is `not_waiting`. A run that isn't running is given the decline at once, after any replies still queued from a resume call that raised, and written `failed` with no resume call; the route answers with it, `failed`. A decline it refuses (`not_waiting`, `answer_stale`) is a 422, and nothing is written, unless the run took an answer queued before it: then the run is resumed with its queue kept. The refusal shows on the response, and in `refused` until that question is answered: a queued answer to the same question answers it when the resume call ends. An answer or a resume of a run that isn't running gives it its queue at once only when the queue holds a decline. If the run takes the decline, it is written `failed`, `answer_declined`, with no resume call, and an answer it refuses is in `refused`. Otherwise the answers go to `run.answer` on the run as its row has it, every answer it refuses is a 422 with nothing written (answers JSON can't write are checked first, and when any is refused, only those are listed), and the queue is given when the resume call ends, once the run has asked again what it asked after its last checkpoint. So of two answers to one question the later is taken; of an answer and a decline, the first. When a decline is taken, an answer queued to a question the run asked after its last checkpoint is refused as `not_waiting`, and that question waits again on the next resume.
+- `POST /runs/{run_id}/answers`, `/declines` (`{"waiting_id", "reason"}`), `/resume` (`{"max_items": n}` raises the item limit), `/again` (inputs changed, on the request's nodes) and `/cancel`. How a run takes answers and declines is "Answers and declines", below.
 - The bodies that carry a graph are declared through `openapi_extra`, and every `$ref` in the schema resolves.
 
 **The answer is the run.** Every route under `/runs` but the events answers with the run as it is after the call: a `conductor_providers.fastapi.RunView`.
@@ -1240,13 +1239,6 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `begin` and `estimate` take `allows=` too, and raise `TypeError` when given `previous` without it.
 - `worker.nodes_for` is what the worker was given. A run's metadata is its view's `metadata`, which a host reads by its own type.
 - Of two calls that act on one run at once, the one whose write loses reads the run again, and acts on it as it is then.
-
-**Answers.**
-
-- An answer to a run that isn't running is given to it as `run.answer` does, whatever its status, and the run is resumed.
-- Answers sent while a run is running are queued, one entry per reply, each to one waiting id, as JSON data. They are given to the run in the order they came, when its resume call ends. An answer JSON can't write is refused at once, with the `invalid_answer` `run.answer` gives it, running or not (a 422), and so is a decline's reason JSON can't write.
-- An answer the run refuses goes to `refused`, by waiting id. One it takes clears what `refused` had. So `refused` says what became of the last answer to each question.
-- A second answer to a question the first answered is conductor's `not_waiting`, and so is an answer to a complete run (a 422).
 
 **Cancelling.**
 
@@ -1275,6 +1267,26 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - Every change is `update(run_id, rev, changes)`, with `changes` a `conductor_providers.fastapi.RunChanges`. It is written only while the row is at `rev`.
 - `update(run_id, rev, changes, event)` with an `event` appends it in the same statement or transaction, numbered as `add_event` numbers one, only when the write lands: both land or neither does, whoever the row's `owner` is. Every `run_end` is written so, with the row that says how the run stopped, so a row that reads stopped already has its `run_end`, and an outage leaves neither. A store whose `update` takes no `event` is refused with a `TypeError` that names the parameter, when a `conductor_providers.fastapi.Worker` or `check_run_store` is given it.
 - `await conductor_providers.fastapi.testing.check_run_store(store)` returns every way a store differs from what the worker relies on, as plain messages that each start with the method at fault.
+
+### Answers and declines
+
+How the worker gives a run the answers and declines sent to it, through the routes or the methods `answer`, `decline` and `resume` of a `conductor_providers.fastapi.Worker`. A decline is `run.decline`: a run that takes one ends `failed` with `answer_declined`, and the decline doesn't resume it. An answer to another question that still waits, or a resume, resumes the failed run, which asks the declined question again.
+
+**On a running run.** Answers and declines are queued in the row's state, one entry per reply, each to one waiting id, as JSON data. The call answers with the run `running`.
+
+- An answer or a reason JSON can't write is refused at once, with the `invalid_answer` that `run.answer` or `run.decline` gives it (a 422), running or not.
+- When the resume call ends, the run is given the queue in the order it came, with `run.answer` and `run.decline`. So of two replies to one question, the first is taken, and the second is conductor's `not_waiting`.
+- A reply the run refuses goes to `refused`, by waiting id, with its problems, and the run goes on as it would have. One it takes clears what `refused` had for its question. So `refused` says what became of the last reply to each question.
+
+**On a run that isn't running.** Its queue is empty, unless its last resume call raised outside any node: then the replies queued while that call ran are kept.
+
+- When the queue, with this call's replies, holds no decline, nothing in it is given now. This call's answers go to `run.answer` on the run as its row has it, whatever its status. Every answer it refuses is a 422, with nothing written; answers JSON can't write are checked first, and when any is refused, only those are listed. The run is resumed with its queue kept, and given it when the resume call ends, once it has asked again what it asked after its last checkpoint. So of two answers to one question, the later, this call's, is taken.
+- When the queue holds a decline, the run is given the whole queue now, in order, with this call's replies last. A run that takes a decline is written `failed`, `answer_declined`, with its `run_end` in the same write and no resume call, so the call needs no serving worker. An answer it refuses then is in `refused`, not a 422. An answer queued to a question the run asked after its last checkpoint is refused as `not_waiting`, and that question waits again on the next resume.
+- A decline the run refuses (`not_waiting`, `answer_stale`) is a 422 with nothing written, unless the run took an answer queued before it. Then the run is resumed with its queue kept, and the refusal shows on the response and in `refused` until that question is answered.
+- A resume, a takeover of a running run whose worker died, and a run handed back each give the run its queue first in the same way, when the queue holds a decline.
+- An answer to a complete run is conductor's `not_waiting` (a 422). No answers at all change nothing, as `run.answer({})` doesn't, so nothing is written.
+
+**Two calls at once.** A reply whose write loses to another call's goes by the run as it is then: it is queued if the run now runs, and refused as `not_waiting` if the other call answered the question and the run finished.
 
 ## Project Structure
 

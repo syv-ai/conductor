@@ -195,17 +195,9 @@ def run_router(
             ),
         ],
     ) -> RunView:
-        """Answer what waits by its ids, and resume the run with the answers.
-
-        The run takes them whatever its status, so a run that failed, stopped, timed out or was cancelled with
-        questions waiting is answered and goes on. Every answer it refuses is in the 422, unless an answer JSON
-        can't write is: then only those are. While the run is running,
-        the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
-        An answer JSON can't write, such as text with a lone surrogate, is a 422 at once, running or not. A run whose
-        resume call raised keeps the answers queued while it ran for the end of the next resume call, so of two
-        answers to one question the later is taken. A decline queued then is given first: when the run takes it, it
-        comes back ``failed``, isn't resumed, and an answer it refuses is in its ``refused``, not the 422.
-        """
+        """Answer what waits by its ids, whatever the run's status: the run goes on with them, an answer it refuses is
+        a 422, and a decline still queued from a resume call that raised is taken first and fails it. While the run is
+        running, the answers are queued until it stops, and one it refuses then is in its ``refused``."""
         return await worker.answer(run_id, answers, allows=allows)
 
     @router.post(
@@ -217,17 +209,10 @@ def run_router(
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         body: Decline,
     ) -> RunView:
-        """Decline to answer what waits under ``waiting_id``.
-
-        A run that takes the decline ends ``failed`` with ``answer_declined``, and the decline doesn't resume it. An
-        answer to another question that still waits, or a resume, does, and the run asks the declined question again. A run that isn't running takes it at once and comes back ``failed``. When it refuses
-        the decline but takes an answer still queued from a resume call that raised, it is resumed with its queue.
-        The refusal shows on the response, and in its ``refused`` until that question is answered: a queued answer
-        to the same question answers it when the resume call ends. A decline the run refuses, with nothing taken, is in the 422, and so is a reason JSON
-        can't write, running or not. While the run is running, the decline waits until it stops and is given to it then, in order with the
-        answers. The run can refuse it then, as ``not_waiting`` after an answer to the same question or as
-        ``answer_stale``: it is in the run's ``refused``, and the run goes on as it would have.
-        """
+        """Decline to answer what waits under ``waiting_id``: a run that takes it ends ``failed`` with
+        ``answer_declined`` until another answer or a resume goes on with it, and one that refuses it and takes
+        nothing else is a 422. While the run is running, the decline is queued until it stops, and a refusal then is
+        in its ``refused``."""
         return await worker.decline(run_id, body.waiting_id, reason=body.reason, allows=allows)
 
     @router.post(
@@ -239,9 +224,9 @@ def run_router(
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         body: Resume = Resume(),
     ) -> RunView:
-        """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
-        the item limit of a run that stopped at it, and a resume needs no body. A run that holds a decline queued
-        while it ran, which it takes, isn't resumed: it comes back ``failed`` with ``answer_declined``."""
+        """Resume a run that ended early; no node call that finished is made again, and ``{"max_items": ...}`` raises
+        the item limit of a run that stopped at it. A decline still queued from a resume call that raised is taken
+        instead, and the run comes back ``failed``."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
     @router.post("/runs/{run_id}/again", status_code=202)

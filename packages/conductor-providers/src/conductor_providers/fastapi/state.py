@@ -194,26 +194,18 @@ class RunState(BaseModel):
     def ended_with(
         self, run: Run[Any], saved: str, outcome: str
     ) -> tuple[RunState, RunChanges, bool]:
-        """This state once the run stops and is given what was queued meanwhile.
+        """This state once the run stops and is given what was queued meanwhile, in the order it came.
 
-        The run stops when a resume call returns it. A run that isn't running is given its queue here too, with the
-        run as the row has it, when a decline, an answer or a resume comes for it while its queue, with that call's
-        own replies queued last, holds a decline. A decline the run takes then ends it with no resume call.
+        The run stops when a resume call returns it, or it is the run as a stopped row has it, given its queue
+        because the queue holds a decline. ``python -m conductor.about answers-and-declines`` has the queue's rules.
+        A reply whose check raises something other than a refusal (a fault in a host's type) is logged and refused
+        as ``raised_outside_a_node``.
 
-        The queued replies are given to the run in the order they came, with ``run.answer`` and ``run.decline``. So
-        a wrong one is refused alone. One the run refuses goes to ``refused`` with its problems, and one it takes
-        clears what ``refused`` had for its question. Of an answer and a decline
-        to one question, the one that came first is taken: the second is refused by conductor as ``not_waiting``,
-        as a second answer is. An answer whose check raises something other than a refusal (a fault in a host's
-        type) is logged and refused as ``raised_outside_a_node``.
-
-        If the run takes a decline, it has failed, so it isn't resumed: its status and cause are the declined run's,
-        with every answer taken before or after the decline in it, and a cancel asked is cleared. Otherwise, if it
-        takes any answer, it is running again, so the worker resumes it at once, with the answered run as the row's
-        ``run``. A cancel that was asked but didn't end this resume call then stays asked, and ends the next one
-        before any node call. So does a cancel that came after the call's last node call, when the run ends
-        ``waiting``: it is running again, and ends ``cancelled``, as a cancel of a waiting run does. Otherwise the
-        cancel is cleared: a run that is complete or ended early has nothing to cancel.
+        A run that takes a decline has failed, so it isn't resumed, and a cancel asked is cleared. A run that takes
+        any answer is running again, for the worker to resume at once. A cancel that this resume call didn't hear
+        then stays asked, and ends the next one before any node call; so does one that came after the call's last
+        node call, when the run ends ``waiting``. Otherwise the cancel is cleared: a run that is complete or ended
+        early has nothing to cancel.
 
         Args:
             run: The run the resume call returned, or the run as the row has it.
@@ -278,11 +270,9 @@ class RunState(BaseModel):
     def failed(self, cause: Problem, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once a resume call raised, or conductor refused it, so it returned no run.
 
-        The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued, and a cancel asked
-        is cleared, since the run has stopped. A decline, an answer or a resume that comes then gives the run the
-        queue at once when the queue, with that call's own replies, holds a decline, and a run that takes a decline is
-        written failed with no resume call. Otherwise the call resumes the run with the queue kept, to be given when
-        the resume call ends.
+        The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued for the next call
+        (``python -m conductor.about answers-and-declines``), and a cancel asked is cleared, since the run has
+        stopped.
 
         Args:
             cause: Why the resume call failed.

@@ -44,9 +44,16 @@ class Worker(Generic[M, X]):
 
     ``run_router`` is a thin layer of routes over one worker. With routes of your own, you call the worker as the
     routes do: ``begin`` a run (or ``estimate`` one first), ``read`` it, ``answer``, ``decline``, ``resume`` or
-    ``cancel`` it,
-    follow its ``events``, or start it ``again`` with some inputs changed. Each method that acts on a run takes its id,
-    reads the run itself, and returns the run as it is after the call.
+    ``cancel`` it, follow its ``events``, or start it ``again`` with some inputs changed. Each method that acts on a
+    run takes its id, reads the run itself, and returns the run as it is after the call. When another call writes the
+    run between this call's read and its write, the run is read again, and the call goes by what it is then.
+
+    Each method that acts on a run also takes ``allows``, the request's run filter: a test of a run's metadata. The
+    row is read once, its metadata goes to ``allows``, and the call acts on the same row. A run the filter turns away
+    is refused as ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+
+    How a run takes answers and declines, while it runs and after, is in the reference:
+    ``python -m conductor.about answers-and-declines``.
 
     Every run keeps some metadata, of type ``M``: what you want to know about the run, such as who started it. It is
     a ``dict[str, str]`` unless you name a pydantic model with ``metadata_type``. It is written once, when the run
@@ -120,12 +127,9 @@ class Worker(Generic[M, X]):
     async def read(self, run_id: str, *, allows: Callable[[M], bool]) -> RunView:
         """The run as a reader sees it: its status, what waits in it, its outputs once complete.
 
-        The row is read once: its metadata goes to ``allows``, and the view is built from the same row.
-
         Args:
             run_id: The run's id.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
             The run's view, as it was when the run last stopped running.
@@ -229,8 +233,7 @@ class Worker(Generic[M, X]):
             run_id: The id of the run to start from.
             inputs: The inputs to change, by name; the rest stay as the run had them.
             metadata: The new run's metadata, stored with it; the run is loaded on its nodes.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
             The new run, as written.
@@ -254,36 +257,21 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Answer what waits in a run, by waiting id.
 
-        While the run is running, the answers are queued, as one call sent them, and given to the run when its
-        resume call ends. Otherwise the run takes them as ``run.answer`` does, whatever its status, and it is
-        resumed. Replies still queued from a resume call that raised stay queued, and are given when that resume
-        call ends, so of two answers to one question the later is taken. Only a decline among them is given first:
-        if the run takes it, it has failed, so it is written ``failed`` and not resumed, and an answer it refuses
-        then is in its ``refused``. An answer to a question that nothing waits on any more, such as one in a
-        complete run, is refused by conductor as ``not_waiting``. No answers at all change nothing, as
-        ``run.answer({})`` doesn't, so nothing is written.
-
-        When another call takes the run between this call's read and its write, the run is read again, and the
-        answers are given to it as it is then: queued if it is running, refused as ``not_waiting`` if the other
-        call already answered the question and the run finished.
+        A running run queues the answers until its resume call ends. A run that isn't running takes them as
+        ``run.answer`` does, whatever its status, and is resumed. No answers at all change nothing. The queue's
+        rules are in ``python -m conductor.about answers-and-declines``.
 
         Args:
             run_id: The run's id.
             answers: An answer for each waiting call, by its waiting id.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
-            The run as written: ``running`` whether the answers were queued or resumed the run; ``failed`` when a
-            decline queued before them failed it.
+            The run as written: ``running``, or ``failed`` when a decline queued before the answers failed it.
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written.
-                Answers JSON can't write are checked first, whether the run is running or not, and when any is
-                refused (``invalid_answer``), only those are listed. Otherwise a run that isn't running lists every
-                answer it refuses, and a running run checks the rest when it is given them.
-            RuntimeError: The run is not running, so the answers would resume it, and the worker has never served. A
-                run that takes a decline queued for it isn't resumed, so that needs no serving worker.
+            RuntimeError: The answers would resume the run, and the worker has never served.
         """
         if not answers:
             return await self.read(run_id, allows=allows)
@@ -301,44 +289,25 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Decline to answer a question that waits in a run, so the run fails, as ``run.decline`` fails it.
 
-        A run that takes the decline ends ``failed``, with ``answer_declined`` as its cause, and the decline doesn't
-        resume it. A decline is not final: an answer to another question that still waits, or a ``resume``, resumes
-        the failed run, and it asks the declined question again.
-
-        While the run is running, the decline is queued as an answer is. The run is given it when its resume call
-        ends, in order with the answers queued with it. The run can still refuse it then, as ``not_waiting`` after an
-        answer to the same question or as ``answer_stale``. It is then in the run's ``refused``, and the run goes on
-        as it would have.
-
-        A run that isn't running is given the decline here, after any replies still queued from a resume call that
-        raised, and written as it ends: ``failed``, with a ``run_end`` that says so in its events, in the same write.
-        Nothing resumes it, so this needs no ``serving()``. A decline the run refuses is refused here, unless the run
-        took an answer queued before it. Then the run is resumed with its queue kept, as an answer resumes it, so
-        that needs ``serving()``. The refusal shows on the response, and in the run's ``refused`` until that question
-        is answered: a queued answer to the same question answers it when the resume call ends.
-
-        When another call takes the run between this call's read and its write, the run is read again, and the
-        decline goes by what it is then: queued if it is running, refused as ``not_waiting`` if the question was
-        answered.
+        A run that takes the decline ends ``failed`` with ``answer_declined``, and nothing resumes it until another
+        answer or a ``resume``. A running run queues the decline as it queues an answer. A run that isn't running
+        takes it here, with no resume call. The queue's rules are in ``python -m conductor.about
+        answers-and-declines``.
 
         Args:
             run_id: The run's id.
             waiting_id: The id of the waiting call, as the run's ``waiting`` lists it.
             reason: Why the person declined, which the run's cause keeps in ``ctx.reason``.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
-            The run as written: ``running`` when the decline was queued or a queued answer was taken, ``failed`` when
-            the run took a decline.
+            The run as written: ``failed`` when it took the decline, else ``running``.
 
         Raises:
-            InvalidCallError: No run has the id (``no_such_run``). Or ``reason`` is a ``str`` JSON can't write, such
-                as one with a lone surrogate (``invalid_answer``, variant ``reason``), whether the run is running or
-                not. Or the run isn't running, takes nothing and refuses the decline: ``not_waiting`` or
-                ``answer_stale``. Nothing is written then.
-            RuntimeError: The run refuses the decline and takes a queued answer, so it would be resumed, and the
-                worker has never served.
+            InvalidCallError: No run has the id (``no_such_run``), ``reason`` can't be written as JSON
+                (``invalid_answer``), or a run that isn't running refuses the decline and takes nothing else
+                (``not_waiting``, ``answer_stale``). Nothing is written then.
+            RuntimeError: The run would be resumed, and the worker has never served.
         """
         declines = {waiting_id: reason}
         return await self._until_written(
@@ -354,19 +323,14 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again.
 
-        A run whose resume call raised keeps the replies queued while it ran. When they hold a decline the run takes,
-        a person said to stop, so the run isn't resumed: it is given the queue here and written ``failed``, with
-        ``answer_declined``, as ``decline`` writes a run that isn't running.
-
-        When another call takes the run between this call's read and its write, the run is read again: it is
-        resumed if it still ended early, and refused if it is running now.
+        A run whose resume call raised with a decline still queued takes the decline instead, and is written
+        ``failed`` (``python -m conductor.about answers-and-declines``).
 
         Args:
             run_id: The run's id.
             max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling. The
                 run is stored with it as the run is claimed, so every later resume call has it.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
             The run as written: ``running``, or ``failed`` when a decline queued for it ended it.
@@ -375,8 +339,7 @@ class Worker(Generic[M, X]):
             InvalidCallError: No run has the id (``no_such_run``), the run did not end early
                 (``run_not_resumable``), or the stored run can't be loaded to give it a decline queued for it or,
                 with ``max_items``, to raise its ceiling.
-            RuntimeError: The run would be resumed, and the worker has never served. A run that takes a decline
-                queued for it isn't resumed, so that needs no serving worker.
+            RuntimeError: The run would be resumed, and the worker has never served.
         """
 
         async def resumed(row: StoredRun, state: RunState) -> StoredRun | None:
@@ -399,14 +362,11 @@ class Worker(Generic[M, X]):
         questions still wait. Like any resume call it loads the run with its metadata's registry and context, so a
         run that can't be resumed ends ``failed`` instead, as it would on its next answer.
 
-        A run that is complete or already ended early has nothing to cancel, and is left as it is. When another
-        call changes the run between this call's read and its write, the run is read again and the cancel goes by
-        what it is then.
+        A run that is complete or already ended early has nothing to cancel, and is left as it is.
 
         Args:
             run_id: The run's id.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
             The run as written: ``running`` when the cancel was asked, else the run as it is.
@@ -440,8 +400,7 @@ class Worker(Generic[M, X]):
         Args:
             run_id: The run's id.
             after: The number of the last event the follower has; ``-1`` for none.
-            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+            allows: The request's run filter.
 
         Returns:
             Each event numbered above ``after``, in order, as ``(number, body)``.
@@ -728,16 +687,12 @@ class Worker(Generic[M, X]):
         max_items: int | None = None,
     ) -> StoredRun | None:
         """One try at giving a run this call's answers or decline, or its higher ceiling: ``answer``, ``decline``
-        and ``resume`` all come here. A running run queues the replies. A run that isn't running goes on with them.
+        and ``resume`` all come here.
 
-        When the replies queued from a resume call that raised, or this call's, hold a decline, the run is given
-        them all now, this call's last, so the reply that came first to a question is taken. A run that takes a
-        decline has failed: it is written so, with no resume call. Otherwise nothing is given now, and the run is
-        claimed and resumed with its queue kept, to be given when the resume call ends, when the run has asked again
-        what it asked after its last checkpoint. So a queued answer to such a question isn't refused. This call's
-        answers are given to the run as the row has it, as ``run.answer`` takes them, and the run is claimed with
-        them. This call's decline, which the run didn't take, is refused when the run took nothing, and else is in
-        ``refused`` as the run goes on.
+        A running run queues the replies. A run that isn't running is given its queue now when the queue holds a
+        decline, and is written ``failed`` with no resume call if it takes one. Otherwise this call's answers go to
+        ``run.answer``, and the run is claimed and resumed with its queue kept. The rules are in
+        ``python -m conductor.about answers-and-declines``.
 
         Args:
             row: The run's row as read.
