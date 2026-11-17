@@ -329,6 +329,19 @@ def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> No
     ]
 
 
+@pytest.mark.parametrize("definition", [text.replace, text.contains])
+def test_an_empty_needle_is_refused_at_the_field_before_the_node_runs(definition: Any) -> None:
+    graph = Graph.compile(
+        make_graph(definition, constants={f"{definition.id}.text": "ab"}), conductor_nodes.registry
+    )
+
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(needle="")
+    assert [(p.type, p.loc) for p in refused.value.problems] == [
+        ("invalid_input", ("inputs", "needle"))
+    ]
+
+
 def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_run(
     monkeypatch: MonkeyPatch,
 ) -> None:

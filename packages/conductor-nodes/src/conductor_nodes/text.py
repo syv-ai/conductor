@@ -75,7 +75,7 @@ def concat(a: str, b: str, separator: str = "") -> str:
 )
 def replace(
     text: Annotated[str, Param(widget=Textarea())],
-    needle: Annotated[str, Param(title="Find")],
+    needle: Annotated[str, Param(title="Find", min_length=1)],
     replacement: Annotated[str, Param(title="Replace with")] = "",
 ) -> str:
     """Replaces every place ``needle`` appears in the text with ``replacement``."""
@@ -89,7 +89,9 @@ def replace(
     policy=Policy(costs_nothing=True),
 )
 def contains(
-    text: Annotated[str, Param(widget=Textarea())], needle: str, case_sensitive: bool = True
+    text: Annotated[str, Param(widget=Textarea())],
+    needle: Annotated[str, Param(min_length=1)],
+    case_sensitive: bool = True,
 ) -> Annotated[bool, Param(title="Contains")]:
     """Whether ``needle`` appears in the text. Set ``case_sensitive`` to false to ignore upper and lower case."""
     if case_sensitive:
