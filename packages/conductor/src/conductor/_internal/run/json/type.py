@@ -19,6 +19,11 @@ from ..state import EndedEarly
 #: The config of every class here. A key a class doesn't declare is refused, and ``inf`` and ``nan`` are written
 #: as text. The config doesn't leave defaults out: ``run_to_json`` writes with ``exclude_defaults=True``, so a key
 #: whose value is its default, an empty dict or list, is left out of the JSON.
+#:
+#: The classes are plain pydantic models, not ``ConductorModel``s. The codec subclasses them with the graph's own
+#: value types, and ``ConductorModel`` refuses a class with a field that has no JSON form as soon as the class is
+#: built. A node may return a host's type that has no JSON form: its run runs, and only saving it is refused, with
+#: ``run_unwritable`` naming the output.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
 #: What a saved run writes for one call's state. ``"done"`` means it has its outputs, because its function

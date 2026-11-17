@@ -478,7 +478,7 @@ class Run[C]:
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         cause = run_problems.answer_declined(*loc, reason=reason)
         run = dataclasses.replace(
-            self._copy(share_outcomes=True), _last_resume=EndedEarly("failed", cause)
+            self._copy(share_outcomes=True), _last_resume=EndedEarly(status="failed", cause=cause)
         )
         path = node.node_path
         run._outcomes[path] = {

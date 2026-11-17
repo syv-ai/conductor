@@ -554,7 +554,7 @@ class Scheduler:
             if isinstance(asked, EndedEarly) and asked.status == "cancelled":
                 self.end(asked)
             else:
-                self.end(EndedEarly("failed", cause))
+                self.end(EndedEarly(status="failed", cause=cause))
             if self.node_events is not None:
                 self.node_events.call_failed(node, cause)
 
@@ -1007,9 +1007,9 @@ class Scheduler:
         )
         cause = run_problems.timeout(*outcome_loc(node, item_indexes), seconds=seconds)
         if self.going:
-            self.end(EndedEarly("failed", cause))
+            self.end(EndedEarly(status="failed", cause=cause))
         elif isinstance(self.stopped, EndedEarly) and self.stopped.status == "cancelled":
-            self.stopped = EndedEarly("failed", cause)
+            self.stopped = EndedEarly(status="failed", cause=cause)
         else:  # the run ended for another reason first, and that stands
             return
         if self.node_events is not None:
@@ -1169,8 +1169,8 @@ class Scheduler:
                     loc = outcome_loc(node, item_indexes)
                     self.end(
                         EndedEarly(
-                            "stopped",
-                            run_problems.item_limit(
+                            status="stopped",
+                            cause=run_problems.item_limit(
                                 *loc,
                                 series=place_text((series.node,), series.output),
                                 items=items,

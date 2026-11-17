@@ -52,7 +52,7 @@ async def stream(
 
     def stop() -> LastResume:
         if cancelled.is_set() or (cancel is not None and cancel.is_set()):
-            return EndedEarly("cancelled", run_problems.run_cancelled())
+            return EndedEarly(status="cancelled", cause=run_problems.run_cancelled())
         if hand_back is not None and hand_back.is_set():
             return "running"  # the scheduler stops, and another process goes on with the run
         return check_deadline() if check_deadline is not None else None

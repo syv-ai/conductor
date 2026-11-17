@@ -20,11 +20,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import ConfigDict
-
+from conductor._internal.base import ConductorModel
 from conductor._internal.problem import Problem, run_problems
 
 from .progress import call_count, is_complete
@@ -40,8 +38,7 @@ RunStatus = Literal[
 ]
 
 
-@dataclass(frozen=True, slots=True)
-class EndedEarly:
+class EndedEarly(ConductorModel):
     """How ``resume()`` ended a run before it was complete, and why.
 
     The next ``resume()`` goes on from where this one stopped.
@@ -52,7 +49,6 @@ class EndedEarly:
         cause: The problem that ended the run, with its ``loc`` and code.
     """
 
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
     status: Literal["failed", "stopped", "cancelled", "timed_out"]
     cause: Problem
 
@@ -102,13 +98,13 @@ def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     """Returns a check that says when ``timeout`` seconds have passed, or ``None`` when there is no timeout.
 
     The clock starts when this is called. The scheduler calls the check before each call. It returns
-    ``EndedEarly("timed_out", ...)`` once the time is up, and ``None`` before that.
+    ``EndedEarly(status="timed_out", ...)`` once the time is up, and ``None`` before that.
     """
     if timeout is None:
         return None
     end = time.monotonic() + timeout
     return lambda: (
-        EndedEarly("timed_out", run_problems.run_timed_out(timeout=timeout))
+        EndedEarly(status="timed_out", cause=run_problems.run_timed_out(timeout=timeout))
         if time.monotonic() > end
         else None
     )
