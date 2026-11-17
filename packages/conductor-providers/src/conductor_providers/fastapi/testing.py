@@ -305,6 +305,10 @@ async def check_run_store(store: RunStore) -> list[str]:
     Returns:
         One message per fault, each starting with the method at fault; empty when the store does all the worker
         relies on.
+
+    Raises:
+        TypeError: The store's ``update`` can't be given ``event`` as its fourth argument, so the check can't call
+            it as the worker does; the message says how to add it.
     """
     guarded = GuardedStore(store)
     found: list[str] = []

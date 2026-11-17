@@ -15,7 +15,8 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from conductor_providers.fastapi import RunChanges, StoredRun
+from conductor import NodeRegistry
+from conductor_providers.fastapi import RunChanges, StoredRun, Worker
 from conductor_providers.fastapi.testing import check_run_store
 from pytest import MonkeyPatch
 
@@ -304,3 +305,28 @@ async def test_each_fault_is_one_message_naming_its_method_and_saying_what_to_do
 
     assert found.startswith(message), found
     assert "; " in found  # what is wrong, then what to do
+
+
+class _UpdateTakesNoEvent(MemoryStore):
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:  # type: ignore[override]
+        return await super().update(run_id, rev, changes)
+
+
+class _EventIsKeywordOnly(MemoryStore):
+    async def update(  # type: ignore[override]
+        self, run_id: str, rev: int, changes: RunChanges, *, event: str | None = None
+    ) -> bool:
+        return await super().update(run_id, rev, changes, event)
+
+
+@pytest.mark.parametrize("store", [_UpdateTakesNoEvent, _EventIsKeywordOnly])
+async def test_a_store_whose_update_cant_be_given_an_event_is_refused_at_once_naming_the_parameter(
+    store: type[MemoryStore],
+) -> None:
+    """Every write of a run's end would raise, and the worker would read each one as an outage, so the worker and the
+    check refuse such a store before they call it."""
+    named = rf"{store.__name__}.update can't be given an event as its fourth argument; add the parameter `event"
+    with pytest.raises(TypeError, match=named):
+        Worker(store(), nodes_for=lambda metadata: NodeRegistry())
+    with pytest.raises(TypeError, match=named):
+        await check_run_store(store())

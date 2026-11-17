@@ -97,7 +97,7 @@ class SqliteRunStore:
 
 A store raises only when the database fails, since the worker takes an exception for an outage. It never deletes a run whose `status` is `running`. Deleting old runs is up to you.
 
-`update` can carry one event, which it appends in the same transaction, only when the row is written. That is how a run's `run_end` lands with the row that says how the run stopped: both, or neither. Number it as `add_event` does, and don't check the owner for it, since the `rev` already decides which writer wins. `check_run_store` tests both halves.
+`update` can carry one event, which it appends in the same transaction, only when the row is written. That is how a run's `run_end` lands with the row that says how the run stopped: both, or neither. Number it as `add_event` does, and don't check the owner for it, since the `rev` already decides which writer wins. `check_run_store` tests both halves. A store whose `update` has no `event` parameter is refused with a `TypeError` when the worker is made.
 
 Test your store with one line, on an empty database of the test's own. `check_run_store` gives one plain message per fault it finds, such as `"update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given"`.
 

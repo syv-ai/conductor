@@ -1273,7 +1273,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 
 - A row is a `conductor_providers.fastapi.StoredRun` of ten columns. A store acts on `id`, `rev`, `owner` and `lease_until`. A host queries `status` and `metadata`. And `graph`, `metadata`, `run`, `state` and `outcome` are JSON the worker writes and reads, kept as text or any form that reads back as the same JSON value.
 - Every change is `update(run_id, rev, changes)`, with `changes` a `conductor_providers.fastapi.RunChanges`. It is written only while the row is at `rev`.
-- `update(run_id, rev, changes, event)` with an `event` appends it in the same statement or transaction, numbered as `add_event` numbers one, only when the write lands: both land or neither does, whoever the row's `owner` is. Every `run_end` is written so, with the row that says how the run stopped, so a row that reads stopped already has its `run_end`, and an outage leaves neither.
+- `update(run_id, rev, changes, event)` with an `event` appends it in the same statement or transaction, numbered as `add_event` numbers one, only when the write lands: both land or neither does, whoever the row's `owner` is. Every `run_end` is written so, with the row that says how the run stopped, so a row that reads stopped already has its `run_end`, and an outage leaves neither. A store whose `update` takes no `event` is refused with a `TypeError` that names the parameter, when a `conductor_providers.fastapi.Worker` or `check_run_store` is given it.
 - `await conductor_providers.fastapi.testing.check_run_store(store)` returns every way a store differs from what the worker relies on, as plain messages that each start with the method at fault.
 
 ## Project Structure

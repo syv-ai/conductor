@@ -14,6 +14,7 @@ one exception, ``StoreFailedError``, which names the method. The worker and
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Protocol, TypedDict
@@ -195,9 +196,24 @@ class GuardedStore:
 
     It has the six methods of ``RunStore`` and passes each call on. Code that holds a ``GuardedStore`` can tell an
     outage apart from a fault in its own code by the exception's class alone.
+
+    Args:
+        store: The host's store.
+
+    Raises:
+        TypeError: The store's ``update`` can't be given ``event`` as its fourth argument. Every call to it would raise, and the worker would read
+            each one as an outage, so the store is refused here, once.
     """
 
     def __init__(self, store: RunStore) -> None:
+        try:
+            inspect.signature(store.update).bind("run_id", 0, {}, None)
+        except TypeError:
+            raise TypeError(
+                f"{type(store).__name__}.update can't be given an event as its fourth argument; add the parameter "
+                "`event: str | None = None` after changes, not keyword-only, and "
+                "when it is given, append it as add_event does, in the same statement or transaction as the write"
+            ) from None
         self._store = store
 
     async def create(self, run: StoredRun) -> None:
