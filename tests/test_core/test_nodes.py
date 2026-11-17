@@ -139,6 +139,7 @@ def test_a_node_id_must_have_something_in_it_and_no_character_a_source_or_waitin
         with pytest.raises(NodeDeclarationError) as raised:
             node(wrong, title="Wrong", description="For a test.")
         assert raised.value.problems[0].type == "invalid_node_id"
+        assert "can't contain any of '.', '/', '@', '~', since" in raised.value.problems[0].msg
 
     def amount() -> int:
         return 1

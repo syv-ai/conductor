@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from conductor._internal.base import SEPARATORS
 from conductor._internal.utils import comma_separated
 
 from .type import ProblemCatalogue
@@ -641,9 +642,10 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
 
         declaration_refused(lambda: node("a.b", title="Dotted id", description="Passes the text on as it is.")(dotted_id))
     """
+    separators = comma_separated(f"'{separator}'" for separator in SEPARATORS)
     return (
-        f"{declared_with} got {id!r} as the node's id. An id can't be empty, and can't contain '.', '/', '@' or '~', since those mean "
-        f"something in sources and waiting ids. Pick another, like {declared_with}('upper')."
+        f"{declared_with} got {id!r} as the node's id. An id can't be empty, and can't contain any of {separators}, "
+        f"since those mean something in sources and waiting ids. Pick another, like {declared_with}('upper')."
     )
 
 
