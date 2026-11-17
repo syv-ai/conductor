@@ -295,9 +295,10 @@ class Worker(Generic[M, X]):
             decline queued before them failed it.
 
         Raises:
-            InvalidCallError: No run has the id (``no_such_run``), or the run refuses an answer; every answer it
-                refuses is listed, and nothing is written. While the run is running, only an answer JSON can't write is refused now
-                (``invalid_answer``), as the run would refuse it; the rest are checked when the run is given them.
+            InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written.
+                Answers JSON can't write are checked first, whether the run is running or not, and when any is
+                refused (``invalid_answer``), only those are listed. Otherwise a run that isn't running lists every
+                answer it refuses, and a running run checks the rest when it is given them.
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served. A
                 run that takes a decline queued for it isn't resumed, so that needs no serving worker.
         """

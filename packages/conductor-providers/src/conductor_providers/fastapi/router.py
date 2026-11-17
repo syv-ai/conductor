@@ -198,7 +198,8 @@ def run_router(
         """Answer what waits by its ids, and resume the run with the answers.
 
         The run takes them whatever its status, so a run that failed, stopped, timed out or was cancelled with
-        questions waiting is answered and goes on. Every answer it refuses is in the 422. While the run is running,
+        questions waiting is answered and goes on. Every answer it refuses is in the 422, unless an answer JSON
+        can't write is: then only those are. While the run is running,
         the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
         An answer JSON can't write, such as text with a lone surrogate, is a 422 at once, running or not. A run whose
         resume call raised keeps the answers queued while it ran for the end of the next resume call, so of two
