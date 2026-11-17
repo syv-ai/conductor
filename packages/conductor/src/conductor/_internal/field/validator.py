@@ -29,7 +29,7 @@ from conductor._internal.problem import (
     declaration_problems,
 )
 from conductor._internal.types import Type
-from conductor._internal.validation import Validator, schema_validator_of
+from conductor._internal.validation import Validator
 
 from .type import Field
 
@@ -207,7 +207,7 @@ def _read_default(whole: Type, default: Any) -> Any:
     """
     if default is REQUIRED or default is SKIPPED:
         return default
-    read = schema_validator_of(whole).validate_python(default)
+    read = whole.argument_validator.validate_python(default)
     try:
         whole.to_json(read)
     except (PydanticSerializationError, UnicodeDecodeError):

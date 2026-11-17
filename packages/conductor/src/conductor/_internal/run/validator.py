@@ -26,7 +26,7 @@ from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems
-from conductor._internal.validation import Validator, exact_classes, schema_validator_of
+from conductor._internal.validation import Validator
 
 
 def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
@@ -90,8 +90,8 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
             (
                 name,
                 field.whole,
-                exact_classes(field.whole),
-                schema_validator_of(field.whole).validate_python,
+                field.whole.exact_classes,
+                field.whole.argument_validator.validate_python,
             )
             for name, field in inputs.items()
         )

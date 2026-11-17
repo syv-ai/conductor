@@ -83,7 +83,7 @@ def read_choices(
     ``{"b": 2, "a": 1}`` are one choice given twice, which is refused.
 
     The caller's ``reader`` decides the rules. ``Param`` passes its own type, limits included. The ``Ask``
-    validator passes the output's validator, which also applies ``validation.rules``: a yes or no is not a
+    validator passes the output's validator, which also applies ``types/rules.py``: a yes or no is not a
     number.
 
     Args:
@@ -109,7 +109,8 @@ def read_choices(
                 written = write(validate_as_json(reader, choice))
                 read.append(
                     known_by_text.get(
-                        canonical_json(written), Choice(written, _title_of(choice, written))
+                        canonical_json(written),
+                        Choice(written, str(written) if isinstance(choice, Enum) else str(choice)),
                     )
                 )
     except PydanticSerializationError:
@@ -121,15 +122,6 @@ def read_choices(
     if len(choice_texts(read)) != len(read):
         raise conductor_error("choice_twice", "one is given twice")
     return tuple(read)
-
-
-def _title_of(value: Any, written: JsonValue) -> str:
-    """Returns the title of a bare choice: its text, or for an enum member the text of the id it is written as.
-
-    ``str`` of a member is a Python name, like ``Color.RED``, that changes with the enum's base class, so a member
-    is titled as a ``Literal`` of its value would be.
-    """
-    return str(written) if isinstance(value, Enum) else str(value)
 
 
 def declared_choices(

@@ -51,7 +51,7 @@ from conductor._internal.types import (
     read_choices,
 )
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator, schema_output_validator_of
+from conductor._internal.validation import Validator
 
 from .question import as_asked
 from .type import Ask
@@ -107,7 +107,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 try:
                     choices[name] = read_choices(
                         given,
-                        schema_output_validator_of(value_type),
+                        value_type.output_validator,
                         value_type.to_json,
                         known=value_type.choices or (),
                     )
@@ -396,9 +396,7 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
             refuses it, with the type's reason as the message, quoting nothing of the value.
     """
     try:
-        return validate_as_json(
-            schema_output_validator_of(value_type), value, fallback=frame_as_json
-        )
+        return validate_as_json(value_type.output_validator, value, fallback=frame_as_json)
     except PydanticSerializationError:
         raise _no_json_form() from None
     except PydanticCustomError as refused:  # a table with a column a saved run can't keep as it is

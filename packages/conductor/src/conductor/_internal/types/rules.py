@@ -121,10 +121,6 @@ def _walked_already(schema: dict[str, Any]) -> bool:
     return schema["type"] == "function-before" and schema["function"]["function"] is _not_a_bool
 
 
-#: The classes a ``Literal``'s value may have: plain JSON.
-_PLAIN = (str, int, float, bool, type(None))
-
-
 def _check_literal(values: list[Any]) -> None:
     """Refuses a ``Literal`` whose values aren't plain JSON, each with a JSON form of its own.
 
@@ -133,7 +129,7 @@ def _check_literal(values: list[Any]) -> None:
             ``alike`` for two values written as the same JSON, like ``inf`` and ``"Infinity"``.
     """
     for value in values:
-        if type(value) not in _PLAIN:
+        if type(value) not in (str, int, float, bool, type(None)):  # plain JSON
             instead = (
                 f"Take the enum {type(value).__name__} as the type, with Param(choices=[...]) for some of its members."
                 if isinstance(value, Enum)

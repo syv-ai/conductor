@@ -12,7 +12,7 @@ import operator
 import typing
 from collections.abc import Iterable, Mapping
 from types import UnionType
-from typing import Any, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_origin
+from typing import Any, Literal, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, JsonValue
 
@@ -30,13 +30,23 @@ def union_of(options: Iterable[Any]) -> Any:
     return functools.reduce(operator.or_, options)
 
 
-def literal_classes(literal: Any) -> Any:
-    """Returns the class of a ``Literal``'s values: one class, or the union of several.
+def literal_classes(hint: Any) -> Any:
+    """Returns ``hint`` with each ``Literal`` in its union read as its values' classes: one class, or several.
 
-    A ``Literal`` is a value of its values' classes. ``Literal["a", "b"]`` gives ``str``, and
-    ``Literal["a", 1, None]`` gives ``str | int | None``.
+    A ``Literal`` is a value of its values' classes. ``Literal["a", "b"]`` gives ``str``,
+    ``Literal["a", 1, None]`` gives ``str | int | None``, and ``Literal["a"] | bytes`` gives ``str | bytes``.
     """
-    return union_of(dict.fromkeys(type(value) for value in get_args(literal)))
+    return union_of(
+        dict.fromkeys(
+            value_class
+            for member in union_members(hint)
+            for value_class in (
+                [type(value) for value in get_args(member)]
+                if get_origin(member) is Literal
+                else [member]
+            )
+        )
+    )
 
 
 def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
@@ -55,7 +65,7 @@ def a_number(cls: type) -> bool:
     """Says whether ``cls`` is a number class: ``int``, ``float`` or a subclass of one, but not ``bool``.
 
     Python counts ``True`` as ``1``, but conductor never takes a yes or no as a number. This is the one place that
-    rule says what a number is. ``fit`` uses it for types when a graph is compiled, and ``validation.rules`` for
+    rule says what a number is. ``fit`` uses it for types when a graph is compiled, and ``types/rules.py`` for
     values.
     """
     return issubclass(cls, (int, float)) and not issubclass(cls, bool)

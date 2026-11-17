@@ -37,7 +37,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, compile_problems
 from conductor._internal.types import Type
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator, schema_of, schema_validator_of
+from conductor._internal.validation import Validator
 
 
 class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
@@ -162,7 +162,7 @@ def _refused_as_a_list(option: Type, value: list[Any]) -> bool:
     because of its item. So for ``int | list[int]`` given ``["x"]``, a loop isn't the fix.
     """
     try:
-        schema_validator_of(option).validate_python(value)
+        option.argument_validator.validate_python(value)
     except ValidationError as error:
         return all(not fault["loc"] for fault in option.refusal(error).errors)
     return False
@@ -173,7 +173,7 @@ def _input_schema(field: Field) -> TypedDictField:
 
     The input is required unless it has a default, and its value is checked by its type.
     """
-    schema = schema_of(field.whole)
+    schema = field.whole.argument_schema
     required = field.default is REQUIRED
     if not required:
         default = field.default
@@ -286,7 +286,7 @@ class ConstantValidator(Validator[JsonValue, Any]):
             InvalidCallError: See the class.
         """
         try:
-            return schema_validator_of(self._field.whole).validate_python(value)
+            return self._field.whole.argument_validator.validate_python(value)
         except ValidationError as error:
             refused = self._field.whole.refusal(error)
             raise InvalidCallError(

@@ -31,11 +31,13 @@ from pydantic_core import (
     SchemaError,
     SchemaSerializer,
     SchemaValidator,
+    core_schema,
 )
 
 from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json
 from conductor._internal.problem import (
     NodeDeclarationError,
+    conductor_error,
     declaration_problems,
     is_conductor_error,
     value_free_errors,
@@ -252,10 +254,66 @@ class Type:
         """Pydantic's validator built from ``argument_schema``, once per type.
 
         It checks a constant, a default, a graph input and a value from an edge, laxly or strictly, and reads the
-        type's own choices. ``validation.rules.schema_validator_of`` returns it. When it refuses a value,
-        ``Type.refusal`` explains why without quoting the value.
+        type's own choices. When it refuses a value, ``Type.refusal`` explains why without quoting the value.
         """
         return SchemaValidator(self.argument_schema)
+
+    @functools.cached_property
+    def output_schema(self) -> CoreSchema:
+        """The schema an output of the type is checked by, strictly: what a node returns, or a person's answer.
+
+        It is ``returned_schema`` with conductor's rules added (``with_rules``). A host's class may give its own
+        pydantic schema, and that schema may give back an object of another class. So where the type is made of a
+        host's classes, a value that comes out of pydantic as another class is refused with ``not_its_class``.
+        """
+        schema = with_rules(self.returned_schema)
+        exact = self.exact_classes
+        # Conductor's own classes always come out of pydantic as themselves, so there is nothing to check.
+        if all(cls in NAMES for cls in exact):
+            return schema
+        type_id = self.id
+
+        def of_its_class(read: Any) -> Any:
+            if not isinstance(read, exact):
+                raise conductor_error(
+                    "not_its_class",
+                    "its type's own check returned a {got}, not a {type}",
+                    {"got": type(read).__name__, "type": type_id},
+                )
+            return read
+
+        return core_schema.no_info_after_validator_function(of_its_class, schema)
+
+    @functools.cached_property
+    def output_validator(self) -> SchemaValidator:
+        """Pydantic's validator built from ``output_schema``, once per type.
+
+        Validators call it with ``strict=True``, so ``"12"`` is never an ``int`` and ``"no"`` is never a ``bool``. A
+        ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``Records``).
+        """
+        return SchemaValidator(self.output_schema)
+
+    @functools.cached_property
+    def exact_classes(self) -> tuple[type, ...]:
+        """The classes whose values a validator can keep as they are, without calling pydantic.
+
+        A value whose class is exactly one of these needs no checking. ``Type(str)`` gives ``(str,)``, and
+        ``Type(int | None)`` gives ``(int, type(None))``.
+
+        It is ``()`` when every value has to be checked. That is when an option of the type isn't a plain class
+        (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``, a ``Series`` or a table), or when the type has a
+        limit, choices or other metadata.
+        """
+        options = union_members(self.bare)
+        plain = all(
+            isinstance(option, type)
+            and not typing.is_typeddict(option)
+            and option is not Any
+            and Type(option).item is None
+            and Type(option).record is None
+            for option in options
+        )
+        return options if plain and not self.limited else ()
 
     @functools.cached_property
     def limited(self) -> bool:
@@ -491,10 +549,7 @@ class Type:
             choices: Some of the type's values, each id in its JSON form, as ``read_choices`` gives them.
         """
         bare, param, others = self._parts
-        classes = union_of(
-            literal_classes(option) if get_origin(option) is Literal else option
-            for option in union_members(bare)
-        )
+        classes = union_of(literal_classes(option) for option in union_members(bare))
         # each id back as the value the type reads it as, so a float's "Infinity" is inf again
         values = [
             choice.model_copy(

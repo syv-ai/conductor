@@ -44,9 +44,11 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         # fit the target: Literal[1] lands on float, but not on Literal[True], which pydantic would take as equal
         return (
             _may_be_taken(target, source)
-            and fit(target, _classes_of(source), bound, False)
+            and fit(target, literal_classes(source), bound, False)
             and (
-                not exact or fit(target, _classes_of(source), bound, True) or _among(target, source)
+                not exact
+                or fit(target, literal_classes(source), bound, True)
+                or _among(target, source)
             )
         )
     if checked:
@@ -153,14 +155,6 @@ def _names_its_values(source: Any) -> bool:
     members = union_members(source)
     return any(get_origin(member) is Literal for member in members) and all(
         member is type(None) or get_origin(member) is Literal for member in members
-    )
-
-
-def _classes_of(source: Any) -> Any:
-    """Returns ``source`` with each ``Literal`` read as its values' classes."""
-    return union_of(
-        literal_classes(member) if get_origin(member) is Literal else member
-        for member in union_members(source)
     )
 
 

@@ -57,7 +57,6 @@ from conductor._internal.problem import InvalidCallError, Problem, compile_probl
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, WrittenValuesValidator
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param
-from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 
@@ -376,7 +375,7 @@ def _made_up(field: Field) -> Any:
     Returns:
         The value, as the field's type reads it, or ``_CANNOT`` when no value can be made up.
     """
-    read = schema_validator_of(field.whole).validate_python
+    read = field.whole.argument_validator.validate_python
     for item in _candidates(
         field.type.options[0] if len(field.type.options) == 1 else None, field.param
     ):

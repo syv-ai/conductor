@@ -48,12 +48,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import (
-    Validator,
-    exact_classes,
-    output_schema_of,
-    schema_output_validator_of,
-)
+from conductor._internal.validation import Validator
 
 from .type import HookName
 
@@ -128,8 +123,8 @@ def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
     A value whose class is exactly one of the type's plain classes, like a ``str`` for ``-> str``, is kept as it is
     without calling pydantic.
     """
-    exact = exact_classes(field.whole)
-    validate = schema_output_validator_of(field.whole).validate_python
+    exact = field.whole.exact_classes
+    validate = field.whole.output_validator.validate_python
 
     def read(returned: Any) -> dict[str, Any]:
         if type(returned) in exact:
@@ -188,7 +183,7 @@ def _several_outputs(
         )
 
     fields: dict[str, Any] = {
-        name: core_schema.typed_dict_field(output_schema_of(field.whole), required=False)
+        name: core_schema.typed_dict_field(field.whole.output_schema, required=False)
         for name, field in outputs.items()
     }
     values: CoreSchema = core_schema.no_info_after_validator_function(

@@ -9,9 +9,11 @@ a validator refuses a value, whoever called it decides what happens to the probl
 reach its own caller, compiling keeps them in ``graph.problems``, and a run keeps the problem as the outcome of the
 call.
 
-Validators check values with the pydantic validators ``rules.py`` gives, each built from a type's own check, which
-adds the rules that hold for every type, such as "a yes or no is not a number". Outside a ``validator.py``, nothing in the engine builds one.
-``conductor.testing`` does, to make up values for a node's inputs.
+Validators check values with the checks a ``Type`` owns: ``argument_validator`` for an argument and
+``output_validator`` for an output, each built once from the type's schema with the rules that hold for every type,
+such as "a yes or no is not a number" (``types/rules.py``). Outside a ``validator.py``, only compiling asks one,
+of a ``Literal``'s values (``Type.takes_value``), and ``conductor.testing`` does, to make up values for a node's
+inputs.
 
 A few values are checked elsewhere. A saved run is checked in ``run/json/``, where one schema both reads and writes
 it. A ``NodeError``'s ``ctx`` is checked by ``NodeError`` itself, where a node makes one. And a type's own
@@ -19,20 +21,6 @@ declarations are checked where the type is declared: ``Param`` checks its choice
 (``types/param.py``), and ``@host_type`` checks its arguments.
 """
 
-from .rules import (
-    exact_classes,
-    output_schema_of,
-    schema_of,
-    schema_output_validator_of,
-    schema_validator_of,
-)
 from .type import Validator
 
-__all__ = [
-    "Validator",
-    "exact_classes",
-    "output_schema_of",
-    "schema_of",
-    "schema_output_validator_of",
-    "schema_validator_of",
-]
+__all__ = ["Validator"]
