@@ -201,8 +201,9 @@ def run_router(
         questions waiting is answered and goes on. Every answer it refuses is in the 422. While the run is running,
         the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
         An answer JSON can't write, such as text with a lone surrogate, is a 422 at once, running or not. A run whose
-        resume call raised is given the replies still queued first: when a decline among them fails it, it comes back
-        ``failed`` and isn't resumed.
+        resume call raised is given the replies still queued first, so the reply that came first to a question is
+        taken and a later one is in ``refused``. When a queued decline fails the run, it comes back ``failed`` and
+        isn't resumed.
         """
         return await worker.answer(run_id, answers, allows=allows)
 
@@ -218,8 +219,9 @@ def run_router(
         """Decline to answer what waits under ``waiting_id``.
 
         A run that takes the decline ends ``failed`` with ``answer_declined``, and is not resumed: a later resume
-        asks the question again. A run that isn't running takes it at once and comes back ``failed``, also when a
-        decline queued before this one failed it. A decline the run refuses is in the 422, and so is a reason JSON
+        asks the question again. A run that isn't running takes it at once and comes back ``failed``. When a reply
+        still queued from a resume call that raised was taken first, the decline is in its ``refused`` instead, and
+        the run comes back as that reply left it. A decline the run refuses, with nothing taken, is in the 422, and so is a reason JSON
         can't write, running or not. While the run is running, the decline waits until it stops and is given to it then, in order with the
         answers. The run can refuse it then, as ``not_waiting`` after an answer to the same question or as
         ``answer_stale``: it is in the run's ``refused``, and the run goes on as it would have.

@@ -1001,12 +1001,13 @@ def _event_types(events: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-async def test_a_decline_to_a_stopped_run_is_given_after_what_is_queued_so_an_answer_queued_first_wins() -> (
-    None
-):
-    """A resume call that raised leaves its queue. A decline that comes then is given after it, as it would be while
-    the run runs, so the queued answer to the same question is taken and the decline is ``not_waiting``. Nothing is
-    written."""
+@pytest.mark.parametrize("reply", ["decline", "answer"])
+async def test_a_reply_to_a_stopped_run_whose_queue_answers_its_question_resumes_it_with_the_queued_answer(
+    reply: str,
+) -> None:
+    """A resume call that raised leaves its queue, and the view still shows the question waiting. A reply that comes
+    then is given after the queue, as on a running run: the queued answer is taken, the run is resumed with it, and
+    this reply is in ``refused`` as ``not_waiting``. It answers as a taken answer does, not with a 422."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     store = MemoryStore()
@@ -1014,18 +1015,24 @@ async def test_a_decline_to_a_stopped_run_is_given_after_what_is_queued_so_an_an
     async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         await store.ended(run_id)
-    _failed_with_queued(
-        store,
-        run_id,
-        {"waiting_id": waiting_id, "declined": False, "answer": True, "reason": None},
-    )
-    before = store.rows[run_id]
+        _failed_with_queued(
+            store,
+            run_id,
+            {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
+        )
 
-    with pytest.raises(InvalidCallError) as refused:
-        await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+        written = await (
+            worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+            if reply == "decline"
+            else worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+        )
+        ended = await store.ended(run_id)
 
-    assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
-    assert store.rows[run_id] == before
+    assert written.status == "running"
+    assert (ended.status, ended.outputs) == ("complete", {"busy": "x", "after": False})
+    assert {key: [problem.type for problem in value] for key, value in ended.refused.items()} == {
+        waiting_id: ["not_waiting"]
+    }
 
 
 async def test_a_decline_to_a_stopped_run_whose_queue_already_declines_the_question_fails_the_run() -> (
@@ -1243,31 +1250,6 @@ async def test_an_answer_to_a_stopped_run_whose_queue_declines_its_question_fail
     assert _event_types((await store.stored_events(run_id))[events:]) == [
         "run_end:failed:answer_declined"
     ]
-
-
-async def test_an_answer_to_a_stopped_run_whose_queue_answers_its_question_is_not_waiting_and_writes_nothing() -> (
-    None
-):
-    """The answer queued first is taken, so this one is refused, as a second answer to a question is."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = MemoryStore()
-    worker = _worker(store, registry)
-    async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        await store.ended(run_id)
-    _failed_with_queued(
-        store,
-        run_id,
-        {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
-    )
-    before = store.rows[run_id]
-
-    with pytest.raises(InvalidCallError) as refused:
-        await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
-
-    assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
-    assert store.rows[run_id] == before
 
 
 async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_fails_the_run_when_it_stops() -> (
