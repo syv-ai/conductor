@@ -217,8 +217,14 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         if Type(bare).item is not None:
             raise NodeDeclarationError(declaration_problems.nested_series())
         param = merged_param(of_item, param)  # the field's own Param wins over its item's
+    on_members = [  # what stays on a union's member, like the Textarea of Annotated[str, Textarea()] | None
+        metadata
+        for option in (*union_members(written), *union_members(bare))
+        if get_origin(option) is Annotated
+        for metadata in get_args(option)[1:]
+    ]
     if any(
-        isinstance(metadata, Widget) for metadata in beside_param
+        isinstance(metadata, Widget) for metadata in (*beside_param, *on_members)
     ):  # pydantic would ignore it, and describe() would show no widget for the field
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
     if param.widget is not None:

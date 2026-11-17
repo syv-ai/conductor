@@ -264,23 +264,33 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     ``Param``s are merged into one (``merged_param``). A ``polars.DataFrame`` written as a hint is read as
     ``Table``.
 
+    A ``Param`` is lifted from a union's member onto the whole, since the field has one title and one set of
+    choices. Any other metadata stays on its member, where it checks only that member's values: in
+    ``Annotated[str, AfterValidator(f)] | None`` the validator never sees ``None``, and in JsonValue's union each
+    member keeps the ``Tag`` its ``Discriminator`` picks it by.
+
     Returns:
-        The hint with every ``Annotated`` taken off its members, all its ``Param``s merged into one (an empty one
-        if there are none), and any other ``Annotated`` metadata, which is left for pydantic.
+        The hint with every ``Param`` taken off, all of them merged into one (an empty one if there are none), and
+        the hint's own other ``Annotated`` metadata, which is left for pydantic.
     """
     # a plain class has nothing to take off, and most hints are a plain class
     if type(hint) is type and hint not in READ_AS:
         return hint, _NO_PARAM, ()
-    options, params, others = [], list[Param](), list[Any]()
-    for option in union_members(hint):
-        if get_origin(option) is Annotated:
-            option, *metadata = get_args(option)
-            params += [m for m in metadata if isinstance(m, Param)]
-            others += [m for m in metadata if not isinstance(m, Param)]
-            inner, inner_param, inner_others = split_hint(option)
-            option, params, others = inner, [inner_param, *params], [*inner_others, *others]
-        options.append(READ_AS.get(option, option) if type(option) is type else option)
-    return union_of(options), merged_param(*params), tuple(others)
+    members = union_members(hint)
+    if len(members) == 1:
+        if get_origin(hint) is not Annotated:
+            return (READ_AS.get(hint, hint) if type(hint) is type else hint), _NO_PARAM, ()
+        inner, *metadata = get_args(hint)
+        bare, inner_param, inner_others = split_hint(inner)
+        params = [m for m in metadata if isinstance(m, Param)]
+        own = [m for m in metadata if not isinstance(m, Param)]
+        return bare, merged_param(inner_param, *params), (*inner_others, *own)
+    options, params = [], list[Param]()
+    for member in members:
+        option, param, kept = split_hint(member)
+        params.append(param)
+        options.append(Annotated[(option, *kept)] if kept else option)
+    return union_of(options), merged_param(*params), ()
 
 
 def merged_param(*params: Param) -> Param:

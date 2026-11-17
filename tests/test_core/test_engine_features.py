@@ -1203,6 +1203,51 @@ def test_a_value_an_inputs_check_converts_below_the_top_reaches_the_node_convert
     assert run.outputs == {"result": "['abc']"}
 
 
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (Literal[1], 1, Literal[True]),
+        (Literal[1.0], 1.0, Literal[1, 2]),
+        (Literal[1.0], 1.0, Annotated[int, Param(choices=[1, 2])]),
+        (float, 1.0, Literal[1]),
+    ],
+)
+def test_a_literal_source_whose_values_classes_dont_fit_is_a_type_mismatch(source, value, target):
+    """A ``Literal``'s values must be taken by the target's check and their classes must fit it: pydantic takes
+    ``1`` as ``True`` and ``1.0`` as ``1``, but an ``int`` is no yes or no and a ``float`` is no ``int``."""
+    (problem,) = _wired(source, value, target).problems
+
+    assert problem.type == "type_mismatch"
+
+
+type _Team = Literal["ida", "bo"]
+
+
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (Literal["x"], "x", JsonValue),
+        (list[Literal["x"]], ["x"], JsonValue),
+        (Literal["ida"], "ida", _Team),
+        (Literal[1], 1, float),
+    ],
+)
+def test_a_literal_source_lands_on_an_alias_or_a_wider_class(source, value, target):
+    """The rule for a source that names its values holds through an alias, JsonValue's tagged union too."""
+    graph = _wired(source, value, target)
+
+    assert graph.problems == []
+    assert graph.run(text="x").status == "complete"
+
+
+def test_a_validator_on_a_unions_member_checks_only_that_member():
+    """In ``Annotated[str, AfterValidator(str.lower)] | None`` the validator is the ``str``'s, so ``None`` passes it
+    by."""
+    graph = _wired(str | None, None, Annotated[str, AfterValidator(str.lower)] | None)
+
+    assert graph.run(text="x").outputs == {"result": "None"}
+
+
 @host_type("tint", title="Tint")
 class _Tint(Enum):
     RED = "red"

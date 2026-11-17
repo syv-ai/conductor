@@ -348,6 +348,10 @@ class Type:
             return one.__name__, one.__name__, ()
         if origin is Literal:
             return Type(literal_classes(one))._named
+        if (
+            origin is Annotated
+        ):  # a union's member keeps what checks it, which doesn't change its name
+            return Type(one)._named
         if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "record"
             return "record", "Record", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
@@ -396,6 +400,8 @@ class Type:
                 option = get_origin(option)[
                     tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))
                 ]
+            elif get_origin(option) is Annotated:  # a union's member, built as a type of its own
+                option = Type(option).carried
             options.append(option)
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):

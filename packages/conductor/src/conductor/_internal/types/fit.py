@@ -5,8 +5,10 @@ type? An ``int`` output may go to a ``float`` input, but a ``str`` output may no
 Pydantic checks values, not pairs of types, so this check is written here.
 
 A type with a limit, choices or another check, at any depth, follows one rule. A value of the right class may go
-to it, and each value is checked on its call. A ``Literal`` source names its values, so it may not go to a type
-whose own check takes none of them.
+to it, and each value is checked on its call. A ``Literal`` source names its values, so one more rule holds for it,
+whatever the target: it lands when the target's own check takes one of its values and their classes fit the
+target. So ``Literal["x"]`` doesn't land on ``Literal["ida", "bo"]``, and ``Literal[1]`` doesn't land on
+``Literal[True]``, though pydantic takes ``1`` as ``True``.
 """
 
 from __future__ import annotations
@@ -36,22 +38,24 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     if target == source:
         return True
     (bare, param, others), source = split_hint(target), _as_one_literal(split_hint(source)[0])
-    if param.limits or param.choices is not None or others:
-        # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call,
-        # and an edge whose values it refuses all is refused here
-        return not exact and _may_be_taken(target, source) and fit(bare, source, bound, False)
+    checked = bool(param.limits or param.choices is not None or others)
+    if _names_its_values(source) and not isinstance(bare, TypeVar) and (bare is not Any or checked):
+        # a source that names its values lands when the target's own check takes one of them, and their classes
+        # fit the target: Literal[1] lands on float, but not on Literal[True], which pydantic would take as equal
+        return (
+            _may_be_taken(target, source)
+            and fit(target, _classes_of(source), bound, False)
+            and (
+                not exact or fit(target, _classes_of(source), bound, True) or _among(target, source)
+            )
+        )
+    if checked:
+        # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call
+        return not exact and fit(bare, source, bound, False)
     target = bare
     if target == source:
         return True
     if is_alias(target) or is_alias(source):  # an alias stands for another type, so compare that
-        if is_alias(target) and _names_its_values(source):
-            # the alias's own check is asked of the values, since what it stands for may only check right as a
-            # whole, like JsonValue's union, whose members are tagged; then its classes are compared
-            return (
-                _may_be_taken(target, source)
-                and not exact
-                and fit(aliased(target), _classes_of(source), bound, False)
-            )
         return fit(
             aliased(target) if is_alias(target) else target,
             aliased(source) if is_alias(source) else source,
@@ -81,18 +85,8 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
                 return False
         return True
     if get_origin(target) is Literal:
-        if not _may_be_taken(target, source):
-            return False
-        if get_origin(source) is Literal:
-            # exact when every value is one of the target's as it is, of the same class: True is not 1
-            given_values, target_values = get_args(source), get_args(target)
-            return not exact or {(type(v), v) for v in given_values} <= {
-                (type(v), v) for v in target_values
-            }
         # a value of the right class may be one of them, so it is checked on each call
         return not exact and fit(literal_classes(target), source, bound, False)
-    if get_origin(source) is Literal:
-        return all(fit(target, type(value), bound, exact) for value in get_args(source))
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
     if typing.is_typeddict(source):
         source_fields = typing.get_type_hints(source, include_extras=True)
@@ -168,6 +162,28 @@ def _classes_of(source: Any) -> Any:
         literal_classes(member) if get_origin(member) is Literal else member
         for member in union_members(source)
     )
+
+
+def _among(target: Any, source: Any) -> bool:
+    """Whether every value ``source`` names is one of a plain ``Literal`` target's values as it is, of the same class,
+    so it needs no check: ``Literal["a"]`` into ``Literal["a", "b"]``. ``True`` is not ``1``."""
+    bare, param, others = split_hint(target)
+    if param.limits or others:
+        return False
+    if is_alias(bare):
+        return _among(aliased(bare), source)
+    given = {
+        (type(value), value)
+        for member in union_members(source)
+        for value in get_args(member) or (None,)
+    }
+    taken = {
+        (type(value), value)
+        for member in union_members(bare)
+        for value in get_args(member) or (None,)
+        if get_origin(member) is Literal or member is type(None)
+    }
+    return given <= taken
 
 
 def _may_be_taken(target: Any, source: Any) -> bool:
