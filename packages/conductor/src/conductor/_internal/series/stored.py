@@ -16,7 +16,7 @@ check which of the two it has.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, assert_never, get_args
+from typing import Any, get_args
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
@@ -213,29 +213,3 @@ class Records[T]:
 #: The two ways a run stores a ``Series`` output: the list a node returned, or the frame it returned for a Series
 #: of records. ``SeriesType.returned_schema`` picks one by the class of the value.
 StoredSeries = SeriesItems | Records
-
-
-def indexes_of_none(value: Any) -> list[int]:
-    """Returns the indexes of the ``None`` items in the value of a ``Series`` or ``Table`` input.
-
-    For example, ``indexes_of_none(["a", None])`` is ``[1]``. A frame has no ``None`` rows, so for a frame the
-    result is ``[]``.
-    """
-    return (
-        [index for index, item in enumerate(value) if item is None] if type(value) is list else []
-    )
-
-
-def without_indexes(value: list[Any] | pl.DataFrame, indexes: set[int]) -> list[Any] | pl.DataFrame:
-    """Returns the value of a ``Series`` or ``Table`` input with the items at ``indexes`` left out.
-
-    For example, ``without_indexes(["a", "b", "c"], {1})`` is ``["a", "c"]``. For a frame of three rows, ``{1}``
-    gives a frame of the first and third rows.
-    """
-    match value:
-        case list():
-            return [item for index, item in enumerate(value) if index not in indexes]
-        case pl.DataFrame():
-            return value.filter([index not in indexes for index in range(value.height)])
-        case _:
-            assert_never(value)

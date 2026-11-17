@@ -37,12 +37,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, assert_never
 
+import polars as pl
 from typing_extensions import sentinel
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.graph import CollectingInput, Edge, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems
-from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
 from .blueprint import BlueprintFunctionNode, loop_body_of
@@ -369,11 +369,11 @@ class ResultReader:
             )  # the indexes where an input that takes no None item has a None
             for name, keeps_none_items in inputs:
                 if not keeps_none_items and arguments[name] is not None:
-                    dropped.update(indexes_of_none(arguments[name]))
+                    dropped.update(_indexes_of_none(arguments[name]))
             if dropped:
                 for name, _ in inputs:
                     if arguments[name] is not None:
-                        arguments[name] = without_indexes(arguments[name], dropped)
+                        arguments[name] = _without_indexes(arguments[name], dropped)
         return arguments
 
 
@@ -388,3 +388,31 @@ def _may_have_value(value: Any, keeps_none_items: bool) -> Any:
     if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not keeps_none_items):
         return value
     return MAY_HAVE_VALUE
+
+
+def _indexes_of_none(value: Any) -> list[int]:
+    """Returns the indexes of the ``None`` items in the value of a ``Series`` or ``Table`` input.
+
+    For example, ``_indexes_of_none(["a", None])`` is ``[1]``. A frame has no ``None`` rows, so for a frame the
+    result is ``[]``.
+    """
+    return (
+        [index for index, item in enumerate(value) if item is None] if type(value) is list else []
+    )
+
+
+def _without_indexes(
+    value: list[Any] | pl.DataFrame, indexes: set[int]
+) -> list[Any] | pl.DataFrame:
+    """Returns the value of a ``Series`` or ``Table`` input with the items at ``indexes`` left out.
+
+    For example, ``_without_indexes(["a", "b", "c"], {1})`` is ``["a", "c"]``. For a frame of three rows, ``{1}``
+    gives a frame of the first and third rows.
+    """
+    match value:
+        case list():
+            return [item for index, item in enumerate(value) if index not in indexes]
+        case pl.DataFrame():
+            return value.filter([index not in indexes for index in range(value.height)])
+        case _:
+            assert_never(value)

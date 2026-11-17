@@ -16,13 +16,7 @@ a run stores a Series. The full rules are in the reference: ``python -m conducto
 """
 
 from .read import set_has_no_order
-from .stored import (
-    Records,
-    SeriesItems,
-    StoredSeries,
-    indexes_of_none,
-    without_indexes,
-)
+from .stored import Records, SeriesItems, StoredSeries
 from .type import Series, SeriesType
 
 __all__ = [
@@ -31,7 +25,5 @@ __all__ = [
     "SeriesItems",
     "SeriesType",
     "StoredSeries",
-    "indexes_of_none",
     "set_has_no_order",
-    "without_indexes",
 ]
