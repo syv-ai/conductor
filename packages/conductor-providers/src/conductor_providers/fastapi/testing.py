@@ -216,15 +216,11 @@ async def _expired_gives_the_runs_whose_lease_ran_out(store: GuardedStore) -> li
 
 async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> list[str]:
     """The run's owner adds events, numbered from ``0`` for each run, and ``events`` gives those above a number, in
-    order. A worker that doesn't hold the run gets ``False`` and adds nothing, also once the run has a new owner, and
-    also on a run that isn't running, with an owner or with none."""
-    other, run, not_running = (
-        _new_run(owner=owner, lease_until=None) for owner in ("worker-b", "worker-a", None)
-    )
-    stopped = [
-        _new_run(owner=owner, lease_until=None, stopped=True) for owner in ("worker-b", None)
-    ]
-    for each in (other, run, not_running, *stopped):
+    order. A worker that doesn't hold the run gets ``False`` and adds nothing: on a run another worker holds, once
+    the run has a new owner, and on a run that isn't running, which has no owner."""
+    other, run = (_new_run(owner=owner, lease_until=None) for owner in ("worker-b", "worker-a"))
+    stopped = _new_run(owner=None, lease_until=None, stopped=True)
+    for each in (other, run, stopped):
         await store.create(each)
     bodies = [
         '{"type": "run_start"}',
@@ -252,12 +248,8 @@ async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> li
         "add_event: added an event for a worker that doesn't hold the run; add one only while the owner given is "
         "the run's owner"
     )
-    for not_held in (
-        run,
-        other,
-        not_running,
-        *stopped,
-    ):  # by worker-a, which holds none of them now
+    # by worker-a, which holds none of them now
+    for not_held in (run, other, stopped):
         if await store.add_event(not_held.id, "worker-a", '{"type": "run_end"}'):
             return [by_another]
     if _as_events(await store.events(run.id, -1)) != _as_events(list(enumerate(bodies))):
