@@ -28,7 +28,8 @@ used as one node::
 
 These texts use ``.``, ``/``, ``@`` and ``~`` as separators. (``~`` starts the fingerprint at the end of a waiting
 call's id, as in ``"loud@1/shout~3f2a"``.) So no node id and no name of an input or output may contain any of them.
-``is_name`` checks one name, and ``Name`` checks every name in a graph record.
+``is_name`` checks one name, and ``Name`` checks every name in a graph record. This module writes and splits every
+one of these texts, so the separators are named once, below.
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ from typing import Annotated
 from pydantic import AfterValidator, ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 from pydantic_core import PydanticCustomError
+
+from conductor._internal.utils import comma_separated
 
 #: The ids on the way to a node, outermost first: the id of each subgraph node it is inside, then its own id.
 #: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``. ``("lines",)`` is a node of the
@@ -56,9 +59,23 @@ ItemIndexes = tuple[int, ...]
 Loc = tuple[str | int, ...]
 
 
-#: The pattern of a name: not empty, and none of the characters that places are written with. ``"shout"`` and
-#: ``"text-split"`` are names. ``"a.b"`` and ``"loud/shout"`` are not.
-_NAME = re.compile(r"^[^./@~]+$")
+#: Comes between a node and the name of its output, and between an output and a record field: ``"read.result.email"``.
+FIELD_SEPARATOR = "."
+
+#: Comes between the ids of a node path: ``"loud/shout"``.
+NODE_SEPARATOR = "/"
+
+#: Comes before each item index in a loc's text: ``"loud@1/shout"``.
+INDEX_SEPARATOR = "@"
+
+#: Comes before the fingerprint at the end of a waiting call's id: ``"loud@1/shout~3f2a"``.
+FINGERPRINT_SEPARATOR = "~"
+
+_SEPARATORS = (FIELD_SEPARATOR, NODE_SEPARATOR, INDEX_SEPARATOR, FINGERPRINT_SEPARATOR)
+
+#: The pattern of a name: not empty, and none of the separators. ``"shout"`` and ``"text-split"`` are names.
+#: ``"a.b"`` and ``"loud/shout"`` are not.
+_NAME = re.compile(f"^[^{re.escape(''.join(_SEPARATORS))}]+$")
 
 
 def is_name(text: str) -> bool:
@@ -76,10 +93,11 @@ def _a_name(text: str) -> str:
         PydanticCustomError: ``not_a_name`` if it isn't one (see ``is_name``).
     """
     if not is_name(text):
+        separators = comma_separated(f"'{separator}'" for separator in _SEPARATORS)
         raise PydanticCustomError(
             "not_a_name",
-            "'{text}' isn't a valid name. A name can't be empty, and can't contain '.', '/', '@' or '~'",
-            {"text": text},
+            "'{text}' isn't a valid name. A name can't be empty, and can't contain any of {separators}",
+            {"text": text, "separators": separators},
         )
     return text
 
@@ -134,24 +152,29 @@ class Source:
         return place_text((self.node,), self.output, self.field)
 
 
-def place_text(node: NodePath, name: str | None = None, field: str | None = None) -> str:
-    """Writes a node, or one of its outputs, as text for a person to read.
+def place_text(loc: Loc, name: str | None = None, field: str | None = None) -> str:
+    """Writes a node, one of its outputs, or one call of a node as text.
 
-    The node path is joined with ``/``. The name of an output follows after a dot, and a
-    record field after another dot. A saved run writes a node the same way.
+    The node ids are joined with ``/``, and each item index follows the id before it after an ``@``. The name of
+    an output follows after a dot, and a record field after another dot. A node path is a loc with no item indexes,
+    and a saved run writes a node this way.
 
     ``place_text(("loud", "shout"))`` returns ``"loud/shout"``, ``place_text(("lines",), "result")`` returns
-    ``"lines.result"``, and ``place_text(("read",), "result", "email")`` returns ``"read.result.email"``.
+    ``"lines.result"``, ``place_text(("read",), "result", "email")`` returns ``"read.result.email"``, and
+    ``place_text(("review", 0, "approve", 1))`` returns ``"review@0/approve@1"``.
 
     Args:
-        node: The node's path.
+        loc: The node's path, or the loc of one call of it.
         name: The name of an output of the node; ``None`` for the node itself.
         field: The field of the record the output returns; ``None`` for the whole output.
     """
-    text = "/".join(node)
+    text = "".join(
+        f"{INDEX_SEPARATOR}{part}" if isinstance(part, int) else f"{NODE_SEPARATOR}{part}"
+        for part in loc
+    )[len(NODE_SEPARATOR) :]
     if name is not None:
-        text = f"{text}.{name}"
-    return text if field is None else f"{text}.{field}"
+        text = f"{text}{FIELD_SEPARATOR}{name}"
+    return text if field is None else f"{text}{FIELD_SEPARATOR}{field}"
 
 
 def parse_node_path(text: str) -> NodePath:
@@ -159,4 +182,30 @@ def parse_node_path(text: str) -> NodePath:
 
     ``parse_node_path("loud/shout")`` returns ``("loud", "shout")``.
     """
-    return tuple(text.split("/"))
+    return tuple(text.split(NODE_SEPARATOR))
+
+
+def parse_loc(text: str) -> Loc:
+    """Splits a loc's text back into the loc, as far as it names one.
+
+    ``parse_loc("review@0/approve@1")`` returns ``("review", 0, "approve", 1)``. An item index counts only in the
+    spelling ``place_text`` writes, a whole number with no sign, space or leading zero. The loc ends at the node
+    before the first index that isn't one, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``. To accept
+    only a text ``place_text`` wrote, write the loc back and compare: ``place_text(parse_loc(text)) == text``.
+    """
+    loc: list[str | int] = []
+    # the text read so far, to compare with what place_text writes for the loc read so far
+    read = ""
+    for part in text.split(NODE_SEPARATOR):
+        node_id, *indexes = part.split(INDEX_SEPARATOR)
+        read = f"{read}{NODE_SEPARATOR}{node_id}" if loc else node_id
+        loc.append(node_id)
+        for index in indexes:
+            read = f"{read}{INDEX_SEPARATOR}{index}"
+            if not index.isdecimal():
+                return tuple(loc)
+            # "01", "+1" or "1_0" would read as 1, which place_text writes "1", so they name no item
+            if place_text(with_index := (*loc, int(index))) != read:
+                return tuple(loc)
+            loc = list(with_index)
+    return tuple(loc)

@@ -18,7 +18,15 @@ from collections.abc import Callable
 from typing import Any, assert_never
 
 from conductor._internal.ask import as_asked
-from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath
+from conductor._internal.base import (
+    FINGERPRINT_SEPARATOR,
+    ConductorModel,
+    ItemIndexes,
+    Loc,
+    NodePath,
+    parse_loc,
+    place_text,
+)
 from conductor._internal.field import FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
 
@@ -132,13 +140,13 @@ def _arguments(
 def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
     """Returns the waiting id of the call at ``loc``, whose question has the fingerprint ``fingerprint``.
 
-    The node ids are joined by ``/``. Each is followed by ``@`` and its item indexes, and the fingerprint comes last,
-    after ``~``. So ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns
-    ``"review@0/approve@1~3fa2c0d1"``. Without a fingerprint, the id names just the call: ``"review@0/approve@1"``.
-    ``read_waiting_id`` turns the id back into its parts.
+    The id is the loc's text (``place_text``), then ``~`` and the fingerprint. So
+    ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns ``"review@0/approve@1~3fa2c0d1"``. Without
+    a fingerprint, the id names just the call: ``"review@0/approve@1"``. ``read_waiting_id`` turns the id back into
+    its parts.
     """
-    place = "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
-    return place if fingerprint is None else f"{place}~{fingerprint}"
+    place = place_text(loc)
+    return place if fingerprint is None else f"{place}{FINGERPRINT_SEPARATOR}{fingerprint}"
 
 
 def read_waiting_id(
@@ -164,7 +172,7 @@ def read_waiting_id(
         InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. Its loc is
             ``named_loc``'s.
     """
-    loc, fingerprint = named_loc(waiting_id), waiting_id.partition("~")[2] or None
+    loc, fingerprint = named_loc(waiting_id), waiting_id.partition(FINGERPRINT_SEPARATOR)[2] or None
     if write_waiting_id(loc, fingerprint) != waiting_id:
         raise InvalidCallError(
             [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())]
@@ -177,18 +185,7 @@ def read_waiting_id(
 def named_loc(waiting_id: str) -> Loc:
     """Returns the call a waiting id names, as a ``Problem``'s ``loc``, whether or not the id is a right one.
 
-    ``"review@0/approve@1~3fa2c0d1"`` names ``("review", 0, "approve", 1)``. When the text after an ``@`` isn't a
-    whole number written as ``write_waiting_id`` writes it, the loc ends at the node that index belongs to:
-    ``"approve@x"`` and ``"approve@01"`` name ``("approve",)``.
+    ``"review@0/approve@1~3fa2c0d1"`` names ``("review", 0, "approve", 1)``. The fingerprint is dropped, and the
+    rest is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` name ``("approve",)``.
     """
-    place, _, _ = waiting_id.partition("~")
-    loc: list[str | int] = []
-    for part in place.split("/"):
-        node_id, *indexes = part.split("@")
-        loc.append(node_id)
-        for index in indexes:
-            # An index counts only in the spelling write_waiting_id writes, so "01" or " 1" names no item.
-            if not index.isdecimal() or str(number := int(index)) != index:
-                return tuple(loc)
-            loc.append(number)
-    return tuple(loc)
+    return parse_loc(waiting_id.partition(FINGERPRINT_SEPARATOR)[0])

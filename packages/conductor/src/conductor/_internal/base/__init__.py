@@ -15,18 +15,23 @@ from .hashing import json_hash, short_hash
 from .json import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
 from .model import ConductorModel
 from .place import (
+    FIELD_SEPARATOR,
+    FINGERPRINT_SEPARATOR,
     ItemIndexes,
     Loc,
     Name,
     NodePath,
     Source,
     is_name,
+    parse_loc,
     parse_node_path,
     place_text,
 )
 from .sentinels import REQUIRED, SKIPPED
 
 __all__ = [
+    "FIELD_SEPARATOR",
+    "FINGERPRINT_SEPARATOR",
     "NON_FINITE_FLOATS",
     "REQUIRED",
     "SKIPPED",
@@ -39,6 +44,7 @@ __all__ = [
     "canonical_json",
     "is_name",
     "json_hash",
+    "parse_loc",
     "parse_node_path",
     "place_text",
     "plain_json",

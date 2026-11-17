@@ -1059,6 +1059,15 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     assert [(p.type, p.loc) for p in misplaced.value.problems] == [("not_waiting", ("e", "q", 1))]
 
 
+@pytest.mark.parametrize("index", ["01", "+1", " 1", "1_0", "١"])
+def test_an_item_index_in_a_waiting_id_counts_only_as_the_run_writes_it(index: str):
+    """A waiting id whose index Python's ``int`` reads, but that the run would write otherwise, names no item."""
+    run = inside_a_loop("asking-inner").run(text="ab cd")
+    with pytest.raises(InvalidCallError) as refused:
+        run.answer(f"e@{index}/q", "x")
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", ("e",))]
+
+
 # -- policy: an inner node is called, retried, timed out and cancelled as in one graph -------------
 
 

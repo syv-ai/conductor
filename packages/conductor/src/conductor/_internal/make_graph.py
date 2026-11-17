@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import REQUIRED, Source
+from conductor._internal.base import FIELD_SEPARATOR, REQUIRED, Source
 from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import (
@@ -253,7 +253,7 @@ def _place(
         ``invalid_place`` at ``where`` when the text isn't ``"node.name"`` (with ``field``, it may also be
         ``"node.name.field"``). It's ``node_not_in_graph`` when the text names a node that wasn't given.
     """
-    parts = tuple(text.split(".", 2 if field else 1))
+    parts = tuple(text.split(FIELD_SEPARATOR, 2 if field else 1))
     if len(parts) < 2 or not all(parts):
         problems.append(call_problems.invalid_place(*where, text=text))
         return None
