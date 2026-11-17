@@ -114,6 +114,7 @@ from conductor._internal.problem import (
     InvalidCallError,
     NodeError,
     Problem,
+    author_code_problem,
     run_problems,
 )
 
@@ -138,8 +139,6 @@ _NEVER_RETRIED = (NodeError, Ask)
 
 #: How long the scheduler waits for a thread before it asks ``stop`` again, in seconds.
 _SECONDS_BETWEEN_STOP_CHECKS = 0.05
-
-_logger = logging.getLogger("conductor")
 
 
 def _each[T](items: list[T], action: Callable[[T], object]) -> None:
@@ -1053,10 +1052,10 @@ class Scheduler:
     ) -> Problem:
         """Returns the problem a call failed with, with the call's loc.
 
-        A validator's problem is kept as it is, and so is the problem a ``NodeError`` carries. Any other exception
-        is written to the log, with its traceback. That includes an ``InvalidCallError`` the function let escape.
-        The problem then only names the exception's class, since its text may quote values. It is
-        ``external_failed`` for a class in the node's ``retry_on``, and ``execution_failed`` for anything else.
+        A validator's problem is kept as it is. An exception is reported by ``author_code_problem``: the problem a
+        ``NodeError`` carries is kept, and any other exception is written to the log, with its traceback. That
+        includes an ``InvalidCallError`` the function let escape. The problem then only names the exception's class.
+        It is ``external_failed`` for a class in the node's ``retry_on``, and ``execution_failed`` for anything else.
 
         Args:
             node: The node whose call failed.
@@ -1068,27 +1067,32 @@ class Scheduler:
                 the next attempt is due.
         """
         loc = outcome_loc(node, item_indexes)
-        if isinstance(error, NodeError):
-            error = error.problems[0]
         if isinstance(error, Problem):
             return error.model_copy(update={"loc": loc})
+        kind = (
+            run_problems.external_failed
+            if isinstance(error, node.policy.retry_on)
+            else run_problems.execution_failed
+        )
         where = place_text(node.node_path)
         if retry is None:
-            _logger.error("node %r failed for item %r", where, item_indexes, exc_info=error)
+            problem = author_code_problem(
+                error, "node %r failed for item %r", where, item_indexes, raised=kind
+            )
         else:
             next_attempt, due_in = retry
-            _logger.warning(
+            problem = author_code_problem(
+                error,
                 "node %r failed for item %r on attempt %d of %d; the next attempt is due in %s seconds",
                 where,
                 item_indexes,
                 next_attempt.number,
                 node.policy.retries + 1,
                 due_in,
-                exc_info=error,
+                raised=kind,
+                log_level=logging.WARNING,
             )
-        if isinstance(error, node.policy.retry_on):
-            return run_problems.external_failed(*loc, error=type(error).__name__)
-        return run_problems.execution_failed(*loc, error=type(error).__name__)
+        return problem.model_copy(update={"loc": loc})
 
     # -- 3. Reusing in item order ---------------------------------------------------------------------------------
 

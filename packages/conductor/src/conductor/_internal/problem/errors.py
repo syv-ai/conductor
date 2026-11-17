@@ -29,9 +29,9 @@ failure is of this sort by raising ``ExternalError``, or by naming the client's 
 problem never quotes a value a graph carries: a graph input or its default, a constant, an output, an answer or a
 value in a saved run. Where a fault is inside such a value, the problem says where by list indexes, record fields and
 positions, never by the value's own dict keys. A problem never quotes the text of an exception other than a
-``NodeError`` either, since it might quote a value. Such an exception from a node or a hook goes to the ``conductor``
-logger with its traceback, and the problem names only the exception's class. ``value_free_errors`` does the same
-for pydantic's errors.
+``NodeError`` either, since it might quote a value. Such an exception from a node, a hook or an ``Upgrade``'s rewrite
+goes to the ``conductor`` logger with its traceback, and the problem names only the exception's class:
+``author_code_problem`` is that rule. ``value_free_errors`` does the same for pydantic's errors.
 
 A problem may name what a developer or a host wrote: node ids, input, output and field names, places, waiting ids,
 the limits a type declares and where a JSON text stops being JSON. A field name a ``compute_...`` hook returns is
@@ -43,7 +43,8 @@ Asking a person isn't an error. A node raises ``Ask``, its call waits, and the r
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import logging
+from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
 from typing import Any, cast
 
@@ -53,6 +54,8 @@ from pydantic_core.core_schema import ErrorType
 
 from .run_problems import external_failed, node_error
 from .type import Problem
+
+_logger = logging.getLogger("conductor")
 
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
 
@@ -305,3 +308,44 @@ class ExternalError(NodeError):
         ctx: Mapping[str, JsonValue] = MappingProxyType({}),
     ) -> None:
         super().__init__(message, code=code, ctx=ctx)
+
+
+def author_code_problem(
+    error: BaseException,
+    log_message: str,
+    *log_args: object,
+    raised: Callable[..., Problem],
+    failed: Callable[..., Problem] | None = None,
+    log_level: int = logging.ERROR,
+) -> Problem:
+    """Returns the problem for an exception that code a developer wrote raised, and logs it if it isn't a ``NodeError``.
+
+    Conductor calls code it didn't write: a node's function, a ``compute_...`` hook, the ``rewrite`` of an
+    ``Upgrade``, and a type's own JSON writing. That code may raise anything, and conductor reports it by one rule.
+
+    A ``NodeError`` keeps its code, message and ``ctx``, since its developer wrote them for people. With ``failed``,
+    they go into that kind's ``ctx``: ``failed`` is called with ``reason`` (the message), ``error`` (the code) and
+    ``error_ctx`` (the ``ctx``, or ``None`` when it is empty). Without it, the ``NodeError``'s own problem is the
+    problem, as when a node's call fails.
+
+    Any other exception might quote a value in its text. So it goes to the ``conductor`` logger with its traceback,
+    and ``raised`` is called with ``error``, the exception's class name, and nothing else of it.
+
+    Args:
+        error: What the code raised.
+        log_message: The log line for an exception that isn't a ``NodeError``, a ``%`` template as ``logging`` takes.
+        log_args: The values for ``log_message``.
+        raised: The kind of problem for an exception that isn't a ``NodeError``, with its other ``ctx`` given.
+        failed: The kind of problem a ``NodeError`` is reported as, with its other ``ctx`` given.
+        log_level: The level of the log line.
+
+    Returns:
+        The problem. Its ``loc`` is the one ``raised`` or ``failed`` gives it, and empty for a ``NodeError``'s own.
+    """
+    if isinstance(error, NodeError):
+        (problem,) = error.problems
+        if failed is None:
+            return problem
+        return failed(reason=problem.msg, error=problem.type, error_ctx=dict(problem.ctx) or None)
+    _logger.log(log_level, log_message, *log_args, exc_info=error)
+    return raised(error=type(error).__name__)

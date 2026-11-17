@@ -11,23 +11,26 @@ the dropped input's key keeps it in the record, as a constant.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any
 
 from pydantic import MISSING
 
 from conductor._internal.base import Source
 from conductor._internal.node import NodeDefinition, RewriteValidator, gone_inputs
-from conductor._internal.problem import InvalidCallError, NodeError, call_problems, compile_problems
+from conductor._internal.problem import (
+    InvalidCallError,
+    author_code_problem,
+    call_problems,
+    compile_problems,
+)
 from conductor._internal.record import (
     GraphRecord,
     InputEntry,
     NodeRecord,
     RecordValidator,
 )
-
-_logger = logging.getLogger("conductor")
 
 
 def upgraded(
@@ -159,37 +162,29 @@ def _rewritten(
     }
     try:
         returned = rewrite(values)
-    except NodeError as error:
-        (problem,) = error.problems
+    except Exception as error:  # noqa: BLE001  the rewrite is the node author's code, and may raise anything
         raise InvalidCallError(
             [
-                call_problems.cannot_move_to_version_rewrite_failed(
+                author_code_problem(
+                    error,
+                    "the rewrite of the Upgrade of node %r, from version %d to %d, raised",
                     node_id,
-                    node=step.id,
-                    version=older.version,
-                    target=step.version,
-                    reason=problem.msg,
-                    error=problem.type,
-                    error_ctx=dict(problem.ctx) or None,
-                )
-            ]
-        ) from None
-    except Exception as raised:  # noqa: BLE001  the rewrite is the node author's code, and may raise anything
-        _logger.error(
-            "the rewrite of the Upgrade of node %r, from version %d to %d, raised",
-            node_id,
-            older.version,
-            step.version,
-            exc_info=raised,
-        )
-        raise InvalidCallError(
-            [
-                call_problems.cannot_move_to_version_raised(
-                    node_id,
-                    node=step.id,
-                    version=older.version,
-                    target=step.version,
-                    error=type(raised).__name__,
+                    older.version,
+                    step.version,
+                    raised=partial(
+                        call_problems.cannot_move_to_version_raised,
+                        node_id,
+                        node=step.id,
+                        version=older.version,
+                        target=step.version,
+                    ),
+                    failed=partial(
+                        call_problems.cannot_move_to_version_rewrite_failed,
+                        node_id,
+                        node=step.id,
+                        version=older.version,
+                        target=step.version,
+                    ),
                 )
             ]
         ) from None

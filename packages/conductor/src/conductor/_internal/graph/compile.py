@@ -40,11 +40,11 @@ The full rules are in ``python -m conductor.about one-or-many``.
 from __future__ import annotations
 
 import heapq
-import logging
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
+from functools import partial
 from typing import Any, Literal, TypeVar
 
 from pydantic import MISSING, JsonValue
@@ -65,8 +65,8 @@ from conductor._internal.node import (
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
-    NodeError,
     Problem,
+    author_code_problem,
     compile_problems,
 )
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
@@ -89,9 +89,6 @@ from .node import (
 )
 from .type import Definitions, Graph
 from .validator import ConstantValidator
-
-_logger = logging.getLogger("conductor")
-
 
 #: Stands in, while a node is compiled, for a value its input's type refused. That's a constant or default from the
 #: graph record, or a default the node declares that the type bound by its edges refuses. The input gets a
@@ -788,21 +785,16 @@ class Compiler:
                     kwargs[name] = value
         try:
             returned = hook(**kwargs)
-        except NodeError as error:  # the hook raised a NodeError: keep its problem
-            (raised,) = error.problems
+        except Exception as error:  # noqa: BLE001  the hook is the node author's code, and may raise anything
             self.problems.append(
-                compile_problems.compute_hook_failed(
+                author_code_problem(
+                    error,
+                    "the %s hook of node %r failed",
+                    kind,
                     node_id,
-                    reason=raised.msg,
-                    error=raised.type,
-                    error_ctx=dict(raised.ctx) or None,
+                    raised=partial(compile_problems.compute_hook_raised, node_id),
+                    failed=partial(compile_problems.compute_hook_failed, node_id),
                 )
-            )
-            return None
-        except Exception as error:  # noqa: BLE001  any other exception from the hook becomes a problem of this node
-            _logger.error("the %s hook of node %r failed", kind, node_id, exc_info=error)
-            self.problems.append(
-                compile_problems.compute_hook_raised(node_id, error=type(error).__name__)
             )
             return None
         try:
