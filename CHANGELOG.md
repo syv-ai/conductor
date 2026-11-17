@@ -375,21 +375,16 @@ What changes in how you work, before the name-by-name tables:
   so every value went to `if_true` and nothing said so. A saved graph that leaves `when` unwired is now
   `input_has_no_value` when it is compiled, and `make_graph` makes `when` a graph input. `describe()` shows `when`
   required, with no default.
-- **`json-parse` and `json-stringify` refuse a number that isn't finite, with `not_json`.** Python's `json` reads
-  `NaN`, `Infinity` and `-Infinity`, reads a number too large for a float (`1e999`) as `inf`, and writes `inf` and
-  `nan` back. So `json-parse` gave `[nan, 1]` for `[NaN, 1]`, which a saved run read back as `["NaN", 1]`, and
-  `json-stringify` wrote text that isn't JSON. `json-parse` now refuses the three words and a number too large for a
-  float, and `json-stringify` a value holding `inf` or `nan`.
-- **`json-parse` and `json-stringify` refuse `NaN` and `Infinity` with `not_json`.** JSON has no number that isn't
-  finite, but Python's `json` reads and writes `NaN`, `Infinity` and `-Infinity`. So `json-parse` gave `[nan, 1]` for
-  `[NaN, 1]`, which a saved run read back as `["NaN", 1]`, and `json-stringify` wrote text that isn't JSON.
+- **`json-parse` and `json-stringify` refuse a number that isn't finite, with `not_json`.** JSON has no number that
+  isn't finite, but Python's `json` reads `NaN`, `Infinity` and `-Infinity`, reads a number too large for a float
+  (`1e999`) as `inf`, and writes `inf` and `nan` back. So `json-parse` gave `[nan, 1]` for `[NaN, 1]`, which a saved
+  run read back as `["NaN", 1]`, and `json-stringify` wrote text that isn't JSON. `json-parse` now refuses the three
+  words and a number too large for a float, and `json-stringify` a value holding `inf` or `nan`.
 - **`json-get` reads each part of its path as a key exactly as written** [breaking]. It stripped the spaces from
-  each part, so the key `" a"` couldn't be reached. Now `" a"` finds `" a"`. A saved graph whose path has spaces
-  around a part, such as `user. name` or `items.1 `, now gets `None` where it got the value. A key with a dot in it
+  each part, so the key `" a"` couldn't be reached, and `user. name` found `user.name`. Now `" a"` finds `" a"`, and
+  `user. name` finds the key `" name"`. A saved graph whose path has spaces around a part, such as `user. name` or
+  `items.1 `, gets `None` where it got the value, unless its JSON has a key with those spaces. A key with a dot in it
   still can't be reached, since the dot always splits the path.
-- **`json-get` reads each part of its path as a key exactly as written.** It stripped the spaces from each part, so
-  the key `" a"` couldn't be reached, and `user. name` found `user.name`. Now `" a"` finds `" a"`, and `user. name`
-  finds the key `" name"`. A key with a dot in it still can't be reached, since the dot always splits the path.
 - **`text-replace` and `text-contains` refuse an empty `needle`** [breaking], with `Param(min_length=1)` as
   `text-split` refuses an empty separator. An empty `needle` put the replacement between every letter, and was in
   every text. A saved graph with the constant needle `""` is now `invalid_value` when it is compiled, and an empty
