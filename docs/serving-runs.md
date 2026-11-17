@@ -167,6 +167,8 @@ curl -X POST localhost:8000/runs/8f1c.../answers -d '{"approve~3fa2c0d1": true}'
 # {"status": "running", ...}; a moment later GET says "complete", with the run's outputs
 ```
 
+A waiting id names the call (`approve`) and, after the `~`, the question it asked. To answer later, such as from a link in an email, keep the id without its `~` part, which answers whatever question waits on that call, or read the id from the run again when the person comes back. A whole id goes out of date when the call's inputs change, and when a deploy changes the node's code, even when the question reads the same, and the answer is then refused as `answer_stale`.
+
 ## Who sees which run
 
 Every run keeps some metadata: whatever you want to know about it later, such as who started it. The router asks your `metadata` dependency for it when a run starts, and writes it to the run once. Above, it is `{"user": "anna"}`.

@@ -525,7 +525,7 @@ Whether a field needs a hook or a type variable is in `python -m conductor.about
 
 Some nodes need a person to decide. `raise Ask(prompt)` stops that call of the node and asks. `asks=True` on the `@node` says the node may ask, so a host knows before any run which graphs can pause for a person. A node that raises `Ask` without it fails with [`ask_not_declared`](problems.md#ask_not_declared).
 
-Your return type says what the person answers. `-> str` asks for a line of text, `-> bool` for a yes or no, `-> Literal["ida", "bo"]` for one of those values, `-> Color` for one of an enum's members, and a frozen dataclass for a form, with one question per field. A `Literal`'s values must read back from their JSON as themselves: text, numbers, yes or no, `None`, or the members of an `IntEnum` or a `StrEnum`. For a plain enum's members, take the enum as the type. The type is the node's contract, so fixed choices go on it, and `describe()` shows them before any run. `Ask` carries what only the run knows: choices that come from the run's data, and a proposed `default`.
+Your return type says what the person answers. `-> str` asks for a line of text, `-> bool` for a yes or no, `-> Literal["ida", "bo"]` for one of those values, `-> Color` for one of an enum's members (an enum declared with `@host_type`, as any class of your own), and a frozen dataclass for a form, with one question per field. A `Literal`'s values must read back from their JSON as themselves: text, numbers, yes or no, `None`, or the members of an `IntEnum` or a `StrEnum`. For a plain enum's members, take the enum as the type. The type is the node's contract, so fixed choices go on it, and `describe()` shows them before any run. `Ask` carries what only the run knows: choices that come from the run's data, and a proposed `default`.
 
 ```python
 from conductor import Ask
@@ -738,7 +738,7 @@ signed = Graph.compile(make_graph(sign), signing).run({"text": "Done"}, context=
 print(signed.outputs)  # {'result': 'Done, Ida'}
 ```
 
-`ctx` is not an input: no edge reaches it, and no caller fills it in. So a call whose inputs are the same as in an earlier run reuses that outcome, whatever the context is. The host passes `context=` again each time it goes on with a run (`run.resume`, `run.stream` and `run.again`). A type checker refuses a context of another class, and so does the run, with `invalid_context`.
+`ctx` is not an input: no edge reaches it, and no caller fills it in. So a call whose inputs are the same as in an earlier run reuses that outcome, whatever the context is. So `signed.again` with Bo's context gives back `'Done, Ida'`, the outcome made for Ida. A node whose result depends on the context, as `sign`'s does, takes that value as an input instead, or says `Policy(reuse_when_inputs_match=False)`, and is then called on every run. The host passes `context=` again each time it goes on with a run (`run.resume`, `run.stream` and `run.again`). A type checker refuses a context of another class, and so does the run, with `invalid_context`.
 
 A node from a package of nodes doesn't know the host's class. It names a `Protocol` with just the members it reads instead:
 
