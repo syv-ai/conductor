@@ -263,9 +263,11 @@ item and which input, so a host can say "Bo was not sent: no middle name" instea
 
 ## Asking a person
 
-`raise Ask(prompt, choices=, default=)` pauses one call. That call and whatever reads it wait, and the rest of the
-run goes on. The return type says what the answer is: `bool` a yes or no, a `Literal` one of its values, a frozen
-dataclass a small form. `AskBool` or a `type=` argument would declare the answer's type a second time.
+`raise Ask(prompt)` pauses one call. That call and whatever reads it wait, and the rest of the run goes on. The
+return type says what the answer is: `bool` a yes or no, a `Literal` one of its values, a frozen dataclass a small
+form. So fixed choices are on the type, and `Ask(choices=)` is only for choices that come from the run's data, such
+as a team that changes from run to run. `AskBool` or a `type=` argument would declare the answer's type a second
+time.
 
 A node that may ask says `asks=True` on its `@node`, and raising `Ask` without it fails as `ask_not_declared`. In
 `registry.describe()` each node says whether it `asks` (for a subgraph, whether any node inside does), so a host knows
