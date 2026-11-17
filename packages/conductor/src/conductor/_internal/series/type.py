@@ -15,7 +15,7 @@ import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.table import Table
+from conductor._internal.table import Table, is_bare_table_row
 from conductor._internal.types import Type, union_of
 
 from .read import series_schema
@@ -72,14 +72,13 @@ class SeriesType(Type, of=_Series):
         """The table type a node may return a frame as, for a Series of records.
 
         A node that returns ``Series[Row]``, where ``Row`` is a ``TypedDict``, may return a ``polars.DataFrame``
-        instead of a list of dicts. That frame is checked as a ``Table[Row]``. The same goes for ``Series[dict]``
-        and ``Series[Any]``, whose frame is checked as a table with any columns. This is ``None`` for any other
-        items, such as ``str``, and for records with limits or choices.
+        instead of a list of dicts. That frame is checked as a ``Table[Row]``. The same goes for a Series whose
+        item is the row of a bare ``Table`` (``is_bare_table_row``), such as ``Series[dict]``: its frame is checked
+        as a table with any columns. This is ``None`` for any other items, such as ``str`` or ``dict[str, int]``,
+        and for records with limits or choices.
         """
         item = self.item
-        if item.limited or not (
-            item.bare is Any or item.bare is dict or typing.is_typeddict(item.bare)
-        ):
+        if item.limited or not (is_bare_table_row(item.bare) or typing.is_typeddict(item.bare)):
             return None
         table: Any = Table
         return Type(table[item.bare])

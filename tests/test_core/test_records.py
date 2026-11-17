@@ -233,17 +233,18 @@ def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
     )
 
 
-def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
+@pytest.mark.parametrize("returns", [Series[str], Series[dict[str, int]]])
+def test_a_table_returned_for_texts_or_dicts_of_one_type_fails_the_run(returns: Any) -> None:
     @node("texts", title="Texts", description="For a test.")
-    def texts(text: str) -> Series[str]:
-        return FRAME  # type: ignore[return-value]
+    def texts(text: str) -> returns:  # type: ignore[valid-type]
+        return FRAME
 
     run = Graph.compile(make_graph(texts), registry_of(texts)).run(text="x")
 
     assert (run.status, run.cause.type) == ("failed", "invalid_output")
 
 
-@pytest.mark.parametrize("returns", [Series[Any], Series[dict]])
+@pytest.mark.parametrize("returns", [Series[Any], Series[dict], Series[dict[str, Any]]])
 def test_a_table_of_any_columns_is_a_series_of_its_records(returns: Any) -> None:
     @node("anything", title="Anything", description="For a test.")
     def anything(text: str) -> returns:  # type: ignore[valid-type]

@@ -540,10 +540,11 @@ What changes in how you work, before the name-by-name tables:
   node's return given as records (`invalid_output`), a graph input (`invalid_input`), a constant (`invalid_value`)
   and gathered rows collected into a `Table` input (`invalid_edge_value`). An answer's refusal has no `ctx.errors`,
   so it doesn't change.
-- **A `Series[dict]` takes a table, as `Series[Any]` does.** A node declared `-> Series[dict]` that returned a
-  `polars.DataFrame` failed with `invalid_output` ("Input should be a valid list"), while `-> Series[Any]` took the
-  same frame as its rows. A `dict` is the row of a bare `Table`, so both now read the frame as one and give every
-  column.
+- **A `Series[dict]` and a `Series[dict[str, Any]]` take a table, as `Series[Any]` does.** A node declared
+  `-> Series[dict]` that returned a `polars.DataFrame` failed with `invalid_output` ("Input should be a valid list"),
+  while `-> Series[Any]` took the same frame as its rows. A `dict` and a `dict[str, Any]` are the row of a bare
+  `Table`, so all three now read the frame as one and give every column. A `Series[dict[str, int]]` still refuses a
+  frame, since a bare table checks no cell.
 - **A place whose id or name isn't a valid name is `invalid_place` in `make_graph`.** An edge source or a place in
   `outputs=` such as `"greet.result~"` or `"greet.result.."` raised a bare pydantic `ValidationError`. A target, a
   key of `constants=` or `defaults=` and a place in `inputs=` such as `"greet.na~me"` was `invalid_record` from the

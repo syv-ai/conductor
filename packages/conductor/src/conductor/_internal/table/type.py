@@ -59,6 +59,15 @@ else:
 _TABLE_FORMS = ("frame", "records", "written", "columns")
 
 
+def is_bare_table_row(hint: Any) -> bool:
+    """Whether ``hint`` is the type of one row of a bare ``Table``: ``Any``, ``dict`` or ``dict[str, Any]``.
+
+    A frame fills each of these without a check: a row is a dict with a text key per column and a cell of any type.
+    A dict with one type of value, such as ``dict[str, int]``, isn't one, since a bare table checks no cell.
+    """
+    return hint is Any or hint is dict or hint == dict[str, Any]
+
+
 class TableType(Type, of=_Table, value_class=pl.DataFrame):
     """The ``Type`` of a ``Table[R]`` hint, with or without ``| None``.
 
