@@ -211,14 +211,14 @@ def ran(
 def outcome_of(run: Any, node_id: str) -> Any:
     """Returns what happened to a node that isn't in a loop.
 
-    That is its result if it has one. Otherwise it is ``"not called"``, when an argument was ``None`` and its input
+    That is its result if it has one. Otherwise it is ``"none input"``, when an argument was ``None`` and its input
     doesn't take ``None``, or ``"skipped"``.
     """
     result = run.results[node_id]["result"]
     if result is not None:
         return result
     return (
-        "not called" if any(call.loc == (node_id,) for call in run.none_input_calls) else "skipped"
+        "none input" if any(call.loc == (node_id,) for call in run.none_input_calls) else "skipped"
     )
 
 
@@ -251,8 +251,8 @@ BOTH_WAYS = (
         ("no", "no-value", "a b", 2),
         ("no", "no-value", "", 0),
         ("no", "x", "a b", 2),
-        ("yes", "no-value", "a b", "not called"),
-        ("yes", "no-value", "", "not called"),
+        ("yes", "no-value", "a b", "none input"),
+        ("yes", "no-value", "", "none input"),
         ("yes", "x", "a", 1),
     ],
 )
@@ -315,7 +315,7 @@ def test_a_none_or_a_skipped_branch_outside_nested_loops_decides_the_inner_and_t
         _nested_loops("join", "no-value", text),
         _nested_loops("join", "skip", text),
     )
-    assert (outcome_of(none_outside, "n"), outcome_of(skipped, "n")) == ("not called", "skipped")
+    assert (outcome_of(none_outside, "n"), outcome_of(skipped, "n")) == ("none input", "skipped")
     assert none_outside.results["j"]["result"] == [None] * len(
         text.split()
     )  # For each item, the inner collect is not called, so there is a None in its place.
@@ -363,11 +363,11 @@ def test_a_series_never_returned_is_none_for_the_whole_input_whatever_its_items_
         outputs={"n": "n.result", "o": "o.result"},
         kind="no-value",
     )
-    assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("not called", "none")
+    assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("none input", "none")
 
 
 @pytest.mark.parametrize("text", ["a b", ""])
-def test_a_branch_node_in_the_loop_not_called_for_a_none_outside_skips_the_collect(
+def test_a_branch_node_in_the_loop_with_a_none_input_from_outside_skips_the_collect(
     text: str,
 ) -> None:
     nodes, edges = (
@@ -386,7 +386,7 @@ def test_a_branch_node_in_the_loop_not_called_for_a_none_outside_skips_the_colle
     assert (outcome_of(direct, "n"), outcome_of(through, "n")) == ("skipped", "skipped")
 
 
-def test_a_branch_node_not_called_for_one_items_none_leaves_that_item_out_of_the_collect() -> None:
+def test_a_branch_node_with_a_none_input_for_one_item_leaves_that_item_out_of_the_collect() -> None:
     nodes = {"s": "items", "m": "maybe", "w": "decide", "n": "count"}
     run = ran(
         nodes,
@@ -396,12 +396,12 @@ def test_a_branch_node_not_called_for_one_items_none_leaves_that_item_out_of_the
     assert outcome_of(run, "n") == 2
 
 
-def test_a_none_outside_beside_a_branch_taken_per_item_leaves_the_collect_not_called() -> None:
+def test_a_none_outside_beside_a_branch_taken_per_item_makes_the_collect_a_none_input() -> None:
     nodes = {"s": "items", "t": "outside-value", "w": "decide", "p": "pair", "n": "count"}
     edges = [("s.result", "w.go"), ("w.yes", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
     assert [
         outcome_of(ran(nodes, edges, kind="no-value", text=text), "n") for text in ("yes no", "")
-    ] == ["not called", "not called"]
+    ] == ["none input", "none input"]
 
 
 def test_a_skipped_branch_outside_skips_an_inner_collect_also_for_an_item_whose_series_is_none() -> (
@@ -463,7 +463,7 @@ def test_a_node_in_a_loop_that_collects_another_loop_gets_it_as_one_value_from_o
     assert run.results["n"]["result"] == [2, 2]
 
 
-def test_a_node_in_a_loop_collecting_a_series_never_returned_is_not_called_nor_is_the_outer_collect() -> (
+def test_a_node_in_a_loop_collecting_a_series_never_returned_is_a_none_input_and_so_is_the_outer_collect() -> (
     None
 ):
     nodes, edges = OTHER_SERIES
@@ -622,13 +622,13 @@ def test_a_series_never_returned_is_none_for_the_collect_even_where_the_loop_bod
         outputs={"n": "n.result", "o": "o.result"},
         kind="no-value",
     )
-    assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("not called", "none")
+    assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("none input", "none")
 
 
 @pytest.mark.parametrize(
     ("kind", "counter", "n"),
     [
-        ("no-value", "count", "not called"),
+        ("no-value", "count", "none input"),
         ("no-value", "count-or-none", "none"),
         ("skip", "count", "skipped"),
         ("skip", "count-or-none", "skipped"),
@@ -653,7 +653,7 @@ def test_a_series_returned_or_not_inside_a_subgraph_is_collected_as_with_the_sam
 
 
 @pytest.mark.parametrize("text", ["a b", ""])
-def test_a_collect_reading_only_the_series_counts_its_items_and_one_reading_a_none_beside_it_is_not_called(
+def test_a_collect_reading_only_the_series_counts_its_items_and_one_reading_a_none_beside_it_is_a_none_input(
     text: str,
 ) -> None:
     """A collect whose loop reads only the Series counts its items, whatever else is ``None``.
@@ -682,13 +682,13 @@ def test_a_collect_reading_only_the_series_counts_its_items_and_one_reading_a_no
     ]
     outputs = {"m": "m.result", "n": "n.result"}
     run = ran(nodes, edges, outputs=outputs, kind="no-value", text=text)
-    assert (outcome_of(run, "m"), outcome_of(run, "n")) == (len(text.split()), "not called")
+    assert (outcome_of(run, "m"), outcome_of(run, "n")) == (len(text.split()), "none input")
     assert outcome_of(ran(nodes, edges, outputs=outputs, kind="x", text=text), "n") == len(
         text.split()
     )
 
 
-@pytest.mark.parametrize(("kind", "n"), [("no-value", "not called"), ("skip", "skipped"), ("v", 2)])
+@pytest.mark.parametrize(("kind", "n"), [("no-value", "none input"), ("skip", "skipped"), ("v", 2)])
 def test_a_subgraph_in_the_loop_whose_series_depends_on_outside_decides_the_outer_collect_as_flat(
     kind: str, n: Any
 ) -> None:

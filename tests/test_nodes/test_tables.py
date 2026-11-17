@@ -161,7 +161,7 @@ def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     ]
 
 
-def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_field_is_none_and_collect_keeps_the_record():
+def test_a_node_reading_a_field_of_a_split_record_is_a_none_input_where_the_field_is_none_and_collect_keeps_the_record():
     SENT.clear()
     graph = compile_graph(
         contacts,

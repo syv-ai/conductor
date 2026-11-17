@@ -143,7 +143,7 @@ def send(email: str) -> str:
     return f"sent {email}"
 
 
-def test_node_complete_counts_the_items_not_called_for_a_none_and_the_saved_run_lists_them():
+def test_node_complete_counts_the_none_input_items_and_the_saved_run_lists_them():
     graph = Graph.compile(make_graph(addresses, send), registry_of(addresses, send))
 
     events = _events(graph.with_inputs({"text": "ida@a.dk,,al@a.dk"}))
@@ -2660,7 +2660,7 @@ def test_a_failed_stream_with_calls_on_threads_yields_a_checkpoint_saying_it_fai
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 
-def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one_graph():
+def test_a_none_into_a_subgraph_node_makes_its_inner_nodes_none_input_calls_as_in_one_graph():
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str | None]:
         return [None if w == "_" else w for w in text.split()]

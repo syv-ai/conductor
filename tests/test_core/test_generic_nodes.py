@@ -208,7 +208,7 @@ def test_a_variable_beside_none_binds_the_arriving_type_without_its_none() -> No
     assert graph.problems == [] and _types(graph, "maybe")["result"] == (False, "str")
 
 
-def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called() -> None:
+def test_a_bare_variable_binds_without_none_so_a_none_is_a_none_input() -> None:
     """A type variable on its own never takes ``None``.
 
     Wire a ``str | None`` output into ``value: T``, and the input is a ``str``. A run that gives it ``None`` leaves
@@ -237,7 +237,7 @@ def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called
     assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any allows None already
 
 
-def test_a_branch_node_not_called_for_a_none_leaves_both_branches_skipped() -> None:
+def test_a_branch_node_with_a_none_input_leaves_both_branches_skipped() -> None:
     graph = _compiled(
         returns_none,
         decision,
@@ -260,7 +260,7 @@ def test_a_branch_node_not_called_for_a_none_leaves_both_branches_skipped() -> N
     assert asyncio.run(said())[-2:] == [
         (("decision",), 0, 1),
         (("maybe",), 1, 0),
-    ]  # maybe is skipped, not "not called". Only a None input makes a node not called
+    ]  # maybe is skipped, not a none input. Only a None input makes a none input call
 
 
 def test_one_variable_on_two_inputs_binds_the_union_of_what_arrives() -> None:

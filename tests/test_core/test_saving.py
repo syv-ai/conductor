@@ -1807,7 +1807,7 @@ def confirm(email: str) -> bool:
     raise Ask(f"Send to {email}?")
 
 
-def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the_same_not_called():
+def test_a_none_input_and_a_skipped_call_read_back_and_the_resumed_run_lists_the_same_none_inputs():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {

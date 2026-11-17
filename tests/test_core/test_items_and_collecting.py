@@ -312,7 +312,7 @@ class Amount(TypedDict):
     a: int
 
 
-def test_an_optional_table_input_gets_none_from_the_caller_from_a_return_and_from_a_node_not_called():
+def test_an_optional_table_input_gets_none_from_the_caller_from_a_return_and_from_a_none_input_call():
     @node("count-rows", title="Count rows", description="For a test.")
     def count_rows(t: Table[Amount] | None = None) -> int:
         return -1 if t is None else t.height
@@ -354,7 +354,7 @@ def test_an_optional_table_input_gets_none_from_the_caller_from_a_return_and_fro
     assert never.run({"y": 1}).outputs == {"result": -1}
 
 
-def test_an_optional_series_input_gets_none_from_a_return_and_from_a_node_not_called():
+def test_an_optional_series_input_gets_none_from_a_return_and_from_a_none_input_call():
     @node("count-items", title="Count items", description="For a test.")
     def count_items(xs: Series[int] | None = None) -> int:
         return -1 if xs is None else len(xs)
@@ -448,7 +448,7 @@ def test_a_default_is_for_an_unwired_input_never_in_place_of_a_none_from_an_edge
     assert run.none_input_calls == [NoneInputCall(loc=("d", 1), input="email")]
 
 
-def test_a_node_not_called_for_none_is_complete_and_never_skipped():
+def test_a_none_input_call_is_complete_and_never_skipped():
     @node("nothing", title="Nothing", description="For a test.")
     def nothing() -> str | None:
         return None
@@ -471,7 +471,7 @@ def test_a_node_not_called_for_none_is_complete_and_never_skipped():
 
 @pytest.mark.parametrize("none_into", ["a", "b"])
 def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(none_into):
-    """When one input is skipped and the other is ``None``, the node is skipped, not "not called".
+    """When one input is skipped and the other is ``None``, the node is skipped, not a none input.
 
     The order of the two parameters doesn't change that.
     """
@@ -507,7 +507,7 @@ def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(
     [
         ("skipped", "none", "skipped"),
         ("none", "skipped", "skipped"),
-        ("none", "none", "not called"),
+        ("none", "none", "none input"),
     ],
 )
 def test_an_input_read_from_one_edge_and_a_collecting_input_keep_the_order_a_skip_and_a_none_are_seen_in(
@@ -608,7 +608,7 @@ def test_a_skipped_input_skips_the_node_at_once_while_its_other_input_waits_for_
     )
 
 
-def test_both_branches_of_a_node_not_called_are_skipped():
+def test_both_branches_of_a_none_input_call_are_skipped():
     @node("branched", title="Branched", description="For a test.")
     def branched(email: str) -> YesNo:
         return YesNo(email, SKIPPED)
@@ -628,7 +628,7 @@ def test_both_branches_of_a_node_not_called_are_skipped():
     ]  # b was not called there, so no branch was taken and u is skipped
 
 
-def test_a_branching_node_not_called_for_an_item_skips_both_branches_even_an_input_taking_none():
+def test_a_branching_node_with_a_none_input_for_an_item_skips_both_branches_even_an_input_taking_none():
     """A branching node that isn't called for an item chooses no branch, so both branches are skipped there.
 
     ``d`` isn't called for Bo, whose email is ``None``. So ``y`` and ``n`` are skipped for Bo, even though their
@@ -664,7 +664,7 @@ def test_a_branching_node_not_called_for_an_item_skips_both_branches_even_an_inp
     )
 
 
-def test_a_branching_node_outside_loops_not_called_skips_the_nodes_on_its_branches():
+def test_a_branching_node_outside_loops_with_a_none_input_skips_the_nodes_on_its_branches():
     @node("nothing", title="Nothing", description="For a test.")
     def nothing() -> str | None:
         return None
@@ -695,7 +695,7 @@ class Noted:
     extra: str = SKIPPED  # type: ignore[assignment]
 
 
-def test_an_output_whose_default_is_skipped_is_a_skipped_branch_where_its_node_is_not_called():
+def test_an_output_whose_default_is_skipped_is_a_skipped_branch_where_its_node_has_a_none_input():
     """An output whose default is ``SKIPPED`` is a branch. Where its node isn't called, that branch is skipped.
 
     Here ``d`` isn't called, because its input is ``None``. So ``extra`` is skipped, and ``y``, which reads it, is
@@ -799,7 +799,7 @@ def _pairs_with_an_outer_value(
     )
 
 
-def test_a_none_from_outside_the_loop_leaves_the_collecting_node_not_called_as_a_skip_skips_it():
+def test_a_none_from_outside_the_loop_is_a_none_input_of_the_collecting_node_as_a_skip_skips_it():
     """A ``None`` from outside the loop leaves the collecting node not called, while a skip skips it.
 
     No call of ``pair`` was even tried, so a count of 0 would be wrong.
@@ -845,7 +845,7 @@ def test_a_none_per_item_is_left_out_and_none_for_every_item_collects_an_empty_s
     ]
 
 
-def test_a_series_not_returned_for_an_item_given_none_is_not_empty_so_its_count_is_not_called():
+def test_a_series_not_returned_for_an_item_given_none_is_not_empty_so_its_count_is_a_none_input():
     run = ran(
         *CONTACTS,
         {"id": "s", "node": "split"},
@@ -857,7 +857,7 @@ def test_a_series_not_returned_for_an_item_given_none_is_not_empty_so_its_count_
     assert NoneInputCall(loc=("n", 1), input="values") in run.none_input_calls
 
 
-def test_a_table_not_returned_for_an_item_given_none_is_not_split_so_its_count_is_not_called():
+def test_a_table_not_returned_for_an_item_given_none_is_not_split_so_its_count_is_a_none_input():
     run = ran(
         *CONTACTS,
         {"id": "i", "node": "invoices"},
@@ -916,7 +916,7 @@ def test_two_inputs_collecting_one_series_leave_out_the_same_none_item():
     assert run.results["z"]["result"] == "Idaida@x|Ninanina@x"
 
 
-def test_a_node_downstream_of_one_not_called_is_not_called_either():
+def test_a_node_downstream_of_a_none_input_call_is_one_too():
     CALLED.clear()
     run = ran(
         *CONTACTS,
@@ -954,7 +954,7 @@ def test_a_none_item_is_left_out_of_every_collecting_input_so_they_stay_paired()
     assert run.results["z"]["result"] == str([("1", "1?"), ("3", "3?")])
 
 
-def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_empty_series():
+def test_collecting_a_series_not_returned_for_a_none_item_is_a_none_input_not_an_empty_series():
     """A document that is ``None`` is not an empty document.
 
     Its count isn't called with an empty Series. It isn't called at all, and ``none_input_calls`` says which input got

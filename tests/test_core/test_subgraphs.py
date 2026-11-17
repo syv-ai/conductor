@@ -937,7 +937,7 @@ def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is
     assert per_document.run({"text": "a b;c"}).outputs == {"result": [2, 1]}
 
 
-def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
+def test_an_inner_node_given_none_is_listed_as_a_none_input_call_by_its_node_path():
     run = inside_a_loop("maybe-inner").run({"text": "a none"})
     assert run.status == "complete" and run.results["e"]["result"] == ["A", None]
     assert [(n.loc, n.input) for n in run.none_input_calls] == [(("e", 1, "up"), "text")]
@@ -1537,7 +1537,7 @@ def test_a_subgraph_failed_at_one_item_reads_the_same_saved_and_read_back():
     )
 
 
-def test_an_inner_node_not_called_for_none_reads_the_same_saved_and_read_back():
+def test_an_inner_none_input_call_reads_the_same_saved_and_read_back():
     run = inside_a_loop("maybe-inner").run({"text": "ab none cd"})
     assert (
         run.status == "complete"

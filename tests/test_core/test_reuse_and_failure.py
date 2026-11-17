@@ -2389,7 +2389,7 @@ def test_a_node_redeclared_with_the_same_code_to_no_longer_ask_is_called_again_a
     assert again.results["a"]["result"] == [True, True, True] and calls == ["al", "bo", "bo"]
 
 
-def test_a_node_redeclared_to_take_none_is_called_for_the_item_it_was_not_called_for():
+def test_a_node_redeclared_to_take_none_is_called_for_the_item_that_was_a_none_input():
     class Row(TypedDict):
         name: str
         email: str | None
