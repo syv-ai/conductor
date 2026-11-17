@@ -58,7 +58,7 @@ A node is a function, and its type hints are its interface. The registry is the 
 The types decide how often a node runs. `line: str` takes one value. `Series[str]` is many, and inside your function it's a plain list.
 
 - `lines` returns three texts as a `Series`. `shout` takes one text, so conductor calls it three times, once per line. That's a loop.
-- `join` takes a `Series[str]`, so it's called once with all three results, in order. That ends the loop.
+- `join` takes a `Series[str]`, so it's called once with all three results, in order. That ends the loop. An item that is `None` is left out, so `len(texts)` counts the items with a value; write `Series[str | None]` to keep every item's place.
 - A value from outside the loop is the same on every call. Here that's `mark`, which keeps its default `"!"`.
 
 That's all there is to looping. A plain `list` or a table is one value until a node returns it as a `Series`. The [Split node](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes) does that for you.
