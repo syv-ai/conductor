@@ -30,7 +30,7 @@ def _waiting() -> tuple[Any, str]:
 
 
 def _ended_with(state: RunState, run: Any) -> tuple[RunState, RunChanges]:
-    return state.ended_with(run, run.to_json(), RunOutcome.of(run).model_dump_json())
+    return state.ended_with(run, run.to_json(), RunOutcome.of(run).model_dump_json())[:2]
 
 
 def test_a_run_that_stopped_with_nothing_queued_takes_its_status() -> None:
@@ -117,6 +117,25 @@ def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -
         [QueuedReply(waiting_id="c", answer=3)],
         ["b"],
     )
+
+
+def test_ended_with_says_whether_the_run_took_a_decline_also_when_a_decline_already_failed_it() -> (
+    None
+):
+    run, waiting_id = _waiting()
+    declined = run.decline(waiting_id, reason="No")
+    saved, outcome = run.to_json(), RunOutcome.of(run).model_dump_json()
+
+    took = [
+        state.ended_with(given, saved, outcome)[2]
+        for state, given in (
+            (RunState.started().with_queued({waiting_id: True}), run),
+            (RunState.started().with_queued(declines={waiting_id: "No"}), run),
+            (RunState.started().with_queued(declines={waiting_id: "Again"}), declined),
+        )
+    ]
+
+    assert took == [False, True, False]
 
 
 def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_with_nothing_waiting() -> (

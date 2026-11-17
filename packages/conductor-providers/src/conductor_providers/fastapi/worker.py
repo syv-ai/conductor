@@ -725,19 +725,6 @@ class Worker(Generic[M, X]):
         self._resume_in_background(claimed)
         return claimed
 
-    async def _given_the_queue(
-        self, row: StoredRun, state: RunState
-    ) -> tuple[RunState, RunChanges]:
-        """``state.ended_with`` the run as ``row`` has it: what is queued, given to a run that isn't running.
-
-        Raises:
-            InvalidCallError: The run can't be loaded on its metadata's nodes.
-        """
-        nodes = self.nodes_for(self._metadata_in(row))
-        return await asyncio.to_thread(
-            lambda: state.ended_with(loaded(row, nodes), row.run, row.outcome)
-        )
-
     async def _reply_to_a_stopped_run(
         self,
         row: StoredRun,
@@ -777,10 +764,11 @@ class Worker(Generic[M, X]):
         queued = state.with_queued(answers, declines=declines)
         refused: dict[str, list[Problem]] = {}
         if queued.holds_a_decline:
-            ended, changes = await self._given_the_queue(row, queued)
-            # A decline was taken when the run failed by one now, or when this call's decline, given last, isn't
-            # refused: a run a decline already failed can take another.
-            if ended.declined and (not state.declined or declines.keys() - ended.refused.keys()):
+            nodes = self.nodes_for(self._metadata_in(row))
+            ended, changes, declined = await asyncio.to_thread(
+                lambda: queued.ended_with(loaded(row, nodes), row.run, row.outcome)
+            )
+            if declined:
                 return await self._write_ended(row, ended, changes)
             refused = {key: ended.refused[key] for key in declines if key in ended.refused}
             if refused and not ended.is_running:

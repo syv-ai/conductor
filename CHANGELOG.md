@@ -404,8 +404,8 @@ What changes in how you work, before the name-by-name tables:
   decline it takes makes no resume call: the run is given the queue and written `failed`, `answer_declined`. An
   answer to a run whose queue holds a decline is given after it, so a decline the run takes fails it, written with
   no resume call, and an answer it then refuses is in `refused`; any other answer to a stopped run goes to
-  `run.answer` as before, with the queue kept for the end of the resume call. Against 2.0's pre-releases, of the
-  stopped-run cases the round-3 review probed: a decline to a stale question while a queued answer is taken
+  `run.answer` as before, with the queue kept for the end of the resume call. Against 2.0's pre-releases, on a
+  stopped run: a decline to a stale question while a queued answer is taken
   resumes the run with `answer_stale` in `refused` (was a 422); a decline needs a serving worker only when it
   resumes the run (was: always); and a decline sent together with an answer to another question is written at
   once, so the answer that lands after it resumes the failed run (both used to be queued, and the decline won).

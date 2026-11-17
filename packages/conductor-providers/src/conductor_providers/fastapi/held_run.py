@@ -187,7 +187,7 @@ class HeldRun:
                         saved, written = await asyncio.to_thread(
                             lambda: (ended.to_json(), RunOutcome.of(ended).model_dump_json())
                         )
-                        return event, lambda state: state.ended_with(ended, saved, written)
+                        return event, lambda state: state.ended_with(ended, saved, written)[:2]
                     elif not await self._store.add_event(
                         self.run_id, settings.worker_id, event.model_dump_json()
                     ):

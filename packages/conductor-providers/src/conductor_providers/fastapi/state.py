@@ -120,11 +120,6 @@ class RunState(BaseModel):
         """Whether a worker resumes the run, or is about to."""
         return self.status == "running"
 
-    @property
-    def declined(self) -> bool:
-        """Whether the run failed because a person declined to answer a question (``answer_declined``)."""
-        return self.cause is not None and self.cause.type == "answer_declined"
-
     def running(self) -> RunState:
         """This state with the run running again, for a worker to resume."""
         return self.model_copy(update={"status": "running", "cause": None})
@@ -180,7 +175,9 @@ class RunState(BaseModel):
         """Whether a decline is among the replies queued."""
         return any(reply.declined for reply in self.queued)
 
-    def ended_with(self, run: Run[Any], saved: str, outcome: str) -> tuple[RunState, RunChanges]:
+    def ended_with(
+        self, run: Run[Any], saved: str, outcome: str
+    ) -> tuple[RunState, RunChanges, bool]:
         """This state once the run stops and is given what was queued meanwhile.
 
         The run stops when a resume call returns it. A run that isn't running is given its queue here too, with the
@@ -209,7 +206,7 @@ class RunState(BaseModel):
             outcome: The row's ``outcome`` for ``run``, as JSON.
 
         Returns:
-            The new state, and the row's ``run`` and ``outcome`` to write with it.
+            The new state, the row's ``run`` and ``outcome`` to write with it, and whether the run took a decline.
         """
         given, taken, declined, refused = self._given_to(run)
         # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
@@ -231,7 +228,7 @@ class RunState(BaseModel):
         )
         if declined:  # the run stops here, so the row's outcome is the declined run's
             outcome = RunOutcome.of(given).model_dump_json()
-        return state, {"run": given.to_json() if taken else saved, "outcome": outcome}
+        return state, {"run": given.to_json() if taken else saved, "outcome": outcome}, declined
 
     def _given_to(self, run: Run[Any]) -> tuple[Run[Any], bool, bool, dict[str, list[Problem]]]:
         """``run`` once it is given the queued replies, in the order they came.
