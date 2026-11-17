@@ -149,7 +149,7 @@ class Records[T]:
         Raises:
             NoSuchFieldError: The frame has no column ``name``.
         """
-        # a frame of a Series[Any] may not have the field the edge names
+        # a frame of a Series[Any] or a Series[dict] may not have the field the edge names
         if name not in self.frame.columns:
             raise NoSuchFieldError(name)
         return self._columns[name][index]

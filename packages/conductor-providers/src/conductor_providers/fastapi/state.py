@@ -181,9 +181,8 @@ class RunState(BaseModel):
         """This state once the run stops and is given what was queued meanwhile.
 
         The run stops when a resume call returns it. A run that isn't running is given its queue here too, with the
-        run as the row has it. That happens when a decline comes for it, which the worker queues last. It also happens
-        when it is resumed with a decline still queued from a resume call that raised, so the decline ends it with no
-        resume call.
+        run as the row has it, when a decline, an answer or a resume comes for it while its queue, with that call's
+        own replies queued last, holds a decline. A decline the run takes then ends it with no resume call.
 
         The queued replies are given to the run in the order they came, with ``run.answer`` and ``run.decline``. So
         a wrong one is refused alone. One the run refuses goes to ``refused`` with its problems, and one it takes
@@ -264,8 +263,10 @@ class RunState(BaseModel):
         """This state once a resume call raised, or conductor refused it, so it returned no run.
 
         The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued, and a cancel asked
-        is cleared, since the run has stopped. A decline or a resume gives the run the queue then, and a resume makes
-        a resume call only when the queue holds no decline the run takes.
+        is cleared, since the run has stopped. A decline, an answer or a resume that comes then gives the run the
+        queue at once when the queue, with that call's own replies, holds a decline, and a run that takes a decline is
+        written failed with no resume call. Otherwise the call resumes the run with the queue kept, to be given when
+        the resume call ends.
 
         Args:
             cause: Why the resume call failed.

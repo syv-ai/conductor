@@ -707,7 +707,7 @@ repos:
               code: |
                 def parse_loc(text):
                     loc = [int(index) for index in text.split("@")[1:]]
-                    if loc_text(loc) != text:
+                    if place_text(loc) != text:
                         raise ValueError(text)
                     return loc
 
