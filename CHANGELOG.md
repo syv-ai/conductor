@@ -26,7 +26,9 @@ What changes in how you work, before the name-by-name tables:
   `.`, `/`, `@` or `~`, a source listed twice, an empty list of sources, an input given no kind or two, a `default`
   without a `graph_input` and a field on a graph output are refused when the record is read (`invalid_record`, with
   the fault in `ctx.error`). A graph input's default is the record's: an entry with no `default` is required.
-  `graph.inputs`, `run.inputs`, `graph.outputs` and `run.outputs` are keyed by the declared names. `make_graph`
+  `graph.inputs`, `run.inputs`, `graph.outputs` and `run.outputs` are keyed by the declared names. `graph.inputs` and
+  `graph.outputs` are read-only mappings: writing into `graph.outputs` changed what `describe()`, a subgraph node
+  that uses the graph and the registry's palette showed, and writing into one is now a `TypeError`. `make_graph`
   declares the graph's inputs and outputs itself: each required input that gets nothing, on any node, and each key
   of `defaults` is a graph input of the input's name, and each output of a node no edge leaves a graph output of the
   output's name; `inputs=` and `outputs=` name some of them otherwise, on top of that, and two of one name are

@@ -645,6 +645,25 @@ def test_an_output_a_hook_computed_is_a_graph_output_with_its_title():
     assert graph.run(text="9").outputs == {"net": "9", "vat": "9"}
 
 
+def test_a_graph_s_inputs_and_outputs_are_read_only_so_a_host_changes_neither_for_describe():
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"g": {"node": "greet", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "g", "output": "result"}},
+            }
+        ),
+        REGISTRY,
+    )
+    with pytest.raises(TypeError):
+        del graph.inputs["text"]  # type: ignore[attr-defined]
+    with pytest.raises(TypeError):
+        graph.outputs["extra"] = graph.outputs["result"]  # type: ignore[index]
+    described = graph.describe()
+    assert (list(described.inputs), list(described.outputs)) == (["text"], ["result"])
+    assert dict(graph.outputs) == described.outputs and graph.inputs == described.inputs
+
+
 def test_a_graph_input_and_a_graph_output_are_each_named_by_the_record():
     graph = Graph.compile(
         GraphRecord.model_validate(

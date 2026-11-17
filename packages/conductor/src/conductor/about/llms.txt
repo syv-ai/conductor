@@ -501,6 +501,7 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that leaves a choice, and a node's own in the order it declares them. The record keeps no order, so `record.input_names` and `record.required_inputs` are sorted.
 - A graph input with no value yet is not a problem. A required input that gets nothing is `input_has_no_value`.
 - `graph.outputs` is the graph outputs the record declares, by name, sorted. Each is the `FieldDescription` of what a complete run gives for it: the output of the node behind it, under the graph output's name. It is described as a subgraph node's output is: one that needs a branch is `"required": false` with no `default`, and one whose node is inside loops is a list with its `loops`. A graph output whose node didn't compile isn't in it.
+- `graph.inputs` and `graph.outputs` are read-only mappings, shared by every caller and by `describe()`: writing into one is a `TypeError`. `dict(graph.outputs)` is a copy to change.
 - `graph.asks` is whether a node of the graph, or of a subgraph in it at any depth, may stop to ask a person.
 
 **`graph.describe()`** is the graph as an editor draws it, a `GraphDescription`. It has each node's fields as its hooks made them, how often each node runs, the inputs, the outputs and the problems.

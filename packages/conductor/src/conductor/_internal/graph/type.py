@@ -144,18 +144,20 @@ class Graph[C]:
         """Whether the graph has no problems, so it can run."""
         return not self.problems
 
-    @property
-    def inputs(self) -> dict[str, FieldDescription]:
+    @functools.cached_property
+    def inputs(self) -> Mapping[str, FieldDescription]:
         """The graph inputs, by name: what a caller gives values for. In the example, that's ``text``.
 
         They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where
         that leaves a choice, and a node's own in the order it declares them. The record doesn't decide it, since it
         keeps no order.
+
+        The mapping is read-only, since every caller shares it: copy it with ``dict(graph.inputs)`` to change it.
         """
-        return {name: field.description for name, field in self._inputs.items()}
+        return MappingProxyType({name: field.description for name, field in self._inputs.items()})
 
     @functools.cached_property
-    def outputs(self) -> dict[str, FieldDescription]:
+    def outputs(self) -> Mapping[str, FieldDescription]:
         """The graph outputs, by name, sorted: what a complete run gives (``run.outputs``).
 
         Each is described as the output of the node behind it, under the graph output's name. In the example,
@@ -170,6 +172,9 @@ class Graph[C]:
         more, innermost level: the list it returns.
 
         A graph output whose node didn't compile isn't here. The graph's problems say why.
+
+        The mapping is read-only, since every caller shares it, ``describe()`` and a subgraph node that uses this
+        graph included: copy it with ``dict(graph.outputs)`` to change it.
         """
         described: dict[str, FieldDescription] = {}
         for name, field in self._outputs.items():
@@ -184,7 +189,7 @@ class Graph[C]:
             if loops:
                 description = description.model_copy(update={"is_series": True, "loops": loops})
             described[name] = description
-        return described
+        return MappingProxyType(described)
 
     @functools.cached_property
     def asks(self) -> bool:
@@ -245,7 +250,7 @@ class Graph[C]:
         return GraphDescription(
             nodes=nodes,
             inputs=dict(self.inputs),
-            outputs=self.outputs,
+            outputs=dict(self.outputs),
             problems=list(self.problems),
         )
 
