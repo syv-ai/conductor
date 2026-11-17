@@ -484,6 +484,10 @@ What changes in how you work, before the name-by-name tables:
   node's return given as records (`invalid_output`), a graph input (`invalid_input`), a constant (`invalid_value`)
   and gathered rows collected into a `Table` input (`invalid_edge_value`). An answer's refusal has no `ctx.errors`,
   so it doesn't change.
+- **A `Series[dict]` takes a table, as `Series[Any]` does.** A node declared `-> Series[dict]` that returned a
+  `polars.DataFrame` failed with `invalid_output` ("Input should be a valid list"), while `-> Series[Any]` took the
+  same frame as its rows. A `dict` is the row of a bare `Table`, so both now read the frame as one and give every
+  column.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

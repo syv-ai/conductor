@@ -243,10 +243,11 @@ def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
     assert (run.status, run.cause.type) == ("failed", "invalid_output")
 
 
-def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
+@pytest.mark.parametrize("returns", [Series[Any], Series[dict]])
+def test_a_table_of_any_columns_is_a_series_of_its_records(returns: Any) -> None:
     @node("anything", title="Anything", description="For a test.")
-    def anything(text: str) -> Series[Any]:
-        return FRAME  # type: ignore[return-value]
+    def anything(text: str) -> returns:  # type: ignore[valid-type]
+        return FRAME
 
     @node("show", title="Show", description="For a test.")
     def show(record: Any) -> str:

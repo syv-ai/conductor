@@ -598,7 +598,7 @@ A `Table` input collects records the same way.
 
 - A node that returns `Series[R]` returns its records one item each. `series-split` in `syv-conductor-nodes` does that for any table or list.
 - Such a node may return the records as a list, or as the table itself. A table returned for `Series[R]`, `R` a `TypedDict`, is read as a `Table[R]` is: its columns, each by its type, with a `None` only where the type takes one. It is kept by column. An edge that names a field (`series-split.result.email`) reads the column, and a node still receives plain `dict` records.
-- A table returned for `Series[Any]` gives every column.
+- A table returned for `Series[dict]` or `Series[Any]` is read as a bare `Table`, whose rows are a `dict` each: it gives every column.
 - Every field of a row type is required. A `NotRequired` field, or a `TypedDict` declared `total=False`, is refused when the node is declared (`row_field_optional`). Declare the field `X | None`. A table with a column some rows leave out is not supported.
 - A whole table or list wired to an input of one value is `type_mismatch`, with `ctx.variant` `make_a_series` (`kind`, `fields`). A field named on one is `unknown_output`, with the same hint.
 
