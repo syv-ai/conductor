@@ -525,7 +525,7 @@ Whether a field needs a hook or a type variable is in `python -m conductor.about
 
 Some nodes need a person to decide. `raise Ask(prompt)` stops that call of the node and asks. `asks=True` on the `@node` says the node may ask, so a host knows before any run which graphs can pause for a person. A node that raises `Ask` without it fails with [`ask_not_declared`](problems.md#ask_not_declared).
 
-Your return type says what the person answers. `-> str` asks for a line of text, `-> bool` for a yes or no, `-> Literal["ida", "bo"]` for one of those values, and a frozen dataclass for a form, with one question per field. The type is the node's contract, so fixed choices go on it, and `describe()` shows them before any run. `Ask` carries what only the run knows: choices that come from the run's data, and a proposed `default`.
+Your return type says what the person answers. `-> str` asks for a line of text, `-> bool` for a yes or no, `-> Literal["ida", "bo"]` for one of those values, `-> Color` for one of an enum's members, and a frozen dataclass for a form, with one question per field. A `Literal`'s values are text, numbers, yes or no or `None`; for an enum's members, take the enum as the type, since `@node` refuses a `Literal` of them. The type is the node's contract, so fixed choices go on it, and `describe()` shows them before any run. `Ask` carries what only the run knows: choices that come from the run's data, and a proposed `default`.
 
 ```python
 from conductor import Ask

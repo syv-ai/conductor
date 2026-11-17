@@ -1209,88 +1209,26 @@ class _Tint(Enum):
     BLUE = "blue"
 
 
-def test_a_literal_of_enum_members_into_a_literal_of_more_of_them_compiles_runs_and_reads_back():
-    """A ``Literal`` of an enum's members reads its own JSON, ``"red"``, as the member, as the enum itself does.
-
-    So the edge's values are taken by the input's own check, and a saved run of them is read back.
-    """
-    graph = _wired(Literal[_Tint.RED], _Tint.RED, Literal[_Tint.RED, _Tint.BLUE])
-    run = graph.run(text="x")
-
-    assert graph.problems == []
-    assert run.outputs == {"result": "<_Tint.RED: 'red'>"}
-    assert Run.from_json(run.to_json(), graph).results == run.results
-
-
-@host_type("hue", title="Hue")
-class _Hue(Enum):
-    RED = "red"
-
-
 def _must_be_a_tint(value: Any) -> Any:
     assert isinstance(value, _Tint)
     return value
 
 
 @pytest.mark.parametrize(
-    ("source", "value", "target"),
+    "target",
     [
-        (Literal[_Tint.RED], _Tint.RED, Annotated[Any, AfterValidator(_must_be_a_tint)]),
+        _Tint,
+        Annotated[_Tint, Param(choices=[_Tint.RED])],
+        Annotated[Any, AfterValidator(_must_be_a_tint)],
     ],
 )
-def test_a_literal_source_is_asked_of_the_inputs_check_as_the_run_checks_its_value(
-    source, value, target
-):
-    """Compiling asks the input's argument check of each ``Literal`` value, the check the run gives it: the value
-    itself, never its JSON. So a validator that looks at the member's class gets the member."""
-    graph = _wired(source, value, target)
-
-    assert graph.problems == []
-    assert graph.run(text="x").status == "complete"
-
-
-@pytest.mark.parametrize(
-    ("source", "value"), [(Literal["red"], "red"), (Literal[_Hue.RED], _Hue.RED)]
-)
-def test_a_value_whose_json_is_a_members_but_is_not_one_is_a_type_mismatch(source, value):
-    """``"red"``, and another enum's member written ``"red"``, are no value of ``Literal[Tint.RED, Tint.BLUE]``: the
-    run refuses them, so compiling does."""
-    (problem,) = _wired(source, value, Literal[_Tint.RED, _Tint.BLUE]).problems
-
-    assert problem.type == "type_mismatch"
-
-
-class _Tinted(TypedDict):
-    tint: Literal[_Tint.RED, _Tint.BLUE]
-
-
-@pytest.mark.parametrize(
-    ("hint", "value"),
-    [
-        (Series[Literal[_Tint.RED, _Tint.BLUE]], [_Tint.RED]),
-        (_Tinted, {"tint": _Tint.RED}),
-    ],
-)
-def test_a_member_below_the_top_reads_back_from_a_saved_run(hint, value):
-    """A ``Literal`` of members on a ``Series``'s item, or a record's field is read from its
-    JSON in a saved run, as on the output itself."""
-
-    def give(text: str) -> Any:
-        return value
-
-    give.__annotations__ = {"text": str, "return": hint}
-    definition = node("give", title="Give", description="For a test.")(give)
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"a": {"node": "give", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "a", "output": "result"}},
-            }
-        ),
-        registry_of(definition),
-    )
+def test_an_enum_is_wired_run_and_read_back(target):
+    """An enum is the type for a fixed set of its members: an edge of it compiles, runs and its run reads back."""
+    graph = _wired(_Tint, _Tint.RED, target)
     run = graph.run(text="x")
 
+    assert graph.problems == []
+    assert run.outputs == {"result": "<_Tint.RED: 'red'>"}
     assert Run.from_json(run.to_json(), graph).results == run.results
 
 

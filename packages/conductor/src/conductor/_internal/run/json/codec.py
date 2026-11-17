@@ -42,7 +42,7 @@ class _SavedValue:
     """The hint a saved run declares one value with: a graph input, an output's value on one call, or an answer.
 
     Pydantic checks the value by its type's argument check (``Type.argument_schema``), the one an argument gets, so
-    ``true`` saved for an ``int`` is refused and an enum member in a ``Literal`` is read from its JSON.
+    ``true`` saved for an ``int`` is refused.
 
     The codec's config writes ``inf`` as ``"Infinity"``, which a ``float`` reads back as the float. But a pydantic
     model or a dataclass writes its fields by its own config, whatever schema it sits in. By default that writes

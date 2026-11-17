@@ -91,7 +91,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - With no constant and no default, it is `input_has_no_value`, variant `constant_only`.
 - `constant_only` on an output is `constant_only_on_output`.
 
-**Choices.** A field's choices are a `Literal`'s values, or `Param(choices=[...])` on any type. Each choice is a value, or a `Choice(id, title)` from `conductor` to give it a title. A `Choice` carries any other keyword it is given along with it: `Choice("ida", "Ida B.", team="sales")`. The field's record has the choices as `choices`, a tuple of `Choice`.
+**Choices.** A field's choices are a `Literal`'s values, an enum's members, or `Param(choices=[...])` on any type. Each choice is a value, or a `Choice(id, title)` from `conductor` to give it a title. A `Choice` carries any other keyword it is given along with it: `Choice("ida", "Ida B.", team="sales")`. The field's record has the choices as `choices`, a tuple of `Choice`.
 
 - On a `Literal` field, the choices give its values titles, one each. On any other field, they limit what it takes.
 - Each choice is read the way an answer is: strictly, from its JSON form, and held to the field's limits. So an enum's value, or a date's ISO text, can be a choice.
@@ -101,8 +101,8 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - `None` is never a pick. A type that takes `None` takes it beside its choices. That goes for an answer and an `Ask`'s default too.
 - A value outside the choices is refused with "the value is not one of the choices". That is the problem of wherever the value came in (`invalid_input`, `invalid_value`, `invalid_output` or `invalid_answer`), with `not_a_choice` in its `errors`.
 - A `Series` answer that picks one choice twice is refused with "a choice is picked twice" (`picked_twice` in its `errors`). Only an answer must pick each choice once, so a node may return a `Series` that has a value twice.
-- A `Literal` of an enum's members reads each member from its JSON as the enum itself reads it, and keeps it when it is one of the `Literal`'s values. So the field's choices are the members' values, each titled by its value's text, and an answer or a saved run gives the member, on the field, a list's or a `Series`'s item, a record's field and a table's cell. A host's own model reads its fields by its own rules, which pydantic gives: a `Literal` of members there doesn't read back from JSON.
-- A `Literal` whose values can't be told apart as JSON, like an enum's member beside its value or two enums' members with one value, or whose value has no JSON form, is refused when the node is declared (`choices_invalid`).
+- A `Literal`'s values are plain JSON: text, numbers, yes or no, or `None`, each written as JSON of its own. A `Literal` holding an enum's member, `bytes`, a tuple, a date or any other value is refused when the node is declared, at any depth (`literal_invalid`): take the enum itself as the type, or the value's type with `Param(choices=[...])`. Two values written as the same JSON, like `inf` and `"Infinity"`, are `literal_invalid`, variant `alike`. `Literal[1, True]` holds two values, written `1` and `true`.
+- An enum as a type has its members as its choices, each titled by its value's text, as a `Literal` has its values; `Param(choices=)` on it limits or titles them.
 - Without `choices`, a `Literal` field's choices are its values. That includes `None` when the `Literal` lists it, as `Literal["a", None]` does; `Literal["a"] | None` takes `None` beside its one choice.
 - With `choices`, `None` is not one of them. So `Annotated[Literal["a", None], Param(choices=["a"])]` takes `"a"`, and takes `None` beside it.
 - An `Ask` can give a question choices that only the run knows. Otherwise a question has its output's choices.
@@ -708,7 +708,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - `prompt`.
 - `inputs`: what the call received, as JSON.
 - `questions`, one per output. Each is the field record `describe()` writes for the output (`name`, `title`, `is_series`, `type`, `json_schema`, `required`, ...). A question is titled as `describe()` titles its output: `Param(title=)` on the return type, else `None`.
-- A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)` or `Literal`. Its `json_schema`'s `enum` lists their ids (see `FieldDescription`). A bare id an `Ask` gives keeps the title the output's type gives it.
+- A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)`, `Literal` or enum. Its `json_schema`'s `enum` lists their ids (see `FieldDescription`). A bare id an `Ask` gives keeps the title the output's type gives it.
 - A question's `default` comes from the `Ask`, else from the output's own.
 - `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a skipped branch.
 - A node of one output is answered with its value, so its one question is `required`, a branch too. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.answer(id, {})` is refused as `invalid_answer`.

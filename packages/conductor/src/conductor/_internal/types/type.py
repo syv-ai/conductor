@@ -18,6 +18,7 @@ import dataclasses
 import functools
 import typing
 from collections.abc import Mapping
+from enum import Enum
 from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
@@ -229,7 +230,7 @@ class Type:
         This is the very check a value an edge gives gets on its call, laxly, so a question asked at compile of a
         type's values is answered by the run's own rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is
         taken by ``Annotated[float, Param(choices=[1.0])]``, ``None`` by any type that takes ``None`` beside its
-        choices, and ``"red"`` is not taken by ``Literal[Color.RED]``.
+        choices, and ``True`` is not taken by ``Literal[1]``.
         """
         try:
             self.argument_validator.validate_python(value, strict=False)
@@ -240,7 +241,7 @@ class Type:
     @functools.cached_property
     def argument_schema(self) -> CoreSchema:
         """The schema an argument of the type is checked by: the type's ``schema`` with conductor's rules added
-        (``with_rules``), so a number refuses a ``bool`` and an enum member in a ``Literal`` is read from its JSON.
+        (``with_rules``), so a number refuses a ``bool``.
 
         A saved run's values are read by it too, so the rules reach every door.
         """
@@ -453,25 +454,24 @@ class Type:
     def choices(self) -> tuple[Choice, ...] | None:
         """The choices the type takes, if it names any, or ``None``.
 
-        They come from ``Param(choices=...)``, or else from a ``Literal``'s values. Each is checked and converted
-        by the type's argument check (``declared_choices``), so ``Param(choices=[1])`` on a ``float`` has the id
-        ``1.0``, and ``Literal[Color.RED]``'s is ``"red"``.
+        They come from ``Param(choices=...)``, or else from a ``Literal``'s values or an enum's members. Each is
+        checked and converted by the type's argument check (``declared_choices``), so ``Param(choices=[1])`` on a
+        ``float`` has the id ``1.0``, and the enum ``Color``'s are its values, like ``"red"``.
 
         Raises:
-            NodeDeclarationError: ``choices_invalid``, when they can't be read. ``Field`` reads them, so ``@node``
-                refuses such a type.
+            NodeDeclarationError: ``choices_invalid``, when they can't be read, like the members of an enum whose
+                values have no JSON form it reads back. ``Field`` reads them, so ``@node`` refuses such a type.
         """
         given = self._parts[1].choices
-        if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
-            given = get_args(self.options[0])
+        if given is None and len(self.options) == 1:
+            (option,) = self.options
+            if get_origin(option) is Literal:
+                given = get_args(option)
+            elif isinstance(option, type) and issubclass(option, Enum):
+                given = tuple(option)
         if given is None:
             return None
-        return declared_choices(
-            tuple(given),
-            self.argument_validator,
-            self.to_json,
-            literal=self._parts[1].choices is None,
-        )
+        return declared_choices(tuple(given), self.argument_validator, self.to_json)
 
     def narrowed(self, choices: tuple[Choice, ...]) -> Type:
         """Returns this type with its values limited to ``choices``, as an ``Ask`` limits a question's.

@@ -1996,58 +1996,51 @@ class _Shade(Enum):
     BLUE = "blue"
 
 
-def test_a_literal_of_enum_members_is_described_asked_and_answered_by_each_members_json():
-    """The choices of ``Literal[Shade.RED, Shade.BLUE]`` are ``"red"`` and ``"blue"``, and an answer ``"red"`` is
-    ``Shade.RED``."""
+def test_an_enum_is_described_asked_and_answered_by_its_values():
+    """An enum's members are its choices, titled by their values, as a ``Literal``'s values are.
+
+    The question lists them in its schema's ``enum``, and an answer ``"red"`` is ``Shade.RED`` and reads back.
+    """
 
     @node("shade", title="Shade", description="For a test.", asks=True)
-    def shade(ticket: str) -> Literal[_Shade.RED, _Shade.BLUE]:
+    def shade(ticket: str) -> _Shade:
         raise Ask(f"Shade {ticket}?")
 
     (output,) = shade.describe().outputs
-    _, run = _once(shade, ticket="T-1")
+    graph, run = _once(shade, ticket="T-1")
     (question,) = run.waiting[0].questions
     answered = run.answer(run.waiting[0], "red")
     answered.resume()
-
-    assert [choice.id for choice in output.choices] == ["red", "blue"]
-    assert question.json_schema["enum"] == ["red", "blue"]
-    assert answered.outputs == {"result": _Shade.RED}
-
-
-def test_a_members_bare_choice_is_titled_by_its_written_id():
-    """A member is titled as a ``Literal`` of its value would be, never by its Python name ``_Shade.RED``."""
-
-    @node("shade", title="Shade", description="For a test.")
-    def shade(ticket: str) -> Literal[_Shade.RED, _Shade.BLUE]:
-        return _Shade.RED
-
-    (output,) = shade.describe().outputs
 
     assert [(choice.id, choice.title) for choice in output.choices] == [
         ("red", "red"),
         ("blue", "blue"),
     ]
+    assert [choice.id for choice in question.choices] == ["red", "blue"]
+    assert question.json_schema["enum"] == ["red", "blue"]
+    assert answered.outputs == {"result": _Shade.RED}
+    assert Run.from_json(answered.to_json(), graph).outputs == {"result": _Shade.RED}
 
 
-def test_param_titles_a_literal_of_members():
-    """``Param(choices=)`` on a ``Literal`` of members reads each member, as the ``Literal`` does, and titles it."""
+def test_an_ask_narrows_an_enum_and_param_titles_its_members():
+    """``Ask(choices=)`` offers some of an enum's members, and ``Param(choices=)`` gives them titles."""
 
-    @node("shade", title="Shade", description="For a test.")
+    @node("shade", title="Shade", description="For a test.", asks=True)
     def shade(
         ticket: str,
-    ) -> Annotated[
-        Literal[_Shade.RED, _Shade.BLUE],
-        Param(choices=[Choice(_Shade.RED, "Red"), Choice("blue", "Blue")]),
-    ]:
-        return _Shade.RED
+    ) -> Annotated[_Shade, Param(choices=[Choice(_Shade.RED, "Red"), Choice("blue", "Blue")])]:
+        raise Ask(f"Shade {ticket}?", choices=[_Shade.RED])
 
     (output,) = shade.describe().outputs
+    _, run = _once(shade, ticket="T-1")
+    (question,) = run.waiting[0].questions
 
     assert [(choice.id, choice.title) for choice in output.choices] == [
         ("red", "Red"),
         ("blue", "Blue"),
     ]
+    assert [(choice.id, choice.title) for choice in question.choices] == [("red", "Red")]
+    assert question.json_schema["enum"] == ["red"]
 
 
 @host_type("weight", title="Weight")
@@ -2056,30 +2049,18 @@ class _Weight(Enum):
     ONE = 1.0
 
 
-class _Shaded(TypedDict):
-    shade: Literal[_Shade.RED, _Shade.BLUE]
-
-
-@pytest.mark.parametrize(
-    ("hint", "answer", "expected"),
-    [
-        (Literal[_Weight.HALF, _Weight.ONE], 1, _Weight.ONE),
-        (_Shaded, {"shade": "red"}, {"shade": _Shade.RED}),
-    ],
-)
-def test_an_answer_is_read_as_the_members_own_enum_reads_it(hint: Any, answer: Any, expected: Any):
-    """JavaScript writes ``1.0`` as ``1``, which ``Weight`` reads as ``Weight.ONE``, so ``Literal[Weight.ONE, ...]``
-    does too; and a member in a record's field is read like one on the output."""
+def test_an_answer_to_an_enum_is_read_as_the_enum_reads_it():
+    """JavaScript writes ``1.0`` as ``1``, which ``Weight`` reads as ``Weight.ONE``."""
 
     @node("weigh", title="Weigh", description="For a test.", asks=True)
-    def weigh(ticket: str) -> hint:  # type: ignore[valid-type]
+    def weigh(ticket: str) -> _Weight:
         raise Ask(f"Weigh {ticket}?")
 
     _, run = _once(weigh, ticket="T-1")
-    answered = run.answer(run.waiting[0], answer)
+    answered = run.answer(run.waiting[0], 1)
     answered.resume()
 
-    assert answered.outputs == {"result": expected}
+    assert answered.outputs == {"result": _Weight.ONE}
 
 
 def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():

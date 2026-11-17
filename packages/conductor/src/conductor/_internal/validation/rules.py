@@ -3,7 +3,7 @@
 Pydantic on its own is a little too forgiving for conductor. For example, it takes ``True`` as the number 1, so
 the schema of ``Type(list[int])``, pydantic's own, turns ``[1, True]`` into ``[1, 1]``. A type's own check adds
 conductor's rules to its schema (``Type.argument_schema``, written by ``with_rules`` in ``types/rules.py``): a yes
-or no is not a number, and an enum member in a ``Literal`` is read from its JSON. So
+or no is not a number, and a ``Literal``'s values are plain JSON. So
 ``schema_validator_of(Type(list[int]))`` refuses ``[1, True]``, with ``bool_is_not_a_number`` at ``loc`` ``(1,)``.
 
 One more rule is added here, to an output: when a node returns a value or a person answers, a host's class must

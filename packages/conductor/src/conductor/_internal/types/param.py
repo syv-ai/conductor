@@ -20,12 +20,11 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from pydantic import Field as PydanticField
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue, TypeAdapter
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import (
     CoreSchema,
     PydanticSerializationError,
-    SchemaValidator,
     core_schema,
     to_jsonable_python,
 )
@@ -36,7 +35,6 @@ from conductor.widgets import Widget
 
 from .choice import Choice, check_one_of, choice_texts, declared_choices, pick_texts
 from .hint import READ_AS, union_members, union_of
-from .rules import with_rules
 
 #: The limits ``Param`` takes, named as pydantic's ``Field`` names them.
 _LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "pattern")
@@ -171,19 +169,21 @@ class Param:
             )
         if self.choices is None:
             return limited
-        reader = TypeAdapter(limited_hint)
+        # Type is built on Param, so it is imported here
+        from .type import Type
+
+        # the choices are read by the type's own argument check, limits included, as an answer is
+        value_type = Type(Annotated[source, Param(**self.limits)]) if self.limits else Type(source)
 
         def as_json(value: Any) -> JsonValue:
             """Returns ``value`` as plain JSON data.
 
             A float that is not finite stays a float, and ``canonical_json`` writes it as text.
             """
-            return reader.dump_python(value, mode="json")
+            written: JsonValue = value_type.serializer.to_python(value, mode="json")
+            return written
 
-        # read by the type's own check with conductor's rules, as an answer is, so an enum member is read from its JSON
-        read = declared_choices(
-            self.choices, SchemaValidator(with_rules(reader.core_schema)), as_json, literal=False
-        )
+        read = declared_choices(self.choices, value_type.argument_validator, as_json)
         texts = choice_texts(read)
         literal = [  # None is not a pick, so it is never a choice
             value
@@ -205,7 +205,7 @@ class Param:
                 return value
 
             checked = core_schema.no_info_after_validator_function(one_of_the_choices, limited)
-        enum = _enum_of(read, reader)
+        enum = _enum_of(read, optional=value_type.optional)
         if enum is None:
             return checked
         # kept for __get_pydantic_json_schema__, which pydantic calls with this schema
@@ -233,11 +233,11 @@ class Param:
 _ENUM = "conductor_enum"
 
 
-def _enum_of(choices: tuple[Choice, ...], reader: TypeAdapter[Any]) -> list[JsonValue] | None:
+def _enum_of(choices: tuple[Choice, ...], *, optional: bool) -> list[JsonValue] | None:
     """Returns the ``enum`` of a JSON schema whose values are ``choices``: their ids, as JSON.
 
-    ``None`` is added when the type takes it, since ``None`` is taken beside the choices. Whether it does is asked of
-    pydantic, as ``Type.optional`` asks it. A schema may say less than the run checks, but never list a value the run
+    ``None`` is added when the type takes it (``optional``, the type's ``Type.optional``), since ``None`` is taken
+    beside the choices. A schema may say less than the run checks, but never list a value the run
     refuses. So when a choice is not finite, like ``inf``, there is no ``enum``: JSON Schema would read ``"Infinity"``
     as text, which a number refuses.
 
@@ -249,9 +249,7 @@ def _enum_of(choices: tuple[Choice, ...], reader: TypeAdapter[Any]) -> list[Json
         json.dumps(ids, allow_nan=False)
     except ValueError:  # a float that is not finite, at any depth
         return None
-    try:
-        reader.validate_python(None, strict=True)
-    except Exception:  # noqa: BLE001  whatever the check raises, it doesn't take None
+    if not optional:
         return ids
     return ids if None in ids else [*ids, None]
 

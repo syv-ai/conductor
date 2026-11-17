@@ -136,23 +136,20 @@ def declared_choices(
     given: Iterable[Any],
     reader: SchemaValidator | TypeAdapter[Any],
     write: Callable[[Any], JsonValue],
-    *,
-    literal: bool,
 ) -> tuple[Choice, ...]:
     """Reads the choices a type declares, as ``read_choices`` does, and refuses them as a fault in the declaration.
 
-    ``Param`` reads its choices with it, and ``Type.choices`` a ``Literal``'s values, so a type whose choices can't
-    be read is refused by ``@node``, and nothing that reads them later meets a bare pydantic error.
+    ``Param`` reads its choices with it, and ``Type.choices`` a ``Literal``'s values or an enum's members, so a type
+    whose choices can't be read is refused by ``@node``, and nothing that reads them later meets a bare pydantic
+    error.
 
     Args:
-        given: The choices, as ``Param`` or the ``Literal`` gives them.
+        given: The choices, as ``Param``, the ``Literal`` or the enum gives them.
         reader: The validator of the type the choices are values of.
         write: Converts a value ``reader`` gave back to JSON.
-        literal: Whether ``given`` are a ``Literal``'s values, so two that read as one are two values alike.
 
     Raises:
-        NodeDeclarationError: ``choices_invalid``, with the variant ``no_json_form``, ``not_a_value`` or ``alike``
-            when one fits.
+        NodeDeclarationError: ``choices_invalid``, with the variant ``no_json_form`` or ``not_a_value`` when one fits.
     """
     try:
         return read_choices(given, reader, write)
@@ -162,8 +159,6 @@ def declared_choices(
                 problem = declaration_problems.choices_invalid_no_json_form()
             case "not_its_type":
                 problem = declaration_problems.choices_invalid_not_a_value(reason=refused.message())
-            case "choice_twice" if literal:
-                problem = declaration_problems.choices_invalid_alike(values=list(given))
             case _:  # no choices, or an id given twice
                 problem = declaration_problems.choices_invalid()
         raise NodeDeclarationError(problem) from None

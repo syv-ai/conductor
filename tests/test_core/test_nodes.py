@@ -13,6 +13,7 @@ import typing
 import warnings
 from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, dataclass
+from enum import Enum
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -1941,35 +1942,78 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     assert a_day.describe().inputs[0].choices == (Choice("2024-01-02", "2024-01-02"),)
 
 
-def test_a_literal_whose_values_cant_be_read_as_choices_is_refused_at_declaration() -> None:
-    """Two values with one JSON form, or a value with none, would come back wrong from a saved run or an answer, or
-    raise out of compiling, so ``@node`` refuses them."""
-    from enum import Enum
+@host_type("hue", title="Hue")
+class _Hue(Enum):
+    RED = "red"
+    BLUE = "blue"
 
-    @host_type("hue-a", title="Hue A")
-    class HueA(Enum):
-        RED = "red"
 
-    @host_type("hue-b", title="Hue B")
-    class HueB(Enum):
-        RED = "red"
+class _HueRecord(TypedDict):
+    hue: Literal[_Hue.RED]
 
-    refused = []
-    for hint in (Literal[HueA.RED, "red"], Literal[HueA.RED, HueB.RED], Literal[b"\xff"]):
 
-        def pick() -> str:
-            return "x"
+class _RawRecord(TypedDict):
+    raw: Literal[b"a"]
 
-        pick.__annotations__ = {"return": hint}
-        with pytest.raises(NodeDeclarationError) as raised:
-            node("pick", title="Pick", description="For a test.")(pick)
-        refused.append((raised.value.problems[0].type, raised.value.problems[0].ctx.get("variant")))
 
-    assert refused == [
-        ("choices_invalid", "alike"),
-        ("choices_invalid", "alike"),
-        ("choices_invalid", "no_json_form"),
-    ]
+@pytest.mark.parametrize(
+    ("hint", "variant"),
+    [
+        (Literal[_Hue.RED], None),
+        (list[Literal[_Hue.RED, _Hue.BLUE]], None),
+        (Series[Literal[_Hue.RED]], None),
+        (_HueRecord, None),
+        (Table[_RawRecord], None),
+        (Literal[b"a"], None),
+        (Literal[float("inf"), "Infinity"], "alike"),  # type: ignore[valid-type]
+        (list[Literal[float("inf"), "Infinity"]], "alike"),  # type: ignore[valid-type]
+    ],
+)
+def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
+    hint: Any, variant: Any
+) -> None:
+    """A ``Literal``'s values are text, numbers, yes or no, or ``None``, each with a JSON form of its own, on the
+    field, a list's or a ``Series``'s item, a record's field and a table's column alike."""
+
+    def give() -> str:
+        return "x"
+
+    give.__annotations__ = {"return": hint}
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("give", title="Give", description="For a test.")(give)
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx.get("variant")) == ("literal_invalid", variant)
+
+
+def test_a_literal_of_an_enums_member_is_told_to_take_the_enum() -> None:
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("give", title="Give", description="For a test.")
+        def give() -> Literal[_Hue.RED]:
+            return _Hue.RED
+
+    assert "Take the enum _Hue as the type" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [Literal[1, True], Literal[1, 1.0], Literal["1", 1], Literal[None, "null"], Literal[0, False]],
+)
+def test_a_literal_of_plain_values_whose_json_differs_is_declared_and_reads_back(hint: Any) -> None:
+    """``1`` and ``True`` are two values, written ``1`` and ``true``, so each comes back as itself."""
+    value = typing.get_args(hint)[1]
+
+    def give() -> Any:
+        return value
+
+    give.__annotations__ = {"return": hint}
+    definition = node("give", title="Give", description="For a test.")(give)
+    graph = Graph.compile(make_graph(definition), registry_of(definition))
+    run = graph.run()
+
+    read = Run.from_json(run.to_json(), graph).outputs["result"]
+    assert (read, type(read)) == (value, type(value))
 
 
 def test_choices_that_are_not_finite_floats_are_told_apart_and_matched_by_their_json_form() -> None:
