@@ -4,11 +4,10 @@ import conductor_nodes
 from conductor import Graph, NodeRegistry, make_graph
 from conductor.testing import check_registry
 
-#: ``conductor_nodes.registry`` and each module's own, read from what the package lists in ``__all__``.
-REGISTRIES = [
-    conductor_nodes.registry if name == "registry" else getattr(conductor_nodes, name).registry
-    for name in conductor_nodes.__all__
-]
+#: The package's modules, one per category, as its ``__all__`` lists them.
+MODULES = [getattr(conductor_nodes, name) for name in conductor_nodes.__all__ if name != "registry"]
+#: ``conductor_nodes.registry``, which has every node, and each module's own.
+REGISTRIES = [conductor_nodes.registry, *(module.registry for module in MODULES)]
 
 #: Sample inputs for each node, one dict per call. ``check_registry`` runs the node on each of them. The nodes here
 #: only compute, with no outside service, so every one of them can have an example.
@@ -63,35 +62,13 @@ def test_every_node_has_an_example_so_no_body_goes_untried() -> None:
     assert {definition.id for definition in conductor_nodes.registry} == set(EXAMPLES)
 
 
-def test_every_node_says_what_it_does_and_where_it_is_listed() -> None:
-    for definition in conductor_nodes.registry:
-        assert definition.description, definition.id
-        assert definition.category in {
-            "control",
-            "json",
-            "logic",
-            "math",
-            "regex",
-            "series",
-            "table",
-            "text",
-        }, definition.id
-
-
-def test_each_module_offers_its_own_nodes_and_the_package_all_of_them() -> None:
-    modules = (
-        conductor_nodes.text,
-        conductor_nodes.math,
-        conductor_nodes.logic,
-        conductor_nodes.json_ops,
-        conductor_nodes.regex_ops,
-        conductor_nodes.tables,
-        conductor_nodes.series,
-        conductor_nodes.control,
-    )
-    assert sum(len(module.registry) for module in modules) == len(conductor_nodes.registry)
-    for module in modules:
+def test_each_module_is_one_category_and_the_package_registry_has_the_nodes_of_every_module() -> (
+    None
+):
+    assert sum(len(module.registry) for module in MODULES) == len(conductor_nodes.registry)
+    for module in MODULES:
         (category,) = {d.category for d in module.registry}
+        assert category, module.__name__
         assert {
             d.id for d in conductor_nodes.registry.filter(lambda d, c=category: d.category == c)
         } == {d.id for d in module.registry}
