@@ -28,7 +28,6 @@ from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerati
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
-    PydanticCustomError,
     SchemaError,
     SchemaSerializer,
     SchemaValidator,
@@ -240,9 +239,12 @@ class Type:
             as_it_is: Also ask that the check gives ``value`` back as it is, of the same class, so it needs no
                 converting: ``float`` takes ``1``, but gives back ``1.0``.
         """
+        validate = self.argument_validator.validate_python  # a fault in the type itself raises here
         try:
-            read = self.argument_validator.validate_python(value, strict=False)
-        except Exception:  # noqa: BLE001  # whatever the check raises, it doesn't take the value
+            read = validate(value, strict=False)
+        # a host's own check may raise something else where pydantic would refuse, like float(None)'s TypeError;
+        # that is a refusal too, as ``optional`` says
+        except Exception:  # noqa: BLE001
             return False
         return not as_it_is or (type(read) is type(value) and read == value)
 
@@ -529,8 +531,9 @@ class Type:
         ``float`` has the id ``1.0``, and the enum ``Color``'s are its values, like ``"red"``.
 
         Raises:
-            NodeDeclarationError: ``choices_invalid`` when they can't be read, with the variant ``enum`` for an enum
-                that can't read a member back from its JSON. ``Field`` reads them, so ``@node`` refuses such a type.
+            NodeDeclarationError: ``choices_invalid`` when ``Param``'s or a ``Literal``'s can't be read, as with a
+                limit no value meets. ``Field`` reads them, so ``@node`` refuses such a type. An enum's members and a
+                ``Literal``'s values read back by the time they are read here (``with_rules``).
         """
         given = self._parts[1].choices
         if given is None and len(self.options) == 1:
@@ -538,14 +541,7 @@ class Type:
             if get_origin(option) is Literal:
                 given = get_args(option)
             elif isinstance(option, type) and issubclass(option, Enum):
-                try:
-                    return read_choices(tuple(option), self.argument_validator, self.to_json)
-                except PydanticCustomError as refused:
-                    raise NodeDeclarationError(
-                        declaration_problems.choices_invalid_enum(
-                            enum=option.__name__, reason=refused.message()
-                        )
-                    ) from None
+                given = tuple(option)
         if given is None:
             return None
         return declared_choices(tuple(given), self.argument_validator, self.to_json)
@@ -553,24 +549,28 @@ class Type:
     def narrowed(self, choices: tuple[Choice, ...]) -> Type:
         """Returns this type with its values limited to ``choices``, as an ``Ask`` limits a question's.
 
-        The choices are a ``Param(choices=)`` on the type, with its limits kept. A ``Literal`` is read as its values'
-        classes first, since a ``Literal``'s own choices are always all its values. So narrowing
+        The choices are a ``Param(choices=)`` on the type's classes, with its limits kept. A ``Literal`` is read as its
+        values' classes, since a ``Literal``'s own choices are always all its values. So narrowing
         ``Literal["ida", "bo"] | None`` to ``"ida"`` gives ``Annotated[str | None, Param(choices=["ida"])]``, and its
         JSON schema's ``enum`` is ``["ida", None]``, written as for any other type with choices.
+
+        Any other metadata, like a validator, is left out. The choices were read through it once already, and a check
+        that converts a value, like one that adds ``"!"``, would convert them again, so its own choice would be
+        refused. It changes nothing in the schema, which is what a narrowed type is for.
 
         Args:
             choices: Some of the type's values, each id in its JSON form, as ``read_choices`` gives them.
         """
-        bare, param, others = self._parts
-        classes = literal_classes(bare)
-        # each id back as the value the type reads it as, so a float's "Infinity" is inf again
+        bare, param, _ = self._parts
+        classes = Type(literal_classes(bare))
+        # each id back as the value its classes read it as, so a float's "Infinity" is inf again
         values = [
             choice.model_copy(
-                update={"id": self.argument_validator.validate_json(canonical_json(choice.id))}
+                update={"id": classes.argument_validator.validate_json(canonical_json(choice.id))}
             )
             for choice in choices
         ]
-        return Type(Annotated[(classes, *others, Param(**param.limits, choices=values))])
+        return Type(Annotated[(classes.hint, Param(**param.limits, choices=values))])
 
     @property
     def item(self) -> Type | None:

@@ -13,7 +13,7 @@ import typing
 import warnings
 from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, dataclass
-from enum import Enum
+from enum import Enum, IntEnum, StrEnum
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -1965,6 +1965,8 @@ class _RawRecord(TypedDict):
         (_HueRecord, None),
         (Table[_RawRecord], None),
         (Literal[b"a"], None),
+        (Literal[float("nan")], None),
+        (list[Literal[float("nan")]], None),
         (Literal[float("inf"), "Infinity"], "alike"),  # type: ignore[valid-type]
         (list[Literal[float("inf"), "Infinity"]], "alike"),  # type: ignore[valid-type]
     ],
@@ -1983,7 +1985,7 @@ def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
         node("give", title="Give", description="For a test.")(give)
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx.get("variant")) == ("literal_invalid", variant)
+    assert (problem.type, problem.ctx.get("variant")) == ("named_value_invalid", variant)
 
 
 @host_type("pair", title="Pair")
@@ -1991,19 +1993,82 @@ class _Pair(Enum):
     LOW = (0, 1)
 
 
-def test_an_enum_that_cant_read_its_members_back_is_refused_naming_the_enum() -> None:
-    """An enum's members are its choices, so an enum that reads none back from its JSON, like one of tuples, is
-    refused at ``@node`` with a message about the enum and what to write instead."""
-    with pytest.raises(NodeDeclarationError) as raised:
+class _PairRecord(TypedDict):
+    pair: _Pair
 
-        @node("give", title="Give", description="For a test.")
-        def give() -> _Pair:
-            return _Pair.LOW
+
+@pytest.mark.parametrize("hint", [_Pair, list[_Pair], dict[str, _Pair], Series[_Pair], _PairRecord])
+def test_an_enum_that_cant_read_its_members_back_is_refused_at_any_depth_naming_the_enum(
+    hint: Any,
+) -> None:
+    """An enum's members are its choices, so an enum that reads none back from its JSON, like one of tuples, is
+    refused at ``@node`` wherever it sits, with a message about the enum and what to write instead."""
+
+    def give() -> Any:
+        return _Pair.LOW
+
+    give.__annotations__ = {"return": hint}
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("give", title="Give", description="For a test.")(give)
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx.get("variant")) == ("choices_invalid", "enum")
-    assert "the enum _Pair's members are its choices" in problem.msg
+    assert (problem.type, problem.ctx.get("variant")) == ("named_value_invalid", "enum")
+    assert "the enum _Pair's member" in problem.msg
     assert "take a Literal of such values" in problem.msg
+
+
+class _IntHue(IntEnum):
+    ONE = 1
+
+
+class _StrHue(str, Enum):
+    A = "a"
+
+
+class _StrEnumHue(StrEnum):
+    B = "b"
+
+
+for _cls, _id in ((_IntHue, "int-hue"), (_StrHue, "str-hue"), (_StrEnumHue, "strenum-hue")):
+    host_type(_id, title=_id)(_cls)
+
+
+@pytest.mark.parametrize("member", [_IntHue.ONE, _StrHue.A, _StrEnumHue.B])
+def test_a_literal_of_a_str_or_int_enums_member_is_declared_and_reads_back(member: Any) -> None:
+    """A member that is also a ``str`` or an ``int`` reads back from its JSON as itself, so it may be a ``Literal``'s
+    value, as it could before."""
+
+    def give() -> Any:
+        return member
+
+    give.__annotations__ = {"return": Literal[member]}
+    definition = node("give", title="Give", description="For a test.")(give)
+    graph = Graph.compile(make_graph(definition), registry_of(definition))
+    run = graph.run()
+
+    read = Run.from_json(run.to_json(), graph).outputs["result"]
+    assert read is member
+    assert [choice.id for choice in definition.describe().outputs[0].choices or ()] == [
+        member.value
+    ]
+
+
+def test_a_literal_of_a_plain_enums_member_is_told_to_take_the_enum_or_fix_its_values() -> None:
+    """The advice names the enum as the type only when the enum itself reads its members back."""
+    messages = []
+    for member in (_Hue.RED, _Pair.LOW):
+
+        def give() -> Any:
+            return member
+
+        give.__annotations__ = {"return": Literal[member]}
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("give", title="Give", description="For a test.")(give)
+        messages.append(raised.value.problems[0].msg)
+
+    assert "Take the enum _Hue as the type" in messages[0]
+    assert "Give the values of the enum _Pair as text" in messages[1]
+    assert " a _" not in "".join(messages)
 
 
 def test_a_literal_of_an_enums_member_is_told_to_take_the_enum() -> None:

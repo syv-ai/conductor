@@ -184,19 +184,21 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
-def literal_invalid(*, value: str, cls: str, instead: str) -> str:
-    """A ``Literal`` holds a value that isn't plain JSON: text, a number, a yes or no, or ``None``.
+def named_value_invalid(*, value: str, instead: str) -> str:
+    """A ``Literal``'s value doesn't read back from its own JSON as itself.
 
-    A saved run, a person's answer and a graph record hold a value as its JSON, and pydantic reads a ``Literal``'s
-    value back from JSON only when the value is plain JSON. An enum's member, ``bytes``, a tuple or a date would be
-    refused there, so a run of it couldn't be saved, described or asked. This holds at any depth: on the field, a
-    list's or a ``Series``'s item, a record's field and a table's column.
+    A type's named values, a ``Literal``'s values and an enum's members, are its choices, and a saved run, a person's
+    answer and a description hold each as its JSON. So each must read back from that JSON as itself, or a run of it
+    couldn't be saved, described or asked. Text, numbers, yes or no and ``None`` do, and so does the member of an
+    enum that is also ``str`` or ``int``, like an ``IntEnum``'s or a ``StrEnum``'s. A plain enum's member, ``bytes``,
+    a tuple, a date and ``nan`` don't. This holds at any depth: on the field, a list's or a ``Series``'s item, a
+    record's field and a table's column.
 
-    To fix it, take the enum itself as the type, or the value's type with ``Param(choices=[...])``.
+    To fix it, take the value's type, or the enum itself, as the type, with ``Param(choices=[...])`` for some of its
+    values.
 
     Args:
         value: The value, as Python writes it.
-        cls: The value's class.
         instead: What to write instead.
 
     Example:
@@ -216,11 +218,51 @@ def literal_invalid(*, value: str, cls: str, instead: str) -> str:
 
         declaration_refused(lambda: node("cup_size", title="Cup size", description="Hands back the chosen size.")(cup_size))
     """
-    return f"a Literal's values are text, numbers, yes or no, or None, and {value} is a {cls}. {instead}"
+    return (
+        f"the Literal's value {value} doesn't read back from its own JSON as itself, so a run of it couldn't be saved,"
+        f" described or asked. {instead}"
+    )
 
 
-@DECLARATION_PROBLEMS.problem("literal_invalid", variant="alike")
-def literal_invalid_alike(*, values: list[Any]) -> str:
+@DECLARATION_PROBLEMS.problem("named_value_invalid", variant="enum")
+def named_value_invalid_enum(*, enum: str, member: str) -> str:
+    """An enum's member doesn't read back from its own JSON as itself, so the enum can't be a type.
+
+    An enum's members are its choices, and the enum reads a member back from its value's JSON. An enum whose values
+    are tuples, ``bytes`` or dates reads no member back, so a run of it couldn't be saved, described or asked. This
+    holds at any depth.
+
+    To fix it, give the enum's members values that are text, numbers or yes or no. Or take a ``Literal`` of such
+    values, titled with ``Param(choices=[Choice(value, title), ...])``.
+
+    Args:
+        enum: The enum's name.
+        member: The member, as Python writes it.
+
+    Example:
+        import enum
+
+
+        @host_type("span", title="Span")
+        class Span(enum.Enum):
+            LOW = (0, 1)
+
+
+        def pick_span(span: Span) -> str:
+            return str(span)
+
+
+        declaration_refused(lambda: node("pick_span", title="Span", description="Hands back the chosen span.")(pick_span))
+    """
+    return (
+        f"the enum {enum}'s member {member} doesn't read back from its own JSON as itself, so a run of it couldn't be"
+        " saved, described or asked. Give its members values that are text, numbers or yes or no, or take a"
+        " Literal of such values titled with Param(choices=[Choice(value, title), ...])."
+    )
+
+
+@DECLARATION_PROBLEMS.problem("named_value_invalid", variant="alike")
+def named_value_invalid_alike(*, values: list[Any]) -> str:
     """Two values of a ``Literal`` are written as the same JSON, like ``inf`` and the text ``"Infinity"``.
 
     A saved run, a person's answer and a graph record hold a value as its JSON. Two values with one JSON form can't be
@@ -267,43 +309,6 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
         declaration_refused(lambda: node("number_size", title="Number size", description="Hands back the chosen size.")(number_size))
     """
     return f"a choice isn't a value of the field's type: {reason}. Give each choice as a value of that type."
-
-
-@DECLARATION_PROBLEMS.problem("choices_invalid", variant="enum")
-def choices_invalid_enum(*, enum: str, reason: str) -> str:
-    """An enum's members are its choices, and the enum can't read a member back from the JSON it is written as.
-
-    A saved run, a person's answer and a description hold a member as its value's JSON, and the enum reads the
-    member back from it. An enum whose values are tuples or ``bytes`` reads no member from its JSON, so a run of
-    it couldn't be saved, described or asked.
-
-    To fix it, give the enum's members values that are text, numbers or yes or no. Or take ``Literal`` of those
-    values, titled with ``Param(choices=[Choice(value, title), ...])``.
-
-    Args:
-        enum: The enum's name.
-        reason: What the enum refused, without quoting the value.
-
-    Example:
-        import enum
-
-
-        @host_type("span", title="Span")
-        class Span(enum.Enum):
-            LOW = (0, 1)
-
-
-        def pick_span(span: Span) -> str:
-            return str(span)
-
-
-        declaration_refused(lambda: node("pick_span", title="Span", description="Hands back the chosen span.")(pick_span))
-    """
-    return (
-        f"the enum {enum}'s members are its choices, and it can't read a member back from its JSON: {reason}. Give"
-        " its members values that are text, numbers or yes or no, or take a Literal of such values titled with"
-        " Param(choices=[Choice(value, title), ...])."
-    )
 
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")

@@ -45,7 +45,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Textarea
-from pydantic import MISSING, ValidationError
+from pydantic import MISSING, AfterValidator, ValidationError
 
 from tests.test_core.nodes import place, registry_of
 
@@ -2061,6 +2061,27 @@ def test_an_answer_to_an_enum_is_read_as_the_enum_reads_it():
     answered.resume()
 
     assert answered.outputs == {"result": _Weight.ONE}
+
+
+def _shouted(text: str) -> str:
+    return text + "!"
+
+
+def test_an_ask_narrowing_a_type_whose_check_converts_shows_its_question():
+    """The choices are read through the check once. Read again, ``"x"`` would become ``"x!!"``, refused by its own
+    narrowing, and ``run.waiting`` would raise for every waiting call of the run."""
+
+    @node("bang", title="Bang", description="For a test.", asks=True)
+    def bang(ticket: str) -> Annotated[str, AfterValidator(_shouted)]:
+        raise Ask(f"Bang {ticket}?", choices=["x"])
+
+    _, run = _once(bang, ticket="T-1")
+    (question,) = run.waiting[0].questions
+
+    assert [(choice.id, choice.title) for choice in question.choices] == [("x!", "x")]
+    with pytest.raises(InvalidCallError) as raised:
+        run.answer(run.waiting[0], "x!")
+    assert raised.value.problems[0].type == "invalid_answer"
 
 
 def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():

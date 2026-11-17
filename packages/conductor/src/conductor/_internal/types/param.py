@@ -216,7 +216,7 @@ class Param:
         if value_type.optional and None not in enum:
             enum.append(None)
         # kept for __get_pydantic_json_schema__, which pydantic calls with this schema
-        return {**checked, "metadata": {**checked.get("metadata", {}), _ENUM: enum}}  # type: ignore[typeddict-unknown-key]
+        return {**checked, "metadata": {**checked.get("metadata", {}), _SCHEMA_ENUM: enum}}  # type: ignore[typeddict-unknown-key]
 
     def __get_pydantic_json_schema__(
         self, schema: CoreSchema, handler: GetJsonSchemaHandler
@@ -227,7 +227,7 @@ class Param:
         of a record or of a host's own model, and on a table's column, the JSON schema is where they show up.
         """
         written = handler(schema)
-        enum = schema.get("metadata", {}).get(_ENUM)
+        enum = schema.get("metadata", {}).get(_SCHEMA_ENUM)
         if enum is not None:
             written["enum"] = enum
         for key in ("title", "description"):
@@ -237,7 +237,7 @@ class Param:
 
 
 #: The key of a schema's metadata that keeps the ``enum`` its JSON schema is written with.
-_ENUM = "conductor_enum"
+_SCHEMA_ENUM = "conductor_enum"
 
 
 _NO_PARAM = Param()

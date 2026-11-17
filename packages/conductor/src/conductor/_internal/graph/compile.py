@@ -44,6 +44,7 @@ import logging
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from enum import Enum
 from typing import Any, Literal, TypeVar
 
 from pydantic import MISSING, JsonValue
@@ -1137,8 +1138,8 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
     written, expected = str(edge.wired_to), _type_in_message(field.whole, field.whole.id)
     got_one = _type_in_message(edge.type, edge.type.text)
     if got_one == expected:
-        # two types that read alike, such as tables whose columns differ only in their choices, are named in full
-        got_one, expected = edge.type.reads_as, field.whole.reads_as
+        # two types that read alike differ below the top, like tables whose columns differ only in their choices
+        expected = f"{expected} with other choices or limits"
     got = f"Series[{got_one}]" if edge.per_item else got_one
     parts = _taken_apart(edge.type)
     if field.whole.record is not None:
@@ -1172,14 +1173,22 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
 
 
 def _type_in_message(value_type: Type, text: str) -> str:
-    """Names a type in a ``type_mismatch`` message, any variant: by its choices when it has some, else as ``text``.
+    """Names a type in a ``type_mismatch`` message, any variant: by its values when it names them, else as ``text``.
 
-    ``Literal["ida", "bo"]`` is named ``"ida" or "bo"``, where its id, ``str``, would say nothing of which values it
-    takes.
+    A ``Literal``, or a plain class with ``Param(choices=)``, is named by its values: ``Literal["ida", "bo"]`` is
+    ``"ida" or "bo"``, where its id, ``str``, would say nothing of which values it takes. An enum keeps its id, since
+    its class is what an edge must give. Past five values the rest are counted: ``"a", "b", "c", "d", "e" or 295
+    more``.
     """
-    if value_type.choices is None:
+    choices = value_type.choices
+    if choices is None or any(
+        isinstance(option, type) and issubclass(option, Enum) for option in value_type.options
+    ):
         return text
-    *others, last = [canonical_json(choice.id) for choice in value_type.choices]
+    named = [canonical_json(choice.id) for choice in choices]
+    if len(named) > 5:  # a long list is cut short, so the message stays one line
+        return f"{', '.join(named[:5])} or {len(named) - 5} more"
+    *others, last = named
     return f"{', '.join(others)} or {last}" if others else last
 
 

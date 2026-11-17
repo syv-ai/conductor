@@ -1188,12 +1188,13 @@ def test_choices_and_limits_below_the_top_are_checked_on_each_call(source, value
     assert (run.status, run.cause.type) == ("failed", "invalid_edge_value")
 
 
-def test_a_literal_column_that_shares_no_choice_with_its_input_column_is_refused_and_named_in_full():
-    """Two tables whose columns read alike, differing only in their choices, are named by their row classes."""
+def test_a_literal_column_that_shares_no_choice_with_its_input_column_is_refused_without_contradicting_itself():
+    """Two tables whose columns read alike, differing only in their choices, aren't named as one type twice."""
     (problem,) = _wired(Table[_X], [{"who": "x"}], Table[_Chosen]).problems
 
     assert problem.type == "type_mismatch"
-    assert "_X]" in problem.msg and "_Chosen]" in problem.msg
+    assert "with other choices or limits" in problem.msg
+    assert "conductor.Table" not in problem.msg and "__main__" not in problem.msg
 
 
 def test_a_value_an_inputs_check_converts_below_the_top_reaches_the_node_converted():
@@ -1246,6 +1247,40 @@ def test_a_validator_on_a_unions_member_checks_only_that_member():
     graph = _wired(str | None, None, Annotated[str, AfterValidator(str.lower)] | None)
 
     assert graph.run(text="x").outputs == {"result": "None"}
+
+
+@pytest.mark.parametrize(
+    ("source", "value", "target", "named"),
+    [
+        (Literal["red"], "red", "_Tint", "takes tint."),
+        (str, "red", "_Tint", "takes tint."),
+        (Literal["zed"], "zed", Literal[tuple(f"v{n}" for n in range(300))], '"v4" or 295 more.'),
+        (list[Literal["x"]], ["x"], list[Literal["ida", "bo"]], "with other choices or limits"),
+    ],
+)
+def test_a_type_mismatch_names_an_enum_by_its_id_and_a_long_list_of_values_in_short(
+    source, value, target, named
+):
+    """An enum's class is what an edge must give, so it keeps its id; a list of values is cut short after five; and
+    two types that read alike aren't named as one."""
+    (problem,) = _wired(source, value, _Tint if target == "_Tint" else target).problems
+
+    assert problem.type == "type_mismatch"
+    assert named in problem.msg
+    assert (
+        len(problem.msg) < 400 and "builtins" not in problem.msg and "Literal[" not in problem.msg
+    )
+
+
+def _raises_a_bug(value: Any) -> Any:
+    raise KeyError("a lookup the host's check forgot to guard")
+
+
+def test_a_hosts_check_that_raises_on_every_value_of_a_literal_source_is_a_type_mismatch():
+    """Whatever a host's own check raises for a value is a refusal of it, at compile as for ``optional``."""
+    (problem,) = _wired(Literal["x"], "x", Annotated[str, AfterValidator(_raises_a_bug)]).problems
+
+    assert problem.type == "type_mismatch"
 
 
 @host_type("tint", title="Tint")

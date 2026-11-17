@@ -6,10 +6,9 @@ model or dataclass are left to the host's rules.
 
 - A yes or no is not a number. Pydantic takes ``True`` as the number 1, so the schema of ``list[int]`` turns
   ``[1, True]`` into ``[1, 1]``; with the rule it is refused with ``bool_is_not_a_number`` at ``loc`` ``(1,)``.
-- A ``Literal``'s values are plain JSON: text, numbers, yes or no, or ``None``, each with a JSON form of its own.
-  Pydantic reads a ``Literal``'s value back from JSON only when it is plain JSON, so ``Literal[Color.RED]`` or
-  ``Literal[b"a"]`` couldn't be saved, described or asked. The walk refuses such a type, so ``@node`` does
-  (``literal_invalid``).
+- A named value, a ``Literal``'s value or an enum's member, reads back from its own JSON as itself, so a run of it
+  can be saved, described and asked. ``Literal[Color.RED]`` of a plain enum, ``Literal[b"a"]`` and an enum of
+  tuples don't, so the walk refuses them, and ``@node`` does (``named_value_invalid``).
 
 ``Type.argument_validator`` is the type's check with these rules: the one an edge's value, a graph input and a
 constant get, and the one ``Type.takes_value`` asks.
@@ -21,9 +20,10 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any
 
-from pydantic_core import CoreSchema, core_schema
+from pydantic import ValidationError
+from pydantic_core import CoreSchema, PydanticSerializationError, SchemaValidator, core_schema
 
-from conductor._internal.base import canonical_json
+from conductor._internal.base import canonical_json, validate_as_json
 from conductor._internal.problem import NodeDeclarationError, conductor_error, declaration_problems
 
 from .hint import a_number
@@ -55,8 +55,8 @@ def with_rules(schema: CoreSchema) -> CoreSchema:
     caller, and with the same message. ``schema`` itself is left unchanged.
 
     Raises:
-        NodeDeclarationError: ``literal_invalid``, for a ``Literal`` anywhere in ``schema`` whose values aren't plain
-            JSON.
+        NodeDeclarationError: ``named_value_invalid``, for a ``Literal`` or an enum anywhere in ``schema`` whose named
+            values don't read back from their own JSON.
     """
     walked: CoreSchema = _walked(schema, {})
     return walked
@@ -66,7 +66,7 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
     """Returns ``schema``, or a part of one, with every number in it set to refuse a ``bool``.
 
     It walks down through the schema, wraps each number schema it finds with ``_guarded``, and checks each ``literal``
-    schema's values: plain JSON, each written as JSON of its own.
+    and ``enum`` schema's named values (``_check_named_values``).
 
     Args:
         schema: A core schema, or a list, tuple or other value found inside one.
@@ -74,8 +74,7 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
             their ``ref``. The walk looks a reference up here to see what it points to.
 
     Raises:
-        NodeDeclarationError: ``literal_invalid`` for a ``Literal`` value of another class, such as an enum's member;
-            its variant ``alike`` for two values written as the same JSON, like ``inf`` and ``"Infinity"``.
+        NodeDeclarationError: ``named_value_invalid``, from ``_check_named_values``.
     """
     if isinstance(schema, list):
         return [_walked(part, definitions) for part in schema]
@@ -94,6 +93,10 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
             **definitions,
             **{definition["ref"]: definition for definition in schema["definitions"]},
         }
+        for definition in schema[
+            "definitions"
+        ]:  # a declared enum is checked here, since a number isn't walked into
+            _check_named_values(definition)
         return {
             **schema,
             "schema": _walked(schema["schema"], declared),
@@ -105,29 +108,72 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
     if kind == "definition-ref":
         referred = definitions[schema["schema_ref"]]
         return _guarded(schema) if _a_number_schema(referred) else schema
-    if kind == "literal":
-        # a Literal's values are plain JSON, each written as JSON of its own, or it can't be saved, described or asked
-        values = schema["expected"]
-        for value in values:
-            if type(value) not in (str, int, float, bool, type(None)):
-                instead = (
-                    f"Take the enum {type(value).__name__} as the type, with Param(choices=[...]) for some of its"
-                    " members."
-                    if isinstance(value, Enum)
-                    else f"Take {type(value).__name__} as the type, with Param(choices=[...])."
-                )
-                raise NodeDeclarationError(
-                    declaration_problems.literal_invalid(
-                        value=repr(value), cls=type(value).__name__, instead=instead
-                    )
-                )
-        if len({canonical_json(value) for value in values}) != len(values):
-            raise NodeDeclarationError(
-                declaration_problems.literal_invalid_alike(values=list(values))
-            )
+    _check_named_values(schema)
     if _a_number_schema(schema):
         return _guarded(schema)
     return _walked_inside(schema, definitions)
+
+
+def _check_named_values(schema: dict[str, Any]) -> None:
+    """Refuses a ``literal`` or ``enum`` schema whose named values don't each read back from their own JSON.
+
+    Each value is written as JSON and read back by the schema, as a saved run or an answer reads it
+    (``validate_as_json``), and must come back as itself, of the same class. ``Literal["a", 1]``,
+    ``Literal[IntEnum.ONE]`` and an enum of text do. ``Literal[Color.RED]`` of a plain enum, ``Literal[b"a"]``,
+    ``Literal[float("nan")]`` and an enum of tuples don't.
+
+    Raises:
+        NodeDeclarationError: ``named_value_invalid`` for a ``Literal``'s value, its variant ``enum`` for an enum's
+            member, and ``alike`` for two of a ``Literal``'s values written as the same JSON, like ``inf`` and
+            ``"Infinity"``.
+    """
+    kind = schema.get("type")
+    if kind not in ("literal", "enum"):
+        return
+    values = schema["expected"] if kind == "literal" else schema["members"]
+    reader = SchemaValidator(schema)
+    for value in values:
+        try:
+            read = validate_as_json(reader, value)
+        except (
+            ValidationError,
+            PydanticSerializationError,
+        ):  # it has no JSON form, or that form reads as nothing
+            read_back = False
+        else:
+            read_back = type(read) is type(value) and (read is value or read == value)
+        if read_back:
+            continue
+        if kind == "enum":
+            raise NodeDeclarationError(
+                declaration_problems.named_value_invalid_enum(
+                    enum=schema["cls"].__name__, member=repr(value)
+                )
+            )
+        # what to write instead: the enum as the type, when the enum reads its own members back
+        instead = f"Take {type(value).__name__} as the type, with Param(choices=[...]) for some of its values."
+        if isinstance(value, Enum):
+            from .type import Type  # Type is built on these rules, so it is imported here
+
+            try:
+                Type(type(value)).argument_schema  # noqa: B018  fails for an enum whose members don't read back
+            except NodeDeclarationError:
+                instead = (
+                    f"Give the values of the enum {type(value).__name__} as text, numbers or yes or no, and take it"
+                    " as the type."
+                )
+            else:
+                instead = (
+                    f"Take the enum {type(value).__name__} as the type, with Param(choices=[...]) for some of its"
+                    " members."
+                )
+        raise NodeDeclarationError(
+            declaration_problems.named_value_invalid(value=repr(value), instead=instead)
+        )
+    if kind == "literal" and len({canonical_json(value) for value in values}) != len(values):
+        raise NodeDeclarationError(
+            declaration_problems.named_value_invalid_alike(values=list(values))
+        )
 
 
 def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:

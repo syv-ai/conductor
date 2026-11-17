@@ -12,11 +12,10 @@ its own a name. The full rules are in the reference: ``python -m conductor.about
 
 from .choice import Choice, check_one_of, choice_texts, pick_texts, read_choices
 from .fit import fit
-from .hint import a_number, literal_classes, union_members, union_of
+from .hint import a_number, union_members, union_of
 from .host_type import NAMES, host_type
 from .param import Param, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
-from .rules import with_rules
 from .type import Type, TypeRefusal
 
 __all__ = [
@@ -38,5 +37,4 @@ __all__ = [
     "split_hint",
     "union_members",
     "union_of",
-    "with_rules",
 ]
