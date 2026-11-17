@@ -298,7 +298,8 @@ class Worker(Generic[M, X]):
             InvalidCallError: No run has the id (``no_such_run``), or the run refuses an answer; every answer it
                 refuses is listed, and nothing is written. While the run is running, only an answer JSON can't write is refused now
                 (``invalid_answer``), as the run would refuse it; the rest are checked when the run is given them.
-            RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
+            RuntimeError: The run is not running, so the answers would resume it, and the worker has never served. A
+                run that takes a decline queued for it isn't resumed, so that needs no serving worker.
         """
         row = await self._row(run_id, allows)
         if not answers:
@@ -405,7 +406,8 @@ class Worker(Generic[M, X]):
             InvalidCallError: No run has the id (``no_such_run``), the run did not end early
                 (``run_not_resumable``), or the stored run can't be loaded to give it a decline queued for it or,
                 with ``max_items``, to raise its ceiling.
-            RuntimeError: The worker has never served.
+            RuntimeError: The run would be resumed, and the worker has never served. A run that takes a decline
+                queued for it isn't resumed, so that needs no serving worker.
         """
         row = await self._row(run_id, allows)
         while True:

@@ -972,6 +972,29 @@ async def test_a_worker_that_never_served_declines_a_waiting_run() -> None:
     assert (written.status, written.cause.type) == ("failed", "answer_declined")
 
 
+async def test_a_worker_that_never_served_answers_and_resumes_a_stopped_run_whose_queued_decline_ends_it() -> (
+    None
+):
+    """A run that takes a decline queued for it isn't resumed, so the answer and the resume that give it the queue
+    need no worker that hands runs back."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    served = _worker(store, registry)
+    async with served.serving():
+        answered, resumed = [await _started(served, graph, inputs) for _ in range(2)]
+        for run_id in (answered, resumed):
+            await store.ended(run_id)
+            _failed_with_queued(store, run_id, _queued_decline(waiting_id))
+    never_served = _worker(store, registry)
+
+    by_answer = await never_served.answer(answered, {waiting_id: True}, allows=EVERY_RUN)
+    by_resume = await never_served.resume(resumed, allows=EVERY_RUN)
+
+    for written in (by_answer, by_resume):
+        assert (written.status, written.cause.type) == ("failed", "answer_declined")
+
+
 def _failed_with_queued(store: MemoryStore, run_id: str, reply: dict[str, Any]) -> None:
     """Writes the run's row as a resume call that raised leaves it, with ``reply`` queued while it ran."""
     store.rows[run_id] = dataclasses.replace(
