@@ -13,7 +13,7 @@ bookkeeping.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from types import MappingProxyType
 from typing import Any
 
@@ -161,6 +161,24 @@ class RunState(BaseModel):
     def asked_to_stop(self) -> RunState:
         """This state with a cancel asked."""
         return self.model_copy(update={"cancel_asked": True})
+
+    def answered(self, waiting_ids: Collection[str]) -> RunState:
+        """This state once the run took answers to some questions: nothing is refused or queued for them any more.
+
+        Args:
+            waiting_ids: The waiting ids the run took answers to.
+
+        Returns:
+            The state without them in ``refused`` and ``queued``.
+        """
+        queued = [reply for reply in self.queued if reply.waiting_id not in waiting_ids]
+        refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
+        return self.model_copy(update={"queued": queued, "refused": refused})
+
+    @property
+    def holds_a_decline(self) -> bool:
+        """Whether a decline is among the replies queued."""
+        return any(reply.declined for reply in self.queued)
 
     def ended_with(self, run: Run[Any], saved: str, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once the run stops and is given what was queued meanwhile.

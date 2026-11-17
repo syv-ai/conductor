@@ -1001,13 +1001,12 @@ def _event_types(events: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("reply", ["decline", "answer"])
-async def test_a_reply_to_a_stopped_run_whose_queue_answers_its_question_resumes_it_with_the_queued_answer(
-    reply: str,
-) -> None:
-    """A resume call that raised leaves its queue, and the view still shows the question waiting. A reply that comes
-    then is given after the queue, as on a running run: the queued answer is taken, the run is resumed with it, and
-    this reply is in ``refused`` as ``not_waiting``. It answers as a taken answer does, not with a 422."""
+async def test_a_decline_to_a_stopped_run_whose_queue_answers_its_question_resumes_it_with_the_queued_answer() -> (
+    None
+):
+    """A resume call that raised leaves its queue, and the view still shows the question waiting. The decline is
+    given after the queue, so the queued answer is taken first and the decline isn't: the run is resumed, with its
+    queue kept for the end of the resume call, and ends with the queued answer. It isn't a 422."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     store = MemoryStore()
@@ -1021,18 +1020,163 @@ async def test_a_reply_to_a_stopped_run_whose_queue_answers_its_question_resumes
             {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
         )
 
-        written = await (
-            worker.decline(run_id, waiting_id, allows=EVERY_RUN)
-            if reply == "decline"
-            else worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
-        )
+        written = await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
         ended = await store.ended(run_id)
 
     assert written.status == "running"
     assert (ended.status, ended.outputs) == ("complete", {"busy": "x", "after": False})
-    assert {key: [problem.type for problem in value] for key, value in ended.refused.items()} == {
-        waiting_id: ["not_waiting"]
+
+
+async def test_an_answer_to_a_stopped_run_whose_queue_answers_the_same_question_wins_over_it() -> (
+    None
+):
+    """With no decline queued, an answer to a stopped run is given to the run as its row has it, and the queue waits
+    for the end of the resume call. So of two answers to one question, the later is taken, as on the base."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        _failed_with_queued(
+            store,
+            run_id,
+            {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
+        )
+
+        written = await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+        ended = await store.ended(run_id)
+
+    assert written.status == "running"
+    assert (ended.status, ended.outputs, ended.refused) == (
+        "complete",
+        {"busy": "x", "after": True},
+        {},
+    )
+
+
+def _two_questions(
+    busy_fails_once: bool,
+) -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, str]]:
+    """A graph that asks ``a_first`` at once and ``c_second`` only once ``b_busy`` has its result.
+
+    Nodes no edge puts in order are called in the order of their ids. With ``busy_fails_once``, ``b_busy``'s next
+    call fails, so the run as it then stops asks only ``a_first``. Returns the registry, the graph, its inputs, and
+    the waiting id of each question, by node id, as a run asks them once ``b_busy`` has its result.
+    """
+    registry, fails = NodeRegistry(), [False]
+
+    @registry.node("b_busy", title="Busy", description="Fails once when told to.")
+    def busy(text: str) -> str:
+        if fails[0]:
+            fails[0] = False
+            raise NodeError("not yet")
+        return text
+
+    @registry.node("a_first", title="First", description="Asks.", asks=True)
+    def first(question: str) -> bool:
+        raise Ask("first?")
+
+    @registry.node(
+        "c_second", title="Second", description="Asks once busy has its result.", asks=True
+    )
+    def second(text: str) -> bool:
+        raise Ask("second?")
+
+    @registry.node("z_after", title="After", description="Joins the answers.")
+    def after(a: bool, b: bool) -> str:
+        return f"{a}/{b}"
+
+    graph = make_graph(
+        busy,
+        first,
+        second,
+        after,
+        edges=[
+            ("b_busy.result", "c_second.text"),
+            ("a_first.result", "z_after.a"),
+            ("c_second.result", "z_after.b"),
+        ],
+        outputs={"after": "z_after.result"},
+    )
+    inputs = {"text": "x", "question": "y"}
+    ids = {
+        str(waiting.loc[0]): waiting.id
+        for waiting in Graph.compile(graph, registry).run(inputs).waiting
     }
+    fails[0] = busy_fails_once
+    return registry, graph, inputs, ids
+
+
+async def test_a_queued_answer_to_a_question_asked_after_the_checkpoint_is_taken_when_another_is_answered() -> (
+    None
+):
+    """A worker died after its run asked ``second``, and the answer to it was queued. The run's checkpoint asks only
+    ``first``, and the next resume call raised outside a node. Answering ``first`` then resumes the run with the
+    queue kept, so the run asks ``second`` again and takes the queued answer: it ends complete."""
+    registry, graph, inputs, ids = _two_questions(busy_fails_once=True)
+    checkpoint = Graph.compile(graph, registry).run(inputs)
+    assert [waiting.loc[0] for waiting in checkpoint.waiting] == ["a_first"]
+    store, calls = MemoryStore(), []
+
+    def raises_once(metadata: object, stop: ThreadEvent) -> None:
+        calls.append(metadata)
+        if len(calls) == 1:
+            raise ConnectionError("the secrets service is down")
+
+    worker = _worker(store, registry, context=raises_once)
+    await store.create(left_running("left", graph, checkpoint, owner="a-dead-worker"))
+    await worker.answer("left", {ids["c_second"]: True}, allows=EVERY_RUN)
+    async with worker.serving():
+        failed = await store.ended("left")
+        assert (failed.status, len(store.state("left")["queued"])) == ("failed", 1)
+
+        await worker.answer("left", {ids["a_first"]: False}, allows=EVERY_RUN)
+        ended = await store.ended("left")
+
+    assert (ended.status, ended.outputs, ended.refused) == ("complete", {"after": "False/True"}, {})
+
+
+async def test_a_decline_to_a_run_another_decline_failed_keeps_it_failed_with_no_resume_call() -> (
+    None
+):
+    """A run that waits on two questions is declined on one, then on the other. The second decline is taken by the
+    failed run, which is written failed again, not resumed."""
+    registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        await worker.decline(run_id, ids["a_first"], allows=EVERY_RUN)
+
+        written = await worker.decline(run_id, ids["c_second"], reason="No", allows=EVERY_RUN)
+
+    assert (written.status, written.cause.type, written.cause.ctx) == (
+        "failed",
+        "answer_declined",
+        {"reason": "No"},
+    )
+    assert store.rows[run_id].status == "failed" and await _resume_calls(store, run_id) == 1
+
+
+async def test_one_call_that_answers_one_waiting_call_twice_is_refused_on_a_stopped_run() -> None:
+    """``run.answer`` refuses a mapping that answers one call by its id and by its node id, and nothing is answered;
+    the worker gives a stopped run's answers to ``run.answer`` as they came."""
+    registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        before = store.rows[run_id]
+
+        with pytest.raises(InvalidCallError) as refused:
+            await worker.answer(run_id, {ids["a_first"]: True, "a_first": False}, allows=EVERY_RUN)
+
+    assert [problem.type for problem in refused.value.problems] == ["invalid_answer"]
+    assert store.rows[run_id] == before
 
 
 async def test_a_decline_to_a_stopped_run_whose_queue_already_declines_the_question_fails_the_run() -> (

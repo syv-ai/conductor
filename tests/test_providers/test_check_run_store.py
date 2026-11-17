@@ -212,6 +212,35 @@ class _AddsTheEventOfAStaleUpdate(MemoryStore):
         return written
 
 
+class _AddsTheEventAsTheNewOwner(MemoryStore):
+    """Appends an update's event through ``add_event`` with the owner the row has after the write, as a store that
+    reuses its ``add_event`` statement does: a row with no owner matches no owner given."""
+
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        if not await super().update(run_id, rev, changes):
+            return False
+        owner = self.rows[run_id].owner
+        if event is not None and owner is not None:
+            await self.add_event(run_id, owner, event)
+        return True
+
+
+class _AddsTheEventOnlyOverAnOwnedRow(MemoryStore):
+    """Appends an update's event only when the row it writes over had an owner."""
+
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        before = self.rows.get(run_id)
+        if not await super().update(run_id, rev, changes):
+            return False
+        if event is not None and before is not None and before.owner is not None:
+            self.written[run_id].append(event)
+        return True
+
+
 class _AnyoneMayAdd(MemoryStore):
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         self.written[run_id].append(body)
@@ -253,6 +282,14 @@ class _CreateRaises(MemoryStore):
         (
             _AddsTheEventOfAStaleUpdate,
             "update: appended the event of an update that was not written",
+        ),
+        (
+            _AddsTheEventAsTheNewOwner,
+            "update: an update with an event, at the run's rev, did not append the event",
+        ),
+        (
+            _AddsTheEventOnlyOverAnOwnedRow,
+            "update: an update with an event, at the run's rev, did not append the event",
         ),
         (_AnyoneMayAdd, "add_event: added an event for a worker that doesn't hold the run"),
         (_FromAfterOn, "events: events(run_id, 0) gave the events numbered [0, 1, 2]"),

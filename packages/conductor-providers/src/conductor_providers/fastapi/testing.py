@@ -267,18 +267,19 @@ async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> li
 
 async def _an_update_with_an_event_writes_both_or_neither(store: GuardedStore) -> list[str]:
     """An ``update`` with an event appends it, numbered after the run's last, exactly when the row is written: at the
-    run's ``rev``, whoever its owner is. At an older ``rev`` it writes neither."""
-    run = _new_run(owner="worker-a", lease_until=None)
+    run's ``rev``, on a row with no owner, as the worker writes a run's end. At an older ``rev`` it writes neither."""
+    run = _new_run(owner="worker-a", lease_until=time.time() + 60)
     await store.create(run)
     first, ended = '{"type": "run_start"}', '{"type": "run_end", "status": "failed"}'
     if not await store.add_event(run.id, "worker-a", first):
         return []  # the check of add_event reports it
-    if not await store.update(run.id, run.rev, {"lease_until": 5.5}) or await store.update(
-        run.id, run.rev, {"lease_until": 6.5}
+    unheld: RunChanges = {"owner": None, "lease_until": None}
+    if not await store.update(run.id, run.rev, unheld) or await store.update(
+        run.id, run.rev, unheld
     ):
         return []  # the check of update reports it
-    run = dataclasses.replace(run, rev=run.rev + 1)
-    if not await store.update(run.id, run.rev, {"owner": "worker-b", "status": "failed"}, ended):
+    run = dataclasses.replace(run, **unheld, rev=run.rev + 1)
+    if not await store.update(run.id, run.rev, {"status": "failed", **unheld}, ended):
         return [
             "update: gave False for an update with an event at the run's rev; write the changes, append the event "
             "and give True while the run is at the rev given"
@@ -286,7 +287,7 @@ async def _an_update_with_an_event_writes_both_or_neither(store: GuardedStore) -
     if _as_events(await store.events(run.id, -1)) != _as_events([(0, first), (1, ended)]):
         return [
             "update: an update with an event, at the run's rev, did not append the event numbered after the run's "
-            "last; append it in the same statement or transaction as the write"
+            "last; append it in the same statement or transaction as the write, whatever the row's owner"
         ]
     await store.update(run.id, run.rev, {"status": "complete"}, '{"type": "run_end"}')
     if len(await store.events(run.id, -1)) != 2:

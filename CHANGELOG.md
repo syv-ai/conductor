@@ -396,14 +396,21 @@ What changes in how you work, before the name-by-name tables:
   answer is, as one entry of the row's `queued`; the run takes what was queued in order, the first of an answer and a
   decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined` and isn't
   resumed. A run that isn't running is given the decline at once, after any replies still queued, and written
-  `failed` with no lease and no resume call, so any worker takes it, served or not, and the route answers with the
-  run `failed`; its events get one `run_end` that says so. A decline it refuses is a 422 (`not_waiting`,
-  `answer_stale`), and nothing is written, unless the run took a reply still queued from a resume call that
-  raised: then this decline is in its `refused`, and the run is written as that reply left it. A resume of a run whose queue holds a
+  `failed` with no resume call, so a worker that never served takes it, and the route answers with the run
+  `failed`; its events get one `run_end` that says so. A decline it refuses is a 422 (`not_waiting`,
+  `answer_stale`), and nothing is written, unless the run took an answer still queued from a resume call that
+  raised: then the run is resumed with its queue, which needs a serving worker, and this decline is in its
+  `refused`. A resume of a run whose queue holds a
   decline it takes makes no resume call: the run is given the queue and written `failed`, `answer_declined`. An
-  answer to a run that isn't running is given after what is still queued, so the reply that came first is taken,
-  as on a running run, and a later one is in `refused`: a queued decline fails the run, and a queued answer
-  resumes it. The last `run_end` the run's events store says what the row says: a decline sent while the run
+  answer to a run whose queue holds a decline is given after it, so a decline the run takes fails it, written with
+  no resume call, and an answer it then refuses is in `refused`; any other answer to a stopped run goes to
+  `run.answer` as before, with the queue kept for the end of the resume call. Against 2.0's pre-releases, of the
+  stopped-run cases the round-3 review probed: a decline to a stale question while a queued answer is taken
+  resumes the run with `answer_stale` in `refused` (was a 422); a decline needs a serving worker only when it
+  resumes the run (was: always); and a decline sent together with an answer to another question is written at
+  once, so the answer that lands after it resumes the failed run (both used to be queued, and the decline won).
+  A call that answers one question well and another badly, one that answers one call twice, an answer to a
+  stale question, and a queued answer to a question asked after the last checkpoint behave as before. The last `run_end` the run's events store says what the row says: a decline sent while the run
   runs, and taken when the resume call stops, makes that call's `run_end` `failed` with `answer_declined`, though
   its stream ended `waiting`, or `cancelled` with a cancel asked too.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and resumes the run, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`invalid_answer`, and `not_waiting`, also for an answer to a `complete` run). Answers queued while the run is running are given to the run it stopped as, whatever its status; a resume that raised keeps them queued. The code `run_not_waiting` is gone.
