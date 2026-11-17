@@ -667,7 +667,7 @@ repos:
                 - has: { stopBy: end, pattern: int($X) }
                 - has: { stopBy: end, any: [ { pattern: $T.split($$$) }, { pattern: $T.partition($$$) } ] }
               not:
-                has: { stopBy: end, kind: call, has: { field: function, regex: '(^|\.)(write|format)_\w+$' } }
+                has: { stopBy: end, kind: call, has: { field: function, regex: '(^|\.)((write|format)_\w+|\w+_text)$' } }
         message: "{{file}}:{{line}} reads text by hand with int(), which also takes \" 1\", \"01\", \"+1\" and \"1_0\", so one thing gets several spellings. Write what was read back with the function that writes this text, and refuse the text when it differs."
         context:
           - "@conventions/design.md#one-rule-one-place"
@@ -687,6 +687,13 @@ repos:
                     loc = [int(index) for index in place.split("@")[1:]]
                     if write_waiting_id(loc, fingerprint) != waiting_id:
                         raise InvalidCallError([])
+                    return loc
+            - path: packages/conductor/src/conductor/_internal/base/place.py
+              code: |
+                def parse_loc(text):
+                    loc = [int(index) for index in text.split("@")[1:]]
+                    if loc_text(loc) != text:
+                        raise ValueError(text)
                     return loc
 
       # ---------------------------------------------------------------- tests
