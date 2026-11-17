@@ -269,6 +269,43 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
     return f"a choice isn't a value of the field's type: {reason}. Give each choice as a value of that type."
 
 
+@DECLARATION_PROBLEMS.problem("choices_invalid", variant="enum")
+def choices_invalid_enum(*, enum: str, reason: str) -> str:
+    """An enum's members are its choices, and the enum can't read a member back from the JSON it is written as.
+
+    A saved run, a person's answer and a description hold a member as its value's JSON, and the enum reads the
+    member back from it. An enum whose values are tuples or ``bytes`` reads no member from its JSON, so a run of
+    it couldn't be saved, described or asked.
+
+    To fix it, give the enum's members values that are text, numbers or yes or no. Or take ``Literal`` of those
+    values, titled with ``Param(choices=[Choice(value, title), ...])``.
+
+    Args:
+        enum: The enum's name.
+        reason: What the enum refused, without quoting the value.
+
+    Example:
+        import enum
+
+
+        @host_type("span", title="Span")
+        class Span(enum.Enum):
+            LOW = (0, 1)
+
+
+        def pick_span(span: Span) -> str:
+            return str(span)
+
+
+        declaration_refused(lambda: node("pick_span", title="Span", description="Hands back the chosen span.")(pick_span))
+    """
+    return (
+        f"the enum {enum}'s members are its choices, and it can't read a member back from its JSON: {reason}. Give"
+        " its members values that are text, numbers or yes or no, or take a Literal of such values titled with"
+        " Param(choices=[Choice(value, title), ...])."
+    )
+
+
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")
 def choices_invalid_no_json_form() -> str:
     """A ``Param``'s choice can't be written as JSON.

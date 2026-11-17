@@ -28,6 +28,7 @@ from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerati
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
+    PydanticCustomError,
     SchemaError,
     SchemaSerializer,
     SchemaValidator,
@@ -226,19 +227,24 @@ class Type:
         """
         return self.takes_value(None)
 
-    def takes_value(self, value: Any) -> bool:
+    def takes_value(self, value: Any, *, as_it_is: bool = False) -> bool:
         """Says whether the type's argument check (``argument_validator``) takes ``value``, as the run checks it.
 
         This is the very check a value an edge gives gets on its call, laxly, so a question asked at compile of a
         type's values is answered by the run's own rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is
         taken by ``Annotated[float, Param(choices=[1.0])]``, ``None`` by any type that takes ``None`` beside its
         choices, and ``True`` is not taken by ``Literal[1]``.
+
+        Args:
+            value: The value to check.
+            as_it_is: Also ask that the check gives ``value`` back as it is, of the same class, so it needs no
+                converting: ``float`` takes ``1``, but gives back ``1.0``.
         """
         try:
-            self.argument_validator.validate_python(value, strict=False)
+            read = self.argument_validator.validate_python(value, strict=False)
         except Exception:  # noqa: BLE001  # whatever the check raises, it doesn't take the value
             return False
-        return True
+        return not as_it_is or (type(read) is type(value) and read == value)
 
     @functools.cached_property
     def argument_schema(self) -> CoreSchema:
@@ -523,8 +529,8 @@ class Type:
         ``float`` has the id ``1.0``, and the enum ``Color``'s are its values, like ``"red"``.
 
         Raises:
-            NodeDeclarationError: ``choices_invalid``, when they can't be read, like the members of an enum whose
-                values have no JSON form it reads back. ``Field`` reads them, so ``@node`` refuses such a type.
+            NodeDeclarationError: ``choices_invalid`` when they can't be read, with the variant ``enum`` for an enum
+                that can't read a member back from its JSON. ``Field`` reads them, so ``@node`` refuses such a type.
         """
         given = self._parts[1].choices
         if given is None and len(self.options) == 1:
@@ -532,7 +538,14 @@ class Type:
             if get_origin(option) is Literal:
                 given = get_args(option)
             elif isinstance(option, type) and issubclass(option, Enum):
-                given = tuple(option)
+                try:
+                    return read_choices(tuple(option), self.argument_validator, self.to_json)
+                except PydanticCustomError as refused:
+                    raise NodeDeclarationError(
+                        declaration_problems.choices_invalid_enum(
+                            enum=option.__name__, reason=refused.message()
+                        )
+                    ) from None
         if given is None:
             return None
         return declared_choices(tuple(given), self.argument_validator, self.to_json)
@@ -549,7 +562,7 @@ class Type:
             choices: Some of the type's values, each id in its JSON form, as ``read_choices`` gives them.
         """
         bare, param, others = self._parts
-        classes = union_of(literal_classes(option) for option in union_members(bare))
+        classes = literal_classes(bare)
         # each id back as the value the type reads it as, so a float's "Infinity" is inf again
         values = [
             choice.model_copy(

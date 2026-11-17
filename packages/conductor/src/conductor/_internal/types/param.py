@@ -33,7 +33,7 @@ from conductor._internal.base import canonical_json
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
-from .choice import Choice, check_one_of, choice_texts, declared_choices, pick_texts
+from .choice import check_one_of, choice_texts, declared_choices, pick_texts
 from .hint import READ_AS, union_members, union_of
 
 #: The limits ``Param`` takes, named as pydantic's ``Field`` names them.
@@ -205,9 +205,16 @@ class Param:
                 return value
 
             checked = core_schema.no_info_after_validator_function(one_of_the_choices, limited)
-        enum = _enum_of(read, optional=value_type.optional)
-        if enum is None:
+        # The schema's enum is the choices' ids, with None when the type takes it, since None is taken beside
+        # them. A schema may say less than the run checks, but never list a value the run refuses, so a choice
+        # that isn't finite, like inf, leaves no enum: JSON Schema would read its "Infinity" as text.
+        enum = [choice.id for choice in read]
+        try:
+            json.dumps(enum, allow_nan=False)
+        except ValueError:  # a float that is not finite, at any depth
             return checked
+        if value_type.optional and None not in enum:
+            enum.append(None)
         # kept for __get_pydantic_json_schema__, which pydantic calls with this schema
         return {**checked, "metadata": {**checked.get("metadata", {}), _ENUM: enum}}  # type: ignore[typeddict-unknown-key]
 
@@ -216,7 +223,7 @@ class Param:
     ) -> JsonSchemaValue:
         """Returns the JSON schema of the limited type, with this ``title``, ``description`` and choices added.
 
-        The choices are the schema's ``enum`` (``_enum_of``). This matters at any depth: on a list's item, on a field
+        The choices are the schema's ``enum``: their ids, with ``None`` when the type takes it. This matters at any depth: on a list's item, on a field
         of a record or of a host's own model, and on a table's column, the JSON schema is where they show up.
         """
         written = handler(schema)
@@ -231,27 +238,6 @@ class Param:
 
 #: The key of a schema's metadata that keeps the ``enum`` its JSON schema is written with.
 _ENUM = "conductor_enum"
-
-
-def _enum_of(choices: tuple[Choice, ...], *, optional: bool) -> list[JsonValue] | None:
-    """Returns the ``enum`` of a JSON schema whose values are ``choices``: their ids, as JSON.
-
-    ``None`` is added when the type takes it (``optional``, the type's ``Type.optional``), since ``None`` is taken
-    beside the choices. A schema may say less than the run checks, but never list a value the run
-    refuses. So when a choice is not finite, like ``inf``, there is no ``enum``: JSON Schema would read ``"Infinity"``
-    as text, which a number refuses.
-
-    Returns:
-        The ids, with ``None`` when the type takes it, or ``None`` for no ``enum``.
-    """
-    ids = [choice.id for choice in choices]
-    try:
-        json.dumps(ids, allow_nan=False)
-    except ValueError:  # a float that is not finite, at any depth
-        return None
-    if not optional:
-        return ids
-    return ids if None in ids else [*ids, None]
 
 
 _NO_PARAM = Param()

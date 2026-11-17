@@ -1986,6 +1986,26 @@ def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
     assert (problem.type, problem.ctx.get("variant")) == ("literal_invalid", variant)
 
 
+@host_type("pair", title="Pair")
+class _Pair(Enum):
+    LOW = (0, 1)
+
+
+def test_an_enum_that_cant_read_its_members_back_is_refused_naming_the_enum() -> None:
+    """An enum's members are its choices, so an enum that reads none back from its JSON, like one of tuples, is
+    refused at ``@node`` with a message about the enum and what to write instead."""
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("give", title="Give", description="For a test.")
+        def give() -> _Pair:
+            return _Pair.LOW
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx.get("variant")) == ("choices_invalid", "enum")
+    assert "the enum _Pair's members are its choices" in problem.msg
+    assert "take a Literal of such values" in problem.msg
+
+
 def test_a_literal_of_an_enums_member_is_told_to_take_the_enum() -> None:
     with pytest.raises(NodeDeclarationError) as raised:
 

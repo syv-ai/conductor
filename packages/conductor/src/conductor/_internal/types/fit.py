@@ -16,7 +16,7 @@ from __future__ import annotations
 import typing
 from typing import Any, Literal, TypeVar, get_args, get_origin
 
-from .hint import a_number, aliased, is_alias, literal_classes, union_members, union_of
+from .hint import a_number, aliased, is_alias, literal_classes, union_members
 from .host_type import accepted_classes
 from .param import split_hint
 
@@ -37,19 +37,28 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     """
     if target == source:
         return True
-    (bare, param, others), source = split_hint(target), _as_one_literal(split_hint(source)[0])
+    (bare, param, others), source = split_hint(target), split_hint(source)[0]
     checked = bool(param.limits or param.choices is not None or others)
-    if _names_its_values(source) and not isinstance(bare, TypeVar) and (bare is not Any or checked):
-        # a source that names its values lands when the target's own check takes one of them, and their classes
-        # fit the target: Literal[1] lands on float, but not on Literal[True], which pydantic would take as equal
-        return (
-            _may_be_taken(target, source)
-            and fit(target, literal_classes(source), bound, False)
-            and (
-                not exact
-                or fit(target, literal_classes(source), bound, True)
-                or _among(target, source)
-            )
+    # the values a Literal source names, or a union of them, maybe with None; a str beside them may be any text
+    members = union_members(source)
+    names_its_values = any(get_origin(member) is Literal for member in members) and all(
+        member is type(None) or get_origin(member) is Literal for member in members
+    )
+    if names_its_values and not isinstance(bare, TypeVar) and (bare is not Any or checked):
+        # A source that names its values lands when the target's own check, the one the run gives each value
+        # (Type.takes_value), takes one of them, and their classes fit the target: Literal[1] lands on float, but
+        # not on Literal[True], which pydantic takes as equal. It needs no check on its call when the target's check
+        # takes each value as it is, of the same class, since no other value can come.
+        from .type import Type  # Type is built on fit, so it is imported here
+
+        values = [value for member in members for value in (get_args(member) or (None,))]
+        checks, classes = Type(target), literal_classes(source)
+        if not any(checks.takes_value(value) for value in values):
+            return False
+        if not fit(target, classes, bound, False):
+            return False
+        return not exact or all(
+            checks.takes_value(value, as_it_is=True) for value in values if value is not None
         )
     if checked:
         # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call
@@ -129,72 +138,3 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     return len(expected_args) != len(given_args) or all(
         fit(a, b, bound, exact) for a, b in zip(expected_args, given_args, strict=True)
     )
-
-
-def _as_one_literal(source: Any) -> Any:
-    """Returns ``source`` with its ``Literal``s joined into one, and a ``None`` among their values as ``| None``.
-
-    ``Literal["x"] | Literal["ida"]`` gives ``Literal["x", "ida"]``, and ``Literal["x", None]`` gives
-    ``Literal["x"] | None``. Then a source that names its values is one ``Literal`` wherever ``fit`` looks.
-    """
-    members = union_members(source)
-    values = [
-        value for member in members if get_origin(member) is Literal for value in get_args(member)
-    ]
-    if not values:
-        return source
-    others = [member for member in members if get_origin(member) is not Literal]
-    if None in values:
-        others = [*dict.fromkeys([*others, type(None)])]
-    kept = tuple(value for value in values if value is not None)
-    return union_of([*([Literal[kept]] if kept else []), *others])
-
-
-def _names_its_values(source: Any) -> bool:
-    """Whether ``source`` is a ``Literal``, maybe with ``None``, so its values are known."""
-    members = union_members(source)
-    return any(get_origin(member) is Literal for member in members) and all(
-        member is type(None) or get_origin(member) is Literal for member in members
-    )
-
-
-def _among(target: Any, source: Any) -> bool:
-    """Whether every value ``source`` names is one of a plain ``Literal`` target's values as it is, of the same class,
-    so it needs no check: ``Literal["a"]`` into ``Literal["a", "b"]``. ``True`` is not ``1``."""
-    bare, param, others = split_hint(target)
-    if param.limits or others:
-        return False
-    if is_alias(bare):
-        return _among(aliased(bare), source)
-    given = {
-        (type(value), value)
-        for member in union_members(source)
-        for value in get_args(member) or (None,)
-    }
-    taken = {
-        (type(value), value)
-        for member in union_members(bare)
-        for value in get_args(member) or (None,)
-        if get_origin(member) is Literal or member is type(None)
-    }
-    return given <= taken
-
-
-def _may_be_taken(target: Any, source: Any) -> bool:
-    """Says whether a value of ``source`` may be taken by ``target``'s own check.
-
-    Only a source of ``Literal`` values, with ``None`` maybe, names its values, so only it can be refused here: when
-    the target takes none of them, no call could ever get a value. Each value is checked as the run checks the
-    value an edge gives (``Type.takes_value``), so the edge and the run follow one rule. ``Literal["x"]`` into
-    ``Literal["ida", "bo"]`` is refused, while ``str``, ``Literal["ida", "x"]``, and ``Literal[1]`` into
-    ``Annotated[float, Param(choices=[1.0])]`` may be taken.
-    """
-    # Type is built on fit, so it is imported here
-    from .type import Type
-
-    members = union_members(source)
-    if any(member is not type(None) and get_origin(member) is not Literal for member in members):
-        return True
-    values = [value for member in members for value in (get_args(member) or (None,))]
-    checked = Type(target)
-    return any(checked.takes_value(value) for value in values)

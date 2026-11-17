@@ -66,12 +66,16 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
     """Returns ``schema``, or a part of one, with every number in it set to refuse a ``bool``.
 
     It walks down through the schema, wraps each number schema it finds with ``_guarded``, and checks each ``literal``
-    schema's values (``_check_literal``).
+    schema's values: plain JSON, each written as JSON of its own.
 
     Args:
         schema: A core schema, or a list, tuple or other value found inside one.
         definitions: The schemas pydantic declared beside the schema, such as a ``TypedDict``'s or an enum's, by
             their ``ref``. The walk looks a reference up here to see what it points to.
+
+    Raises:
+        NodeDeclarationError: ``literal_invalid`` for a ``Literal`` value of another class, such as an enum's member;
+            its variant ``alike`` for two values written as the same JSON, like ``inf`` and ``"Infinity"``.
     """
     if isinstance(schema, list):
         return [_walked(part, definitions) for part in schema]
@@ -102,7 +106,25 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
         referred = definitions[schema["schema_ref"]]
         return _guarded(schema) if _a_number_schema(referred) else schema
     if kind == "literal":
-        _check_literal(schema["expected"])
+        # a Literal's values are plain JSON, each written as JSON of its own, or it can't be saved, described or asked
+        values = schema["expected"]
+        for value in values:
+            if type(value) not in (str, int, float, bool, type(None)):
+                instead = (
+                    f"Take the enum {type(value).__name__} as the type, with Param(choices=[...]) for some of its"
+                    " members."
+                    if isinstance(value, Enum)
+                    else f"Take {type(value).__name__} as the type, with Param(choices=[...])."
+                )
+                raise NodeDeclarationError(
+                    declaration_problems.literal_invalid(
+                        value=repr(value), cls=type(value).__name__, instead=instead
+                    )
+                )
+        if len({canonical_json(value) for value in values}) != len(values):
+            raise NodeDeclarationError(
+                declaration_problems.literal_invalid_alike(values=list(values))
+            )
     if _a_number_schema(schema):
         return _guarded(schema)
     return _walked_inside(schema, definitions)
@@ -119,29 +141,6 @@ def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> di
 def _walked_already(schema: dict[str, Any]) -> bool:
     """Whether ``_guarded`` already made ``schema``, so that a schema walked twice is only wrapped once."""
     return schema["type"] == "function-before" and schema["function"]["function"] is _not_a_bool
-
-
-def _check_literal(values: list[Any]) -> None:
-    """Refuses a ``Literal`` whose values aren't plain JSON, each with a JSON form of its own.
-
-    Raises:
-        NodeDeclarationError: ``literal_invalid`` for a value of another class, such as an enum's member; its variant
-            ``alike`` for two values written as the same JSON, like ``inf`` and ``"Infinity"``.
-    """
-    for value in values:
-        if type(value) not in (str, int, float, bool, type(None)):  # plain JSON
-            instead = (
-                f"Take the enum {type(value).__name__} as the type, with Param(choices=[...]) for some of its members."
-                if isinstance(value, Enum)
-                else f"Take {type(value).__name__} as the type, with Param(choices=[...])."
-            )
-            raise NodeDeclarationError(
-                declaration_problems.literal_invalid(
-                    value=repr(value), cls=type(value).__name__, instead=instead
-                )
-            )
-    if len({canonical_json(value) for value in values}) != len(values):
-        raise NodeDeclarationError(declaration_problems.literal_invalid_alike(values=list(values)))
 
 
 def _a_number_schema(schema: Any) -> bool:
