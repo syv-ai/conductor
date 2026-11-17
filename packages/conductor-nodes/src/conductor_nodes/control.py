@@ -38,8 +38,12 @@ class Decided[T]:
     description="Sends the value one way when the switch is on and the other way when it is off.",
     policy=Policy(costs_nothing=True),
 )
-def decision[T](value: T, when: bool = True) -> Decided[T]:
-    """Sends ``value`` to ``if_true`` when ``when`` is true, and to ``if_false`` when it is false."""
+def decision[T](value: T, when: bool) -> Decided[T]:
+    """Sends ``value`` to ``if_true`` when ``when`` is true, and to ``if_false`` when it is false.
+
+    ``when`` has no default, so a graph must wire it or give it a value. One that doesn't is ``input_has_no_value``
+    when it is compiled, rather than a decision that always goes to ``if_true``.
+    """
     return Decided(if_true=value) if when else Decided(if_false=value)
 
 

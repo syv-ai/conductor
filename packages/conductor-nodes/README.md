@@ -106,7 +106,7 @@ How loops work in full: `python -m conductor.about one-or-many`.
 
 ## Branches
 
-`control-decide` sends its `value` to `if_true` or `if_false`, by `when`. Each is a branch: an output whose default is `SKIPPED`. The nodes after the other output are skipped. `when` comes from a node that answers yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`.
+`control-decide` sends its `value` to `if_true` or `if_false`, by `when`. Each is a branch: an output whose default is `SKIPPED`. The nodes after the other output are skipped. `when` comes from a node that answers yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`. `when` has no default, so a graph that wires nothing to it and gives it no value is `input_has_no_value` when it is compiled.
 
 `control-switch` has one output per name in its `cases`, and one more called `other`. You can wire several branches into one input, and that node takes whichever one has the value.
 
