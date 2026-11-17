@@ -277,6 +277,12 @@ def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:
         ("math-max", {"values": []}, "no_numbers"),
         ("json-parse", {"text": "{not json"}, "not_json"),
         ("json-parse", {"text": "1" * 5_000}, "not_json"),
+        ("json-parse", {"text": "[NaN, 1]"}, "not_json"),
+        ("json-parse", {"text": '{"a": Infinity}'}, "not_json"),
+        ("json-parse", {"text": "-Infinity"}, "not_json"),
+        ("json-parse", {"text": "1e999"}, "not_json"),
+        ("json-parse", {"text": "-1e999"}, "not_json"),
+        ("json-parse", {"text": "[1e400]"}, "not_json"),
         ("regex-match", {"text": "a", "pattern": "("}, "invalid_pattern"),
     ],
 )
@@ -350,3 +356,20 @@ def test_text_or_parsed_json_can_be_wired_into_a_json_value_and_a_json_null_is_w
         )
         assert graph.problems == []
         assert graph.run(text=value).outputs == {"result": '"X"' if value == "x" else "null"}
+
+
+def test_a_number_that_isnt_finite_is_refused_by_write_json_since_json_has_no_way_to_write_it() -> (
+    None
+):
+    graph = Graph.compile(
+        make_graph(
+            conductor_nodes.math.multiply,
+            json_ops.stringify,
+            edges=[("math-multiply.result", "json-stringify.value")],
+        ),
+        conductor_nodes.registry,
+    )
+
+    assert graph.run(a=2, b=3).outputs == {"result": "6.0"}
+    cause = graph.run(a=1e308, b=10).cause
+    assert cause is not None and (cause.type, cause.loc) == ("not_json", ("json-stringify",))

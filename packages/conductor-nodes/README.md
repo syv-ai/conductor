@@ -126,6 +126,7 @@ print([field.type for field in graph.describe().nodes["control-decide"].outputs]
 - The regular-expression nodes use the `regex` package, and every search has a timeout. The `regex` package finishes many patterns that would make Python's `re` hang, and one that still runs too long fails the node with `pattern_timeout`.
 - `math-round` rounds a half away from zero, the way people do: 2.5 becomes 3, and 0.125 becomes 0.13 at two decimals.
 - Every node is marked `Policy(costs_nothing=True)`. So `run.resume(only_costs_nothing=True)` calls them, and a host can count the calls after a `series-split` before it calls anything that costs.
+- `json-parse` and `json-stringify` refuse a number that isn't finite, with `not_json`. `json-parse` refuses `NaN`, `Infinity` and `-Infinity`, which aren't JSON, and a number too large for a float, such as `1e999`. `json-stringify` refuses a value holding `inf` or `nan`, such as a `math-multiply` result too large for a float.
 - When a node can't do its job, it fails with a code you can act on, such as `division_by_zero`, `not_json` or `invalid_pattern`.
 
 The documentation, the examples and the changelog are in the repository: https://github.com/syv-ai/conductor

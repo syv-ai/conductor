@@ -1,12 +1,17 @@
 """Nodes for JSON: ``json-parse``, ``json-stringify`` and ``json-get``.
 
 A JSON value here is pydantic's ``JsonValue``: a text, number, yes or no, ``None``, or a list or dict of those.
+
+A float that isn't finite has no JSON form. Python's ``json`` reads ``NaN``, ``Infinity`` and ``-Infinity``, reads
+a number too large for a float, such as ``1e999``, as ``inf``, and writes ``inf`` and ``nan`` back. These nodes
+refuse all of them with ``not_json``.
 """
 
 import json
+import math
 import re
 from json import JSONDecodeError
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from conductor import NodeError, NodeRegistry, Param, Policy
 from conductor.widgets import Textarea
@@ -27,10 +32,11 @@ def parse(
     """Turns JSON text into a value.
 
     Raises:
-        NodeError: ``not_json`` if the text isn't JSON.
+        NodeError: ``not_json`` if the text isn't JSON, which ``NaN``, ``Infinity`` and ``-Infinity`` aren't, or
+            if it has a number too large for a float, such as ``1e999``.
     """
     try:
-        parsed: JsonValue = json.loads(text)
+        parsed: JsonValue = json.loads(text, parse_constant=_refuse_constant, parse_float=_finite)
     except JSONDecodeError as error:
         raise NodeError(
             f"The text is not JSON: {error.msg}, at character {error.pos}.", code="not_json"
@@ -39,6 +45,33 @@ def parse(
     except ValueError as error:
         raise NodeError(f"The text is not JSON: {error}.", code="not_json") from None
     return parsed
+
+
+def _refuse_constant(constant: str) -> NoReturn:
+    """Refuses ``NaN``, ``Infinity`` or ``-Infinity``, which ``json.loads`` calls this with.
+
+    Raises:
+        NodeError: ``not_json``, always.
+    """
+    raise NodeError(
+        f'The text is not JSON: {constant} is not a number JSON has. Write it as a text instead: "{constant}".',
+        code="not_json",
+    )
+
+
+def _finite(number: str) -> float:
+    """Reads a number with a fraction or an exponent, which ``json.loads`` calls this with, as a float.
+
+    Raises:
+        NodeError: ``not_json`` if the number is too large for a float, such as ``1e999``.
+    """
+    read = float(number)
+    if not math.isfinite(read):
+        raise NodeError(
+            f'The text has the number {number}, which is too large for a float. Write it as a text instead: "{number}".',
+            code="not_json",
+        )
+    return read
 
 
 @registry.node(
@@ -50,8 +83,19 @@ def parse(
 def stringify(
     value: JsonValue, indent: Annotated[int, Param(ge=0, le=8)] = 0, sort_keys: bool = False
 ) -> Annotated[str, Param(title="JSON")]:
-    """Writes a value out as JSON text, all on one line unless ``indent`` is set."""
-    return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
+    """Writes a value out as JSON text, all on one line unless ``indent`` is set.
+
+    Raises:
+        NodeError: ``not_json`` if the value holds a number that isn't finite, such as a ``math-multiply`` result
+            too large for a float.
+    """
+    try:
+        return json.dumps(value, indent=indent or None, sort_keys=sort_keys, allow_nan=False)
+    except ValueError:
+        raise NodeError(
+            "The value is not JSON: it holds NaN or Infinity, a number JSON can't write. Change the node that made it.",
+            code="not_json",
+        ) from None
 
 
 @registry.node(
