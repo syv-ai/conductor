@@ -18,7 +18,7 @@ from pydantic_core import CoreSchema
 
 from conductor._internal.types import Type
 
-from .read import as_saved, table_schema
+from .read import as_saved, column_missing, table_schema
 from .write import (
     table_digest,
     written_table,
@@ -109,17 +109,17 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
             return self, True, None
         return (Type(self.fields[step]), True, step) if step in self.fields else None
 
-    def _fault_in(self, part: str, kind: str, msg: str, ends_at_column: bool) -> str:
-        """Returns the error message ``msg`` with the column ``part`` named in it.
+    def _fault_in(self, part: str, kind: str, msg: str, ends_at_column: bool) -> tuple[str, str]:
+        """Returns the error's type and message with the column ``part`` named in it.
 
-        A missing column gets a message of its own, since pydantic's "Field required" doesn't say it is a column.
-        A field missing inside a cell, such as a record's, keeps pydantic's message after the column's name.
+        Records that lack a column get pydantic's ``missing``, whose "Field required" doesn't say it is a column. It
+        becomes ``column_missing``, the error a frame without the column gets. A field missing inside a cell, such
+        as a record's, keeps pydantic's error after the column's name.
         """
-        return (
-            f"the column '{part}' is missing, and the row type needs it"
-            if kind == "missing" and ends_at_column
-            else f"column '{part}': {msg}"
-        )
+        if kind == "missing" and ends_at_column:
+            missing = column_missing(part)
+            return missing.type, missing.message()
+        return kind, f"column '{part}': {msg}"
 
 
 def frame_as_json(value: Any) -> Any:

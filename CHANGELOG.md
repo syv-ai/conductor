@@ -477,6 +477,12 @@ What changes in how you work, before the name-by-name tables:
 - **A field missing inside a table's cell is not a missing column.** A `Table` whose column is a record, given a
   row whose cell lacks one of that record's fields, was refused with "the column 'price' is missing, and the row
   type needs it". It now reads "column 'price': Field required", as any other fault inside a cell does.
+- **A missing column is `column_missing` in every form of a table (provisional).** Records that lack a column of a
+  `Table`'s row type gave the error type `missing` in a problem's `ctx.errors`, while a frame without the column
+  gave `column_missing`. Both now give `column_missing`, with the same message. That changes the `ctx.errors` of a
+  node's return given as records (`invalid_output`), a graph input (`invalid_input`), a constant (`invalid_value`)
+  and gathered rows collected into a `Table` input (`invalid_edge_value`). An answer's refusal has no `ctx.errors`,
+  so it doesn't change.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

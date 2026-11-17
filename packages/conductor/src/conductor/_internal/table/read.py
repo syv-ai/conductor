@@ -23,7 +23,7 @@ import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema, core_schema
+from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 from conductor._internal.problem import (
     OWN_MESSAGE,
@@ -34,6 +34,19 @@ from conductor._internal.problem import (
 from conductor._internal.types import Type
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
+
+
+def column_missing(column: str) -> PydanticCustomError:
+    """The error for a table that lacks a column its row type declares.
+
+    A frame without the column raises it here. Records without the field get pydantic's ``missing`` error, and
+    ``TableType`` turns that into this one, so a host sees one code for both.
+    """
+    return conductor_error(
+        "column_missing",
+        "the column '{column}' is missing, and the row type needs it",
+        {"column": column},
+    )
 
 
 def _frame_of(columns: Iterable[tuple[str, list[Any], Any]], *, strict: bool) -> pl.DataFrame:
@@ -407,11 +420,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             )
         for name, column in columns.items():
             if name not in frame.columns:
-                raise conductor_error(
-                    "column_missing",
-                    "the column '{column}' is missing, and the row type needs it",
-                    {"column": name},
-                )
+                raise column_missing(name)
             if not column.optional and frame[name].null_count():
                 raise conductor_error(
                     "column_blank",

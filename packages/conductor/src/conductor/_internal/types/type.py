@@ -551,7 +551,7 @@ class Type:
             error_record["loc"] = kept
             if column is not None:
                 columns.append(column)
-                error_record["msg"] = owner._fault_in(
+                error_record["type"], error_record["msg"] = owner._fault_in(
                     column, raw["type"], error_record["msg"], ends_at_column
                 )
             # an error conductor raised about a whole column of a frame; a host's error may put anything in its ctx
@@ -584,14 +584,14 @@ class Type:
             return Type(self.fields[step]), True, None
         return None
 
-    def _fault_in(self, part: str, kind: str, msg: str, ends_at_column: bool) -> str:
-        """Returns the error message ``msg`` reworded to name the column ``part`` that ``_walked`` returned.
+    def _fault_in(self, part: str, kind: str, msg: str, ends_at_column: bool) -> tuple[str, str]:
+        """Returns the error's type and message, reworded to name the column ``part`` that ``_walked`` returned.
 
-        ``kind`` is pydantic's error type. ``ends_at_column`` says the error's ``loc`` ends at the column, so the
-        error is about the column itself and not about something inside one of its cells. Only a table rewords the
-        message. Any other type returns ``msg`` as it is.
+        ``kind`` is pydantic's error type and ``msg`` its message. ``ends_at_column`` says the error's ``loc`` ends
+        at the column, so the error is about the column itself and not about something inside one of its cells.
+        Only a table rewords the error. Any other type returns ``kind`` and ``msg`` as they are.
         """
-        return msg
+        return kind, msg
 
 
 def _check_is_type(hint: Any) -> None:

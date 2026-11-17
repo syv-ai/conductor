@@ -186,6 +186,26 @@ def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_an
     )
 
 
+@pytest.mark.parametrize(
+    "returned", [pl.DataFrame({"email": ["a"]}), [{"email": "a"}]], ids=["frame", "records"]
+)
+def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_records(
+    returned: Any,
+) -> None:
+    """A table that lacks a column fails the same way in both forms, so a host checks one code."""
+
+    @node("wrong", title="Wrong", description="For a test.")
+    def wrong(text: str) -> Table[Contact]:
+        return returned  # type: ignore[no-any-return]
+
+    cause = Graph.compile(make_graph(wrong), registry_of(wrong)).run(text="x").cause
+
+    assert (cause.ctx["reason"], [error["type"] for error in cause.ctx["errors"]]) == (
+        "the column 'name' is missing, and the row type needs it",
+        ["column_missing"],
+    )
+
+
 def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
     """A record in a cell that lacks a field names the column, and doesn't say the column is missing."""
 
