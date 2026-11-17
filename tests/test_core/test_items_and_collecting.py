@@ -1179,7 +1179,7 @@ def test_one_value_per_word_into_a_series_input_is_a_type_mismatch_and_collectin
     )
     assert _one_value_problems(Graph.compile(ranked, registry)) == [
         (
-            "type_mismatch_one_value",
+            "type_mismatch_series_given_one_value",
             ("rank", "everyone"),
             "'upper.result' gives each call of 'rank' one str, but 'rank.everyone' takes a Series of str. "
             "To give it every item of a loop, collect them first in a node outside the loop that takes a "
@@ -1239,7 +1239,9 @@ def test_a_series_input_given_one_value_per_word_by_another_input_is_refused_fla
 
     registry, (flat, in_subgraph) = drawn(both)
     refused = _one_value_problems(Graph.compile(flat, registry))
-    assert [problem[:2] for problem in refused] == [("type_mismatch_one_value", ("both", "a"))]
+    assert [problem[:2] for problem in refused] == [
+        ("type_mismatch_series_given_one_value", ("both", "a"))
+    ]
     assert _one_value_problems(Graph.compile(in_subgraph, registry)) == refused
     registry, (flat, in_subgraph) = drawn(both_declared_one)
     for record in (flat, in_subgraph):
@@ -1264,7 +1266,7 @@ def test_a_subgraph_called_per_word_that_collects_a_value_it_makes_once_is_refus
     per_word = make_graph(_words, rank_one, edges=[("words.result", "rank-one.word")])
     refused = Graph.compile(per_word, registry).problems
     assert [(p.type, p.loc) for p in refused] == [
-        ("type_mismatch_one_value", ("rank-one", "rank", "everyone"))
+        ("type_mismatch_series_given_one_value", ("rank-one", "rank", "everyone"))
     ]
     takes_the_series = make_graph(
         _words,
@@ -1304,7 +1306,7 @@ def test_every_edge_that_gives_a_series_input_one_value_is_a_problem_a_script_ca
     one_value = sorted(
         (problem.ctx["source"], problem.loc)
         for problem in graph.problems
-        if problem.type == "type_mismatch_one_value"
+        if problem.type == "type_mismatch_series_given_one_value"
     )
     assert one_value == [
         ("title.result", ("join-title", "texts")),
@@ -1325,7 +1327,7 @@ def test_a_series_input_downstream_of_an_input_not_wired_yet_gets_the_problem_it
     problems = Graph.compile(half_drawn, registry_of(upper, join)).problems
     assert sorted((p.type, p.loc) for p in problems) == [
         ("input_has_no_value", ("upper", "text")),
-        ("type_mismatch_one_value", ("join", "texts")),
+        ("type_mismatch_series_given_one_value", ("join", "texts")),
     ]
 
 
@@ -1343,7 +1345,7 @@ def test_an_invalid_constant_upstream_does_not_hide_a_one_value_downstream():
     problems = Graph.compile(record, registry_of(repeat, join)).problems
     assert sorted((p.type, p.loc) for p in problems) == [
         ("invalid_value", ("repeat", "times")),
-        ("type_mismatch_one_value", ("join", "texts")),
+        ("type_mismatch_series_given_one_value", ("join", "texts")),
     ]
 
 
@@ -1366,7 +1368,9 @@ def test_a_subgraph_collecting_a_node_it_calls_once_is_refused_on_its_own_and_pe
         return [(p.type, p.loc[-2:]) for p in Graph.compile(record, registry).problems]
 
     assert (
-        refused(own_record) == refused(per_word) == [("type_mismatch_one_value", ("join", "texts"))]
+        refused(own_record)
+        == refused(per_word)
+        == [("type_mismatch_series_given_one_value", ("join", "texts"))]
     )
     assert Graph.compile(flat, registry).run({"text": "a b"}).outputs == {"result": "A+B"}
 
@@ -2013,7 +2017,7 @@ def test_a_column_of_a_table_is_no_source_until_the_table_is_split():
         edges=(("c.result.email", "u.text"),),
     )
     assert [(p.type, p.loc) for p in compiled.problems] == [
-        ("unknown_output_make_a_series", ("u", "text"))
+        ("unknown_output_field_of_whole_table_or_list", ("u", "text"))
     ]
     assert (
         problems(

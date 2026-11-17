@@ -89,7 +89,7 @@ def async_run() -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
+def param_limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
     """A ``Param`` sets a limit that pydantic has no rule for on the input's type.
 
     pydantic knows these limits:
@@ -117,7 +117,7 @@ def limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def limit_value_invalid(*, limits: str, type: str, error: str) -> str:
+def param_limit_value_invalid(*, limits: str, type: str, error: str) -> str:
     """A ``Param`` sets a limit to the wrong kind of value for the type, such as ``ge="a"`` on an ``int``.
 
     To fix it, give each limit a value of the input's type, such as a number for ``ge`` on an ``int``.

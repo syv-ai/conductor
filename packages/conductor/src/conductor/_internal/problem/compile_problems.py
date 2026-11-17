@@ -159,7 +159,7 @@ def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context
 
 
 @COMPILE_PROBLEMS.problem
-def context_does_not_fit_lacks(
+def context_does_not_fit_missing_member(
     node_id: str, parameter: str, /, *, needs: str, context_type: str, lacks: list[str]
 ) -> str:
     """A node takes the run's context as a ``Protocol``, and the registry's ``context_type`` lacks some of its members.
@@ -339,20 +339,20 @@ def invalid_value(
 
 @COMPILE_PROBLEMS.problem
 def invalid_value_bound_default(
-    node_id: str, field: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]
+    node_id: str, input: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]
 ) -> str:
-    """A default the node declares doesn't fit the type its edges give a type variable.
+    """A default an input declares doesn't fit the type its edges give a type variable.
 
     Take ``first(one: T, other: T = 0)``. Wired from a ``str`` output, ``T`` becomes ``str``, and ``0`` isn't a ``str``.
     This only matters for an input that uses its default. An input that gets a value from an edge never uses its
-    default, so its default isn't checked.
+    default, so its default isn't checked. An output's default is ``output_default_bound_invalid``.
 
     To fix it, give the input a default that fits every type its edges may give ``T``. Or give it a constant or an edge
     in the graph, or declare it with no default.
 
     Args:
         node_id: The node.
-        field: The input or output.
+        input: The input.
         type: The type its edges give the type variable.
         reason: Why that type refuses the default, without quoting it.
         errors: pydantic's list of what it refused, without the value.
@@ -368,7 +368,46 @@ def invalid_value_bound_default(
             "f": {"node": "first", "inputs": {"one": {"sources": [{"node": "u", "output": "result"}]}}}
         }})
     """
-    return f"The edges into '{node_id}' make '{field}' of type {type}, and its default doesn't fit: {reason.rstrip('.')}. Give it a constant or an edge, or change its default."
+    return f"The edges into '{node_id}' make '{input}' of type {type}, and its default doesn't fit: {reason.rstrip('.')}. Give it a constant or an edge, or change its default."
+
+
+@COMPILE_PROBLEMS.problem
+def output_default_bound_invalid(
+    node_id: str, output: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]
+) -> str:
+    """A default an output declares doesn't fit the type its node's edges give a type variable.
+
+    Take a generic dataclass of outputs, ``Halves[T]``, whose field ``second: T = 0`` has a default. Wired from a
+    ``str`` output, ``T`` becomes ``str``, and ``0`` isn't a ``str``, so a call that leaves the field out would
+    return a value its type refuses. An output gets no constant or edge, so its default is the only place to fix.
+
+    To fix it, give the output a default that fits every type the edges may give ``T``, or declare it with no default.
+
+    Args:
+        node_id: The node.
+        output: The output.
+        type: The type its node's edges give the type variable.
+        reason: Why that type refuses the default, without quoting it.
+        errors: pydantic's list of what it refused, without the value.
+
+    Example:
+        @dataclass(frozen=True)
+        class Halves[T]:
+            first: T
+            second: T = 0  # type: ignore[assignment]
+
+
+        @registry.node("halve", title="Halve", description="Returns a value as the first of two halves.")
+        def halve[T](whole: T) -> Halves[T]:
+            return Halves[T](whole)  # type: ignore[arg-type]
+
+
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            "h": {"node": "halve", "inputs": {"whole": {"sources": [{"node": "u", "output": "result"}]}}}
+        }})
+    """
+    return f"The edges into '{node_id}' make the output '{output}' of type {type}, and its default doesn't fit: {reason.rstrip('.')}. Change its default, or declare it with no default."
 
 
 @COMPILE_PROBLEMS.problem
@@ -504,8 +543,8 @@ def type_mismatch(node_id: str, input: str, /, *, source: str, got: str, expecte
     To fix it, wire an output of the type the input takes. Or put a node in between that converts one type into the
     other.
 
-    Three common mismatches have a code of their own, below: ``type_mismatch_make_a_series``,
-    ``type_mismatch_add_column`` and ``type_mismatch_one_value``.
+    Three common mismatches have a code of their own, below: ``type_mismatch_whole_table_or_list``,
+    ``type_mismatch_missing_column`` and ``type_mismatch_series_given_one_value``.
 
     Args:
         node_id: The node the edge leads into.
@@ -527,7 +566,7 @@ def type_mismatch(node_id: str, input: str, /, *, source: str, got: str, expecte
 
 
 @COMPILE_PROBLEMS.problem
-def type_mismatch_make_a_series(
+def type_mismatch_whole_table_or_list(
     node_id: str,
     input: str,
     /,
@@ -566,7 +605,7 @@ def type_mismatch_make_a_series(
 
 
 @COMPILE_PROBLEMS.problem
-def type_mismatch_add_column(
+def type_mismatch_missing_column(
     node_id: str,
     input: str,
     /,
@@ -616,7 +655,7 @@ def type_mismatch_add_column(
 
 
 @COMPILE_PROBLEMS.problem
-def type_mismatch_one_value(
+def type_mismatch_series_given_one_value(
     node_id: str, input: str, /, *, source: str, got: str, expected: str, item: str
 ) -> str:
     """A ``Series`` or ``Table`` input is wired to an output that gives each call of its node one value.
@@ -829,7 +868,7 @@ def unknown_output(
 
 
 @COMPILE_PROBLEMS.problem
-def unknown_output_make_a_series(
+def unknown_output_field_of_whole_table_or_list(
     *loc: str | int,
     source: str,
     outputs: list[str],

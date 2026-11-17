@@ -594,7 +594,7 @@ def test_a_value_on_an_edge_that_the_input_refuses_fails_the_target_node_quoting
 
     run = _feeding(SECRET, str, sink)
 
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == (
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["input"]) == (
         "failed",
         "invalid_edge_value",
         ("b",),
@@ -655,7 +655,7 @@ def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_t
 
     run = _feeding(pl.DataFrame({"name": ["Ida"]}), Table, needs_email)
 
-    assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == (
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["input"], run.cause.ctx["column"]) == (
         "invalid_edge_value",
         ("b",),
         "contacts",
@@ -948,7 +948,7 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
     """Runs ``graph`` and returns how it ended: its status, and its cause's code, place, input and field."""
     run = graph.run()
     cause = run.cause
-    return run.status, cause.type, cause.loc, cause.ctx["name"], cause.ctx["record_field"]
+    return run.status, cause.type, cause.loc, cause.ctx["input"], cause.ctx["record_field"]
 
 
 @pytest.mark.parametrize(
@@ -1069,7 +1069,7 @@ def test_the_first_fault_in_the_signature_fails_a_call_that_no_skip_settles():
     edges = [("give.result.email", "two.first"), ("give.result.name", "two.second")]
     graph = Graph.compile(make_graph(items, two, edges=edges), registry_of(items, two))
     run = graph.run()
-    assert (run.status, run.cause.type, run.cause.ctx["name"], run.cause.ctx["record_field"]) == (
+    assert (run.status, run.cause.type, run.cause.ctx["input"], run.cause.ctx["record_field"]) == (
         "failed",
         "invalid_edge_value",
         "first",
@@ -1212,5 +1212,8 @@ def test_a_declared_default_of_none_the_bound_type_does_not_take_is_a_problem_of
         for found in [*unwired.problems, *output.problems]
     ] == [
         ("invalid_value_bound_default", ("first-or-blank", "second"), "str"),
-        ("invalid_value_bound_default", ("kept", "other"), "str"),
+        ("output_default_bound_invalid", ("kept", "other"), "str"),
     ]
+    (refused,) = output.problems
+    assert refused.ctx["output"] == "other" and "input" not in refused.ctx
+    assert refused.msg.endswith("Change its default, or declare it with no default.")

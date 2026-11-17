@@ -16,7 +16,7 @@ Each example runs through the engine, as a graph of that one node with the examp
 Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)``. Here is what each code means:
 
 - ``hook_failed``: a ``compute_added_inputs`` or ``compute_outputs`` hook fails when it is called with the node's
-  defaults and made-up values. ``hook_failed_on_an_example``: it fails on an example.
+  defaults and made-up values. ``example_hook_failed``: it fails on an example.
 - ``needs_example``: a check that needs no example, of the node's hooks or of an older version's upgrade, can't
   make up a value for a required input that takes only a constant.
 - ``subgraph_broken``: a subgraph's own graph doesn't compile on the registry's nodes, so ``registry.describe()``
@@ -24,7 +24,7 @@ Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)`
 - ``upgrade_broken``: ``registry.upgrade`` refuses to move a graph saved with an older version of the node to the
   newest, or the graph it returns doesn't compile.
 - ``changed_its_inputs``: the node changed a value it was given.
-- ``run_failed``: an example didn't run to the end, or to a pause for a person. ``example_not_compiled``: its graph
+- ``example_run_failed``: an example didn't run to the end, or to a pause for a person. ``example_not_compiled``: its graph
   of one node doesn't compile. ``example_refused``: running it is refused, as for a missing context.
 - ``example_for_no_node``: an example names a node or a version that isn't in the registry. Its ``loc`` is
   ``(node_id,)`` when the example gives no version.
@@ -310,7 +310,7 @@ def _run_problems(
     ]
     if (cause := run.cause) is not None:
         found.append(
-            problems.run_failed(
+            problems.example_run_failed(
                 version.id,
                 version.version,
                 status=run.status,
@@ -324,13 +324,13 @@ def _run_problems(
 def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) -> list[Problem]:
     """Returns the one problem for an example that doesn't compile.
 
-    It is ``hook_failed_on_an_example`` when a hook caused every problem, and ``example_not_compiled`` otherwise.
+    It is ``example_hook_failed`` when a hook caused every problem, and ``example_not_compiled`` otherwise.
     """
     reason = _reason(graph_problems)
     written = [p.model_dump(mode="json") for p in graph_problems]
     if all(p.type in _HOOK_FAILED for p in graph_problems):
         return [
-            problems.hook_failed_on_an_example(
+            problems.example_hook_failed(
                 version.id, version.version, reason=reason, problems=written
             )
         ]

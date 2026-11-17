@@ -370,7 +370,7 @@ A table never starts a loop by itself. To go through a table one row at a time, 
 
 ### A Series input collects only the loops it is outside
 
-`count` collected the lines because it sits outside the loop over them. A node that is inside the loop can't collect it. Below, `compare` takes one `line`, so it runs once per line. Its `others` input is wired to `shout`, which also runs once per line, in the same loop. So each call of `compare` could only get the shouted version of its own line: one value, never a list. Compiling refuses it, with `type_mismatch_one_value`. If `compare` needs only its own line's shout, declare `others: str`.
+`count` collected the lines because it sits outside the loop over them. A node that is inside the loop can't collect it. Below, `compare` takes one `line`, so it runs once per line. Its `others` input is wired to `shout`, which also runs once per line, in the same loop. So each call of `compare` could only get the shouted version of its own line: one value, never a list. Compiling refuses it, with `type_mismatch_series_given_one_value`. If `compare` needs only its own line's shout, declare `others: str`.
 
 To give every call all the lines, collect them first, in a node that sits outside the loop, and wire that list in. The Collect node of the companion package `syv-conductor-nodes` does exactly that:
 
@@ -386,7 +386,7 @@ def compare(line: str, others: Series[str]) -> str:
 
 
 own = make_graph(open_letter, shout, compare, edges=[("open.lines", "shout.text"), ("open.lines", "compare.line"), ("shout.result", "compare.others")])
-print([problem.type for problem in Graph.compile(own, registry).problems])  # ['type_mismatch_one_value']
+print([problem.type for problem in Graph.compile(own, registry).problems])  # ['type_mismatch_series_given_one_value']
 
 every = make_graph(
     open_letter, shout, collect, compare,
@@ -759,7 +759,7 @@ def greet_caller(ctx: Context[HasCaller]) -> str:
 print(Graph.compile(make_graph(greet_caller), signing).run(context=ida).outputs)  # {'result': 'Hello Ida'}
 ```
 
-Write each member as a read-only property, as here: a frozen dataclass can't satisfy a `Protocol` whose member is a plain attribute. Compiling checks each node's `Context[...]` against the registry's class. A node that asks for a member the class lacks gets the problem `context_does_not_fit`. The rules are in `python -m conductor.about context`.
+Write each member as a read-only property, as here: a frozen dataclass can't satisfy a `Protocol` whose member is a plain attribute. Compiling checks each node's `Context[...]` against the registry's class. A node that asks for a member the class lacks gets the problem `context_does_not_fit_missing_member`. The rules are in `python -m conductor.about context`.
 
 ## A second version
 

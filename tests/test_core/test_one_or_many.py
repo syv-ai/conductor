@@ -280,10 +280,10 @@ def test_a_list_given_or_set_as_a_constant_at_an_input_of_one_value_is_refused_a
         registry,
     )
     assert _refused(lambda: graph.run({"text": ["a", "b"]})) == [
-        ("invalid_input_make_a_series", ("inputs", "text"))
+        ("invalid_input_list_for_one_value", ("inputs", "text"))
     ]
     assert _refused(lambda: graph.run({"text": ["a"]})) == [
-        ("invalid_input_make_a_series", ("inputs", "text"))
+        ("invalid_input_list_for_one_value", ("inputs", "text"))
     ]
     assert graph.run({"text": "a"}).outputs == {"result": "rev(a)"}
 
@@ -376,7 +376,7 @@ def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_and_one_that_col
         ["rev(X)", "rev(Y)", "rev(Z)"]
     ]
     assert [(p.type, p.loc) for p in Graph.compile(outer["together"], reg).problems] == [
-        ("type_mismatch_one_value", ("e", "overall", "texts"))
+        ("type_mismatch_series_given_one_value", ("e", "overall", "texts"))
     ]  # read runs once per call of the subgraph, so overall would get one text
     assert ran(
         record_of(("e", "per"), inputs={"file": "e.file"}, outputs={"result": "e.result"}, reg=reg),

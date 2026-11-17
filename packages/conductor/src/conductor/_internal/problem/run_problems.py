@@ -171,7 +171,7 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
 @RUN_PROBLEMS.problem
 def invalid_edge_value(
     *loc: str | int,
-    name: str,
+    input: str,
     reason: str,
     record_field: str | None = None,
     errors: list[dict[str, Any]] | None = None,
@@ -193,7 +193,7 @@ def invalid_edge_value(
 
     Args:
         loc: The call that was about to be made.
-        name: The input.
+        input: The input.
         reason: Why the value is refused, without quoting it.
         record_field: The field of a record the edge names, if the record has no field by that name.
         errors: pydantic's list of what it refused, without the value.
@@ -213,7 +213,7 @@ def invalid_edge_value(
         why_it_stopped(Graph.compile(make_graph(letters, small), registry).run({"text": "many letters"}))
     """
     return (
-        f"The value an edge gave '{name}' isn't one it takes: {reason.rstrip('.')}. "
+        f"The value an edge gave '{input}' isn't one it takes: {reason.rstrip('.')}. "
         "Fix the node upstream, or put a node in between that converts the value."
     )
 
@@ -279,7 +279,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
 
 
 @RUN_PROBLEMS.problem
-def question_unwritable(*loc: str | int, error: str, input: str) -> str:  # noqa: A002  the ctx key a host reads
+def question_unwritable(*loc: str | int, error: str, input: str) -> str:
     """A node asked a person, and one of its arguments can't be written as JSON to show them.
 
     A question carries the arguments of the call that asked, so the person answering can see them. Those must be JSON.

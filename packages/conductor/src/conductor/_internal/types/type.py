@@ -248,6 +248,26 @@ class Type:
             return False
         return not as_it_is or (type(read) is type(value) and read == value)
 
+    def refuses_as_a_list(self, value: list[Any]) -> bool:
+        """Says whether every option of the type refuses the list ``value`` as a whole, not because of an item in it.
+
+        It is the one rule for "this input takes no list", so a list wired or given to it should have been a loop
+        over its items: compiling asks it with ``[]`` of an edge's input, and a call with the list it was given.
+        ``str`` and a record refuse ``["a"]`` as a whole. ``list[str]``, ``tuple[int, ...]``, ``set[int]`` and a
+        table take ``[]``, and ``Annotated[list[str], Param(min_length=1)]`` refuses it only by its limit. For
+        ``int | list[int]`` given ``["x"]``, ``list[int]`` refuses it because of its item, so a loop isn't the fix.
+        Each option is checked without its limits and choices.
+        """
+        for option in self.options:
+            one = Type(option)
+            try:
+                one.argument_validator.validate_python(value)
+            except ValidationError as error:
+                if all(not fault["loc"] for fault in one.refusal(error).errors):
+                    continue
+            return False
+        return True
+
     @functools.cached_property
     def argument_schema(self) -> CoreSchema:
         """The schema an argument of the type is checked by: the type's ``schema`` with conductor's rules added
@@ -482,7 +502,7 @@ class Type:
         # a limit of the wrong kind for the type, like ge="a" on an int
         except SchemaError as error:
             raise NodeDeclarationError(
-                declaration_problems.limit_value_invalid(
+                declaration_problems.param_limit_value_invalid(
                     limits=repr(param.limits), type=self.id, error=str(error)
                 )
             ) from None

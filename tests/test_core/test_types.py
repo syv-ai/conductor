@@ -13,6 +13,7 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
+    InvalidCallError,
     NodeDeclarationError,
     NodeRegistry,
     Param,
@@ -250,6 +251,58 @@ def test_a_list_of_whole_numbers_can_be_wired_into_a_list_of_numbers_but_never_a
         registry_of(ints, words),
     )
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
+
+
+@pytest.mark.parametrize(
+    "takes",
+    [tuple[str, ...], set[str], int | list[str], list[str] | None],
+    ids=["tuple", "set", "a union with a list", "an optional list"],
+)
+def test_a_list_into_an_input_that_takes_a_list_is_the_plain_mismatch_as_a_call_agrees(
+    takes: Any,
+) -> None:
+    """An input takes no list only when every option of its type refuses one as a whole. Compiling and a call read
+    that one rule: such an edge is plain ``type_mismatch``, never the advice to split the list, and a list given
+    to the input as a graph input is never ``invalid_input_list_for_one_value``."""
+
+    @node("ints", title="Ints", description="For a test.")
+    def ints() -> list[int]:
+        return [1, 2]
+
+    registry = registry_of(ints)
+
+    def taking(x: Any) -> int:
+        return 1
+
+    taking.__annotations__ = {"x": takes, "return": int}
+    registry.add(node("takes", title="Takes", description="For a test.")(taking))
+    wired = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "i": {"node": "ints"},
+                    "t": {
+                        "node": "takes",
+                        "inputs": {"x": {"sources": [{"node": "i", "output": "result"}]}},
+                    },
+                }
+            }
+        ),
+        registry,
+    )
+    assert [problem.type for problem in wired.problems] == ["type_mismatch"]
+    given = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"t": {"node": "takes", "inputs": {"x": {"graph_input": "x"}}}},
+                "outputs": {"result": {"node": "t", "output": "result"}},
+            }
+        ),
+        registry,
+    )
+    with pytest.raises(InvalidCallError) as refused:
+        given.run({"x": [1, 2]})  # refused for its items, not as a list
+    assert [p.type for p in refused.value.problems] == ["invalid_input"]
 
 
 def test_a_pydantic_type_keeps_the_limits_it_has() -> None:

@@ -1118,10 +1118,10 @@ def test_a_list_of_text_into_a_list_of_choices_compiles_and_each_item_is_checked
 
 
 def test_one_value_into_a_series_of_choices_names_the_values_in_its_type_mismatch():
-    """``type_mismatch_one_value`` names a type with choices by its values, as ``type_mismatch`` does."""
+    """``type_mismatch_series_given_one_value`` names a type with choices by its values, as ``type_mismatch`` does."""
     (problem,) = _edge(as_low, show_all_levels).problems
 
-    assert problem.type == "type_mismatch_one_value"
+    assert problem.type == "type_mismatch_series_given_one_value"
     assert problem.msg.startswith(
         """'a.result' gives each call of 'b' one "low", but 'b.value' takes a Series of "low" or "high"."""
     )
@@ -1500,7 +1500,7 @@ def test_a_fault_in_a_signature_is_refused_at_node_with_its_problem_type():
         "nested_series": lambda: node("b", title="B", description="For a test.")(
             _fn("x: Series[Series[int]]")
         ),
-        "limit_value_invalid": lambda: node("d", title="D", description="For a test.")(
+        "param_limit_value_invalid": lambda: node("d", title="D", description="For a test.")(
             _fn('x: Annotated[int, Param(ge="a")]')
         ),
     }

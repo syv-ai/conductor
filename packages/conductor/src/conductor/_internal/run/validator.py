@@ -126,7 +126,7 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
                 raise InvalidCallError(
                     [
                         run_problems.invalid_edge_value(
-                            name=name,
+                            input=name,
                             reason=refused.reason,
                             errors=refused.errors,
                             column=refused.column,

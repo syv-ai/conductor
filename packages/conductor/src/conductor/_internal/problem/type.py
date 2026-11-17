@@ -276,7 +276,7 @@ class ProblemCatalogue:
               cycle("a")                                           # loc == ("a",), ctx == {}
 
         Each mistake a host may want to tell apart is a kind of its own, with its own code. Kinds that belong
-        together share the start of their code, like ``type_mismatch`` and ``type_mismatch_make_a_series``.
+        together share the start of their code, like ``type_mismatch`` and ``type_mismatch_whole_table_or_list``.
 
         Raises:
             TypeError: When the function is declared, if a parameter is none of the three, if the return type isn't

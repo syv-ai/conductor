@@ -801,7 +801,7 @@ def test_scenario_14b_the_summary_of_several_refuses_one_document_and_takes_an_u
         REGISTRY,
     )
     assert [(p.type, p.loc) for p in one_document.problems] == [
-        ("type_mismatch_one_value", ("llm-all", "texts"))
+        ("type_mismatch_series_given_one_value", ("llm-all", "texts"))
     ]
     ASKED.clear()
     an_upload = Graph.compile(

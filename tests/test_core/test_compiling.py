@@ -1866,7 +1866,7 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
     )
     assert [(p.type, p.loc) for p in graph.problems] == [
         ("type_mismatch", ("u", "text")),
-        ("type_mismatch_one_value", ("j", "texts")),
+        ("type_mismatch_series_given_one_value", ("j", "texts")),
     ]  # u falls out of fan's loop, so as drawn j is given one value
     assert _described(graph, "u") == (
         True,
@@ -1881,12 +1881,15 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
         None,
         {"texts": "missing"},
         ["result"],
-        ["type_mismatch_one_value"],
+        ["type_mismatch_series_given_one_value"],
     )
     assert graph.describe().nodes["f"].found and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
-    assert [p.type for p in refused.value.problems] == ["type_mismatch", "type_mismatch_one_value"]
+    assert [p.type for p in refused.value.problems] == [
+        "type_mismatch",
+        "type_mismatch_series_given_one_value",
+    ]
 
 
 def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inputs():

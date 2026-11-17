@@ -447,7 +447,7 @@ def test_a_list_given_for_one_value_is_refused():
     with pytest.raises(InvalidCallError) as refused:
         graph.run({"text": ["a", "b"]})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_input_make_a_series", ("inputs", "text"))
+        ("invalid_input_list_for_one_value", ("inputs", "text"))
     ]
 
 

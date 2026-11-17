@@ -79,7 +79,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 
 - A widget is optional. Without one, the host's editor picks a control from the input's type, such as a line of text for a `str`. Give an input a widget only when the editor should show more than its type says, such as a `Textarea` for a long text.
 - A default makes an input optional. The default is checked against the type, and written as JSON once, where it is declared. A default that isn't of the input's type, or that the type can't write as JSON, is `default_invalid`; a default `None` the type doesn't take is `default_none_not_taken`, and an input's default `SKIPPED` is `default_skipped_on_input`.
-- A limit that can't apply to the type, such as `ge` on a `str`, is refused where it is written (`limit_not_supported`), and so is a limit given a value of the wrong kind, such as `ge="a"` on an `int` (`limit_value_invalid`).
+- A limit that can't apply to the type, such as `ge` on a `str`, is refused where it is written (`param_limit_not_supported`), and so is a limit given a value of the wrong kind, such as `ge="a"` on an `int` (`param_limit_value_invalid`).
 - `Param`s can be stacked. An alias such as `Annotated[str, Param(widget=TextInput())]` can be wrapped again with `Param(min_length=1)`. They merge the way pydantic merges stacked fields: for each argument and each limit, the later `Param` wins wherever it isn't `None`. So a later `constant_only=False` turns an earlier `True` off, and a later `title=None` leaves the title as it was.
 - A `Param` on the item of a `Series` is the field's.
 
@@ -367,7 +367,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 
 **One value or many.** The type decides, never the value.
 
-- A list (a JSON array, a Python list or tuple) is refused for an input that takes one value of a type that takes no list. It is `invalid_input_make_a_series` when given, and `invalid_value` as a constant.
+- A list (a JSON array, a Python list or tuple) is refused for an input that takes one value of a type that takes no list. It is `invalid_input_list_for_one_value` when given, and `invalid_value` as a constant.
 - An input whose own type takes a list (`list[str]`, `Series[...]`, `Table[...]`, `Any`) takes the list as one value.
 - An open `Series` input takes only a list. One value given there is `invalid_input`.
 - A set has no order, so it is never a list. A set given for a `Series` input is refused with `set_has_no_order` in the problem's `errors`. A `list[...]` or `Any` input takes a set as the value it is.
@@ -407,7 +407,7 @@ A subgraph is compiled on its own, apart from the graph it is used in. So a type
 
 - A subgraph whose first node is `series-split` offers `Table | list`, and gives records of unknown fields. The same nodes drawn in the outer graph would have the arriving table's fields.
 - A first node whose input has a precise type (`Table[R]`, `R` a `TypedDict`) gives the subgraph that type.
-- A subgraph puts every node inside it inside its node's loops. So a `Series` input inside a subgraph collects only the loops inside that graph. Wired to a node the subgraph calls once, it is `type_mismatch_one_value`: when the subgraph's own record is compiled, and wherever the subgraph is used. Drawn flat in the graph that uses the subgraph, the same nodes may collect a loop of that graph instead.
+- A subgraph puts every node inside it inside its node's loops. So a `Series` input inside a subgraph collects only the loops inside that graph. Wired to a node the subgraph calls once, it is `type_mismatch_series_given_one_value`: when the subgraph's own record is compiled, and wherever the subgraph is used. Drawn flat in the graph that uses the subgraph, the same nodes may collect a loop of that graph instead.
 
 Using a graph as a subgraph changes nothing about how its nodes behave.
 
@@ -527,7 +527,7 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - `unknown_input`: an entry names an input the node lacks.
 - `unknown_output`: an edge or a graph output names an output, or a field of a record output, that the node doesn't give.
 - `type_mismatch`: an edge between types that don't meet.
-- `invalid_value`: a constant or default its type refuses. `invalid_value_bound_default` is a declared default that doesn't fit the type an edge gives a type variable.
+- `invalid_value`: a constant or default its type refuses. `invalid_value_bound_default` is an input's declared default that doesn't fit the type an edge gives a type variable, and `output_default_bound_invalid` an output's.
 - `compute_hook_failed`: see "Field Hooks". `context_does_not_fit`: see "Context".
 - `input_has_no_value` and `graph_input_used_two_ways`.
 - `cycle`.
@@ -574,7 +574,7 @@ In the quick start, `lines` returns a `Series[str]`, `upper` takes one text, and
 **Collecting.** A `Series[T]` input wired to a node inside a loop collects the loop. It gets every `T` that node returned, in item order, and its own node is called once for all of them.
 
 - A `Series` output wired to a `Series` input is passed whole.
-- One value is never a list of one. An edge that gives each call one value is `type_mismatch_one_value`, at the node's input, with the edge's source in `ctx.source`. An edge gives each call one value when its source is in no loop, or inside a loop the node is inside too, because another input put it there.
+- One value is never a list of one. An edge that gives each call one value is `type_mismatch_series_given_one_value`, at the node's input, with the edge's source in `ctx.source`. An edge gives each call one value when its source is in no loop, or inside a loop the node is inside too, because another input put it there.
 - To fix it, give the input a series. Declare the input as one `T` if the node takes one value per call; or collect first: wire it the result of a node outside the loop that collects it, such as `series-collect`; or use the node's own option for one value, such as `table-collect`'s `constant_columns`.
 - So a node that runs per document and collects each document's lines takes the document's own summary as one `str`, never as a `Series`.
 
@@ -604,11 +604,11 @@ A `Table` input collects records the same way.
 - Such a node may return the records as a list, or as the table itself. A table returned for `Series[R]`, `R` a `TypedDict`, is read as a `Table[R]` is: its columns, each by its type, with a `None` only where the type takes one. It is kept by column. An edge that names a field (`series-split.result.email`) reads the column, and a node still receives plain `dict` records.
 - A table returned for `Series[dict]`, `Series[dict[str, Any]]` or `Series[Any]` is read as a bare `Table`, whose rows are a `dict` each: it gives every column. A table returned for a `dict` with one type of value, such as `Series[dict[str, int]]`, is refused (`invalid_output`), since a bare table checks no cell.
 - Every field of a row type is required. A `NotRequired` field, or a `TypedDict` declared `total=False`, is refused when the node is declared (`row_field_optional`). Declare the field `X | None`. A table with a column some rows leave out is not supported.
-- A whole table or list wired to an input of one value is `type_mismatch_make_a_series` (`kind`, `fields`). A field named on one is `unknown_output_make_a_series`, with the same hint.
+- A whole table or list wired to an input that takes no list is `type_mismatch_whole_table_or_list` (`kind`, `fields`). An input takes no list when every option of its type refuses `[]` as a whole, the same rule a call uses for `invalid_input_list_for_one_value`, so a list into `list[str]`, `tuple[int, ...]`, `set[int]` or `int | list[str]` is plain `type_mismatch`, and so is a table into a list input. A field named on one is `unknown_output_field_of_whole_table_or_list`, with the same hint.
 
 **Which tables fit.**
 
-- A table fits a `Table[R]` input when it has every column `R` names, each of a type that fits. One it lacks is `type_mismatch_add_column` (`column`, `column_type`, `has`).
+- A table fits a `Table[R]` input when it has every column `R` names, each of a type that fits. One it lacks is `type_mismatch_missing_column` (`column`, `column_type`, `has`).
 - A `Table[R]` input receives exactly the columns `R` names, whether the table was wired, given or collected.
 - A `Table[R]` output is cut to `R`'s columns too. A bare `Table` output keeps every column it returns.
 - A table written as the constant of a `Table` input, or given for one by a caller, is a frame or a list of records, and `[]` is a table of no rows. Each column `R` names is read by its own type (a date from its ISO text, a host type from its own text), and other columns are left out. A missing column, or a cell its type refuses, is `invalid_value` as a constant and `invalid_input` when given, with `ctx.column` naming it.
@@ -782,7 +782,7 @@ print(signed.outputs)  # {'result': 'Done, Ida'}
 **What a node may ask for.** A node names the registry's class, a base of it, or a `Protocol` whose members the class has. A `Protocol` is how a node that doesn't know the host's class asks for what it needs. Declare each member of the `Protocol` as a read-only property, since a frozen dataclass doesn't satisfy a plain attribute.
 
 - Compiling checks it. A `Protocol`'s members are checked by name only, and their types are the host's type checker's job.
-- A node that asks for what the class is not, or lacks, has `context_does_not_fit` at `(node_id, parameter)`. So does a node that asks for a context on a registry that names none. For a node inside a subgraph, the `loc` goes through the subgraph node.
+- A node that asks for what the class is not has `context_does_not_fit` at `(node_id, parameter)`. One that asks for a `Protocol` whose members the class lacks has `context_does_not_fit_missing_member`, and one that asks for a context on a registry that names none `context_does_not_fit_no_context_type`, at the same place. For a node inside a subgraph, the `loc` goes through the subgraph node.
 - `add_subregistry` takes a registry that names the same class, or none. Otherwise it is `context_type_differs`. A registry that names no class refuses a subregistry that names one (`context_type_on_subregistry_only`).
 
 **Type checking.** `NodeRegistry(context_type=X)` is a `NodeRegistry[X]`. Its graphs are `Graph[X]`, and their runs `Run[X]`. So a type checker refuses a `context=` of another class. It can't see whether a graph's nodes need one.
@@ -882,7 +882,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 - A problem never quotes a value a graph carries: a graph input or its default, a constant, an output, an answer or a value in a saved run. Where a fault is inside one, its `loc` and message say where by list indexes, record fields and positions, never by the value's own dict keys: a record's fault inside a constant stops at `constant`. A field name, a hook's included, is what a developer wrote, even when the hook builds it from a constant, so a problem may name it.
 - A problem never quotes an exception's text either. A node's or a hook's exception other than a `NodeError` goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx.error`. That holds for a failed call (`execution_failed`), a hook that raises (`compute_hook_raised`), an argument a question can't write as JSON (`question_unwritable`) and an `Upgrade`'s rewrite that raises in `registry.upgrade` (`cannot_move_to_version_raised`, while a rewrite's `NodeError` is `cannot_move_to_version_rewrite_failed`), which `check_registry` reports as `upgrade_broken`.
 - A type's own check is held to the same rule. In a problem's `reason` and `ctx.errors`, each error keeps its `type`, and its message is kept only when pydantic or conductor wrote it: a type's limits (`greater_than`), its choices (`literal_error`) or a missing column (`column_missing`). The one type conductor changes is a table's missing column: it is `column_missing` in every form of a table, records as well as a frame, where pydantic would say `missing`. Any other message, such as one a validator raised (`value_error`), a custom error a host's validator raised, whatever type it gives, or one of pydantic's that quotes the value (`uuid_parsing`, `union_tag_invalid`), is replaced by "The value did not pass its type's own check.". A message counts as pydantic's only when pydantic writes the same text for the error's type and `ctx`, so a host's error that gives the type `value_error` is replaced too.
-- A problem may name what a developer or a host wrote: node ids, input, output and field names, places (`invalid_place`), waiting ids (`not_waiting`, `answer_stale`), the limits a type declares (`limit_not_supported`), a host's own `reason` (`answer_declined`) and where JSON text stops being JSON (`invalid_record`, `json_invalid`). A `NodeError` keeps its message and its `ctx`, since its developer wrote them for people.
+- A problem may name what a developer or a host wrote: node ids, input, output and field names, places (`invalid_place`), waiting ids (`not_waiting`, `answer_stale`), the limits a type declares (`param_limit_not_supported`), a host's own `reason` (`answer_declined`) and where JSON text stops being JSON (`invalid_record`, `json_invalid`). A `NodeError` keeps its message and its `ctx`, since its developer wrote them for people.
 
 ### Events
 
@@ -1105,7 +1105,7 @@ def test_translations_match_the_codes(translations: dict[str, str], own_codes: s
 - its `section`: where a host meets it;
 - its `ctx_type`: a `TypedDict` of the keys its `ctx` has.
 
-A package declares kinds of its own the same way, on a catalogue of its own. `conductor_providers.fastapi.SERVING_PROBLEMS` is one. The code is the function's name: one function, one kind, one code. Kinds that belong together share the start of their code, like `type_mismatch` and `type_mismatch_make_a_series`. The function returns the message. It makes the message from its parameters alone. Calling it makes the `Problem`.
+A package declares kinds of its own the same way, on a catalogue of its own. `conductor_providers.fastapi.SERVING_PROBLEMS` is one. The code is the function's name: one function, one kind, one code. Kinds that belong together share the start of their code, like `type_mismatch` and `type_mismatch_whole_table_or_list`. The function returns the message. It makes the message from its parameters alone. Calling it makes the `Problem`.
 
 ```python
 from conductor import ProblemCatalogue
@@ -1134,7 +1134,7 @@ print(run_gone_archived("r1").type)  # run_gone_archived
 - The return type is `str`.
 - Anything else raises a `TypeError` when the function is declared. That covers a parameter that can be given by name, a `**kwargs`, a type or default the rules above don't allow, a return type other than `str`, and a function name the catalogue already has.
 
-A key that may be left out is absent when it doesn't apply, never `null`. A problem whose sentence names its node or input has them in `ctx`, as `node_id` and `input`, so a sentence is filled from `ctx` alone.
+A key that may be left out is absent when it doesn't apply, never `null`. A problem whose sentence names its node or a node's input or output has them in `ctx`, as `node_id`, `input` and `output`, so a sentence is filled from `ctx` alone. A graph input a call names is `ctx.name` (`invalid_input`, `missing_input`, `unknown_graph_input`).
 
 A `Problem` read from JSON is read as it is, whatever its code. A host that wants `ctx` typed validates it itself with pydantic, against the kind's `ctx_type`.
 
@@ -1165,8 +1165,8 @@ A widget tells an editor how to draw a field. Widgets are frozen models with a `
 - Each older version is put in a graph of that one node, upgraded with `registry.upgrade` and compiled, with or without an example. Its inputs get the first example's values, or made-up ones, and each required input left without a value is a graph input, as `make_graph` makes it, so a `T` input needs no example. A required input that takes only a constant can't be a graph input: when no value can be made up for one, the version is `needs_example`, and neither its upgrade nor its hooks are checked.
 - `(id, version)` keys an older version's examples. `context=` gives every example the run's context, as `graph.run` takes it.
 - Every subgraph version has its own graph compiled on the registry's nodes, and one that has problems is `subgraph_broken`, and its examples aren't run, so one fault gives one code.
-- The checks are `hook_failed`, `hook_failed_on_an_example`, `needs_example`, `subgraph_broken`, `upgrade_broken`, `changed_its_inputs`, `run_failed`, `example_not_compiled`, `example_refused` and `example_for_no_node`. `python -m conductor.about problems` says what each means and how to fix it. These codes are `check_registry`'s, in `REGISTRY_CHECK_PROBLEMS.codes` and not in `PROBLEMS.codes`.
-- A node known to fail goes in a test of its own, marked `pytest.mark.xfail(strict=True)`, that checks `registry.filter(...)` down to that node. `python -m conductor.about run-failed` shows one.
+- The checks are `hook_failed`, `example_hook_failed`, `needs_example`, `subgraph_broken`, `upgrade_broken`, `changed_its_inputs`, `example_run_failed`, `example_not_compiled`, `example_refused` and `example_for_no_node`. `python -m conductor.about problems` says what each means and how to fix it. These codes are `check_registry`'s, in `REGISTRY_CHECK_PROBLEMS.codes` and not in `PROBLEMS.codes`.
+- A node known to fail goes in a test of its own, marked `pytest.mark.xfail(strict=True)`, that checks `registry.filter(...)` down to that node. `python -m conductor.about example-run-failed` shows one.
 
 
 ### conductor.events

@@ -245,7 +245,7 @@ def test_a_node_asking_for_what_the_class_lacks_is_a_problem_at_the_node_and_par
 
     graph = Graph.compile(make_graph(count), app_registry(count))
     [problem] = graph.problems
-    assert (problem.type, problem.loc) == ("context_does_not_fit_lacks", ("count", "ctx"))
+    assert (problem.type, problem.loc) == ("context_does_not_fit_missing_member", ("count", "ctx"))
     assert problem.ctx == {
         "node_id": "count",
         "parameter": "ctx",
@@ -307,7 +307,7 @@ def test_a_node_inside_a_subgraph_is_checked_with_the_rest_and_its_problem_is_at
 
     counted = subgraph("counted", title="Counted", description="For a test.")(make_graph(count))
     assert problems_of(Graph.compile(make_graph(counted), app_registry(count, counted))) == [
-        ("context_does_not_fit_lacks", ("counted", "count", "ctx"))
+        ("context_does_not_fit_missing_member", ("counted", "count", "ctx"))
     ]
 
 

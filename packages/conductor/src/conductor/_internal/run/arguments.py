@@ -127,7 +127,7 @@ class ResultReader:
                     fault = InvalidCallError(
                         [
                             run_problems.invalid_edge_value(
-                                name=name, reason=reason, record_field=missing.field
+                                input=name, reason=reason, record_field=missing.field
                             )
                         ]
                     )

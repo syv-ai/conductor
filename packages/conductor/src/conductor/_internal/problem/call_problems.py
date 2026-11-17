@@ -314,7 +314,7 @@ def invalid_input(
 
 
 @CALL_PROBLEMS.problem
-def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, length: int) -> str:
+def invalid_input_list_for_one_value(*loc: str | int, name: str, expected: str, length: int) -> str:
     """A call gives a list to a graph input that doesn't take a list.
 
     A graph only loops over a list when a node returns it as a ``Series``. So a list given to an input of one value is

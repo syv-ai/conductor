@@ -115,7 +115,7 @@ def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) ->
 
 
 @REGISTRY_CHECK_PROBLEMS.problem
-def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
+def example_hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example doesn't compile, and every problem is in a ``compute_...`` hook.
 
     In the example below, ``pick``'s hook raises when it is given an empty text.
@@ -132,7 +132,7 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[
         checked.add(pick)
         check_registry(checked, examples={"pick": [{"names": ""}]})
     """
-    return f"The example doesn't compile: {reason}"
+    return f"A hook fails on the example, so it doesn't compile: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem
@@ -201,7 +201,7 @@ def subgraph_broken(*loc: str | int, reason: str, problems: list[dict[str, Any]]
 
 
 @REGISTRY_CHECK_PROBLEMS.problem
-def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the ctx key a developer reads
+def changed_its_inputs(*loc: str | int, input: str) -> str:
     """A node changed a value it was given, in place.
 
     The same value can be given to several calls of a run. So a change made in one call is seen by the others.
@@ -227,7 +227,9 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
 
 
 @REGISTRY_CHECK_PROBLEMS.problem
-def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[str, Any]]) -> str:
+def example_run_failed(
+    *loc: str | int, status: str, reason: str, problems: list[dict[str, Any]]
+) -> str:
     """A node's example ran, and the run ended early.
 
     The run failed, was stopped, was cancelled or timed out. ``ctx.problems`` has the problem the run ended on. When

@@ -248,7 +248,7 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
     for wrong in (on_text, on_table, on_text_or_none, on_texts):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
-        assert raised.value.problems[0].type == "limit_not_supported"
+        assert raised.value.problems[0].type == "param_limit_not_supported"
 
 
 def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
@@ -1674,7 +1674,7 @@ def test_a_wrongly_typed_limit_is_refused_as_a_bound():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.problems[0].type == "limit_value_invalid"
+    assert raised.value.problems[0].type == "param_limit_value_invalid"
 
 
 def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
@@ -2183,7 +2183,7 @@ def test_a_limit_pydantic_supports_on_a_type_is_kept_and_one_it_does_not_is_refu
         class Order:
             code: Annotated[str, Param(ge=0)]
 
-    assert raised.value.problems[0].type == "limit_not_supported"
+    assert raised.value.problems[0].type == "param_limit_not_supported"
 
 
 def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_a_model_a_node_takes_and_on_a_table():

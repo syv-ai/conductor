@@ -146,7 +146,7 @@ class BoundDefaultValidator(Validator[Field, Field]):
 
     Raises (when called):
         InvalidCallError: The type refuses the default, ``None`` included. It carries one ``invalid_value_bound_default``
-            problem on the node and the field.
+            problem on the node and an input, or ``output_default_bound_invalid`` on an output.
     """
 
     def __init__(self, node_id: str, bound: Mapping[TypeVar, Any]) -> None:
@@ -177,9 +177,14 @@ class BoundDefaultValidator(Validator[Field, Field]):
             )
         except ValidationError as error:
             refused = whole.refusal(error)
+            kind = (
+                compile_problems.output_default_bound_invalid
+                if field.is_output
+                else compile_problems.invalid_value_bound_default
+            )
             raise InvalidCallError(
                 [
-                    compile_problems.invalid_value_bound_default(
+                    kind(
                         self._node_id,
                         field.name,
                         type=whole.id,

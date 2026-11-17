@@ -285,7 +285,7 @@ print(palette["shout-contacts"].inputs[0].type)  # Table[name: str]
 would still compile.
 
 `shout-contacts` starts with `known`, whose input says exactly what it takes. Its edges are checked when it's
-compiled. A graph that wires the wrong kind of table into it gets a `type_mismatch`, or `type_mismatch_add_column` for a table that lacks a column.
+compiled. A graph that wires the wrong kind of table into it gets a `type_mismatch`, or `type_mismatch_missing_column` for a table that lacks a column.
 
 So give a subgraph a first node with a precise input type.
 

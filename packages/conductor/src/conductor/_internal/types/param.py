@@ -138,8 +138,8 @@ class Param:
             The schema pydantic checks a value with, on a node's field or in a host's own model.
 
         Raises:
-            NodeDeclarationError: ``limit_not_supported`` if pydantic has no rule for a limit on ``source``, like
-                ``ge`` on a ``str``. ``limit_value_invalid`` if a limit's value doesn't fit ``source``. ``choices_invalid``
+            NodeDeclarationError: ``param_limit_not_supported`` if pydantic has no rule for a limit on ``source``, like
+                ``ge`` on a ``str``. ``param_limit_value_invalid`` if a limit's value doesn't fit ``source``. ``choices_invalid``
                 or one of the ``choices_invalid_...`` codes if the choices aren't each a value of ``source``, given
                 once.
         """
@@ -164,7 +164,7 @@ class Param:
             # the type as its developer wrote it
             written = source.__name__ if isinstance(source, type) else str(source)
             raise NodeDeclarationError(
-                declaration_problems.limit_not_supported(
+                declaration_problems.param_limit_not_supported(
                     unknown_limits=unknown_limits, type=written
                 )
             )

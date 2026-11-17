@@ -1391,7 +1391,7 @@ def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_
     with pytest.raises(InvalidCallError) as refused:
         graph.run({"text": ["a"]})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_input_make_a_series", ("inputs", "text"))
+        ("invalid_input_list_for_one_value", ("inputs", "text"))
     ]
 
 
@@ -1465,7 +1465,7 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
         ("missing_input", ("inputs", "yes"), {"name": "yes"}),
         ("invalid_input", ("inputs", "no"), not_a_text),
         (
-            "invalid_input_make_a_series",
+            "invalid_input_list_for_one_value",
             ("inputs", "text"),
             {"name": "text", "expected": "str", "length": 2},
         ),
@@ -1592,7 +1592,7 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
     problem = _a_table_read_by_one_text("r.result.name")
 
     assert (problem.type, problem.loc, problem.ctx["record_field"]) == (
-        "unknown_output_make_a_series",
+        "unknown_output_field_of_whole_table_or_list",
         ("u", "text"),
         "name",
     )
@@ -1601,8 +1601,8 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
 @pytest.mark.parametrize("source", ["r.result.name", "r.result"])
 def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
     assert _a_table_read_by_one_text(source).type in {
-        "type_mismatch_make_a_series",
-        "unknown_output_make_a_series",
+        "type_mismatch_whole_table_or_list",
+        "unknown_output_field_of_whole_table_or_list",
     }
 
 

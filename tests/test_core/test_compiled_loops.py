@@ -351,7 +351,7 @@ def test_two_nodes_wired_to_one_series_are_inside_the_same_loop():
 def test_a_series_input_wired_to_a_source_that_runs_once_is_refused_and_described_as_missing():
     graph = compile_graph({"u": "upper", "c": "count"}, [("u.result", "c.items")])
     assert [(p.type, p.loc) for p in graph.problems] == [
-        ("type_mismatch_one_value", ("c", "items"))
+        ("type_mismatch_series_given_one_value", ("c", "items"))
     ]
     assert graph.describe().nodes["c"].per_item_of is None
     assert input_sources(graph, "c") == {"items": ("missing", None)}
@@ -385,14 +385,14 @@ def test_a_table_is_passed_whole_and_starts_no_loop():
 
 def test_a_table_fits_a_table_input_by_its_columns_and_the_mismatch_names_both():
     graph = compile_graph({"c": "contacts", "a": "ages"}, [("c.result", "a.table")])
-    assert problems(graph) == [("type_mismatch_add_column", ("a", "table"))]
+    assert problems(graph) == [("type_mismatch_missing_column", ("a", "table"))]
     assert graph.problems[0].ctx["got"] == "Table[name: str, email: str | None]"
     assert graph.problems[0].ctx["expected"] == "Table[name: str, age: int]"
 
 
 def test_a_table_on_an_input_of_one_text_is_a_type_mismatch():
     graph = compile_graph({"c": "contacts", "u": "upper"}, [("c.result", "u.text")])
-    assert problems(graph) == [("type_mismatch_make_a_series", ("u", "text"))]
+    assert problems(graph) == [("type_mismatch_whole_table_or_list", ("u", "text"))]
 
 
 def test_an_input_of_any_type_takes_a_table_as_the_one_value_it_is():
@@ -605,7 +605,7 @@ def test_a_list_given_to_a_graph_input_of_one_value_is_refused_saying_how_a_loop
         graph.run({"text": ["a", "b", "c"]})
     (problem,) = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx) == (
-        "invalid_input_make_a_series",
+        "invalid_input_list_for_one_value",
         ("inputs", "text"),
         {"name": "text", "expected": "str", "length": 3},
     )

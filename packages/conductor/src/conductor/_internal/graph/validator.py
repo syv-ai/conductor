@@ -35,7 +35,6 @@ from pydantic_core.core_schema import TypedDictField
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, compile_problems
-from conductor._internal.types import Type
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator
 
@@ -51,7 +50,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         InvalidCallError: Lists every fault, in this order. First, each name the caller gave that the graph doesn't
             offer (``unknown_graph_input``), in the order given. Then each graph input, in the graph's order, that's
             missing (``missing_input``) or whose value its type refuses (``invalid_input``), or
-            ``invalid_input_make_a_series`` for a list given to an input whose type takes no list.
+            ``invalid_input_list_for_one_value`` for a list given to an input whose type takes no list.
     """
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
@@ -62,13 +61,6 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
                 and is ``REQUIRED`` when there is none.
         """
         self._inputs = dict(inputs)
-        # For each input that isn't a Series, each option of its type without its limits or choices. Kept here so
-        # its validator is built only once, the first time a list given there is refused.
-        self._bare_options = {
-            name: tuple(Type(option) for option in field.whole.options)
-            for name, field in inputs.items()
-            if not field.is_series
-        }
         self._validator = SchemaValidator(
             core_schema.typed_dict_schema(
                 {name: _input_schema(field) for name, field in inputs.items()},
@@ -132,12 +124,8 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         if first["type"] == "missing" and not inside:
             return call_problems.missing_input("inputs", name, name=name)
         value = given[name]
-        if (
-            type(value) is list
-            and name in self._bare_options
-            and all(_refused_as_a_list(option, value) for option in self._bare_options[name])
-        ):
-            return call_problems.invalid_input_make_a_series(
+        if type(value) is list and not field.is_series and field.whole.refuses_as_a_list(value):
+            return call_problems.invalid_input_list_for_one_value(
                 "inputs", name, name=name, expected=field.whole.id, length=len(value)
             )  # the one mistake whose fix is in the graph, not in the value
         refused = field.whole.refusal(error, under=(key,))
@@ -149,23 +137,6 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
             errors=refused.errors,
             column=refused.column,
         )
-
-
-def _refused_as_a_list(option: Type, value: list[Any]) -> bool:
-    """Whether ``option`` refuses the list ``value`` as a whole, rather than because of an item in it.
-
-    This tells whether a list given to an input should have been a loop over its items instead. ``option`` is one
-    option of the input's type, without its limits and choices.
-
-    ``str`` refuses ``["a", "b"]`` as a whole. ``list[str]`` takes ``[]``, and
-    ``Annotated[list[str], Param(min_length=1)]`` refuses it only by its limit. ``list[int]`` refuses ``["x"]``
-    because of its item. So for ``int | list[int]`` given ``["x"]``, a loop isn't the fix.
-    """
-    try:
-        option.argument_validator.validate_python(value)
-    except ValidationError as error:
-        return all(not fault["loc"] for fault in option.refusal(error).errors)
-    return False
 
 
 def _input_schema(field: Field) -> TypedDictField:

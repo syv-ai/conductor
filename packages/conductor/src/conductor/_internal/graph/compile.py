@@ -27,7 +27,7 @@ Only the declared types decide the loops, never the values:
 - An input declared ``Series[T]``, or a ``Table[R]`` wired to records, collects. What it's wired to must be inside
   a loop. It gets one value per item of the innermost of those loops, as a list, and its node is outside that loop.
   Wired to one value per call, because what it's wired to is in no loop or its node is inside that loop too, it gets
-  the problem ``type_mismatch_one_value``. A ``Series`` output wired to it is passed whole.
+  the problem ``type_mismatch_series_given_one_value``. A ``Series`` output wired to it is passed whole.
 - A node is inside the loops of the input that has the most. Every other input's loops must be the outermost of
   those, since the items of two different lists are never paired. An input whose loops aren't gets the problem
   ``series_not_nested``.
@@ -568,7 +568,7 @@ class Compiler:
         ``shout.result``, where ``shout`` is called once per line. ``line`` puts ``rank`` inside the loop over
         ``lines.result``, so a call of ``rank`` is for one line, and ``shout`` has one value for it. Wired to
         ``title.result``, made once, ``everyone`` would get one value too. Either way it gets
-        ``type_mismatch_one_value`` and becomes ``MissingInput``.
+        ``type_mismatch_series_given_one_value`` and becomes ``MissingInput``.
 
         An edge from a ``Series`` output gives the whole list, and never one value. A ``Table`` input whose edges
         are all declared ``Any`` (``_only_any``) takes their one value as a whole table.
@@ -596,7 +596,7 @@ class Compiler:
                 changed[name] = EdgeInput(field, tuple(sources), sources[0].loops_of_value)
                 continue
             self.problems.append(
-                compile_problems.type_mismatch_one_value(
+                compile_problems.type_mismatch_series_given_one_value(
                     node_id,
                     name,
                     source=str(one_value[0].wired_to),
@@ -884,7 +884,7 @@ class Compiler:
             parts := _taken_apart(field.type)
         ):  # only a record has fields to wire; a table or list must be taken apart first
             self.problems.append(
-                compile_problems.unknown_output_make_a_series(
+                compile_problems.unknown_output_field_of_whole_table_or_list(
                     node_id,
                     name,
                     source=written,
@@ -1153,7 +1153,7 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
         missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
-            return compile_problems.type_mismatch_add_column(
+            return compile_problems.type_mismatch_missing_column(
                 node_id,
                 field.name,
                 source=written,
@@ -1163,8 +1163,8 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
                 column_type=column_type,
                 has=list(has),
             )
-    elif parts and not field.is_series and _taken_apart(field.whole) is None:
-        return compile_problems.type_mismatch_make_a_series(
+    elif parts and not field.is_series and field.whole.refuses_as_a_list([]):
+        return compile_problems.type_mismatch_whole_table_or_list(
             node_id,
             field.name,
             source=written,

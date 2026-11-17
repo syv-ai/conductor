@@ -172,13 +172,13 @@ def test_each_code_check_registry_returns_is_in_the_catalogue_conductor_testing_
 def test_a_hook_that_fails_on_made_up_values_or_an_example_is_hook_failed():
     assert found(registry_of(breaks)) == [("hook_failed", ("breaks", 1))]
     assert found(registry_of(breaks), examples={"breaks": [{"names": "a"}]}) == [
-        ("hook_failed_on_an_example", ("breaks", 1))
+        ("example_hook_failed", ("breaks", 1))
     ]
 
 
 def test_a_hook_that_gives_a_field_a_name_it_cannot_have_is_hook_failed():
     assert found(registry_of(columns), examples={"columns": [{"text": "a", "names": "a.b"}]}) == [
-        ("hook_failed_on_an_example", ("columns", 1))
+        ("example_hook_failed", ("columns", 1))
     ]
 
 
@@ -473,8 +473,8 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
     }
     problems = check_registry(registry_of(unsure, offline, who, upper), examples=examples)
     assert [(p.type, p.loc, behind(p)) for p in problems] == [
-        ("run_failed", ("unsure", 1), ["invalid_ask"]),
-        ("run_failed", ("offline", 1), ["external_failed"]),
+        ("example_run_failed", ("unsure", 1), ["invalid_ask"]),
+        ("example_run_failed", ("offline", 1), ["external_failed"]),
         ("example_refused", ("who", 1), ["context_missing"]),
         ("example_not_compiled", ("upper", 1), ["unknown_input", "input_has_no_value"]),
     ]
@@ -486,7 +486,7 @@ def test_a_run_failed_that_a_body_raised_names_the_error_class():
         return 1 / n
 
     [problem] = check_registry(registry_of(divides), examples={"divides": [{"n": 0}]})
-    assert problem.type == "run_failed"
+    assert problem.type == "example_run_failed"
     assert problem.msg.endswith("raised ZeroDivisionError")
 
 
@@ -541,8 +541,8 @@ def test_a_body_returning_what_its_type_refuses_is_run_failed():
         examples={"counts": [{"text": "a"}], "tally": [{"labels": ["a"]}]},
     )
     assert [(p.type, p.loc, behind(p)) for p in problems] == [
-        ("run_failed", ("counts", 1), ["invalid_output"]),
-        ("run_failed", ("tally", 1), ["invalid_output"]),
+        ("example_run_failed", ("counts", 1), ["invalid_output"]),
+        ("example_run_failed", ("tally", 1), ["invalid_output"]),
     ]
 
 
@@ -558,7 +558,7 @@ def test_what_a_check_says_is_made_from_its_ctx_alone():
     (missing,) = check_registry(registry, examples={"halv": [{"n": 2}]})
 
     assert (found.type, found.loc, found.ctx["status"], found.ctx["reason"], behind(found)) == (
-        "run_failed",
+        "example_run_failed",
         ("halve", 1),
         "failed",
         "the node raised ZeroDivisionError",
