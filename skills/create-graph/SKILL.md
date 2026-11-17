@@ -108,7 +108,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 
 **Graph inputs and outputs.** `make_graph` declares them for you:
 - Each required input that gets nothing (no edge, no constant), on any node, becomes a graph input named after the input.
-- Each output of a node that no edge leaves becomes a graph output named after the output.
+- Each output of a node that no edge leaves becomes a graph output named after the output. A node that any edge leaves gives none, not even an output no edge reads, such as an unwired branch: name that one in `outputs=`.
 - An optional input that gets nothing keeps its own default.
 - `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both) and `outputs={"long": "join.result"}` name some of them yourself. These are added on top of the automatic ones. An optional input named in `inputs=` keeps its own default.
 

@@ -436,6 +436,8 @@ print(graph.run({"amount": 5}).results["notify"])     # {'result': None}
 
 For 5, `route` gave `small` the value, so `notify` was skipped. A skipped node's outputs show as `None` in `run.results` and `run.outputs`.
 
+`graph.outputs` is `notify`'s `result` alone. `make_graph` makes graph outputs only of the nodes no edge leaves, and an edge leaves `route`, so `route.small` is no output of the graph, though nothing reads it. To return it, name it: `outputs={"small": "route.small"}`.
+
 Since a call never gives two branches of one node a value, both may be wired into one input. That input gets the value of whichever branch has it.
 
 `SKIPPED` means a way not taken, and `None` means no value. So an output that may be missing beside other outputs, like the phone number an extractor didn't find next to the email it did, isn't a branch. Type it `str | None` and return `None`. A branch returned as `None` was still taken, though: beside another branch with a value, it counts as a second one. Two branches that both get a value fail the call with `invalid_output`, and so does `SKIPPED` on an output that isn't a branch. A node has one set of branches: two independent ways to go are two nodes.

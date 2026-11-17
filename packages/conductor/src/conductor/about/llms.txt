@@ -453,7 +453,7 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 
 - The graph inputs are every required input that gets nothing (no edge, no constant), on any node, named by the input. Every key of `defaults` is one too.
 - An optional input that gets nothing takes its own default, and is no graph input.
-- The graph outputs are every output of the nodes no edge leaves, named by the output.
+- The graph outputs are every output of the nodes no edge leaves, named by the output. A node that any edge leaves gives no automatic output, not even an output no edge reads: with `edges=[("route.large", "notify.amount")]`, the branch `route.small` is no graph output. `outputs=` names it.
 - `inputs=` and `outputs=` give some of them other names: `inputs={"who": "greet.name"}`, `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both), `outputs={"long": "join.result"}`. A field named there is declared under that name, and the other automatic ones stay. So `outputs={}` still declares every automatic output.
 - An optional input named in `inputs=` stays optional: `make_graph` writes the input's own default as the graph input's `default`, so `shout(text, mark: str = "!")` with `inputs={"m": "shout.mark"}` runs without `m`. A graph input that feeds several inputs takes their default when each declares the same one, and is required otherwise. A key of `defaults=` gives its own. An input a hook adds has no default here.
 - Two graph inputs that would share a name, automatic or named in `inputs=`, raise `graph_inputs_share_a_name` (`ctx.inputs`). Two graph outputs raise `graph_outputs_share_a_name` (`ctx.outputs`).

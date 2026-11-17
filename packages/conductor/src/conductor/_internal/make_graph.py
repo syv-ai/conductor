@@ -72,7 +72,8 @@ def make_graph(
 
     Graph inputs and outputs. The record declares them for you. Each required input that gets nothing (no edge, no
     constant) becomes a graph input with the input's name, unless it's ``constant_only``. So does each key of
-    ``defaults``. Each output of a node that no edge leaves becomes a graph output with the output's name.
+    ``defaults``. Each output of a node that no edge leaves becomes a graph output with the output's name. A node
+    that any edge leaves gives none, not even an output no edge reads, such as a branch left unwired.
     ``inputs`` and ``outputs`` let you name some yourself, on top of those: ``inputs={"who": "greet.name"}``,
     ``inputs={"line": ["strip.line", "shout.line"]}`` for one graph input that feeds two inputs, or
     ``outputs={"long": "a.result"}``. An optional input named in ``inputs`` stays optional: its graph input takes
