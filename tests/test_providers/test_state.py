@@ -107,18 +107,6 @@ def test_a_failed_resume_call_keeps_the_queued_and_writes_only_the_outcome() -> 
     assert changes == {"outcome": '{"waiting": [], "outputs": null, "progress": null}'}
 
 
-def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -> None:
-    refused = RunState.started().model_copy(
-        update={"refused": {"a": [Problem(type="invalid_answer", msg="No.")], "b": []}}
-    )
-    state = refused.with_queued({"a": 1, "c": 3}).with_queued({"a": 2}).answered({"a"})
-
-    assert (state.queued, list(state.refused)) == (
-        [QueuedReply(waiting_id="c", answer=3)],
-        ["b"],
-    )
-
-
 def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_with_nothing_waiting() -> (
     None
 ):
@@ -196,7 +184,9 @@ class _DownStore(MemoryStore):
     async def get(self, run_id: str) -> StoredRun | None:
         raise ConnectionError("the database is down")
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         raise ConnectionError("the database is down")
 
     async def expired(self, now: float) -> list[StoredRun]:

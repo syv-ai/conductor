@@ -183,18 +183,16 @@ async def _updates_are_compared_and_set(store: GuardedStore) -> list[str]:
 
 
 async def _expired_gives_the_runs_whose_lease_ran_out(store: GuardedStore) -> list[str]:
-    """Of five runs, ``expired`` gives the one whose lease ran out, the one handed back (``0.0``), and the one that
-    isn't running whose lease ran out while its ``run_end`` was stored. It gives neither the one whose lease holds nor
-    the one that isn't running with no lease. Runs that aren't the check's own are ignored."""
+    """Of four runs, ``expired`` gives the one whose lease ran out and the one handed back (``0.0``). It gives neither
+    the one whose lease holds nor the one that isn't running. Runs that aren't the check's own are ignored."""
     now = time.time()
     due = {lease: _new_run(owner="worker-a", lease_until=lease) for lease in (now - 60, 0.0)}
-    stopped_due = _new_run(owner="worker-a", lease_until=now - 30, stopped=True)
     held_until = now + 60
     held, not_running = (
         _new_run(owner="worker-a", lease_until=held_until),
         _new_run(owner=None, lease_until=None),
     )
-    for run in (*due.values(), stopped_due, held, not_running):
+    for run in (*due.values(), held, not_running):
         await store.create(run)
     given = {run.id for run in await store.expired(now)}
     found = [
@@ -203,11 +201,6 @@ async def _expired_gives_the_runs_whose_lease_ran_out(store: GuardedStore) -> li
         for lease, run in due.items()
         if run.id not in given
     ]
-    if stopped_due.id not in given:
-        found.append(
-            "expired: left out a run whose status isn't running, though its lease_until is before now; give every "
-            "run whose lease_until is before the time given, whatever its status"
-        )
     if held.id in given:
         found.append(
             f"expired: gave a run whose lease_until, {held_until}, is not before now; give only the runs whose "
@@ -223,13 +216,15 @@ async def _expired_gives_the_runs_whose_lease_ran_out(store: GuardedStore) -> li
 
 async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> list[str]:
     """The run's owner adds events, numbered from ``0`` for each run, and ``events`` gives those above a number, in
-    order. So does the owner of a run that isn't running. A worker that doesn't hold the run gets ``False`` and adds
-    nothing, also once the run has a new owner."""
+    order. A worker that doesn't hold the run gets ``False`` and adds nothing, also once the run has a new owner, and
+    also on a run that isn't running, with an owner or with none."""
     other, run, not_running = (
         _new_run(owner=owner, lease_until=None) for owner in ("worker-b", "worker-a", None)
     )
-    stopped = _new_run(owner="worker-c", lease_until=time.time() + 60, stopped=True)
-    for each in (other, run, not_running, stopped):
+    stopped = [
+        _new_run(owner=owner, lease_until=None, stopped=True) for owner in ("worker-b", None)
+    ]
+    for each in (other, run, not_running, *stopped):
         await store.create(each)
     bodies = [
         '{"type": "run_start"}',
@@ -242,11 +237,6 @@ async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> li
         return [
             "add_event: gave False for the run's owner; add the event and give True while the owner given is the "
             "run's owner"
-        ]
-    if not await store.add_event(stopped.id, "worker-c", '{"type": "run_end"}'):
-        return [
-            "add_event: gave False for the owner of a run whose status isn't running; check only the owner, since "
-            "a run that stops with no resume call gets its run_end from its owner after its status is written"
         ]
     for after in (-1, 0, 2):
         given = await store.events(run.id, after)
@@ -262,7 +252,12 @@ async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> li
         "add_event: added an event for a worker that doesn't hold the run; add one only while the owner given is "
         "the run's owner"
     )
-    for not_held in (run, other, not_running):  # by worker-a, which holds none of them now
+    for not_held in (
+        run,
+        other,
+        not_running,
+        *stopped,
+    ):  # by worker-a, which holds none of them now
         if await store.add_event(not_held.id, "worker-a", '{"type": "run_end"}'):
             return [by_another]
     if _as_events(await store.events(run.id, -1)) != _as_events(list(enumerate(bodies))):
@@ -270,12 +265,45 @@ async def _events_are_numbered_and_kept_for_the_owner(store: GuardedStore) -> li
     return []
 
 
+async def _an_update_with_an_event_writes_both_or_neither(store: GuardedStore) -> list[str]:
+    """An ``update`` with an event appends it, numbered after the run's last, exactly when the row is written: at the
+    run's ``rev``, whoever its owner is. At an older ``rev`` it writes neither."""
+    run = _new_run(owner="worker-a", lease_until=None)
+    await store.create(run)
+    first, ended = '{"type": "run_start"}', '{"type": "run_end", "status": "failed"}'
+    if not await store.add_event(run.id, "worker-a", first):
+        return []  # the check of add_event reports it
+    if not await store.update(run.id, run.rev, {"lease_until": 5.5}) or await store.update(
+        run.id, run.rev, {"lease_until": 6.5}
+    ):
+        return []  # the check of update reports it
+    run = dataclasses.replace(run, rev=run.rev + 1)
+    if not await store.update(run.id, run.rev, {"owner": "worker-b", "status": "failed"}, ended):
+        return [
+            "update: gave False for an update with an event at the run's rev; write the changes, append the event "
+            "and give True while the run is at the rev given"
+        ]
+    if _as_events(await store.events(run.id, -1)) != _as_events([(0, first), (1, ended)]):
+        return [
+            "update: an update with an event, at the run's rev, did not append the event numbered after the run's "
+            "last; append it in the same statement or transaction as the write"
+        ]
+    await store.update(run.id, run.rev, {"status": "complete"}, '{"type": "run_end"}')
+    if len(await store.events(run.id, -1)) != 2:
+        return [
+            "update: appended the event of an update that was not written; append it only when the write lands, "
+            "in the same statement or transaction"
+        ]
+    return []
+
+
 async def check_run_store(store: RunStore) -> list[str]:
     """Every way ``store`` differs from what the worker relies on, as plain messages.
 
     It checks that a run reads back as written, that ``update`` writes only at the ``rev`` it is given (and lets
-    one of several sent at once through), that ``expired`` gives exactly the runs whose lease ran out, and that
-    ``add_event`` and ``events`` number a run's events and add them only for its owner. A method that raises is
+    one of several sent at once through), that ``expired`` gives exactly the runs whose lease ran out, that
+    ``add_event`` and ``events`` number a run's events and add them only for its owner, and that an ``update`` with an
+    event writes both or neither. A method that raises is
     reported once, at that method, since the worker reads an exception from the store as an outage.
 
     Args:
@@ -292,6 +320,7 @@ async def check_run_store(store: RunStore) -> list[str]:
         _updates_are_compared_and_set,
         _expired_gives_the_runs_whose_lease_ran_out,
         _events_are_numbered_and_kept_for_the_owner,
+        _an_update_with_an_event_writes_both_or_neither,
     ):
         try:
             faults = await check(guarded)

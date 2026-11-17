@@ -3,7 +3,9 @@
 A stored run is one row of text and numbers, ``StoredRun``, so any database holds it. Every
 change is a compare-and-set on ``rev``: ``update`` writes only while the row is
 still at the ``rev`` the writer read, and moves it one on. That one rule is
-what lets several workers act on one run.
+what lets several workers act on one run. An ``update`` can append one event
+in the same write, which is how a run's ``run_end`` lands with the row that
+says how the run stopped.
 
 ``GuardedStore`` wraps a host's store so that anything it raises comes out as
 one exception, ``StoreFailedError``, which names the method. The worker and
@@ -45,12 +47,9 @@ class StoredRun:
             and, once the run is complete, its outputs. Written each time the run stops running, and its progress
             with each checkpoint.
         rev: Moved one on by every ``update``.
-        owner: The worker resuming it. A run that stops with no resume call, such as a waiting run that a person
-            declines, has an owner too while its ``run_end`` is stored: an id made for that one write, which stores
-            the event and then clears the owner. ``None`` otherwise.
+        owner: The worker resuming it.
         lease_until: Until when the owner's lease holds, as seconds since the epoch; a time already past for a run
-            handed back for any worker to go on with. A run that isn't running has one only while it has an owner, so
-            a worker stores its ``run_end`` if that write gave up. ``None`` otherwise.
+            handed back for any worker to go on with; ``None`` when the run is not running.
     """
 
     id: str
@@ -105,16 +104,24 @@ class RunStore(Protocol):
         """
         ...
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         """Write some columns of a run and move its ``rev`` one on, only if the run is still at ``rev``.
+
+        With ``event``, the write also appends that event to the run, numbered as ``add_event`` numbers one, in the
+        same statement or transaction: both land, or neither does. The worker writes a run's ``run_end`` this way,
+        with the row that says how the run stopped, so a reader never finds one without the other. The event is
+        appended whoever the row's ``owner`` is, since the ``rev`` already decides which writer wins.
 
         Args:
             run_id: The run's id.
             rev: The ``rev`` the writer read.
             changes: The columns to write.
+            event: An event to append with the write, as JSON; ``None`` for none.
 
         Returns:
-            Whether it was written: the run was still at ``rev``.
+            Whether it was written, and the event with it: the run was still at ``rev``.
         """
         ...
 
@@ -125,17 +132,13 @@ class RunStore(Protocol):
             now: The time, as seconds since the epoch.
 
         Returns:
-            The runs whose ``lease_until`` is before ``now``, whatever their ``status``. A run that isn't running
-            has a ``lease_until`` only while its ``run_end`` is stored, and a sweep then stores it if that write gave
-            up.
+            The runs whose ``lease_until`` is before ``now``. A run that is not running has no ``lease_until``, so
+            it is never one of them.
         """
         ...
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        """Append an event to a run, numbered one past the run's last (the first is ``0``), only while ``owner`` is the run's ``owner``.
-
-        Only the owner is checked, never the ``status``: a run that stopped with no resume call has its ``run_end``
-        added by its owner while its ``status`` already says how it stopped.
+        """Append an event to a run, numbered one past the run's last (the first is ``0``), only while ``owner`` holds the run.
 
         Checking the owner and appending are one statement: a worker whose lease ran out may still add events while
         another worker takes the run over, and its events must not land among the new owner's.
@@ -205,9 +208,11 @@ class GuardedStore:
         """``RunStore.get``."""
         return await _guarded("get", self._store.get(run_id))
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         """``RunStore.update``."""
-        return await _guarded("update", self._store.update(run_id, rev, changes))
+        return await _guarded("update", self._store.update(run_id, rev, changes, event))
 
     async def expired(self, now: float) -> list[StoredRun]:
         """``RunStore.expired``."""

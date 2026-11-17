@@ -35,6 +35,7 @@ from conductor import (
     make_graph,
 )
 from conductor_providers.fastapi import RunChanges, StoredRun, Worker
+from conductor_providers.fastapi.store import StoreFailedError
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
@@ -527,7 +528,9 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
         That is what a host's store does if its ``update`` forgets the one column it only uses in queries.
         """
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             return await super().update(
                 run_id, rev, {name: value for name, value in changes.items() if name != "status"}
             )
@@ -769,11 +772,13 @@ async def test_an_attempt_that_timed_out_keeps_seeing_the_stop_event_of_its_resu
 
         ending, let_end = AsyncioEvent(), AsyncioEvent()
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if changes.get("status") not in (None, "running") and not self.let_end.is_set():
                 self.ending.set()
                 await self.let_end.wait()
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = HoldsTheFirstEnd()
     worker = _worker(store, registry, context=stoppable)
@@ -902,8 +907,10 @@ class _UpdatesKept(MemoryStore):
         super().__init__()
         self.updates: list[RunChanges] = []
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-        written = await super().update(run_id, rev, changes)
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        written = await super().update(run_id, rev, changes, event)
         if written:
             self.updates.append(changes)
         return written
@@ -935,7 +942,7 @@ async def test_a_decline_of_a_waiting_run_writes_it_failed_with_one_run_end_and_
             [],
         )
         assert (row.status, row.owner, row.lease_until) == ("failed", None, None)
-        assert [changes.get("status") for changes in store.updates[updates:]] == ["failed", None]
+        assert [changes.get("status") for changes in store.updates[updates:]] == ["failed"]
         assert [
             (event["type"], event["status"], event["cause"]["type"])
             for event in (await store.stored_events(run_id))[events:]
@@ -1085,114 +1092,70 @@ async def test_a_resume_of_a_failed_run_whose_queue_holds_a_decline_it_takes_end
         ]
 
 
-class _InBetween(MemoryStore):
-    """A ``MemoryStore`` that awaits ``hook`` once, just before it adds the first ``run_end`` that says ``failed``."""
+class _FailsAnUpdateWithAnEvent(MemoryStore):
+    """A ``MemoryStore`` whose ``update`` raises when it is given an event once ``failing`` is set, as a database that
+    goes away would."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.hook: Callable[[], Awaitable[None]] | None = None
+    failing = False
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        if self.hook is not None and json.loads(body).get("status") == "failed":
-            hook, self.hook = self.hook, None
-            await hook()
-        return await super().add_event(run_id, owner, body)
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        if self.failing and event is not None:
+            raise ConnectionError("the database went away")
+        return await super().update(run_id, rev, changes, event)
 
 
-async def test_a_resume_on_the_same_worker_between_a_declines_write_and_its_run_end_keeps_the_decline_out_of_its_events() -> (
+async def test_a_decline_whose_write_the_store_fails_writes_neither_the_row_nor_its_run_end() -> (
     None
 ):
-    """The decline writes the waiting run failed, and before its ``run_end`` is stored, a resume on the same worker
-    claims the run. The decline's ``run_end`` is refused, since the claim moved the row's owner, so the resume call's
-    events are all that follow."""
+    """The failed row and its ``run_end`` are one write, so an outage leaves the run waiting, as it was, with no
+    ``run_end`` to repair. The decline raises the outage."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
-    store = _InBetween()
+    store = _FailsAnUpdateWithAnEvent()
     worker = _worker(store, registry)
     async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         await store.ended(run_id)
-        events = len(await store.stored_events(run_id))
+    before, events = store.rows[run_id], await store.stored_events(run_id)
+    store.failing = True
 
-        async def resume() -> None:
-            await worker.resume(run_id, allows=EVERY_RUN)
-
-        store.hook = resume
+    with pytest.raises(StoreFailedError):
         await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
-        ended = await store.ended(run_id)
 
-    added = _event_types((await store.stored_events(run_id))[events:])
-    assert (added[0], added[-1], ended.status) == ("run_start::", "run_end:waiting:", "waiting")
-    assert "run_end:failed:answer_declined" not in added
+    assert (store.rows[run_id], await store.stored_events(run_id)) == (before, events)
 
 
-class _FailsOnARunEnd(MemoryStore):
-    """A ``MemoryStore`` whose ``add_event`` raises once, for the first ``run_end`` that says ``failed``."""
+class _FollowedAsItEnds(MemoryStore):
+    """A ``MemoryStore`` that awaits ``hook`` once, right after an ``update`` with an event lands. ``read`` is set
+    each time ``events`` is called."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.failed = False
+        self.hook: Callable[[], Awaitable[None]] | None = None
+        self.read = AsyncioEvent()
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        if not self.failed and json.loads(body).get("status") == "failed":
-            self.failed = True
-            raise ConnectionError("the database went away")
-        return await super().add_event(run_id, owner, body)
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        written = await super().update(run_id, rev, changes, event)
+        if written and event is not None and self.hook is not None:
+            hook, self.hook = self.hook, None
+            await hook()
+        return written
+
+    async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
+        self.read.set()
+        return await super().events(run_id, after)
 
 
-async def test_a_decline_whose_run_end_the_store_fails_answers_failed_and_a_sweep_stores_the_run_end() -> (
-    None
-):
-    """The store fails after the decline wrote the run. The decline still answers with the run ``failed``. Once the
-    lease runs out, a sweep stores the ``run_end`` and clears the owner, so the row and its last ``run_end`` agree."""
+async def test_a_follower_that_connects_the_moment_a_decline_is_written_gets_its_run_end() -> None:
+    """The row and its ``run_end`` are written together, so a follower that reads the row stopped has the event."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
-    store = _FailsOnARunEnd()
-    worker = _worker(store, registry, lease=0.3)
-    async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        await store.ended(run_id)
-
-        written = await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
-
-        assert (written.status, written.cause.type) == ("failed", "answer_declined")
-        assert store.failed and store.rows[run_id].owner is not None
-        row = await store.until(run_id, lambda row: row.owner is None)
-
-    assert (row.status, row.lease_until) == ("failed", None)
-    assert _event_types(await store.stored_events(run_id))[-1] == "run_end:failed:answer_declined"
-
-
-async def test_a_decline_after_a_store_failure_stores_the_run_end_the_failure_left_out() -> None:
-    """No worker serves, so no sweep runs. Once the lease runs out, the next decline stores the ``run_end`` the
-    failure left out, clears the owner, and is refused as ``not_waiting``, since the question is declined."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = _FailsOnARunEnd()
-    served = _worker(store, registry)
-    async with served.serving():
-        run_id = await _started(served, graph, inputs)
-        await store.ended(run_id)
-    worker = _worker(store, registry, lease=0.05)
-    await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
-    await asyncio.sleep(0.1)
-
-    with pytest.raises(InvalidCallError) as refused:
-        await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
-
-    row = store.rows[run_id]
-    assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
-    assert (row.status, row.owner, row.lease_until) == ("failed", None, None)
-    assert _event_types(await store.stored_events(run_id))[-1] == "run_end:failed:answer_declined"
-
-
-async def test_a_follower_that_connects_as_a_declines_run_end_is_stored_gets_it() -> None:
-    """The decline has written the run failed and not yet stored its ``run_end`` when a follower connects. The run
-    still has the decline's owner, so the follower waits for the ``run_end``."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = _InBetween()
-    worker = _worker(store, registry, poll=0.01)
+    store = _FollowedAsItEnds()
+    worker = _worker(store, registry)
     async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         await store.ended(run_id)
@@ -1206,14 +1169,105 @@ async def test_a_follower_that_connects_as_a_declines_run_end_is_stored_gets_it(
         following: list[Task[None]] = []
 
         async def connect() -> None:
+            store.read.clear()
             following.append(asyncio.create_task(follow()))
-            await asyncio.sleep(0.05)
+            await store.read.wait()  # the follower has read the row and asked for its events
 
         store.hook = connect
         await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
         await asyncio.wait_for(following[0], 5)
 
     assert got == ["run_end"]
+
+
+class _EventsByMethod(MemoryStore):
+    """A ``MemoryStore`` that keeps, for each event, whether it came through ``update`` or ``add_event``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.came: list[tuple[str, str]] = []
+
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        written = await super().update(run_id, rev, changes, event)
+        if written and event is not None:
+            self.came.append(("update", json.loads(event)["type"]))
+        return written
+
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        added = await super().add_event(run_id, owner, body)
+        if added:
+            self.came.append(("add_event", json.loads(body)["type"]))
+        return added
+
+
+async def test_a_held_runs_run_end_is_written_in_the_update_that_writes_how_it_stopped() -> None:
+    """A run that ends while a worker holds it gets its ``run_end`` the one way any run does: with its row."""
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = _EventsByMethod()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        await store.ended(await _started(worker, graph, inputs))
+
+    assert [came for came in store.came if came[1] == "run_end"] == [("update", "run_end")]
+
+
+async def test_an_answer_to_a_stopped_run_whose_queue_declines_its_question_fails_the_run_with_no_resume_call() -> (
+    None
+):
+    """The decline came first, so it is taken, as on a running run: the run ends ``failed`` and isn't resumed, and
+    the answer is in ``refused`` as ``not_waiting``."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        _failed_with_queued(store, run_id, _queued_decline(waiting_id))
+        events = len(await store.stored_events(run_id))
+
+        written = await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+
+    assert written == await store.view(run_id)
+    assert (written.status, written.cause.type, written.outputs) == (
+        "failed",
+        "answer_declined",
+        None,
+    )
+    assert {key: [problem.type for problem in value] for key, value in written.refused.items()} == {
+        waiting_id: ["not_waiting"]
+    }
+    assert _event_types((await store.stored_events(run_id))[events:]) == [
+        "run_end:failed:answer_declined"
+    ]
+
+
+async def test_an_answer_to_a_stopped_run_whose_queue_answers_its_question_is_not_waiting_and_writes_nothing() -> (
+    None
+):
+    """The answer queued first is taken, so this one is refused, as a second answer to a question is."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+    _failed_with_queued(
+        store,
+        run_id,
+        {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
+    )
+    before = store.rows[run_id]
+
+    with pytest.raises(InvalidCallError) as refused:
+        await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+
+    assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
+    assert store.rows[run_id] == before
 
 
 async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_fails_the_run_when_it_stops() -> (
@@ -1429,10 +1483,12 @@ async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_lon
         That is the write that takes the queued answers.
         """
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if {"run", "state"} <= changes.keys():
                 await asyncio.sleep(0.3)
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = SlowEnd()
     worker = _worker(store, registry, lease=0.3)
@@ -1468,9 +1524,11 @@ async def test_the_end_of_a_resume_call_costs_one_read_one_event_and_one_write_a
             self.reads += 1
             return await super().get(run_id)
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             self.writes += 1
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = Counts()
     worker = _worker(store, registry)
@@ -1504,13 +1562,15 @@ async def test_an_answer_queued_just_before_a_resume_call_writes_its_end_starts_
 
         answered = False
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if not self.answered and changes.get("status") == "waiting":
                 self.answered = True
                 assert (
                     await other.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
                 ).status == "running"
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = AnswerAtTheEnd()
     worker, other = _worker(store, registry), _worker(store, registry)
@@ -1674,22 +1734,6 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
         gate.set()
         waiting = await store.ended(run_id)
         assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
-        store.rows[run_id] = dataclasses.replace(
-            store.rows[run_id],
-            state=json.dumps(
-                {
-                    **store.state(run_id),
-                    "queued": [
-                        {
-                            "waiting_id": waiting_id,
-                            "declined": False,
-                            "answer": False,
-                            "reason": None,
-                        }
-                    ],
-                }
-            ),
-        )  # leave an answer queued, as a resume call that raised does; the test above gets there through a real raise
 
         assert (
             await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
@@ -1906,11 +1950,13 @@ async def test_a_cancel_sent_as_a_resume_call_ends_cancels_the_one_an_answer_que
 
         cancelled = False
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if not self.cancelled and "outcome" in changes:
                 self.cancelled = True
                 assert (await other.cancel(run_id, allows=EVERY_RUN)).status == "running"
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = CancelAtTheEnd()
     worker, other = _worker(store, registry), _worker(store, registry)
@@ -1994,14 +2040,16 @@ async def test_a_resume_call_the_store_raises_in_is_given_up_and_the_run_is_resu
                 raise ConnectionError("the store is down for one statement")
             return await super().add_event(run_id, owner, body)
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if (
                 fails == "the write of a checkpoint"
                 and changes.keys() == {"run", "outcome"}
                 and self.down()
             ):
                 raise ConnectionError("the store is down for one statement")
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = RaisesOnce()
     worker = _worker(store, registry, lease=0.3, checkpoint_every=0.01)
@@ -2216,15 +2264,17 @@ async def test_a_run_whose_end_the_store_fails_to_write_stays_running_and_is_res
     registry, graph = _shout()
 
     class EndFailsOnce(MemoryStore):
-        """Raises once on the write that ends a resume call, after that call's ``run_end`` event is stored."""
+        """Raises once on the write that ends a resume call, which carries that call's ``run_end``, so neither lands."""
 
         raised = False
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if changes.get("status") == "complete" and not self.raised:
                 self.raised = True
                 raise ConnectionError("the store went away for one statement")
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = EndFailsOnce()
     worker = _worker(store, registry, lease=0.15)
@@ -2238,7 +2288,7 @@ async def test_a_run_whose_end_the_store_fails_to_write_stays_running_and_is_res
     assert store.raised and (ended.status, ended.cause, ends) == (
         "complete",
         None,
-        ["complete", "complete"],
+        ["complete"],
     )
     assert await _resume_calls(store, run_id) == 2
 
@@ -2404,10 +2454,12 @@ async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run
     written: list[dict[str, Any]] = []
 
     class Recording(MemoryStore):
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if changes.keys() == {"run", "outcome"}:
                 written.append(json.loads(changes["outcome"]))
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = Recording()
     worker = _worker(store, registry, checkpoint_every=0.01)
@@ -2478,11 +2530,13 @@ async def test_a_cancel_from_another_worker_that_arrives_as_a_worker_hands_the_r
 
         cancelled = False
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if not self.cancelled and changes.get("lease_until") == 0.0:
                 self.cancelled = True
                 assert (await other.cancel(run_id, allows=EVERY_RUN)).status == "running"
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = CancelAtHandBack()
     worker, other = _worker(store, registry), _worker(store, registry)
@@ -2518,11 +2572,13 @@ async def test_one_renewal_the_store_never_answers_is_followed_at_once_by_the_ne
 
         hung = False
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if changes.keys() == {"lease_until"} and not self.hung:
                 self.hung = True
                 await AsyncioEvent().wait()
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = OneRenewalHangs()
     worker, other = _worker(store, registry, lease=0.45), _worker(store, registry, lease=0.45)
@@ -2550,10 +2606,12 @@ async def test_a_worker_whose_renewal_never_returns_stops_once_another_took_the_
                 self.of = run.owner  # the worker that begins the run
             await super().create(run)
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if changes.keys() == {"lease_until"} and self.rows[run_id].owner == self.of:
                 await AsyncioEvent().wait()
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = RenewalHangs()
     hung, other = (
@@ -2595,11 +2653,13 @@ async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the
 
         armed = raised = False
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if self.armed and not self.raised and changes.keys() == {"run", "outcome"}:
                 self.raised = True
                 raise ConnectionError("the store is down for one statement")
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = HandBackFails()
     deployed, other = _worker(store, registry, lease=0.15), _worker(store, registry, lease=0.15)
@@ -2636,10 +2696,12 @@ async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_work
 
         late: str | None = None
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if self.late is None and changes.get("lease_until") == 0.0:
                 self.late = await _started(worker, graph, {"n": 40})
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = BeginsAtHandBack()
     worker = _worker(store, registry)
@@ -2665,8 +2727,10 @@ async def test_a_run_answered_while_its_last_resume_call_still_writes_its_end_is
             super().__init__()
             self.end_written, self.answer_end = AsyncioEvent(), AsyncioEvent()
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            written = await super().update(run_id, rev, changes)
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
+            written = await super().update(run_id, rev, changes, event)
             if written and changes.get("owner", "kept") is None and not self.end_written.is_set():
                 self.end_written.set()
                 await self.answer_end.wait()
@@ -2707,11 +2771,13 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(
                 raise ConnectionError("the store is down for one statement")
             return await super().expired(now)
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if fails == "the claim of a run" and not self.raised:
                 self.raised = True
                 raise ConnectionError("the store is down for one statement")
-            return await super().update(run_id, rev, changes)
+            return await super().update(run_id, rev, changes, event)
 
     store = SweepFailsOnce()
     worker = _worker(store, registry, lease=0.15)
@@ -2734,28 +2800,48 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(
     assert logged and all(logged)
 
 
-async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_so_no_other_worker_takes_the_run(
+async def test_a_renewal_that_raises_is_logged_and_the_next_one_renews_the_lease(
     caplog: LogCaptureFixture,
 ) -> None:
-    registry, graph, called, calls = _slow_items()
+    """The first renewal of the run's lease raises. The run's one node waits until the next renewal lands, so nothing
+    rests on a clock. That renewal is written by the worker that holds the run, and moves the lease on past the one
+    the run was claimed with. A sweep takes only a run whose lease is past, as the sweep tests show."""
+    registry, renewed = NodeRegistry(), ThreadEvent()
+
+    @registry.node("wait", title="Wait", description="Waits for the lease to be renewed.")
+    def wait(text: str) -> str:
+        assert renewed.wait(5)
+        return text
 
     class RenewalFailsOnce(MemoryStore):
-        raised = False
+        def __init__(self) -> None:
+            super().__init__()
+            self.raised = False
+            self.renewals: list[tuple[str | None, float | None]] = []
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
             if changes.keys() == {"lease_until"} and not self.raised:
                 self.raised = True
                 raise ConnectionError("the store is down for one statement")
-            return await super().update(run_id, rev, changes)
+            written = await super().update(run_id, rev, changes, event)
+            if written and changes.keys() == {"lease_until"}:
+                self.renewals.append((self.rows[run_id].owner, changes["lease_until"]))
+                renewed.set()
+            return written
 
     store = RenewalFailsOnce()
-    holder, other = _worker(store, registry, lease=0.3), _worker(store, registry, lease=0.3)
-    async with holder.serving(), other.serving():
-        run_id = await _started(holder, graph, {"n": 40})
+    worker = _worker(store, registry, lease=0.3)
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(wait), {"text": "x"})
+        claimed = store.rows[run_id]
         ended = await store.ended(run_id)
 
+    (holder, renewed_until), *_ = store.renewals
     assert store.raised and ended.status == "complete"
-    assert sorted(calls) == list(range(40)) and await _resume_calls(store, run_id) == 1
+    assert holder == claimed.owner and renewed_until > claimed.lease_until
+    assert await _resume_calls(store, run_id) == 1
     logged = [
         record.exc_info is not None
         for record in caplog.records

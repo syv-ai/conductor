@@ -30,13 +30,7 @@ from typing_extensions import TypeVar
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings, loaded
 from conductor_providers.fastapi.problems import no_such_run, run_not_resumable
 from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView
-from conductor_providers.fastapi.store import (
-    GuardedStore,
-    RunChanges,
-    RunStore,
-    StoredRun,
-    StoreFailedError,
-)
+from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunStore, StoredRun
 
 #: The class of the run's context, the registry's ``context_type``.
 X = TypeVar("X", default=None)
@@ -277,10 +271,13 @@ class Worker(Generic[M, X]):
         """Answer what waits in a run, by waiting id.
 
         While the run is running, the answers are queued, as one call sent them, and given to the run when its
-        resume call ends. Otherwise the run takes them as ``run.answer`` does, whatever its status, and it is
-        resumed. An answer to a question that nothing waits on any more, such as one in a complete run, is refused
-        by conductor as ``not_waiting``. No answers at all change nothing, as ``run.answer({})`` doesn't, so nothing
-        is written.
+        resume call ends. Otherwise the run is given them here, as ``run.answer`` takes them, whatever its status,
+        and it is resumed. Replies still queued from a resume call that raised are given first, so of an answer and
+        a decline to one question the one that came first is taken, as on a running run. When a decline among them
+        fails the run, it isn't resumed: it is written ``failed``, and these answers are in its ``refused`` if it
+        refuses them. An answer to a question that nothing waits on any more, such as one in a complete run, is
+        refused by conductor as ``not_waiting``. No answers at all change nothing, as ``run.answer({})`` doesn't, so
+        nothing is written.
 
         When another call takes the run between this call's read and its write, the run is read again, and the
         answers are given to it as it is then: queued if it is running, refused as ``not_waiting`` if the other
@@ -293,11 +290,12 @@ class Worker(Generic[M, X]):
                 ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
-            The run as written: ``running`` whether the answers were queued or resumed the run.
+            The run as written: ``running`` whether the answers were queued or resumed the run; ``failed`` when a
+            decline queued before them failed it.
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or the run refuses an answer; every answer it
-                refuses is listed. While the run is running, only an answer JSON can't write is refused now
+                refuses is listed, and nothing is written. While the run is running, only an answer JSON can't write is refused now
                 (``invalid_answer``), as the run would refuse it; the rest are checked when the run is given them.
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
         """
@@ -309,15 +307,18 @@ class Worker(Generic[M, X]):
             state = RunState.model_validate_json(row.state)
             if state.is_running:
                 return self._view(row)
-            taken, nodes = row, self.nodes_for(self._metadata_in(row))
-            answered = await asyncio.to_thread(
-                lambda: loaded(taken, nodes).answer(answers).to_json()
-            )
-            claimed = await self._claim(
-                row, state.answered(answers.keys()).running(), changed=answered
-            )
-            if claimed is not None:
-                return self._view(claimed)
+            ended, changes = await self._given_the_queue(row, state.with_queued(answers))
+            refused = [
+                problem for key in answers if key in ended.refused for problem in ended.refused[key]
+            ]
+            if ended.declined and not state.declined:
+                written = await self._write_ended(row, ended, changes)
+            elif refused:
+                raise InvalidCallError(refused)
+            else:
+                written = await self._claim(row, ended, changed=changes["run"])
+            if written is not None:
+                return self._view(written)
             row = await self._row(run_id)
 
     async def decline(
@@ -339,8 +340,8 @@ class Worker(Generic[M, X]):
         as it would have.
 
         A run that isn't running is given the decline here, after any replies still queued from a resume call that
-        raised, and written as it ends: ``failed``, with a ``run_end`` that says so in its events. Nothing resumes
-        it, so this needs no ``serving()``. A decline the run refuses is refused here, unless a decline queued
+        raised, and written as it ends: ``failed``, with a ``run_end`` that says so in its events, in the same write.
+        Nothing resumes it, so this needs no ``serving()``. A decline the run refuses is refused here, unless a decline queued
         before it already failed the run. Then the run ends as this decline would have ended it, and this one is in
         its ``refused``.
 
@@ -373,17 +374,12 @@ class Worker(Generic[M, X]):
             state = RunState.model_validate_json(row.state)
             if state.is_running:
                 return self._view(row)
-            if row.owner is not None and _lease_ran_out(row):
-                # a call before this one wrote the run ended, and the store failed before its run_end was stored
-                await self._write_ended(row, {})
-                row = await self._row(run_id)
-                continue
             ended, changes = await self._given_the_queue(row, state.with_queued(declines=declines))
             # The decline comes last in the queue, so the run refused it only if its question is in refused now.
             # It is refused only when no decline queued before it failed the run.
             if waiting_id in ended.refused and not (ended.declined and not state.declined):
                 raise InvalidCallError(ended.refused[waiting_id])
-            written = await self._write_ended(row, {**ended.columns(), **changes})
+            written = await self._write_ended(row, ended, changes)
             if written is not None:
                 return self._view(written)
             row = await self._row(run_id)
@@ -428,7 +424,7 @@ class Worker(Generic[M, X]):
             if any(reply.declined for reply in state.queued):
                 ended, changes = await self._given_the_queue(row, state)
                 if ended.declined:
-                    written = await self._write_ended(row, {**ended.columns(), **changes})
+                    written = await self._write_ended(row, ended, changes)
                     if written is not None:
                         return self._view(written)
                     row = await self._row(run_id)
@@ -514,14 +510,13 @@ class Worker(Generic[M, X]):
         return self._events_from(row, after)
 
     async def _events_from(self, row: StoredRun, after: int) -> AsyncGenerator[tuple[int, str]]:
-        """The events of the run in ``row`` above ``after``, until the run stopped and its ``run_end`` is stored.
+        """The events of the run in ``row`` above ``after``, until the run isn't running.
 
-        A row stops saying ``running`` only after the ``run_end`` of its resume call is stored. A run that stopped
-        with no resume call keeps an owner until its ``run_end`` is stored. So once a read of the row says the run
-        stopped and has no owner, the events stored then are all there will be. The row is read again only when a
-        ``run_end`` was the last event, or there was no event yet; otherwise events alone are read.
+        A row stops saying ``running`` in the same write that stores its ``run_end``. So once a read of the row says
+        the run stopped, the events stored then are all there will be. The row is read again only when a ``run_end``
+        was the last event, or there was no event yet; otherwise events alone are read.
         """
-        run_id, ended = row.id, _has_all_its_events(row)
+        run_id, ended = row.id, not RunState.model_validate_json(row.state).is_running
         may_have_ended = True
         while True:
             new = await self._store.events(run_id, after)
@@ -534,23 +529,17 @@ class Worker(Generic[M, X]):
                 may_have_ended = from_json(new[-1][1])["type"] == "run_end"
                 continue
             if may_have_ended:
-                ended = _has_all_its_events(await self._row(run_id))
-            if not ended:  # the row is written after its run_end, so it may still say running for a poll or two
+                ended = not RunState.model_validate_json((await self._row(run_id)).state).is_running
+            if not ended:
                 await asyncio.sleep(self._poll)
 
     async def _sweep(self) -> None:
-        """Go on with every run whose lease ran out: its worker died or handed it back. A run that stopped with no
-        resume call has a lease only while its ``run_end`` is stored, so one whose lease ran out gets its ``run_end``
-        stored here. A run that can't be taken (its row can't be read, the store fails) is logged and left for the
-        next call, and the others are taken."""
+        """Go on with every run whose lease ran out: its worker died or handed it back. A run that can't be taken
+        (its row can't be read, the store fails) is logged and left for the next call, and the others are taken."""
         for row in await self._store.expired(time.time()):
             if row.id not in self._held:
                 try:
-                    state = RunState.model_validate_json(row.state)
-                    if state.is_running:
-                        await self._claim(row, state)
-                    else:
-                        await self._write_ended(row, {})
+                    await self._claim(row, RunState.model_validate_json(row.state))
                 except Exception:
                     log.exception(
                         "run %s, whose lease ran out, was not taken over; the next sweep tries again",
@@ -773,53 +762,27 @@ class Worker(Generic[M, X]):
             lambda: state.ended_with(loaded(row, nodes), row.run, row.outcome)
         )
 
-    async def _write_ended(self, row: StoredRun, changes: RunChanges) -> StoredRun | None:
-        """Write a run that stopped with no resume call, if the row is still at the ``rev`` read, and store its
-        ``run_end``, which says what the row says.
+    async def _write_ended(
+        self, row: StoredRun, state: RunState, changes: RunChanges
+    ) -> StoredRun | None:
+        """Write a run that stopped with no resume call, with its ``run_end``, if the row is still at the ``rev`` read.
 
-        A store takes an event only from the row's ``owner``. So the row is written with an owner made for this one
-        call, and a lease, though no resume call runs. Then the ``run_end`` is stored, and the owner and lease are
-        cleared. When another call writes the row in between, such as a resume that claims it, the owner moves, so
-        nothing more is stored.
-
-        When the store fails after the row is written, the row keeps that owner and lease. Once the lease runs out,
-        a worker's sweep or the next decline calls this again with no changes, which stores the ``run_end`` and
-        clears the owner. The ``run_end`` may then be stored twice, both times saying what the row says.
+        The row and the ``run_end`` that says what it says are one ``update``, so both land or neither does. Of two
+        calls that write the row, one wins.
 
         Args:
             row: The run's row as read.
-            changes: The columns to write: the state the run stopped with, and its ``run`` and ``outcome``. Nothing,
-                to store the ``run_end`` of a row written so before.
+            state: The state the run stopped with.
+            changes: The row's ``run`` and ``outcome`` to write with it.
 
         Returns:
             The row as written; ``None`` when another call wrote it first.
-
-        Raises:
-            StoreFailedError: The store failed before the row was written.
         """
-        owner = f"{self._settings.worker_id}/{uuid.uuid4().hex}"
-        written: RunChanges = {
-            **changes,
-            "owner": owner,
-            "lease_until": time.time() + self._settings.lease,
-        }
-        if not await self._store.update(row.id, row.rev, written):
-            return None
-        stored = replace(row, **written, rev=row.rev + 1)
-        state = RunState.model_validate_json(stored.state)
+        written: RunChanges = {**state.columns(), **changes}
         ended = RunEnd(status=state.status, cause=state.cause).model_dump_json()
-        unheld: RunChanges = {"owner": None, "lease_until": None}
-        try:
-            if await self._store.add_event(row.id, owner, ended) and await self._store.update(
-                row.id, stored.rev, unheld
-            ):
-                stored = replace(stored, **unheld, rev=stored.rev + 1)
-        except StoreFailedError:
-            log.exception(
-                "storing the run_end of run %s failed; once its lease runs out, a worker's sweep stores it",
-                row.id,
-            )
-        return stored
+        if not await self._store.update(row.id, row.rev, written, ended):
+            return None
+        return replace(row, **written, rev=row.rev + 1)
 
     def _resume_in_background(self, row: StoredRun) -> None:
         """Start the task that resumes a run this worker has just taken.
@@ -863,14 +826,3 @@ class Worker(Generic[M, X]):
                 return replace(row, **changes, rev=row.rev + 1)
             row = await self._row(row.id)
         return row
-
-
-def _lease_ran_out(row: StoredRun) -> bool:
-    """Whether the row's lease ran out: its ``lease_until`` is set and already past."""
-    return row.lease_until is not None and row.lease_until < time.time()
-
-
-def _has_all_its_events(row: StoredRun) -> bool:
-    """Whether every event of the run in ``row`` is stored: the run isn't running, and has no owner left to store its
-    ``run_end``."""
-    return row.owner is None and not RunState.model_validate_json(row.state).is_running

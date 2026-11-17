@@ -61,11 +61,15 @@ class MemoryStore:
     async def get(self, run_id: str) -> StoredRun | None:
         return self.rows.get(run_id)
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         row = self.rows.get(run_id)
         if row is None or row.rev != rev:
             return False
         self.rows[run_id] = dataclasses.replace(row, **changes, rev=rev + 1)
+        if event is not None:
+            self.written[run_id].append(event)
         self._changed.set()
         return True
 

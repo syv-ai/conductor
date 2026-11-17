@@ -73,12 +73,14 @@ class _KeepsJsonAsJsonb(MemoryStore):
         }
         await super().create(dataclasses.replace(run, **columns))
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         rewritten = {
             name: self._rewritten(value) if name in ("run", "state", "outcome") else value
             for name, value in changes.items()
         }
-        return await super().update(run_id, rev, rewritten)  # type: ignore[arg-type]
+        return await super().update(run_id, rev, rewritten, event)  # type: ignore[arg-type]
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         return await super().add_event(run_id, owner, self._rewritten(body))
@@ -104,18 +106,22 @@ class _ReadsAReplicaThatLags(MemoryStore):
 
 
 class _SkipsNone(MemoryStore):
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         written = {name: value for name, value in changes.items() if value is not None}
-        return await super().update(run_id, rev, written)  # type: ignore[arg-type]
+        return await super().update(run_id, rev, written, event)  # type: ignore[arg-type]
 
 
 class _ForgetsRunAndState(MemoryStore):
     """Leaves out the ``run`` and ``state`` columns on update, like a hand-written ``UPDATE`` that forgot two
     columns."""
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         kept = {name: value for name, value in changes.items() if name not in ("run", "state")}
-        return await super().update(run_id, rev, kept)  # type: ignore[arg-type]
+        return await super().update(run_id, rev, kept, event)  # type: ignore[arg-type]
 
 
 class _GivesAnEmptyRun(MemoryStore):
@@ -125,14 +131,18 @@ class _GivesAnEmptyRun(MemoryStore):
 
 
 class _SaysFalseThoughItWrote(MemoryStore):
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-        await super().update(run_id, rev, changes)
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        await super().update(run_id, rev, changes, event)
         return False
 
 
 class _ForgetsTheRev(MemoryStore):
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-        return await super().update(run_id, self.rows[run_id].rev, changes)
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        return await super().update(run_id, self.rows[run_id].rev, changes, event)
 
 
 class _ReadsThenWrites(MemoryStore):
@@ -141,12 +151,16 @@ class _ReadsThenWrites(MemoryStore):
     That is how two separate SQL statements behave: another write can land between them.
     """
 
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
         row = self.rows.get(run_id)
         if row is None or row.rev != rev:
             return False
         await asyncio.sleep(0)
         self.rows[run_id] = dataclasses.replace(row, **changes, rev=rev + 1)
+        if event is not None:
+            self.written[run_id].append(event)
         return True
 
 
@@ -173,16 +187,29 @@ class _RefusesEveryEvent(MemoryStore):
         return False
 
 
-class _EventsOnlyWhileRunning(MemoryStore):
+class _AnyoneMayAddOnAStoppedRun(MemoryStore):
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        if self.rows[run_id].status != "running":
-            return False
-        return await super().add_event(run_id, owner, body)
+        if self.rows[run_id].status == "running":
+            return await super().add_event(run_id, owner, body)
+        self.written[run_id].append(body)
+        return True
 
 
-class _ExpiredOnlyWhileRunning(MemoryStore):
-    async def expired(self, now: float) -> list[StoredRun]:
-        return [row for row in await super().expired(now) if row.status == "running"]
+class _ForgetsTheEvent(MemoryStore):
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        return await super().update(run_id, rev, changes)
+
+
+class _AddsTheEventOfAStaleUpdate(MemoryStore):
+    async def update(
+        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+    ) -> bool:
+        written = await super().update(run_id, rev, changes, event)
+        if not written and event is not None:
+            self.written[run_id].append(event)
+        return written
 
 
 class _AnyoneMayAdd(MemoryStore):
@@ -216,10 +243,17 @@ class _CreateRaises(MemoryStore):
         (_NoLeaseIsZero, "expired: gave a run whose lease_until is None"),
         (_RefusesEveryEvent, "add_event: gave False for the run's owner"),
         (
-            _EventsOnlyWhileRunning,
-            "add_event: gave False for the owner of a run whose status isn't running",
+            _AnyoneMayAddOnAStoppedRun,
+            "add_event: added an event for a worker that doesn't hold the run",
         ),
-        (_ExpiredOnlyWhileRunning, "expired: left out a run whose status isn't running"),
+        (
+            _ForgetsTheEvent,
+            "update: an update with an event, at the run's rev, did not append the event",
+        ),
+        (
+            _AddsTheEventOfAStaleUpdate,
+            "update: appended the event of an update that was not written",
+        ),
         (_AnyoneMayAdd, "add_event: added an event for a worker that doesn't hold the run"),
         (_FromAfterOn, "events: events(run_id, 0) gave the events numbered [0, 1, 2]"),
         (_CreateRaises, "create: raised ConnectionError: the database is down"),

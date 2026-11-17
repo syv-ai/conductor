@@ -200,7 +200,9 @@ def run_router(
         The run takes them whatever its status, so a run that failed, stopped, timed out or was cancelled with
         questions waiting is answered and goes on. Every answer it refuses is in the 422. While the run is running,
         the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
-        An answer JSON can't write, such as text with a lone surrogate, is a 422 at once, running or not.
+        An answer JSON can't write, such as text with a lone surrogate, is a 422 at once, running or not. A run whose
+        resume call raised is given the replies still queued first: when a decline among them fails it, it comes back
+        ``failed`` and isn't resumed.
         """
         return await worker.answer(run_id, answers, allows=allows)
 
