@@ -12,7 +12,7 @@ import time as t
 from asyncio import Event
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 from threading import Barrier
 from threading import Event as ThreadEvent
 from typing import Annotated, Any, Literal, TypeAliasType, TypedDict
@@ -34,7 +34,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
+from pydantic import AfterValidator, BaseModel, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 
 from tests.test_core.nodes import place, registry_of
@@ -1281,6 +1281,70 @@ def test_a_hosts_check_that_raises_on_every_value_of_a_literal_source_is_a_type_
     (problem,) = _wired(Literal["x"], "x", Annotated[str, AfterValidator(_raises_a_bug)]).problems
 
     assert problem.type == "type_mismatch"
+
+
+@host_type("plain-tint", title="Plain tint")
+class _PlainTint(Enum):
+    RED = "red"
+
+
+@host_type("tint-model", title="Tint model")
+class _TintModel(BaseModel):
+    tint: Literal[_PlainTint.RED]
+
+
+@node("give-tint-model", title="Give tint model", description="For a test.")
+def give_tint_model(text: str) -> _TintModel:
+    return _TintModel(tint=_PlainTint.RED)
+
+
+@node("take-int", title="Take int", description="For a test.")
+def take_int(value: int) -> str:
+    return str(value)
+
+
+def test_an_edge_from_a_host_models_field_that_doesnt_fit_is_a_type_mismatch():
+    """A host model's own fields are its own to check, so ``@node`` doesn't read them, and naming such a field's type
+    in a message never raises: compiling reports, as for any other edge."""
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "a": {"node": "give-tint-model", "inputs": {"text": {"graph_input": "text"}}},
+                    "b": {
+                        "node": "take-int",
+                        "inputs": {
+                            "value": {
+                                "sources": [{"node": "a", "output": "result", "field": "tint"}]
+                            }
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "b", "output": "result"}},
+            }
+        ),
+        registry_of(give_tint_model, take_int),
+    )
+
+    assert [problem.type for problem in graph.problems] == ["type_mismatch"]
+    assert "plain-tint" in graph.problems[0].msg
+
+
+@host_type("whole-tint", title="Whole tint")
+class _WholeTint(IntEnum):
+    ONE = 1
+    TWO = 2
+
+
+@pytest.mark.parametrize(("source", "value"), [(Literal[1], 1), (int, 1)])
+def test_a_literal_of_an_enums_members_is_named_by_the_enums_id(source, value):
+    """The class is what an edge into ``Literal[WholeTint.ONE]`` must give, so the message names it and gives no advice
+    a value would meet."""
+    (problem,) = _wired(source, value, Literal[_WholeTint.ONE]).problems
+
+    assert problem.type == "type_mismatch"
+    assert "takes whole-tint." in problem.msg
+    assert "with other choices or limits" not in problem.msg
 
 
 @host_type("tint", title="Tint")

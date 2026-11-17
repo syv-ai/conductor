@@ -263,7 +263,8 @@ def named_value_invalid_enum(*, enum: str, member: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("named_value_invalid", variant="alike")
 def named_value_invalid_alike(*, values: list[Any]) -> str:
-    """Two values of a ``Literal`` are written as the same JSON, like ``inf`` and the text ``"Infinity"``.
+    """Two values of a ``Literal``, or two members of an enum, are written as the same JSON, like ``inf`` and the text
+    ``"Infinity"``.
 
     A saved run, a person's answer and a graph record hold a value as its JSON. Two values with one JSON form can't be
     told apart there, so one would come back as the other.
@@ -271,7 +272,7 @@ def named_value_invalid_alike(*, values: list[Any]) -> str:
     To fix it, give values whose JSON differs.
 
     Args:
-        values: The values of the ``Literal``.
+        values: The values of the ``Literal``, or the enum's members.
 
     Example:
         from typing import Literal
@@ -284,8 +285,8 @@ def named_value_invalid_alike(*, values: list[Any]) -> str:
         declaration_refused(lambda: node("cap", title="Cap", description="Hands back the cap.")(cap))
     """
     return (
-        f"two of the Literal's values {comma_separated(values)} are written as the same JSON, so a saved run or an"
-        " answer can't tell them apart. Give values whose JSON differs."
+        f"two of the values {comma_separated(values)} are written as the same JSON, so a saved run or an answer"
+        " can't tell them apart. Give values whose JSON differs."
     )
 
 

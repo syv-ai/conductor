@@ -62,7 +62,13 @@ from conductor._internal.node import (
     NodeDefinition,
     SubgraphDefinition,
 )
-from conductor._internal.problem import InvalidCallError, NodeError, Problem, compile_problems
+from conductor._internal.problem import (
+    InvalidCallError,
+    NodeDeclarationError,
+    NodeError,
+    Problem,
+    compile_problems,
+)
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
 from conductor._internal.types import Type
 
@@ -1176,14 +1182,20 @@ def _type_in_message(value_type: Type, text: str) -> str:
     """Names a type in a ``type_mismatch`` message, any variant: by its values when it names them, else as ``text``.
 
     A ``Literal``, or a plain class with ``Param(choices=)``, is named by its values: ``Literal["ida", "bo"]`` is
-    ``"ida" or "bo"``, where its id, ``str``, would say nothing of which values it takes. An enum keeps its id, since
-    its class is what an edge must give. Past five values the rest are counted: ``"a", "b", "c", "d", "e" or 295
-    more``.
+    ``"ida" or "bo"``, where its id, ``str``, would say nothing of which values it takes. An enum, and a ``Literal``
+    of an enum's members, keep their id, since the class is what an edge must give. Past five values the rest are
+    counted: ``"a", "b", "c", "d", "e" or 295 more``.
+
+    A type ``@node`` never read the choices of, like a host model's field, which is the host's own to check, is named
+    as ``text`` when its choices can't be read, since a message never raises.
     """
-    choices = value_type.choices
-    if choices is None or any(
-        isinstance(option, type) and issubclass(option, Enum) for option in value_type.options
-    ):
+    if any(issubclass(named, Enum) for named in value_type.classes):
+        return text
+    try:
+        choices = value_type.choices
+    except NodeDeclarationError:
+        return text
+    if choices is None:
         return text
     named = [canonical_json(choice.id) for choice in choices]
     if len(named) > 5:  # a long list is cut short, so the message stays one line

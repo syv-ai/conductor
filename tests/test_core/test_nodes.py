@@ -2071,6 +2071,24 @@ def test_a_literal_of_a_plain_enums_member_is_told_to_take_the_enum_or_fix_its_v
     assert " a _" not in "".join(messages)
 
 
+@host_type("cap-kind", title="Cap kind")
+class _CapKind(Enum):
+    NONE = float("inf")
+    TEXT = "Infinity"
+
+
+def test_an_enum_with_two_members_of_one_json_form_is_alike() -> None:
+    """``inf`` and ``"Infinity"`` are written as one JSON, so a saved run couldn't tell the two members apart."""
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("give", title="Give", description="For a test.")
+        def give() -> _CapKind:
+            return _CapKind.NONE
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx.get("variant")) == ("named_value_invalid", "alike")
+
+
 def test_a_literal_of_an_enums_member_is_told_to_take_the_enum() -> None:
     with pytest.raises(NodeDeclarationError) as raised:
 

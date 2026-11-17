@@ -23,7 +23,7 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import CoreSchema, PydanticSerializationError, SchemaValidator, core_schema
 
-from conductor._internal.base import canonical_json, validate_as_json
+from conductor._internal.base import canonical_json, plain_json, validate_as_json
 from conductor._internal.problem import NodeDeclarationError, conductor_error, declaration_problems
 
 from .hint import a_number
@@ -124,8 +124,8 @@ def _check_named_values(schema: dict[str, Any]) -> None:
 
     Raises:
         NodeDeclarationError: ``named_value_invalid`` for a ``Literal``'s value, its variant ``enum`` for an enum's
-            member, and ``alike`` for two of a ``Literal``'s values written as the same JSON, like ``inf`` and
-            ``"Infinity"``.
+            member, and ``alike`` for two of a ``Literal``'s values or an enum's members written as the same JSON, like
+            ``inf`` and ``"Infinity"``.
     """
     kind = schema.get("type")
     if kind not in ("literal", "enum"):
@@ -170,7 +170,8 @@ def _check_named_values(schema: dict[str, Any]) -> None:
         raise NodeDeclarationError(
             declaration_problems.named_value_invalid(value=repr(value), instead=instead)
         )
-    if kind == "literal" and len({canonical_json(value) for value in values}) != len(values):
+    # two values written as one JSON can't be told apart, in a Literal or an enum, like inf and "Infinity"
+    if len({canonical_json(plain_json(value)) for value in values}) != len(values):
         raise NodeDeclarationError(
             declaration_problems.named_value_invalid_alike(values=list(values))
         )
