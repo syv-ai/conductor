@@ -335,7 +335,8 @@ class Worker(Generic[M, X]):
         raised, and written as it ends: ``failed``, with a ``run_end`` that says so in its events, in the same write.
         Nothing resumes it, so this needs no ``serving()``. A decline the run refuses is refused here, unless the run
         took an answer queued before it. Then the run is resumed with its queue kept, as an answer resumes it, so
-        that needs ``serving()``, and this decline is in its ``refused``.
+        that needs ``serving()``. The refusal shows on the response, and in the run's ``refused`` until that question
+        is answered: a queued answer to the same question answers it when the resume call ends.
 
         When another call takes the run between this call's read and its write, the run is read again, and the
         decline goes by what it is then: queued if it is running, refused as ``not_waiting`` if the question was

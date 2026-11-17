@@ -220,8 +220,9 @@ def run_router(
 
         A run that takes the decline ends ``failed`` with ``answer_declined``, and is not resumed: a later resume
         asks the question again. A run that isn't running takes it at once and comes back ``failed``. When it refuses
-        the decline but takes an answer still queued from a resume call that raised, it is resumed with its queue,
-        and the decline is in its ``refused``. A decline the run refuses, with nothing taken, is in the 422, and so is a reason JSON
+        the decline but takes an answer still queued from a resume call that raised, it is resumed with its queue.
+        The refusal shows on the response, and in its ``refused`` until that question is answered: a queued answer
+        to the same question answers it when the resume call ends. A decline the run refuses, with nothing taken, is in the 422, and so is a reason JSON
         can't write, running or not. While the run is running, the decline waits until it stops and is given to it then, in order with the
         answers. The run can refuse it then, as ``not_waiting`` after an answer to the same question or as
         ``answer_stale``: it is in the run's ``refused``, and the run goes on as it would have.

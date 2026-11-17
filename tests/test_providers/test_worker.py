@@ -1006,7 +1006,8 @@ async def test_a_decline_to_a_stopped_run_whose_queue_answers_its_question_resum
 ):
     """A resume call that raised leaves its queue, and the view still shows the question waiting. The decline is
     given after the queue, so the queued answer is taken first and the decline isn't: the run is resumed, with its
-    queue kept for the end of the resume call, and ends with the queued answer. It isn't a 422."""
+    queue kept for the end of the resume call, and ends with the queued answer. It isn't a 422. The decline's
+    refusal shows on the response, and leaves ``refused`` once the queued answer answers its question."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     store = MemoryStore()
@@ -1024,7 +1025,14 @@ async def test_a_decline_to_a_stopped_run_whose_queue_answers_its_question_resum
         ended = await store.ended(run_id)
 
     assert written.status == "running"
-    assert (ended.status, ended.outputs) == ("complete", {"busy": "x", "after": False})
+    assert {key: [problem.type for problem in value] for key, value in written.refused.items()} == {
+        waiting_id: ["not_waiting"]
+    }
+    assert (ended.status, ended.outputs, ended.refused) == (
+        "complete",
+        {"busy": "x", "after": False},
+        {},
+    )
 
 
 async def test_an_answer_to_a_stopped_run_whose_queue_answers_the_same_question_wins_over_it() -> (

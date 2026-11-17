@@ -432,8 +432,9 @@ What changes in how you work, before the name-by-name tables:
   `failed` with no resume call, so a worker that never served takes it, and the route answers with the run
   `failed`; its events get one `run_end` that says so. A decline it refuses is a 422 (`not_waiting`,
   `answer_stale`), and nothing is written, unless the run took an answer still queued from a resume call that
-  raised: then the run is resumed with its queue, which needs a serving worker, and this decline is in its
-  `refused`. A resume of a run whose queue holds a
+  raised: then the run is resumed with its queue, which needs a serving worker. The refusal shows on the response,
+  and in `refused` until that question is answered: a queued answer to the same question answers it when the
+  resume call ends. A resume of a run whose queue holds a
   decline it takes makes no resume call: the run is given the queue and written `failed`, `answer_declined`. An
   answer to a run whose queue holds a decline is given after it, so a decline the run takes fails it, written with
   no resume call, and an answer it then refuses is in `refused`; any other answer to a stopped run goes to
