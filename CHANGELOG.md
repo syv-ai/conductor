@@ -645,6 +645,10 @@ What changes in how you work, before the name-by-name tables:
   a `Param(choices=)`, is refused with "the value is not "ida" or "bo"" (`not_a_choice` in `ctx.errors`, and in the
   `reason` of `invalid_answer`), past five counted as `type_mismatch` counts them: `"a", "b", "c", "d", "e" or 4
   more`. It said "the value is not one of the choices", while a `Literal`'s refusal named its values.
+- **`check_registry` joins the messages behind a problem with a space.** The `reason` of `example_not_compiled`,
+  `example_refused`, `example_hook_failed`, `subgraph_broken` and `upgrade_broken` is the messages of the
+  problems behind it, each whole sentences, joined by a space: "'old' has no input 'bb'. Its inputs are b. 'b' gets
+  no value. ..." They were joined by "; ", which put ".;" between them.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

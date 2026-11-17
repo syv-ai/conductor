@@ -342,11 +342,12 @@ def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) ->
 def _reason(behind: Sequence[Problem]) -> str:
     """Returns the ``reason`` of a ``check_registry`` problem: the messages of the problems behind it.
 
-    The messages are joined by ``"; "``. An exception the node raised is an ``execution_failed`` problem, whose
-    message doesn't say which exception it was. So its class name is used instead, as in
-    ``"the node raised ZeroDivisionError"``.
+    Each message is one or more whole sentences, so they are joined by a space: ``"'glue' has no input 'aa'. Its
+    inputs are a, b. 'b' gets no value. ..."``. An exception the node raised is an ``execution_failed`` problem,
+    whose message doesn't say which exception it was. So its class name is used instead, as in
+    ``"the node raised ZeroDivisionError"``. A run ends on one cause, so that text is never joined to another.
     """
-    return "; ".join(
+    return " ".join(
         f"the node raised {p.ctx['error']}" if p.type == "execution_failed" else p.msg
         for p in behind
     )

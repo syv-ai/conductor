@@ -396,8 +396,8 @@ def test_an_upgrade_that_returns_none_is_upgrade_broken_and_the_other_nodes_are_
 def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
     """A ``check_registry`` problem's ``reason`` is the messages of the problems behind it.
 
-    Those problems are in ``ctx.problems``. The ``reason`` is just their messages, joined by "; ". This holds for
-    every kind alike.
+    Those problems are in ``ctx.problems``. The ``reason`` is just their messages, joined by a space, since each is
+    whole sentences. This holds for every kind alike.
     """
 
     @node("size", title="Size v1", description="For a test.")
@@ -417,6 +417,15 @@ def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
     [problem] = check_registry(registry_of(size))
     [behind] = problem.ctx["problems"]
     assert problem.ctx["reason"] == behind["msg"]
+
+    @node("pair", title="Pair", description="For a test.")
+    def pair(left: str, right: str) -> str:
+        return left + right
+
+    [problem] = check_registry(registry_of(pair), examples={"pair": [{"lft": "a", "right": "b"}]})
+    first, second = (behind["msg"] for behind in problem.ctx["problems"])
+    assert (problem.type, problem.ctx["reason"]) == ("example_not_compiled", f"{first} {second}")
+    assert ".;" not in problem.msg
 
 
 # -- calling the body ------------------------------------------------------------------------------
