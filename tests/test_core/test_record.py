@@ -2583,6 +2583,49 @@ def test_make_graph_leaves_an_optional_input_with_no_entry_out_and_it_is_no_grap
     assert list(Graph.compile(record, PLAIN).inputs) == ["text"]
 
 
+def test_make_graph_names_an_optional_input_in_inputs_and_the_graph_input_keeps_the_inputs_default():
+    """Naming an optional input in ``inputs=`` renames it, and a caller may still leave it out.
+
+    A graph input that feeds two inputs takes their default only when both declare the same one, since one graph
+    input has one default. One that ``defaults=`` gives a default keeps that.
+    """
+
+    @node("repeat", title="Repeat", description="For a test.")
+    def repeat(text: str, times: int = 2) -> str:
+        return text * times
+
+    record = make_graph(_shout, inputs={"n": "shout.times"})
+    graph = Graph.compile(record, PLAIN)
+
+    assert record.nodes["shout"].inputs["times"] == InputEntry(graph_input="n", default=1)
+    assert graph.run({"text": "a"}).outputs == {"result": "A!"}
+    assert graph.run({"text": "a", "n": 3}).outputs == {"result": "A!!!"}
+    given = make_graph(_shout, inputs={"n": "shout.times"}, defaults={"shout.times": 2})
+    assert given.nodes["shout"].inputs["times"] == InputEntry(graph_input="n", default=2)
+
+    def times_of(*nodes: Any) -> dict[str, Any]:
+        both = make_graph(
+            *nodes,
+            edges=[],
+            inputs={"n": ["a.times", "b.times"], "text": ["a.text", "b.text"]},
+            outputs={"a": "a.result", "b": "b.result"},
+        )
+        return {node_id: both.nodes[node_id].inputs["times"] for node_id in ("a", "b")}
+
+    assert times_of(("a", _shout), ("b", _shout)) == {
+        "a": InputEntry(graph_input="n", default=1),
+        "b": InputEntry(graph_input="n", default=1),
+    }
+    assert times_of(("a", _shout), ("b", repeat)) == {
+        "a": InputEntry(graph_input="n"),
+        "b": InputEntry(graph_input="n"),
+    }
+    loud = subgraph("loud", title="Loud", description="For a test.")(record)
+    assert make_graph(loud, inputs={"m": "loud.n"}).nodes["loud"].inputs["n"] == InputEntry(
+        graph_input="m", default=1
+    )
+
+
 def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_input():
     record = make_graph(_hello, both, edges=[("hello.result", "both.yes")])
     graph = Graph.compile(record, registry_of(_hello, both))

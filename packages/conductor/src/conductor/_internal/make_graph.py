@@ -13,16 +13,17 @@ first two dots, and nothing has to be guessed.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, Sequence, Set
 from types import MappingProxyType
 from typing import Any
 
-from pydantic import MISSING
+from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import (
     FIELD_SEPARATOR,
     REQUIRED,
     Source,
+    canonical_json,
     is_field,
     is_name,
     place_text,
@@ -74,7 +75,9 @@ def make_graph(
     ``defaults``. Each output of a node that no edge leaves becomes a graph output with the output's name.
     ``inputs`` and ``outputs`` let you name some yourself, on top of those: ``inputs={"who": "greet.name"}``,
     ``inputs={"line": ["strip.line", "shout.line"]}`` for one graph input that feeds two inputs, or
-    ``outputs={"long": "a.result"}``. Two graph inputs or outputs that would end up with one name are refused,
+    ``outputs={"long": "a.result"}``. An optional input named in ``inputs`` stays optional: its graph input takes
+    the input's own default, or, for one graph input that feeds several, their default when they all declare the
+    same one. Two graph inputs or outputs that would end up with one name are refused,
     unless ``inputs`` joins them. Inputs a hook adds and outputs a hook returns aren't known until the graph is
     compiled, so a graph input or output on one must be named in ``inputs`` or ``outputs``. A node with a
     ``compute_outputs`` hook that no edge leaves, and none of whose outputs ``outputs`` names, is refused.
@@ -132,6 +135,7 @@ def make_graph(
     graph_input_of = _graph_inputs(
         definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), gap, problems
     )
+    default_of |= _own_defaults(definitions, graph_input_of, inputs, default_of.keys())
     entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in definitions}
     for node_id, name in (
         constant_of.keys() | default_of.keys() | sources_of.keys() | graph_input_of.keys()
@@ -372,6 +376,57 @@ def _graph_inputs(
                 call_problems.graph_inputs_share_a_name("inputs", name, name=name, inputs=places)
             )
     return {**graph_input_of, **{(node_id, name): name for node_id, name in automatic}}
+
+
+def _own_defaults(
+    definitions: Mapping[str, NodeDefinition],
+    graph_input_of: Mapping[tuple[str, str], str],
+    named: Mapping[str, str | Sequence[str]],
+    defaulted: Set[tuple[str, str]],
+) -> dict[tuple[str, str], JsonValue]:
+    """Returns the defaults the graph inputs ``named`` in ``inputs=`` take from their node's own inputs, by place.
+
+    Naming an input in ``inputs=`` gives it a graph input of another name, and keeps it as optional as it was.
+    ``shout(text, mark: str = "!")`` with ``inputs={"m": "shout.mark"}`` has the graph input ``m``, with the
+    default ``"!"``. A graph input that feeds several inputs takes their default when each of them declares the
+    same one, and is required otherwise. One that ``defaults=`` gives a default on any of its inputs keeps that.
+    """
+    places_of: dict[str, list[tuple[str, str]]] = {}
+    for place, name in graph_input_of.items():
+        if name in named:
+            places_of.setdefault(name, []).append(place)
+    found: dict[tuple[str, str], JsonValue] = {}
+    for places in places_of.values():
+        own = [_own_default(definitions[node_id], input_name) for node_id, input_name in places]
+        declared = [default for default in own if default is not MISSING]
+        if (
+            defaulted.isdisjoint(places)
+            and len(declared) == len(places)
+            and len({canonical_json(default) for default in declared}) == 1
+        ):
+            found |= {place: declared[0] for place in places}
+    return found
+
+
+def _own_default(definition: NodeDefinition, name: str) -> JsonValue | MISSING:
+    """Returns the default that the input ``name`` of a node declares, as JSON, or ``MISSING`` when it has none.
+
+    A function's input declares it in the function's signature. A subgraph's input is a graph input of its record,
+    and its default is the one its record gives. An input a hook adds isn't known before the graph is compiled,
+    so it has none here.
+    """
+    if isinstance(definition, FunctionDefinition):
+        field = definition.inputs.get(name)
+        return MISSING if field is None else field.default_json
+    return next(
+        (
+            entry.default
+            for record in definition.graph.nodes.values()
+            for entry in record.inputs.values()
+            if entry.graph_input == name and entry.default is not MISSING
+        ),
+        MISSING,
+    )
 
 
 def _graph_outputs(

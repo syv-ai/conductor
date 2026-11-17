@@ -110,7 +110,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 - Each required input that gets nothing (no edge, no constant), on any node, becomes a graph input named after the input.
 - Each output of a node that no edge leaves becomes a graph output named after the output.
 - An optional input that gets nothing keeps its own default.
-- `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both) and `outputs={"long": "join.result"}` name some of them yourself. These are added on top of the automatic ones.
+- `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both) and `outputs={"long": "join.result"}` name some of them yourself. These are added on top of the automatic ones. An optional input named in `inputs=` keeps its own default.
 
 **What it raises.**
 - Two graph inputs that would share a name raise `graph_inputs_share_a_name`. Two outputs raise `graph_outputs_share_a_name`.

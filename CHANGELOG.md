@@ -632,6 +632,10 @@ What changes in how you work, before the name-by-name tables:
 - **`answer_stale` says the inputs or the code changed.** "The call 'ok~8aba8744' names now waits under
   'ok~7eb8816a', since its inputs or its node's code changed after that id was written. Use that id instead." It
   said the question "was replaced by a newer one", which was wrong after a deploy that changed only the node's code.
+- **`make_graph`'s `inputs=` keeps an optional input optional.** `make_graph(shout, inputs={"m": "shout.mark"})`
+  for `shout(text, mark: str = "!")` writes `{"graph_input": "m", "default": "!"}`, so a run may leave `m` out. It
+  wrote no default, so the graph input was required and the function's default was lost. A graph input that feeds
+  several inputs takes their default when each declares the same one, and is required otherwise.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
