@@ -15,10 +15,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection, Mapping
 from types import MappingProxyType
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from conductor import InvalidCallError, Problem, Run, RunProgress, RunStatus, Waiting
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
@@ -63,30 +63,43 @@ class RunOutcome(BaseModel):
         return cls(waiting=run.waiting, outputs=outputs, progress=run.progress)
 
 
-class QueuedReply(BaseModel):
-    """A reply to one question of a running run, kept in the run's state until the run stops: an answer or a decline.
+class QueuedAnswer(BaseModel):
+    """An answer to one question of a running run, kept in the run's state until the run stops.
 
-    An answer reads ``{"waiting_id": "approve~3fa2c0d1", "declined": false, "answer": true, "reason": null}``. A
-    decline reads ``{"waiting_id": "approve~3fa2c0d1", "declined": true, "answer": null, "reason": "Over budget"}``.
+    It reads ``{"kind": "answer", "waiting_id": "approve~3fa2c0d1", "answer": true}``.
 
     Attributes:
-        waiting_id: The question it replies to, as the run's ``waiting`` lists it.
-        declined: Whether the person declined to answer.
-        answer: The answer, as the JSON data ``run.answer`` reads it from; ``None`` for a decline.
-        reason: Why the person declined, as ``run.decline`` keeps it; ``None`` for an answer.
+        kind: ``"answer"``, which tells it from a ``QueuedDecline`` in the row's JSON.
+        waiting_id: The question it answers, as the run's ``waiting`` lists it.
+        answer: The answer, as the JSON data ``run.answer`` reads it from.
     """
 
+    kind: Literal["answer"] = "answer"
     waiting_id: str
-    declined: bool = False
-    answer: Any = None
-    reason: str | None = None
+    answer: Any
+
+
+class QueuedDecline(BaseModel):
+    """A decline of one question of a running run, kept in the run's state until the run stops.
+
+    It reads ``{"kind": "decline", "waiting_id": "approve~3fa2c0d1", "reason": "Over budget"}``.
+
+    Attributes:
+        kind: ``"decline"``, which tells it from a ``QueuedAnswer`` in the row's JSON.
+        waiting_id: The question it declines, as the run's ``waiting`` lists it.
+        reason: Why the person declined, as ``run.decline`` keeps it; ``None`` for no reason given.
+    """
+
+    kind: Literal["decline"] = "decline"
+    waiting_id: str
+    reason: str | None
 
 
 class RunState(BaseModel):
     """Where a run is, and what was asked of it while it was running: a row's ``state``, as JSON.
 
     For a running run that one answer was sent to, it reads ``{"status": "running", "cause": null,
-    "queued": [{"waiting_id": "approve~3fa2c0d1", "declined": false, "answer": true, "reason": null}], "refused": {},
+    "queued": [{"kind": "answer", "waiting_id": "approve~3fa2c0d1", "answer": true}], "refused": {},
     "cancel_asked": false}``.
 
     ``status`` and ``cause`` repeat the run's own, so a route reads them without loading a run that can be
@@ -106,7 +119,7 @@ class RunState(BaseModel):
 
     status: RunStatus
     cause: Problem | None
-    queued: list[QueuedReply]
+    queued: list[Annotated[QueuedAnswer | QueuedDecline, Field(discriminator="kind")]]
     refused: dict[str, list[Problem]]
     cancel_asked: bool
 
@@ -145,11 +158,8 @@ class RunState(BaseModel):
         """
         answered, reasons = Run.queued_as_json(answers, declines=declines)
         added = [
-            *(QueuedReply(waiting_id=key, answer=value) for key, value in answered.items()),
-            *(
-                QueuedReply(waiting_id=key, declined=True, reason=reason)
-                for key, reason in reasons.items()
-            ),
+            *(QueuedAnswer(waiting_id=key, answer=value) for key, value in answered.items()),
+            *(QueuedDecline(waiting_id=key, reason=reason) for key, reason in reasons.items()),
         ]
         return self.model_copy(update={"queued": [*self.queued, *added]})
 
@@ -173,7 +183,7 @@ class RunState(BaseModel):
     @property
     def holds_a_decline(self) -> bool:
         """Whether a decline is among the replies queued."""
-        return any(reply.declined for reply in self.queued)
+        return any(isinstance(reply, QueuedDecline) for reply in self.queued)
 
     def ended_with(
         self, run: Run[Any], saved: str, outcome: str
@@ -243,7 +253,7 @@ class RunState(BaseModel):
             try:
                 given = (
                     given.decline(reply.waiting_id, reason=reply.reason)
-                    if reply.declined
+                    if isinstance(reply, QueuedDecline)
                     else given.answer(reply.waiting_id, reply.answer)
                 )
             except InvalidCallError as error:
@@ -255,7 +265,7 @@ class RunState(BaseModel):
                 refused[reply.waiting_id] = [raised_outside_a_node(error=type(error).__name__)]
             else:
                 taken = True
-                declined = declined or reply.declined
+                declined = declined or isinstance(reply, QueuedDecline)
                 refused.pop(reply.waiting_id, None)
         return given, taken, declined, refused
 

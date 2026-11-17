@@ -1036,7 +1036,7 @@ def _failed_with_queued(store: MemoryStore, run_id: str, reply: dict[str, Any]) 
 
 
 def _queued_decline(waiting_id: str) -> dict[str, Any]:
-    return {"waiting_id": waiting_id, "declined": True, "answer": None, "reason": "First"}
+    return {"kind": "decline", "waiting_id": waiting_id, "reason": "First"}
 
 
 def _event_types(events: list[dict[str, Any]]) -> list[str]:
@@ -1065,7 +1065,7 @@ async def test_a_decline_to_a_stopped_run_whose_queue_answers_its_question_resum
         _failed_with_queued(
             store,
             run_id,
-            {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
+            {"kind": "answer", "waiting_id": waiting_id, "answer": False},
         )
 
         written = await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
@@ -1097,7 +1097,7 @@ async def test_an_answer_to_a_stopped_run_whose_queue_answers_the_same_question_
         _failed_with_queued(
             store,
             run_id,
-            {"waiting_id": waiting_id, "declined": False, "answer": False, "reason": None},
+            {"kind": "answer", "waiting_id": waiting_id, "answer": False},
         )
 
         written = await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)

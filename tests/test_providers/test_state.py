@@ -14,7 +14,7 @@ from typing import Any
 from conductor import Graph, Problem
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
-from conductor_providers.fastapi.state import QueuedReply, RunOutcome, RunState
+from conductor_providers.fastapi.state import QueuedAnswer, RunOutcome, RunState
 from conductor_providers.fastapi.store import GuardedStore
 from pydantic import TypeAdapter
 from pytest import LogCaptureFixture
@@ -102,7 +102,7 @@ def test_a_failed_resume_call_keeps_the_queued_and_writes_only_the_outcome() -> 
         "failed",
         cause,
         False,
-        [QueuedReply(waiting_id="approve~1", answer=True)],
+        [QueuedAnswer(waiting_id="approve~1", answer=True)],
     )
     assert changes == {"outcome": '{"waiting": [], "outputs": null, "progress": null}'}
 
@@ -114,7 +114,7 @@ def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -
     state = refused.with_queued({"a": 1, "c": 3}).with_queued({"a": 2}).answered({"a"})
 
     assert (state.queued, list(state.refused)) == (
-        [QueuedReply(waiting_id="c", answer=3)],
+        [QueuedAnswer(waiting_id="c", answer=3)],
         ["b"],
     )
 
@@ -184,7 +184,8 @@ def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() 
 
 
 def test_the_queue_is_stored_as_one_reply_per_waiting_id_and_reads_back_as_it_was() -> None:
-    """One call's answers are one reply each, and a decline is one reply too, all in the one shape."""
+    """One call's answers are one reply each, and a decline is one reply too, each tagged with its ``kind`` and
+    holding only what that kind has."""
     state = (
         RunState.started()
         .with_queued({"a": 1, "b": {"waiting_id": "c", "reason": "No"}})
@@ -194,14 +195,9 @@ def test_the_queue_is_stored_as_one_reply_per_waiting_id_and_reads_back_as_it_wa
     stored = json.loads(state.model_dump_json())
 
     assert stored["queued"] == [
-        {"waiting_id": "a", "declined": False, "answer": 1, "reason": None},
-        {
-            "waiting_id": "b",
-            "declined": False,
-            "answer": {"waiting_id": "c", "reason": "No"},
-            "reason": None,
-        },
-        {"waiting_id": "c", "declined": True, "answer": None, "reason": "No"},
+        {"kind": "answer", "waiting_id": "a", "answer": 1},
+        {"kind": "answer", "waiting_id": "b", "answer": {"waiting_id": "c", "reason": "No"}},
+        {"kind": "decline", "waiting_id": "c", "reason": "No"},
     ]
     assert RunState.model_validate_json(state.model_dump_json()) == state
 
