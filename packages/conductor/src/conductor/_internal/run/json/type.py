@@ -78,10 +78,9 @@ class SavedReusable(BaseModel):
     Say the README run has finished, and ``run.with_inputs(text="a\nb\nd")`` makes a new run. The new run may reuse
     the three outcomes of ``shout``. Before it has called anything, it saves them as::
 
-        "shout": {"outcomes": {"states": ["done", "done", "done", "done", "done", "done"],
-                               "outputs": {"result": ["A!", "B!", "C!", "A!", "B!", "C!"]}},
-                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>", "<fp a>", "<fp b>", "<fp c>"],
-                  "item_indexes": {"3": [0], "4": [1], "5": [2]}}
+        "shout": {"outcomes": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
+                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>"],
+                  "item_indexes": {"0": [0], "1": [1], "2": [2]}}
 
     ``outcomes`` has the shape of ``SavedOutcomes``, a list per output. But here a place in the lists isn't a call
     number of this run: these are calls of the previous run. So what tells the outcomes apart is written beside them,
@@ -89,15 +88,15 @@ class SavedReusable(BaseModel):
     fingerprint and the arguments as JSON, and for a node that may ask, of the call's item in every loop it was
     inside too.
 
-    A node that never asks keeps its outcomes in two maps, and each is written as it is: first an outcome per
-    fingerprint, then an outcome per call, with its item indexes. So the same outcome may be written twice, as
-    ``A!`` is here, and reading back builds both maps as they were.
+    Each outcome is written once. Of the outcomes with one fingerprint, the first listed is the one any call with
+    that fingerprint reuses; each other one is reused only by the call with its item indexes. A node that may ask
+    has no item indexes: its calls with one fingerprint take its outcomes in the order they are listed.
 
     Attributes:
         outcomes: The outcomes, as the node's subclass of ``SavedOutcomes`` in the graph's codec.
         fingerprints: For each outcome, its call's fingerprint.
-        item_indexes: By place in the lists, the item indexes the call had in the previous run. Only for an
-            outcome a function returned.
+        item_indexes: By place in the lists, the item indexes the call had in the previous run. Every outcome of a
+            node that never asks has them, and no outcome of a node that may ask.
     """
 
     model_config = _SAVED

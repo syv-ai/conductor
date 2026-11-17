@@ -253,11 +253,12 @@ def add_reusable_from_saved(
     saved: SavedReusable,
     in_call_order: list[Outcome | None],
 ) -> None:
-    """Adds the outcomes one node may reuse from the previous run to ``reusable``, from how they were saved.
+    """Adds the outcomes one node may reuse from the previous run to ``reusable``, as they were saved.
 
-    Take the six saved outcomes of ``shout`` in ``SavedReusable``'s example. The first three, which have no item
-    indexes, are added by their call's fingerprint. The last three are added by the item indexes their call had;
-    ``add`` keeps the outcome already added for their fingerprint.
+    Take the three saved outcomes of ``shout`` in ``SavedReusable``'s example. Each goes under its call's
+    fingerprint and then its item indexes, in the order they were saved, so the first saved with a fingerprint is
+    the one any call with that fingerprint reuses. For a node that may ask, each goes under its fingerprint, in the
+    order the calls with it take them.
 
     Args:
         reusable: The run's reusable outcomes. Added to.
@@ -267,25 +268,36 @@ def add_reusable_from_saved(
 
     Raises:
         ValueError: ``fingerprints`` isn't as long as the lists of ``outcomes``. Or an outcome isn't one a call
-            made, because it is skipped, not called or missing.
+            made, because it is skipped, not called or missing. Or, for a node that never asks, an outcome has no
+            item indexes or is a waiting question.
     """
     if len(saved.fingerprints) != len(in_call_order):
         raise ValueError("'fingerprints' is not as long as the lists of 'outcomes'")
-    item_indexes = saved.item_indexes
+    asks = node.compiled_node.definition.asks
+    reused_freely: dict[str, dict[ItemIndexes, Done]] = {}
+    in_item_order: dict[str, list[Done | Unanswered]] = {}
     for place, (fingerprint, outcome) in enumerate(
         zip(saved.fingerprints, in_call_order, strict=True)
     ):
         match outcome:
-            case Done() | Unanswered():
-                reusable.add(
-                    node,
-                    fingerprint,
-                    outcome,
-                    item_indexes=item_indexes.get(place),
-                )
+            case Done() | Unanswered() if asks:
+                in_item_order.setdefault(fingerprint, []).append(outcome)
+            case Done():
+                item_indexes = saved.item_indexes.get(place)
+                if item_indexes is None:
+                    raise ValueError(
+                        f"outcome {place} has no 'item_indexes', and every outcome of a node that never asks has them"
+                    )
+                reused_freely.setdefault(fingerprint, {})[item_indexes] = outcome
+            case Unanswered():
+                raise ValueError(f"outcome {place} is waiting, and the node never asks")
             case Skipped() | NoneInput() | None:
                 raise ValueError(
                     "an outcome is skipped, not called or missing, and only an outcome of a call is reused"
                 )
             case _:
                 assert_never(outcome)
+    if reused_freely:
+        reusable.reused_freely[node.node_path] = reused_freely
+    if in_item_order:
+        reusable.reused_in_item_order[node.node_path] = in_item_order

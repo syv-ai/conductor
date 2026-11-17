@@ -330,6 +330,98 @@ def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_out
     ] == []  # the answer to "a" is reused with the other outcomes
 
 
+def _shout_graph(returned: Any) -> Any:
+    """Returns ``each -> tag``, where ``tag`` labels each item with the next of ``returned``, so a reused outcome
+    shows by its label."""
+
+    @node("each", title="Each", description="For a test.")
+    def each(items: list[str]) -> Series[str]:
+        return items
+
+    @node("tag", title="Tag", description="For a test.")
+    def tag(text: str) -> str:
+        if text == "boom":
+            raise RuntimeError("boom")
+        return f"{text} {next(returned)}"
+
+    registry = NodeRegistry()
+    registry.add(each, tag)
+    return Graph.compile(make_graph(each, tag), registry)
+
+
+def test_a_run_given_new_inputs_saves_each_outcome_it_may_reuse_once() -> None:
+    graph = _shout_graph(iter(range(100)))
+    first = graph.run({"items": ["a", "b", "c"]})
+
+    saved = json.loads(first.with_inputs({"items": ["a", "b", "d"]}).to_json())["reusable"]["tag"]
+
+    assert saved["outcomes"]["outputs"]["result"] == ["a 0", "b 1", "c 2"]
+    assert len(saved["fingerprints"]) == 3
+    assert saved["item_indexes"] == {"0": [0], "1": [1], "2": [2]}
+
+
+def test_an_outcome_whose_item_has_a_newer_outcome_is_still_reused_by_its_arguments() -> None:
+    """``a 0`` loses its item, ``(0,)``, to ``b 1``, but a later call that gets ``"a"`` still reuses it.
+
+    The run on ``"b"`` fails on ``"boom"``, so ``tag`` isn't complete and keeps the outcomes it may reuse.
+    """
+    graph = _shout_graph(iter(range(100)))
+    failed = graph.run({"items": ["a"]}).again({"items": ["b", "boom"]})
+    assert failed.status == "failed" and failed.results["tag"]["result"] == ["b 1", None]
+
+    in_memory = failed.again({"items": ["b", "a"]}).results["tag"]["result"]
+    read_back = Run.from_json(failed.with_inputs({"items": ["b", "a"]}).to_json(), graph).resume()
+
+    assert in_memory == read_back.results["tag"]["result"] == ["b 1", "a 0"]
+
+
+def test_a_saved_run_reuses_each_call_s_own_outcome_whatever_order_its_fingerprints_are_saved_in() -> (
+    None
+):
+    """The two ``"a"`` calls keep their own outcomes, though their items, ``(0,)`` and ``(1,)``, also have the
+    outcomes for ``"q"`` and ``"z"``. Read back with the fingerprints in the other order, they still do."""
+    graph = _shout_graph(iter(range(100)))
+    failed = graph.run({"items": ["q", "z"]}).again({"items": ["a", "a", "boom"]})
+    assert failed.status == "failed" and failed.results["tag"]["result"] == ["a 2", "a 3", None]
+    edited = failed.with_inputs({"items": ["a", "a"]})
+    saved = json.loads(edited.to_json())
+    tag = saved["reusable"]["tag"]
+    reversed_places = list(range(len(tag["fingerprints"])))[::-1]
+    reversed_saved = {
+        **tag,
+        "outcomes": {
+            "states": [tag["outcomes"]["states"][p] for p in reversed_places],
+            "outputs": {
+                "result": [tag["outcomes"]["outputs"]["result"][p] for p in reversed_places]
+            },
+        },
+        "fingerprints": [tag["fingerprints"][p] for p in reversed_places],
+        "item_indexes": {
+            str(place): tag["item_indexes"][str(p)] for place, p in enumerate(reversed_places)
+        },
+    }
+
+    in_memory = edited.resume().results["tag"]["result"]
+    read_back = Run.from_json(edited.to_json(), graph).resume().results["tag"]["result"]
+    saved["reusable"]["tag"] = reversed_saved
+    reordered = Run.from_json(json.dumps(saved), graph).resume().results["tag"]["result"]
+
+    assert in_memory == read_back == reordered == ["a 2", "a 3"]
+
+
+def test_a_saved_outcome_of_a_node_that_never_asks_without_its_item_indexes_is_refused() -> None:
+    graph = _shout_graph(iter(range(100)))
+    saved = json.loads(graph.run({"items": ["a", "a"]}).with_inputs({"items": ["a"]}).to_json())
+    del saved["reusable"]["tag"]["item_indexes"]["1"]
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    assert [(p.type, p.ctx["where"]) for p in refused.value.problems] == [
+        ("saved_run_unreadable", "reusable.tag")
+    ]
+
+
 def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() -> None:
     """However a saved run is damaged, ``Run.from_json`` either reads it back or refuses it with a problem.
 
