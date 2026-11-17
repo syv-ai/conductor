@@ -456,6 +456,8 @@ What changes in how you work, before the name-by-name tables:
   resumes the run with `answer_stale` in `refused` (was a 422); a decline needs a serving worker only when it
   resumes the run (was: always); and a decline sent together with an answer to another question is written at
   once, so the answer that lands after it resumes the failed run (both used to be queued, and the decline won).
+  The body is `{"waiting_id", "reason"}` alone: a body with `"kind": "decline"`, which the pre-releases took, is a
+  422 `extra_forbidden`.
   A call that answers one question well and another badly, one that answers one call twice, an answer to a
   stale question, and a queued answer to a question asked after the last checkpoint behave as before. The last `run_end` the run's events store says what the row says: a decline sent while the run
   runs, and taken when the resume call stops, makes that call's `run_end` `failed` with `answer_declined`, though
