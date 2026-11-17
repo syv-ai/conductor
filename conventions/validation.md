@@ -2,7 +2,7 @@
 
 ## Validation is the wall
 
-Validate untyped outside data once, with pydantic, where it enters, in a validator in the `validator.py` of the concept it is a value of (JSON loaded, values a caller gives a run, what a node returns, a person's answer), checking with the checks the value's `Type` builds (`argument_validator`, `output_validator`), build a pydantic validator only in `types/`, where a type's own checks are built, or in a `validator.py`, never check a value again anywhere else, and wrap only the validator's call in a caller's `try`, catching its `InvalidCallError`.
+Validate untyped outside data once, with pydantic, where it enters, in a validator in the `validator.py` of the concept it is a value of (JSON loaded, values a caller gives a run, what a node returns, a person's answer), checking with the checks the value's `Type` builds (`argument_validator`, `output_validator`), build a pydantic validator only in `types/`, where a type's own checks are built, or in a `validator.py` (a saved run is read in `run/json/`, and a `NodeError`'s `ctx` by `NodeError`), never check a value again anywhere else, and wrap only the validator's call in a caller's `try`, catching its `InvalidCallError`.
 
 Why: a value checked once where it enters can be trusted everywhere inside, so checks inside are noise that hides the real ones.
 
