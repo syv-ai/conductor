@@ -93,7 +93,9 @@ class Done:
 @final
 @dataclass(frozen=True, slots=True)
 class Skipped:
-    """The function wasn't called, because the node is downstream of a skipped branch.
+    """A call one of whose inputs got ``SKIPPED``, so its function isn't called.
+
+    The input gets ``SKIPPED`` from a branch that wasn't taken, or from an item skipped upstream.
 
     A branch is an output whose default is ``SKIPPED`` (the reference has the rule, under "Branches"). Say ``route(line)`` has the branches ``short`` and ``long``, and
     ``shout`` is wired to ``route.long``. For the line ``"a"``, ``route`` gives ``short`` the value, so that call
@@ -115,7 +117,7 @@ class Skipped:
 @final
 @dataclass(frozen=True, slots=True)
 class NoneInput:
-    """The function wasn't called, because an argument was ``None`` and its parameter doesn't take ``None``.
+    """A call one of whose inputs got ``None``, which its parameter doesn't take, so its function isn't called.
 
     Say ``strip(line: str) -> str | None`` sits between ``lines`` and ``shout``, and returns ``None`` for the line
     ``" "``. ``shout(line: str)`` doesn't take ``None``, so its call for that line is
