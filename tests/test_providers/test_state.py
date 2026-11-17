@@ -11,12 +11,13 @@ import json
 from asyncio import Event as AsyncioEvent
 from typing import Any
 
+import pytest
 from conductor import Graph, Problem
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
 from conductor_providers.fastapi.state import QueuedAnswer, RunOutcome, RunState
 from conductor_providers.fastapi.store import GuardedStore
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from pytest import LogCaptureFixture
 
 from tests.test_providers.in_memory import MemoryStore, asking, left_running
@@ -200,6 +201,22 @@ def test_the_queue_is_stored_as_one_reply_per_waiting_id_and_reads_back_as_it_wa
         {"kind": "decline", "waiting_id": "c", "reason": "No"},
     ]
     assert RunState.model_validate_json(state.model_dump_json()) == state
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"kind": "answer", "waiting_id": "a~1", "answer": 1, "reason": "x"},
+        {"kind": "decline", "waiting_id": "a~1", "reason": "No", "answer": 1},
+    ],
+)
+def test_a_queued_reply_with_a_key_its_kind_doesnt_have_is_refused_when_the_row_is_read(
+    entry: dict[str, object],
+) -> None:
+    stored = json.dumps({**json.loads(RunState.started().model_dump_json()), "queued": [entry]})
+
+    with pytest.raises(ValidationError, match="extra_forbidden|Extra inputs are not permitted"):
+        RunState.model_validate_json(stored)
 
 
 class _DownStore(MemoryStore):

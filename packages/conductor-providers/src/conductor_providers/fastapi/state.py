@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
 from conductor import InvalidCallError, Problem, Run, RunProgress, RunStatus, Waiting
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
@@ -69,10 +69,13 @@ class QueuedAnswer(BaseModel):
     It reads ``{"kind": "answer", "waiting_id": "approve~3fa2c0d1", "answer": true}``.
 
     Attributes:
-        kind: ``"answer"``, which tells it from a ``QueuedDecline`` in the row's JSON.
+        kind: ``"answer"``, which tells it from a ``QueuedDecline`` in the row's JSON. A key it doesn't have, such
+            as a ``reason``, is refused, so a row written wrong fails when it is read.
         waiting_id: The question it answers, as the run's ``waiting`` lists it.
         answer: The answer, as the JSON data ``run.answer`` reads it from.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["answer"] = "answer"
     waiting_id: str
@@ -85,10 +88,13 @@ class QueuedDecline(BaseModel):
     It reads ``{"kind": "decline", "waiting_id": "approve~3fa2c0d1", "reason": "Over budget"}``.
 
     Attributes:
-        kind: ``"decline"``, which tells it from a ``QueuedAnswer`` in the row's JSON.
+        kind: ``"decline"``, which tells it from a ``QueuedAnswer`` in the row's JSON. A key it doesn't have, such
+            as an ``answer``, is refused, so a row written wrong fails when it is read.
         waiting_id: The question it declines, as the run's ``waiting`` lists it.
         reason: Why the person declined, as ``run.decline`` keeps it; ``None`` for no reason given.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: Literal["decline"] = "decline"
     waiting_id: str
