@@ -2043,6 +2043,35 @@ def test_an_ask_narrows_an_enum_and_param_titles_its_members():
     assert question.json_schema["enum"] == ["red"]
 
 
+class _ShadeRow(TypedDict):
+    shade: Annotated[_Shade, Param(choices=[_Shade.RED])]
+
+
+def test_an_enum_narrowed_to_some_members_is_read_by_draft_07_as_only_those():
+    """JSON Schema draft-07 ignores every key beside a ``$ref``, so the narrowed ``enum`` sits beside an ``allOf`` of
+    it, and a draft-07 form offers only the members the field takes: on the field, an ``Ask``'s narrowing and a
+    table's column alike."""
+    from jsonschema import Draft7Validator
+
+    @node("shade", title="Shade", description="For a test.", asks=True)
+    def shade(ticket: str) -> Annotated[_Shade, Param(choices=[_Shade.RED, _Shade.BLUE])]:
+        raise Ask(f"Shade {ticket}?", choices=[_Shade.RED])
+
+    @node("rows", title="Rows", description="For a test.")
+    def rows(ticket: str) -> Table[_ShadeRow]:
+        return []
+
+    _, run = _once(shade, ticket="T-1")
+    (question,) = run.waiting[0].questions
+    column = _column(rows.describe().outputs[0].json_schema, "shade")
+    schema_of_rows = rows.describe().outputs[0].json_schema
+
+    assert Draft7Validator(question.json_schema).is_valid("red")
+    assert not Draft7Validator(question.json_schema).is_valid("blue")
+    assert not Draft7Validator({"$defs": schema_of_rows["$defs"], **column}).is_valid("blue")
+    assert Draft7Validator({"$defs": schema_of_rows["$defs"], **column}).is_valid("red")
+
+
 @host_type("weight", title="Weight")
 class _Weight(Enum):
     HALF = 0.5
