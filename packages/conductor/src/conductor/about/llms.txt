@@ -544,7 +544,7 @@ What a node returns is read strictly, by its declared type.
 - The fields of your own pydantic model or dataclass are read strictly too, whatever the model's own config says. So `{"a": "1"}` for a model with `a: int` is refused, and `True` there is pydantic's `int_type`.
 - A fault fails that call of the node as `invalid_output`, with `ctx` `name`, `reason`, `errors` and, for a table, `column`. It quotes nothing of the value.
 
-**What an edge carries.** Sometimes an input asks for more than its source's type promises: a limit on the input, choices, an `int` into a `float`, or a host type's own check. Then the value the edge carries is read by the input, as a constant is. A value it refuses is `invalid_edge_value` on the node it reached, with `ctx` `name`, `reason`, `errors` and, for a table, `column`.
+**What an edge carries.** Sometimes an input asks for more than its source's type promises: a limit on the input, choices, an `int` into a `float`, or a host type's own check. Then the value the edge carries is read by the input, as a constant is. A value it refuses is `invalid_edge_value` on the node it reached, with `ctx` `input`, `reason`, `errors` and, for a table, `column`.
 
 A table wired to a table input is checked when compiling, by each column the input declares whose type the source knows (`type_mismatch`, see "One or many"). A table of unknown columns is checked when it arrives.
 
