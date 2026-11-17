@@ -636,6 +636,11 @@ What changes in how you work, before the name-by-name tables:
   for `shout(text, mark: str = "!")` writes `{"graph_input": "m", "default": "!"}`, so a run may leave `m` out. It
   wrote no default, so the graph input was required and the function's default was lost. A graph input that feeds
   several inputs takes their default when each declares the same one, and is required otherwise.
+- **A `Series` wired into a `list[T]` input says to declare it `Series[T]` (provisional).** The new compile
+  code `type_mismatch_series_into_list` (`ctx` `source`, `got`, `expected`, `item`) reads "'words.result' gives
+  Series[str], but 'bundle.parts' takes list[str]. To take every item as one list, declare the input Series[str] in
+  place of list[str]." It was plain `type_mismatch`, which said to wire an output that gives `list[str]`. A `Series`
+  whose items a `list[T]` doesn't take stays `type_mismatch`.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

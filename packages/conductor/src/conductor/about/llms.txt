@@ -574,7 +574,7 @@ In the quick start, `lines` returns a `Series[str]`, `upper` takes one text, and
 
 **Collecting.** A `Series[T]` input wired to a node inside a loop collects the loop. It gets every `T` that node returned, in item order, and its own node is called once for all of them.
 
-- A `Series` output wired to a `Series` input is passed whole.
+- A `Series` output wired to a `Series` input is passed whole. Wired to a `list[T]` input, it gives one item per call, and `T` is no list: that is `type_mismatch_series_into_list`, whose fix is to declare the input `Series[T]`.
 - One value is never a list of one. An edge that gives each call one value is `type_mismatch_series_given_one_value`, at the node's input, with the edge's source in `ctx.source`. An edge gives each call one value when its source is in no loop, or inside a loop the node is inside too, because another input put it there.
 - To fix it, give the input a series. Declare the input as one `T` if the node takes one value per call; or collect first: wire it the result of a node outside the loop that collects it, such as `series-collect`; or use the node's own option for one value, such as `table-collect`'s `constant_columns`.
 - So a node that runs per document and collects each document's lines takes the document's own summary as one `str`, never as a `Series`.

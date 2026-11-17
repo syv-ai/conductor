@@ -141,6 +141,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 | A loop node, or a `for` around `run` | wire a `Series` output to the node. The engine runs it once per item |
 | A table wired to an input of one value (`type_mismatch_whole_table_or_list`) | put a node between them that returns the table's records as a `Series`, such as `series-split`, and wire its result or one field of it. To join two tables on a key, wire both whole into one node |
 | One value wired to a `Series` or `Table` input (`type_mismatch_series_given_one_value`) | if the node takes one value per call, declare the input as one `T`. If it should get every item of a loop, collect them first in a node outside the loop, such as `series-collect`, and wire its result in |
+| A `Series` wired to a `list[T]` input (`type_mismatch_series_into_list`) | declare the input `Series[T]`, which takes every item as one list |
 | Items of two Series at one node (`series_not_nested`) | put one inside the other: wire the first into the node that makes the second. Or give one of them whole to a `Series` input |
 | `except` around `run` for a pause, an error or a timeout | these are statuses. Read `run.status`, and `run.cause` for why it ended early |
 | `graph.run` in a server's event loop | use `async for event in run.stream()`. The nodes are called on a thread of their own |

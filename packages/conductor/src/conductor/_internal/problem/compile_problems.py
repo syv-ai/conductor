@@ -543,8 +543,8 @@ def type_mismatch(node_id: str, input: str, /, *, source: str, got: str, expecte
     To fix it, wire an output of the type the input takes. Or put a node in between that converts one type into the
     other.
 
-    Three common mismatches have a code of their own, below: ``type_mismatch_whole_table_or_list``,
-    ``type_mismatch_missing_column`` and ``type_mismatch_series_given_one_value``.
+    Four common mismatches have a code of their own, below: ``type_mismatch_whole_table_or_list``,
+    ``type_mismatch_missing_column``, ``type_mismatch_series_given_one_value`` and ``type_mismatch_series_into_list``.
 
     Args:
         node_id: The node the edge leads into.
@@ -651,6 +651,40 @@ def type_mismatch_missing_column(
     return (
         f"'{node_id}.{input}' needs the column '{column}' ({column_type}), and '{source}' doesn't have it. It has {comma_separated(has)}. "
         "Add the column in a node in between, or wire a table that has it."
+    )
+
+
+@COMPILE_PROBLEMS.problem
+def type_mismatch_series_into_list(
+    node_id: str, input: str, /, *, source: str, got: str, expected: str, item: str
+) -> str:
+    """A ``Series`` output is wired into an input that takes a ``list``.
+
+    An input that isn't a ``Series`` takes one item of a ``Series`` per call, so its node is called once per item,
+    and one item isn't a list. A ``Series[T]`` input takes the whole ``Series`` as one list, as a ``list[T]``
+    parameter does in plain Python.
+
+    To fix it, declare the input ``Series[T]``. Its node then gets every item as one list.
+
+    Args:
+        node_id: The node the edge leads into.
+        input: The input.
+        source: The edge's source, as text, like ``"a.result"``.
+        got: The type the source gives.
+        expected: The type the input takes.
+        item: The type of one item of the list the input takes, like ``str``.
+
+    Example:
+        @registry.node("bundle", title="Bundle", description="Joins words into one line.")
+        def bundle(parts: list[str]) -> str:
+            return " ".join(parts)
+
+
+        problems(make_graph(words, bundle))
+    """
+    return (
+        f"'{source}' gives {got}, but '{node_id}.{input}' takes {expected}. "
+        f"To take every item as one list, declare the input Series[{item}] in place of {expected}."
     )
 
 

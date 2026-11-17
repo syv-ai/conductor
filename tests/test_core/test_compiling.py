@@ -2384,6 +2384,54 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     ]
 
 
+def test_a_series_wired_into_a_list_input_says_to_declare_the_input_a_series_and_that_fix_compiles():
+    """A ``Series`` into ``list[str]`` gives one item per call, which is no list, and ``Series[str]`` collects it.
+
+    A ``Series`` of items the list doesn't take stays a plain ``type_mismatch``, since declaring the input a
+    ``Series`` wouldn't fix it.
+    """
+    from conductor import Series, make_graph, node
+
+    @node("words", title="Words", description="For a test.")
+    def words(text: str) -> Series[str]:
+        return text.split()
+
+    @node("glue", title="Glue", description="For a test.")
+    def glue(parts: list[str]) -> str:
+        return " ".join(parts)
+
+    @node("glue", title="Glue", description="For a test.")
+    def glue_series(parts: Series[str]) -> str:
+        return " ".join(parts)
+
+    @node("total", title="Total", description="For a test.")
+    def total(numbers: list[int]) -> int:
+        return sum(numbers)
+
+    (problem,) = Graph.compile(make_graph(words, glue), registry_of(words, glue)).problems
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "type_mismatch_series_into_list",
+        ("glue", "parts"),
+        {
+            "node_id": "glue",
+            "input": "parts",
+            "source": "words.result",
+            "got": "Series[str]",
+            "expected": "list[str]",
+            "item": "str",
+        },
+    )
+    assert problem.msg == (
+        "'words.result' gives Series[str], but 'glue.parts' takes list[str]. To take every item as one list, "
+        "declare the input Series[str] in place of list[str]."
+    )
+    fixed = Graph.compile(make_graph(words, glue_series), registry_of(words, glue_series))
+    assert fixed.run({"text": "a b"}).outputs == {"result": "a b"}
+    assert [
+        p.type for p in Graph.compile(make_graph(words, total), registry_of(words, total)).problems
+    ] == ["type_mismatch"]
+
+
 def test_a_constant_default_or_edge_on_a_subgraph_node_replaces_the_inner_default():
     from conductor import NodeRegistry, make_graph, node
 

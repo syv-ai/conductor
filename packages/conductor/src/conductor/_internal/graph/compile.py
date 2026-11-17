@@ -1120,9 +1120,18 @@ def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     """
     if whole.row is not None:
         return "table", list(whole.fields)
+    item = _list_item(whole)
+    return None if item is None else ("list", list(item.fields))
+
+
+def _list_item(whole: Type) -> Type | None:
+    """Returns the item type of ``whole`` when it is a list and nothing else, such as ``str`` for ``list[str]``.
+
+    A bare ``list`` gives ``Any``. ``None`` for any other type, a union with a list in it too.
+    """
     one = whole.options[0] if len(whole.options) == 1 else None
     if one is list or typing.get_origin(one) is list:
-        return "list", list(Type(next(iter(typing.get_args(one)), Any)).fields)
+        return Type(next(iter(typing.get_args(one)), Any))
     return None
 
 
@@ -1131,7 +1140,8 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
 
     Where one mistake explains it, the problem says the fix. A whole table or list wired to an input that takes one
     value needs a node first that takes it apart into a ``Series``. A table input wired to records that lack one of
-    its columns needs that column added.
+    its columns needs that column added. A ``Series`` wired to an input that takes a list of its items needs the
+    input declared a ``Series``.
     """
     written, expected = str(edge.wired_to), _type_in_message(field.whole, field.whole.id)
     got_one = _type_in_message(edge.type, edge.type.text)
@@ -1164,6 +1174,11 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
             expected=expected,
             kind=parts[0],
             fields=parts[1],
+        )
+    item = _list_item(field.whole) if edge.per_item else None
+    if item is not None and item.fits(edge.type) is not None:
+        return compile_problems.type_mismatch_series_into_list(
+            node_id, field.name, source=written, got=got, expected=expected, item=item.text
         )
     return compile_problems.type_mismatch(
         node_id, field.name, source=written, got=got, expected=expected
