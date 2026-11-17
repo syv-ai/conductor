@@ -444,7 +444,10 @@ What changes in how you work, before the name-by-name tables:
   raised: then the run is resumed with its queue, which needs a serving worker. The refusal shows on the response,
   and in `refused` until that question is answered: a queued answer to the same question answers it when the
   resume call ends. A resume of a run whose queue holds a
-  decline it takes makes no resume call: the run is given the queue and written `failed`, `answer_declined`. An
+  decline it takes makes no resume call: the run is given the queue and written `failed`, `answer_declined`. So
+  does a running run that a worker takes over, or that was handed back, whose queue holds a decline it takes; an
+  answer queued there to a question the run asked after its last checkpoint is then refused as `not_waiting`, as
+  when a decline is taken at the door, where it used to be taken because the whole call ran first. An
   answer to a run whose queue holds a decline is given after it, so a decline the run takes fails it, written with
   no resume call, and an answer it then refuses is in `refused`; any other answer to a stopped run goes to
   `run.answer` as before, with the queue kept for the end of the resume call. Against 2.0's pre-releases, on a

@@ -1629,6 +1629,28 @@ async def test_a_run_taken_over_with_a_decline_it_cant_take_yet_is_resumed_and_g
     assert [problem.type for problem in never.refused[never_asked]] == ["not_waiting"]
 
 
+@pytest.mark.parametrize("owner", ["a-dead-worker", None])
+async def test_a_running_run_taken_over_with_a_decline_it_takes_ends_failed_with_no_resume_call(
+    owner: str | None,
+) -> None:
+    """A worker died, or handed the run back, after the run asked its question and a decline of it was queued. The
+    worker that takes the run over gives it the queue first, and the run ends ``failed``, with no resume call."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    checkpoint = Graph.compile(graph, registry).run(inputs)
+    store = MemoryStore()
+    row = left_running("run", graph, checkpoint, owner=owner)
+    state = {**json.loads(row.state), "queued": [_queued_decline(waiting_id)]}
+    await store.create(dataclasses.replace(row, state=json.dumps(state)))
+
+    async with _worker(store, registry).serving():
+        ended = await store.ended("run")
+
+    assert (ended.status, ended.cause and ended.cause.type) == ("failed", "answer_declined")
+    assert _event_types(await store.stored_events("run")) == ["run_end:failed:answer_declined"]
+    assert (store.rows["run"].owner, store.rows["run"].lease_until) == (None, None)
+
+
 async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_long_the_first_takes_to_write_its_end() -> (
     None
 ):

@@ -148,6 +148,10 @@ class HeldRun:
     ) -> tuple[RunEnd | None, Callable[[RunState], tuple[RunState, RunChanges]]]:
         """Make one resume call and store its events and checkpoints.
 
+        A run taken over, or handed back, may hold a decline queued while its last worker ran it. When the run as the
+        row has it takes that decline, a person said stop, so no call is made: the run ends as ``RunState.ended_with``
+        gives it the queue, ``failed`` with ``answer_declined``, as a decline to a run that isn't running ends it.
+
         Returns:
             The call's own ``run_end``, and how the row's state changes with it, as a function of the state as it is
             when it is written (one of ``RunState.ended_with`` and ``RunState.failed``). A run handed back, as the
@@ -166,6 +170,15 @@ class HeldRun:
             metadata = settings.metadata.validate_json(self._row.metadata)
             run = await asyncio.to_thread(loaded, self._row, settings.nodes_for(metadata))
             held = await asyncio.to_thread(RunOutcome.of, run)
+            if self._state.holds_a_decline:
+                # a person said stop before this call: a run that takes the decline is written ended, with no call
+                row = self._row
+                given, _, declined = await asyncio.to_thread(
+                    self._state.ended_with, run, row.run, row.outcome
+                )
+                if declined:
+                    end = RunEnd(status=given.status, cause=given.cause)
+                    return end, lambda state: state.ended_with(run, row.run, row.outcome)[:2]
             stream = run.stream(
                 context=settings.context_for(metadata, self._stop),
                 timeout=settings.resume_timeout,
