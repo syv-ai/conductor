@@ -2766,6 +2766,34 @@ def test_with_inputs_reuses_the_answer_and_asks_only_for_the_invoice_that_change
     assert problem.type == "answer_stale"
 
 
+def test_an_answer_after_the_nodes_code_changed_is_answer_stale_and_its_message_names_the_code():
+    """A deploy that changes an asking node's code gives the same question a new waiting id.
+
+    The message says the inputs or the code changed, since here only the code did and no newer question was asked.
+    """
+
+    @node("vet", title="Vet", description="For a test.", asks=True)
+    def vet_before(item: str) -> bool:
+        raise Ask(f"Ok {item}?")
+
+    @node("vet", title="Vet", description="For a test.", asks=True)
+    def vet_after(item: str) -> bool:
+        if item == "small":
+            return True
+        raise Ask(f"Ok {item}?")
+
+    before = Graph.compile(make_graph(vet_before), registry_of(vet_before)).run({"item": "big"})
+    after_graph = Graph.compile(make_graph(vet_after), registry_of(vet_after))
+    loaded = Run.from_json(before.to_json(), after_graph)
+    assert [waiting.prompt for waiting in loaded.waiting] == ["Ok big?"]
+    (problem,) = _refused(lambda: loaded.answer(before.waiting[0].id, True))
+    assert (problem.type, problem.ctx["current"]) == ("answer_stale", loaded.waiting[0].id)
+    assert problem.msg == (
+        f"The call {before.waiting[0].id!r} names now waits under {loaded.waiting[0].id!r}, since its inputs or "
+        "its node's code changed after that id was written. Use that id instead."
+    )
+
+
 def test_two_identical_invoices_answered_differently_keep_their_answers_when_one_is_put_in_front():
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900,A:900"})

@@ -629,6 +629,9 @@ What changes in how you work, before the name-by-name tables:
   `upgrade_broken` (and both, for a version with hooks). `needs_example`'s message no longer speaks of hooks:
   "check_registry can't make up a value for code, and only a constant can give one. Give this version of the node an
   example."
+- **`answer_stale` says the inputs or the code changed.** "The call 'ok~8aba8744' names now waits under
+  'ok~7eb8816a', since its inputs or its node's code changed after that id was written. Use that id instead." It
+  said the question "was replaced by a newer one", which was wrong after a deploy that changed only the node's code.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

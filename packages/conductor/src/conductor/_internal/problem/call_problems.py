@@ -32,10 +32,11 @@ CALL_PROBLEMS = ProblemCatalogue(
 def answer_stale(
     *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
 ) -> str:
-    """An answer, or a decline with ``run.decline``, is for a question that a newer question has replaced.
+    """An answer, or a decline with ``run.decline``, gives a waiting id that is out of date.
 
-    A run made with other inputs, by ``run.again`` or ``run.with_inputs``, asks again wherever a call's inputs changed.
-    The new question has a new waiting id.
+    A waiting id ends in a fingerprint of the call's inputs and of the node's code. So the call waits under a new id
+    when a run made by ``run.again`` or ``run.with_inputs`` gives it other inputs, and when the node's code changed
+    since the id was written, as after a deploy, even when the question reads the same.
 
     To fix it, answer or decline the question that is waiting now. ``ctx.current`` is its id, and ``run.waiting``
     lists it.
@@ -52,7 +53,10 @@ def answer_stale(
         asked_again = asked.again({"amount": 5500})
         refused(lambda: asked_again.answer(asked.waiting[0].id, True))
     """
-    return f"The question under {waiting_id!r} was replaced by a newer one, {current!r}. Use that id instead."
+    return (
+        f"The call {waiting_id!r} names now waits under {current!r}, since its inputs or its node's code changed "
+        "after that id was written. Use that id instead."
+    )
 
 
 @CALL_PROBLEMS.problem
