@@ -222,14 +222,14 @@ def invalid_edge_value(
 def invalid_output(
     *loc: str | int,
     reason: str,
-    name: str | None = None,
+    output: str | None = None,
     errors: list[dict[str, Any]] | None = None,
     column: str | None = None,
 ) -> str:
     """A node returned a value that its return type doesn't allow.
 
     The value may be of the wrong type or the wrong shape, or miss an output. For a value an output's type refuses,
-    ``ctx.name`` names the output, and ``ctx.errors`` says where inside it the value is: a refused field of a returned
+    ``ctx.output`` names the output, and ``ctx.errors`` says where inside it the value is: a refused field of a returned
     dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``.
 
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
@@ -243,7 +243,7 @@ def invalid_output(
     Args:
         loc: The call that returned it.
         reason: Why the value is refused, without quoting it.
-        name: The output the fault is about, when there is one to name; ``result`` for a node of one output.
+        output: The output the fault is about, when there is one to name; ``result`` for a node of one output.
         errors: pydantic's list of what it refused, without the value.
         column: For a table, the column of the first value refused.
 

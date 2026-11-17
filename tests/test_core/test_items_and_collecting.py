@@ -2546,7 +2546,7 @@ def test_a_node_returning_values_on_two_branches_fails_with_invalid_output():
 
     run = graph({"id": "b", "node": "both"}, registry=registry_of(both)).run({"text": "a"})
 
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == (
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["output"]) == (
         "failed",
         "invalid_output",
         ("b",),

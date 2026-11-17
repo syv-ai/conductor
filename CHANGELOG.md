@@ -148,6 +148,9 @@ What changes in how you work, before the name-by-name tables:
   `invalid_input_list_for_one_value` (every option of the input's type refuses a list as a whole): a list into
   `list[str]`, `tuple[int, ...]`, `set[int]` or `int | list[str]`, and a table into a list input, are plain
   `type_mismatch`, where they had the make-a-series message, which says the input takes one value.
+- **Breaking: `invalid_output` names its output `ctx.output` (provisional).** It was `ctx.name`, so two kinds named a
+  node's output with two keys; `output_default_bound_invalid` already has `ctx.output`, and the reference's rule says a
+  node's output is `ctx.output`. `ctx.name` is now only a graph input a call names.
 - **A problem's `ctx` keys follow the kind's declared order (provisional).** `ProblemKind.__call__` writes `ctx` in the order of
   the kind's function's parameters, not the order the caller gave its keywords. No key or value changes.
 - **Breaking: one value is never a list of one (provisional).** An edge that gives each call of its node one value,

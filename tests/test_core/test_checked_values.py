@@ -289,9 +289,16 @@ def test_a_hook_that_gives_the_one_output_result_is_returned_as_a_mapping():
 def test_a_call_whose_second_output_is_invalid_writes_none_of_its_outputs():
     run = _returning(Pair("ok", "many"), Pair)  # type: ignore[arg-type]
 
-    assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "count")
+    assert (run.cause.type, run.cause.ctx["output"]) == ("invalid_output", "count")
     assert run.results["g"] == {"name": None, "count": None}
     assert "g" not in json.loads(run.to_json())["outcomes"]
+
+
+def test_a_refused_output_is_named_ctx_output_as_every_problem_names_a_nodes_output():
+    run = _returning(Pair("ok", "many"), Pair)  # type: ignore[arg-type]
+
+    assert list(run.cause.ctx) == ["reason", "output", "errors"]
+    assert json.loads(run.cause.model_dump_json())["ctx"]["output"] == "count"
 
 
 def _computed(returned: Any) -> Any:
@@ -325,14 +332,14 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
         ({"name": "Ida", "age": 3, "more": 1}, "more"),
     ):
         run = _computed(returned)
-        assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", named)
+        assert (run.cause.type, run.cause.ctx["output"]) == ("invalid_output", named)
     assert _computed(["Ida", 3]).cause.type == "invalid_output"
 
 
 def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_in_order_of_name():
     run = _computed({"zeta": 1, "name": "Ida", "age": 3, "beta": 2})
 
-    assert (run.cause.ctx["name"], run.cause.ctx["reason"]) == (
+    assert (run.cause.ctx["output"], run.cause.ctx["reason"]) == (
         "beta",
         "'beta' isn't one of the node's outputs",
     )
@@ -366,7 +373,7 @@ def test_a_return_that_skips_an_output_that_is_not_a_branch_is_refused():
     """
     run = _returning(Routed(count=SKIPPED, long="a"), Routed)
 
-    assert (run.cause.type, run.cause.ctx["name"], run.cause.ctx["reason"]) == (
+    assert (run.cause.type, run.cause.ctx["output"], run.cause.ctx["reason"]) == (
         "invalid_output",
         "count",
         "'count' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
@@ -380,7 +387,7 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
     """
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
 
-    assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
+    assert (run.cause.type, run.cause.ctx["output"]) == ("invalid_output", "short")
     assert run.cause.ctx["reason"] == (
         "'long' and 'short' both have a value, but they default to SKIPPED, so they are branches of one node"
     )
@@ -426,13 +433,16 @@ class Squares:
 def test_an_output_of_several_is_refused_as_its_own_type_says_naming_the_output():
     run = _returning(Squares(Shape(side=2), [{"item": "a", "amount": 1}]), Squares)  # type: ignore[arg-type]
 
-    assert (run.cause.ctx["name"], run.cause.ctx["errors"][0]["type"]) == ("first", "not_its_class")
+    assert (run.cause.ctx["output"], run.cause.ctx["errors"][0]["type"]) == (
+        "first",
+        "not_its_class",
+    )
     assert run.cause.ctx["reason"] == "its type's own check returned a Shape, not a Square"
     run = _returning(
         Squares(Square(side=2), pl.DataFrame({"item": ["a"], "amount": [1.5]})), Squares
     )  # type: ignore[arg-type]
 
-    assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("lines", "amount")
+    assert (run.cause.ctx["output"], run.cause.ctx["column"]) == ("lines", "amount")
     assert run.cause.ctx["reason"].startswith("column 'amount': ")
 
 
@@ -451,7 +461,7 @@ class Line(TypedDict):
 def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off():
     run = _returning(pl.DataFrame({"item": ["a"], "amount": [12.75]}), Table[Line])
 
-    assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == (
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["output"], run.cause.ctx["column"]) == (
         "invalid_output",
         ("g",),
         "result",

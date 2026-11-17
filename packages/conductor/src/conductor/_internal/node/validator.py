@@ -215,11 +215,11 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
     ctx = first.get("ctx", {})
     if first["type"] == "several_branches_given":
         return InvalidCallError(
-            [run_problems.invalid_output(reason=first["msg"], name=ctx["given"][1])]
+            [run_problems.invalid_output(reason=first["msg"], output=ctx["given"][1])]
         )
     if first["type"] in ("output_missing", "output_unknown", "skipped_not_a_branch"):
         return InvalidCallError(
-            [run_problems.invalid_output(reason=first["msg"], name=ctx["name"])]
+            [run_problems.invalid_output(reason=first["msg"], output=ctx["name"])]
         )
     if not first["loc"]:
         return InvalidCallError([run_problems.invalid_output(reason=first["msg"])])
@@ -241,7 +241,10 @@ def _refused_output(
     return InvalidCallError(
         [
             run_problems.invalid_output(
-                reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column
+                reason=refused.reason,
+                output=field.name,
+                errors=refused.errors,
+                column=refused.column,
             )
         ]
     )

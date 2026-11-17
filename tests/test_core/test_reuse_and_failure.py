@@ -2867,7 +2867,7 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
     run = graph.run({"x": "q", "y": "w"})
 
     assert list(graph.outputs) == ["a", "b"]
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == (
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["output"]) == (
         "failed",
         "invalid_output",
         ("sub", "a"),

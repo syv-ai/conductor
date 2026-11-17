@@ -2215,7 +2215,7 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
     run = graph.run({"text": "x"})
 
     assert run.status == "failed" and (run.cause.type, run.cause.loc) == ("invalid_output", ("b",))
-    assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("result", "email")
+    assert (run.cause.ctx["output"], run.cause.ctx["column"]) == ("result", "email")
 
 
 def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
