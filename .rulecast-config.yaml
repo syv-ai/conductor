@@ -620,7 +620,7 @@ repos:
               follows:
                 kind: expression_statement
                 has: { kind: assignment, all: [ { has: { field: left, kind: identifier, pattern: $V } }, { has: { field: right, kind: call } } ] }
-                not: { has: { stopBy: end, kind: identifier, regex: '^problems$' } }
+                not: { has: { stopBy: end, kind: argument_list, has: { kind: identifier, regex: '^problems$' } } }
               has:
                 field: condition
                 any:
@@ -644,22 +644,30 @@ repos:
                     if of_node.fingerprints:
                         reusable[names[path]] = of_node
               expect: { lines: [3] }
+            - path: packages/conductor/src/conductor/_internal/make_graph.py
+              code: |
+                for name, text in outputs.items():
+                    problems = len(found)
+                    source = _source(text, ("outputs", name), definitions)
+                    if source is not None:
+                        declared[name] = source
+              expect: { lines: [4] }
           good:
             - path: packages/conductor/src/conductor/_internal/run/json/write.py
               code: |
                 for path, node in function_nodes.items():
                     if path in run._reusable.done:
                         reusable[names[path]] = saved_reusable(node, run._reusable, path)
+                for name in names:
+                    text = name.strip()
+                    if text:
+                        print(text)
             - path: packages/conductor/src/conductor/_internal/make_graph.py
               code: |
                 for name, text in outputs.items():
                     source = _source(text, ("outputs", name), definitions, problems)
                     if source is not None:
                         declared[name] = source
-                for name in names:
-                    text = name.strip()
-                    if text:
-                        print(text)
 
       - id: design/text-read-in-one-spelling
         name: Text read by hand is checked against its writer
