@@ -13,15 +13,15 @@ from conductor import (
     GraphDescription,
     GraphRecord,
     InvalidCallError,
+    ProblemKind,
     RegistryDescription,
     RunProgress,
 )
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
-from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Decline, Resume, StartRun, declared
-from conductor_providers.fastapi.problems import STATUS
+from conductor_providers.fastapi.problems import STATUS, no_such_run, run_not_resumable
 from conductor_providers.fastapi.state import M, RunView
 from conductor_providers.fastapi.worker import Worker, X
 
@@ -34,34 +34,27 @@ _REFUSED: dict[str, Any] = {
 }
 
 
-def _declare_refusals(route: APIRoute) -> None:
-    """Declare the refusals a route can answer with, worked out from its shape.
+def _refusals(*kinds: ProblemKind) -> dict[int | str, dict[str, Any]]:
+    """The ``responses`` a route declares for the worker's own codes it can refuse with, each at the status
+    ``STATUS`` gives it: ``_refusals(no_such_run, run_not_resumable)`` declares a 404 and a 409.
 
-    A route that takes a run id, in its path or as ``previous`` in its body, can answer 404 for a run that isn't
-    there for the request. One whose body is ``Resume`` can answer 409 for a run that didn't end early. One that
-    takes anything at all can answer 422 for what conductor or FastAPI refuses.
+    The 422 for what conductor or FastAPI refuses is declared where a route's input is: FastAPI declares it for every
+    parameter it reads, and ``_body`` for a body read as text.
 
     Args:
-        route: The route, whose ``responses`` gain the refusals.
+        kinds: The worker's own kinds of problem the route can refuse with.
     """
-    body = (
-        route.openapi_extra["requestBody"]["content"]["application/json"]["schema"]
-        if route.openapi_extra
-        else {}
-    )
-    statuses = set()
-    if "{run_id}" in route.path or "previous" in body.get("properties", {}):
-        statuses.add(404)
-    if route.body_field is not None and route.body_field.field_info.annotation is Resume:
-        statuses.add(409)
-    if route.dependant.path_params or route.body_field is not None or body:
-        statuses.add(422)
-    route.responses = {**route.responses, **dict.fromkeys(sorted(statuses), _REFUSED)}
+    return {STATUS[kind.code]: _REFUSED for kind in kinds}
 
 
 def _body(schema: dict[str, Any]) -> dict[str, Any]:
-    """The ``openapi_extra`` of a route that reads its body as text: a required JSON body of ``schema``."""
-    return {"requestBody": {"required": True, "content": {"application/json": {"schema": schema}}}}
+    """The ``openapi_extra`` of a route that reads its body as text: a required JSON body of ``schema``, and the 422
+    a body conductor refuses is answered with, which FastAPI doesn't declare for a body it doesn't read."""
+    return {
+        "requestBody": {"required": True, "content": {"application/json": {"schema": schema}}},
+        # FastAPI's own words for the 422 it declares for a parameter, so every 422 reads alike
+        "responses": {"422": {"description": "Validation Error", **_REFUSED}},
+    }
 
 
 async def _refused_as_responses() -> AsyncIterator[None]:
@@ -138,7 +131,9 @@ def run_router(
         and every problem. Nothing is run or stored."""
         return Graph.compile(await request.body(), worker.nodes_for(requester)).describe()
 
-    @router.post("/runs", status_code=202, openapi_extra=start_body)
+    @router.post(
+        "/runs", status_code=202, openapi_extra=start_body, responses=_refusals(no_such_run)
+    )
     async def start_run(
         request: Request,
         requester: Annotated[M, Depends(metadata)],
@@ -150,7 +145,7 @@ def run_router(
             sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
 
-    @router.post("/estimate", openapi_extra=start_body)
+    @router.post("/estimate", openapi_extra=start_body, responses=_refusals(no_such_run))
     async def estimate_run(
         request: Request,
         requester: Annotated[M, Depends(metadata)],
@@ -164,7 +159,7 @@ def run_router(
             sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
 
-    @router.get("/runs/{run_id}")
+    @router.get("/runs/{run_id}", responses=_refusals(no_such_run))
     async def read_run(
         run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
     ) -> RunView:
@@ -172,7 +167,11 @@ def run_router(
         complete, the answers that were refused, and why it ended early if it did."""
         return await worker.read(run_id, allows=allows)
 
-    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
+    @router.get(
+        "/runs/{run_id}/events",
+        response_class=EventSourceResponse,
+        responses=_refusals(no_such_run),
+    )
     async def follow_run(
         events: Annotated[AsyncIterator[tuple[int, str]], Depends(followed)],
     ) -> AsyncIterable[ServerSentEvent]:
@@ -181,10 +180,7 @@ def run_router(
         async for number, body in events:
             yield ServerSentEvent(raw_data=body, id=str(number))
 
-    @router.post(
-        "/runs/{run_id}/answers",
-        status_code=202,
-    )
+    @router.post("/runs/{run_id}/answers", status_code=202, responses=_refusals(no_such_run))
     async def answer_run(
         run_id: str,
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
@@ -200,10 +196,7 @@ def run_router(
         running, the answers are queued until it stops, and one it refuses then is in its ``refused``."""
         return await worker.answer(run_id, answers, allows=allows)
 
-    @router.post(
-        "/runs/{run_id}/declines",
-        status_code=202,
-    )
+    @router.post("/runs/{run_id}/declines", status_code=202, responses=_refusals(no_such_run))
     async def decline_run(
         run_id: str,
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
@@ -218,6 +211,7 @@ def run_router(
     @router.post(
         "/runs/{run_id}/resume",
         status_code=202,
+        responses=_refusals(no_such_run, run_not_resumable),
     )
     async def resume_run(
         run_id: str,
@@ -229,7 +223,7 @@ def run_router(
         instead, and the run comes back ``failed``."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
-    @router.post("/runs/{run_id}/again", status_code=202)
+    @router.post("/runs/{run_id}/again", status_code=202, responses=_refusals(no_such_run))
     async def run_again(
         run_id: str,
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
@@ -245,7 +239,7 @@ def run_router(
         got before isn't made again."""
         return await worker.again(run_id, inputs, requester, allows=allows)
 
-    @router.post("/runs/{run_id}/cancel")
+    @router.post("/runs/{run_id}/cancel", responses=_refusals(no_such_run))
     async def cancel_run(
         run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
     ) -> RunView:
@@ -255,7 +249,4 @@ def run_router(
         answered as it is."""
         return await worker.cancel(run_id, allows=allows)
 
-    for route in router.routes:
-        if isinstance(route, APIRoute):
-            _declare_refusals(route)
     return router

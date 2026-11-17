@@ -650,12 +650,27 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
         ) == (422, [("not_waiting", {"waiting_id": waiting_id, "status": "failed"})])
 
 
-def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape() -> None:
-    refused = {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}
-    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry()).openapi()
+@pytest.mark.parametrize("dependencies", ["read a header", "read nothing"])
+def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape(
+    dependencies: str,
+) -> None:
+    """Every 404, 409 and 422 has FastAPI's 422 body and FastAPI's words for it, whether or not the host's
+    dependencies read a parameter, since FastAPI declares a 422 itself only for a parameter it reads."""
+    content = {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}
+    no_run, not_resumable, refused = (
+        {"description": description, "content": content}
+        for description in ("Not Found", "Conflict", "Validation Error")
+    )
+    reads_a_header = dependencies == "read a header"
+    app = _app(
+        store=MemoryStore(),
+        registry=lambda _: NodeRegistry(),
+        **({} if reads_a_header else {"metadata": lambda: {}, "run_filter": _every_run}),
+    )
+    schema = app.openapi()
     declared = {
         (verb, path): {
-            code: response["content"]
+            code: response
             for code, response in operation["responses"].items()
             if code in ("404", "409", "422")
         }
@@ -663,9 +678,10 @@ def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape() -> N
         for verb, operation in verbs.items()
     }
 
-    on_a_run = {"404": refused, "422": refused}
+    on_a_run = {"404": no_run, "422": refused}
     assert declared == {
-        ("get", "/nodes"): {"422": refused},  # FastAPI's own, for the header the metadata reads
+        # FastAPI's own, for the header the metadata reads
+        ("get", "/nodes"): {"422": refused} if reads_a_header else {},
         ("post", "/compile"): {"422": refused},
         ("post", "/runs"): on_a_run,
         ("post", "/estimate"): on_a_run,
@@ -673,10 +689,11 @@ def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape() -> N
         ("get", "/runs/{run_id}/events"): on_a_run,
         ("post", "/runs/{run_id}/answers"): on_a_run,
         ("post", "/runs/{run_id}/declines"): on_a_run,
-        ("post", "/runs/{run_id}/resume"): {**on_a_run, "409": refused},
+        ("post", "/runs/{run_id}/resume"): {**on_a_run, "409": not_resumable},
         ("post", "/runs/{run_id}/again"): on_a_run,
         ("post", "/runs/{run_id}/cancel"): on_a_run,
     }
+    assert "HTTPValidationError" in schema["components"]["schemas"]
 
 
 # -- a follower -----------------------------------------------------------------------------------
