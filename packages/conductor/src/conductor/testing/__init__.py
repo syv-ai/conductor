@@ -20,8 +20,8 @@ Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)`
 - ``needs_example``: a hook reads a required input that no value can be made up for.
 - ``subgraph_broken``: a subgraph's own graph doesn't compile on the registry's nodes, so ``registry.describe()``
   leaves it out.
-- ``upgrade_broken``: a graph saved with an older version of the node doesn't compile after ``registry.upgrade``
-  moves it to the newest, or the upgrade raises.
+- ``upgrade_broken``: ``registry.upgrade`` refuses to move a graph saved with an older version of the node to the
+  newest, or the graph it returns doesn't compile.
 - ``changed_its_inputs``: the node changed a value it was given.
 - ``run_failed``: an example didn't run to the end, or to a pause for a person.
 - ``example_for_no_node``: an example names a node or a version that isn't in the registry. Its ``loc`` is
@@ -36,7 +36,6 @@ from __future__ import annotations
 import copy
 import dataclasses
 import datetime
-import logging
 import typing
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
@@ -61,8 +60,6 @@ from conductor._internal.types import Param
 from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
-
-_logger = logging.getLogger("conductor")
 
 #: What ``_made_up`` returns for a field it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")
@@ -239,29 +236,19 @@ def _upgrade_problems(
         return []  # the example's own run reports the values that can't be typed in
     try:
         upgraded = registry.upgrade(record, older.id)
-    except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the node author's code, and may raise anything
-        _logger.error(
-            "upgrading %r from version %d to %d raised",
-            older.id,
-            older.version,
-            newest,
-            exc_info=raised,
-        )
-        return [
-            problems.upgrade_raised(
-                older.id, older.version, newest=newest, error=type(raised).__name__
-            )
-        ]
-    graph_problems = Graph.compile(upgraded, registry).problems
-    if not graph_problems:
+    except InvalidCallError as refused:
+        behind = refused.problems
+    else:
+        behind = Graph.compile(upgraded, registry).problems
+    if not behind:
         return []
     return [
         problems.upgrade_broken(
             older.id,
             older.version,
             newest=newest,
-            reason=_reason(graph_problems),
-            problems=[p.model_dump(mode="json") for p in graph_problems],
+            reason=_reason(behind),
+            problems=[p.model_dump(mode="json") for p in behind],
         )
     ]
 

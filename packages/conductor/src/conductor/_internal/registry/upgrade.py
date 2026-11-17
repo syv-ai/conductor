@@ -11,21 +11,23 @@ the dropped input's key keeps it in the record, as a constant.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import MISSING
 
 from conductor._internal.base import Source
-from conductor._internal.node import NodeDefinition, gone_inputs
-from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
+from conductor._internal.node import NodeDefinition, RewriteValidator, gone_inputs
+from conductor._internal.problem import InvalidCallError, NodeError, call_problems, compile_problems
 from conductor._internal.record import (
     GraphRecord,
     InputEntry,
     NodeRecord,
     RecordValidator,
-    WrittenValuesValidator,
 )
+
+_logger = logging.getLogger("conductor")
 
 
 def upgraded(
@@ -96,7 +98,7 @@ def upgraded(
         }
         inputs = {name: entry for name, entry in renamed.items() if name not in gone}
         if upgrade.rewrite is not None:
-            inputs = _rewritten(node_id, renamed, inputs, upgrade.rewrite)
+            inputs = _rewritten(node_id, upgrade.rewrite, older, step, renamed, inputs)
         records = {
             other: NodeRecord.model_construct(
                 node=node.node,
@@ -122,32 +124,76 @@ def upgraded(
 
 def _rewritten(
     node_id: str,
+    rewrite: Callable[[dict[str, Any]], Mapping[str, Any]],
+    older: NodeDefinition,
+    step: NodeDefinition,
     renamed: Mapping[str, InputEntry],
     inputs: Mapping[str, InputEntry],
-    rewrite: Callable[[dict[str, Any]], Mapping[str, Any]],
 ) -> dict[str, InputEntry]:
-    """Runs an ``Upgrade``'s ``rewrite`` and returns the node's inputs after it.
+    """Runs the ``rewrite`` of an ``Upgrade`` and returns the node's inputs after it.
 
-    The rewrite gets the constants and graph-input defaults as one dict. That dict still has the inputs the step
-    drops, so the rewrite can move their values elsewhere. What it returns is converted to JSON. A key that was a
-    graph input's default stays a default. Every other key becomes a constant. A constant or default the rewrite
-    leaves out is dropped.
+    The rewrite gets the node's constants and graph-input defaults as one dict. That dict still has the inputs the
+    step drops, so the rewrite can move their values elsewhere. ``RewriteValidator`` checks what it returns, and
+    writes it as JSON. A key that was a graph input's default stays a default. Every other key becomes a constant. A
+    constant or default the rewrite leaves out is dropped.
+
+    The rewrite is the node author's code. A ``NodeError`` it raises keeps its code and message. Any other exception
+    goes to the ``conductor`` logger, and the problem has only its class name.
 
     Args:
         node_id: The node's id. A problem names it.
-        renamed: The node's inputs after renaming, with the dropped ones still in.
-        inputs: The node's inputs after renaming, without the dropped ones.
         rewrite: The ``Upgrade``'s ``rewrite``.
+        older: The version the step moves from.
+        step: The version the step moves to, whose ``Upgrade`` has the rewrite.
+        renamed: The node's inputs after renaming, with the ones the step drops still in.
+        inputs: The node's inputs after renaming, without the ones the step drops.
 
     Raises:
-        InvalidCallError: ``invalid_value`` if a value the rewrite returns can't be written as JSON.
+        InvalidCallError: ``cannot_move_to_version``, variant ``rewrite_failed`` or ``raised``, if the rewrite
+            raises or returns no dict of input names. See ``RewriteValidator`` for the rest.
     """
     values = {
         name: entry.default if entry.constant is MISSING else entry.constant
         for name, entry in renamed.items()
         if entry.constant is not MISSING or entry.default is not MISSING
     }
-    written = WrittenValuesValidator(node_id)(rewrite(values))
+    try:
+        returned = rewrite(values)
+    except NodeError as error:
+        (problem,) = error.problems
+        raise InvalidCallError(
+            [
+                call_problems.cannot_move_to_version_rewrite_failed(
+                    node_id,
+                    node=step.id,
+                    version=older.version,
+                    target=step.version,
+                    reason=problem.msg,
+                    error=problem.type,
+                    error_ctx=dict(problem.ctx) or None,
+                )
+            ]
+        ) from None
+    except Exception as raised:  # noqa: BLE001  the rewrite is the node author's code, and may raise anything
+        _logger.error(
+            "the rewrite of the Upgrade of node %r, from version %d to %d, raised",
+            node_id,
+            older.version,
+            step.version,
+            exc_info=raised,
+        )
+        raise InvalidCallError(
+            [
+                call_problems.cannot_move_to_version_raised(
+                    node_id,
+                    node=step.id,
+                    version=older.version,
+                    target=step.version,
+                    error=type(raised).__name__,
+                )
+            ]
+        ) from None
+    written = RewriteValidator(node_id, step.id, older.version, step.version)(returned)
     kept = {
         name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)
         for name, entry in inputs.items()

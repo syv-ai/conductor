@@ -8,6 +8,7 @@ input or edges), the node's version, and the edges out of any output it renames.
 its own: a node pinned at an old version runs that version.
 """
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated
@@ -19,6 +20,7 @@ from conductor import (
     InputEntry,
     InvalidCallError,
     NodeDeclarationError,
+    NodeError,
     NodeRecord,
     NodeRegistry,
     Param,
@@ -427,6 +429,127 @@ def test_a_downgrade_or_an_unknown_node_raises():
         registry.upgrade(_graph(version=3), "r", to=1)
     with pytest.raises(InvalidCallError, match="nope"):
         registry.upgrade(_graph(), "nope")
+
+
+def test_a_rewrite_that_raises_is_refused_at_the_node_naming_only_the_exceptions_class(caplog):
+    """The rewrite is the node author's code. What it raises is ``cannot_move_to_version``, never a bare exception.
+
+    The step that raised is in ``ctx``: here the second of two, from version 2 to 3. The exception's text goes to the
+    ``conductor`` logger, and the problem names only its class.
+    """
+
+    def leaking(values):
+        raise ValueError("the secret is 42")
+
+    @node("leak", title="Leak v1", description="For a test.")
+    def leak_v1(n: int) -> int:
+        return n
+
+    @node("leak", title="Leak v2", description="For a test.", replaces=leak_v1)
+    def leak_v2(n: int) -> int:
+        return n
+
+    @node(
+        "leak",
+        title="Leak",
+        description="For a test.",
+        replaces=leak_v2,
+        upgrade=Upgrade(rewrite=leaking),
+    )
+    def leak(n: int) -> int:
+        return n
+
+    saved = GraphRecord.model_validate(
+        {"nodes": {"l": {"node": "leak", "inputs": {"n": {"constant": 1}}}}}
+    )
+    with (
+        caplog.at_level(logging.ERROR, logger="conductor"),
+        pytest.raises(InvalidCallError) as refused,
+    ):
+        registry_of(leak).upgrade(saved, "l")
+    [problem] = refused.value.problems
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "cannot_move_to_version",
+        ("l",),
+        {"node": "leak", "version": 2, "target": 3, "error": "ValueError", "variant": "raised"},
+    )
+    assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
+
+
+def _bye_upgraded_by(rewrite) -> InvalidCallError:
+    """The refusal of ``registry.upgrade`` for a node whose version 2 upgrades with ``rewrite``."""
+
+    @node("bye", title="Bye v1", description="For a test.")
+    def bye_v1(name: str) -> str:
+        return name
+
+    @node(
+        "bye",
+        title="Bye",
+        description="For a test.",
+        replaces=bye_v1,
+        upgrade=Upgrade(rewrite=rewrite),
+    )
+    def bye(first: str) -> str:
+        return first
+
+    saved = GraphRecord.model_validate(
+        {"nodes": {"b": {"node": "bye", "inputs": {"name": {"constant": "Ada Lovelace"}}}}}
+    )
+    with pytest.raises(InvalidCallError) as refused:
+        registry_of(bye).upgrade(saved, "b")
+    return refused.value
+
+
+@pytest.mark.parametrize(
+    ("returned", "reason"),
+    [
+        (None, "it returned a NoneType, not a dict of input names to values"),
+        (["Ada"], "it returned a list, not a dict of input names to values"),
+        ({1: "Ada"}, "it returned a dict with a key that isn't text"),
+    ],
+)
+def test_a_rewrite_that_returns_no_dict_of_input_names_is_refused_at_the_node(returned, reason):
+    """A rewrite that forgets its ``return``, or returns a list, is refused at the node, never a bare exception."""
+    [problem] = _bye_upgraded_by(lambda values: returned).problems
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "cannot_move_to_version",
+        ("b",),
+        {
+            "node": "bye",
+            "version": 1,
+            "target": 2,
+            "reason": reason,
+            "error": "not_a_mapping",
+            "variant": "rewrite_failed",
+        },
+    )
+
+
+def test_a_rewrites_node_error_keeps_its_code_its_message_and_its_ctx():
+    """A ``NodeError`` from a rewrite is kept as a hook's is, since its developer wrote it for people."""
+
+    def first_name(values):
+        raise NodeError("A full name can't be a first name.", code="full_name", ctx={"parts": 2})
+
+    [problem] = _bye_upgraded_by(first_name).problems
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "cannot_move_to_version",
+        ("b",),
+        {
+            "node": "bye",
+            "version": 1,
+            "target": 2,
+            "reason": "A full name can't be a first name.",
+            "error": "full_name",
+            "error_ctx": {"parts": 2},
+            "variant": "rewrite_failed",
+        },
+    )
+    assert problem.msg == (
+        "'bye' can't move from version 1 to version 2. The rewrite of its Upgrade failed: A full name can't be a"
+        " first name."
+    )
 
 
 def test_compile_leaves_a_pinned_version_alone():

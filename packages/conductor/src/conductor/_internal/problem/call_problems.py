@@ -76,6 +76,111 @@ def cannot_move_to_version(
     return f"'{node}' can't move from version {version} to version {target}. Its versions are {comma_separated(versions)}."
 
 
+@CALL_PROBLEMS.problem("cannot_move_to_version", variant="rewrite_failed")
+def cannot_move_to_version_rewrite_failed(
+    *loc: str | int,
+    node: str,
+    version: int,
+    target: int,
+    reason: str,
+    error: str,
+    error_ctx: dict[str, Any] | None = None,
+) -> str:
+    """``registry.upgrade`` ran the ``rewrite`` of a version's ``Upgrade``, and it raised a ``NodeError`` or returned no dict of input names.
+
+    A ``NodeError`` keeps its message, since the node's developer wrote it for people. ``ctx.error`` is its ``code``
+    and ``ctx.error_ctx`` its ``ctx``. A rewrite that returns anything but a dict whose keys are text, such as
+    ``None`` when it forgets its ``return``, has ``ctx.error`` ``not_a_mapping``. A rewrite that raises any other
+    exception is the variant ``raised``.
+
+    ``ctx.version`` and ``ctx.target`` are the step whose rewrite failed. On a move over several versions, that may
+    be a later step than the first.
+
+    To fix it, follow the ``NodeError``'s message, or fix that version's ``Upgrade``. In the example, the rewrite
+    refuses a full name.
+
+    Args:
+        loc: The node.
+        node: The id of its node definition.
+        version: The version the step moves from.
+        target: The version the step moves to.
+        reason: The ``NodeError``'s message, or what is wrong with what the rewrite returned.
+        error: The ``code`` of the rewrite's ``NodeError``, or ``not_a_mapping``.
+        error_ctx: The ``ctx`` of the rewrite's ``NodeError``, if it has one.
+
+    Example:
+        @node("wave", title="Wave", description="Waves at a person.")
+        def wave_v1(name: str) -> str:
+            return f"Hello {name}"
+
+
+        def first_name(values: dict) -> dict:
+            if " " in values["name"]:
+                raise NodeError("A full name can't be moved to a first name.", code="full_name")
+            return {"first": values["name"]}
+
+
+        @node("wave", title="Wave", description="Waves at a person.", replaces=wave_v1, upgrade=Upgrade(rewrite=first_name))
+        def wave(first: str) -> str:
+            return f"Hello {first}"
+
+
+        waving = NodeRegistry()
+        waving.add(wave)
+        refused(lambda: waving.upgrade(make_graph(wave_v1, constants={"wave.name": "Ada Lovelace"}), "wave"))
+    """
+    return (
+        f"'{node}' can't move from version {version} to version {target}."
+        f" The rewrite of its Upgrade failed: {reason.rstrip('.')}."
+    )
+
+
+@CALL_PROBLEMS.problem("cannot_move_to_version", variant="raised")
+def cannot_move_to_version_raised(
+    *loc: str | int, node: str, version: int, target: int, error: str
+) -> str:
+    """``registry.upgrade`` ran the ``rewrite`` of a version's ``Upgrade``, and it raised an exception that isn't a ``NodeError``.
+
+    The rewrite is the node author's code. The exception's text might quote a value, so the text and the traceback
+    go to the ``conductor`` logger, and ``ctx.error`` only has the exception's class name. ``ctx.version`` and
+    ``ctx.target`` are the step whose rewrite raised. On a move over several versions, that may be a later step than
+    the first.
+
+    To fix it, fix that version's ``Upgrade``, so its rewrite takes every value a graph saved with the older version
+    can have.
+
+    Args:
+        loc: The node.
+        node: The id of its node definition.
+        version: The version the step moves from.
+        target: The version the step moves to.
+        error: The exception's class name.
+
+    Example:
+        @node("farewell", title="Farewell", description="Says goodbye to a person.")
+        def farewell_v1(name: str) -> str:
+            return f"Bye {name}"
+
+
+        def split_rewrite(values: dict) -> dict:
+            raise KeyError("first")
+
+
+        @node("farewell", title="Farewell", description="Says goodbye to a person.", replaces=farewell_v1, upgrade=Upgrade(rewrite=split_rewrite))
+        def farewell(first: str) -> str:
+            return f"Bye {first}"
+
+
+        upgrading = NodeRegistry()
+        upgrading.add(farewell)
+        refused(lambda: upgrading.upgrade(make_graph(farewell_v1, constants={"farewell.name": "Ada"}), "farewell"))
+    """
+    return (
+        f"'{node}' can't move from version {version} to version {target}. The rewrite of its Upgrade raised {error},"
+        " and the conductor log has the details."
+    )
+
+
 @CALL_PROBLEMS.problem()
 def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
     """A node takes the run's context, and the call that starts or resumes the run gives no ``context``.

@@ -428,8 +428,9 @@ class NodeRegistry[C]:
 
         Raises:
             InvalidCallError: The record has no node ``node_id``, this registry doesn't have its node, or it can't
-                move to ``to``. Also ``invalid_value`` if the rewrite returns a value that can't be written as
-                JSON, and ``invalid_record`` if it gives a value to an input that edges lead into.
+                move to ``to``. Also ``cannot_move_to_version`` (variant ``rewrite_failed`` or ``raised``) if a rewrite raises or returns no dict of input names,
+                ``invalid_value`` if it returns a value that can't be written as JSON, and ``invalid_record`` if it
+                gives a value to an input that edges lead into.
         """
         return upgraded(self._nodes, record, node_id, to=to)
 

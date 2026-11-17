@@ -139,19 +139,20 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[
 def upgrade_broken(
     *loc: str | int, newest: int, reason: str, problems: list[dict[str, Any]]
 ) -> str:
-    """A graph saved with an older version of a node doesn't compile after it is upgraded to the newest.
+    """A graph saved with an older version of a node doesn't upgrade cleanly to the newest.
 
     ``check_registry`` puts the node in a graph at the older version, upgrades it with ``registry.upgrade``, and
-    compiles the result. In the example below, the rewrite gives ``first`` a number, but the newest version takes a
-    text.
+    compiles the result. Either step can fail. ``registry.upgrade`` refuses the graph when an ``Upgrade``'s rewrite
+    raises or returns a value it can't write, and compiling reports the problems of the graph it returns. In the
+    example below, the rewrite gives ``first`` a number, but the newest version takes a text.
 
-    To fix it, fix the newest version's ``Upgrade``, so a graph saved with the older version compiles cleanly after
-    the upgrade.
+    To fix it, fix the ``Upgrade`` the problems behind it name, so a graph saved with the older version compiles
+    cleanly after the upgrade.
 
     Args:
         loc: The node and the older version.
         newest: The version it was upgraded to.
-        reason: The message of each problem that compiling reported.
+        reason: The message of each problem that ``registry.upgrade`` raised or compiling reported.
         problems: Those problems, as JSON.
 
     Example:
@@ -169,44 +170,9 @@ def upgrade_broken(
         checked.add(welcome_v2)
         check_registry(checked)
     """
-    return f"A graph upgraded to version {newest} doesn't compile: {reason}"
-
-
-@REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken", variant="raised")
-def upgrade_raised(*loc: str | int, newest: int, error: str) -> str:
-    """Upgrading a node from an older version to the newest raised an exception.
-
-    The exception's text might quote a value, so the text and the traceback go to the ``conductor`` logger, and
-    ``ctx.error`` only has the exception's class name.
-
-    To fix it, fix the newest version's ``Upgrade``, so a graph saved with the older version is upgraded without an
-    error.
-
-    Args:
-        loc: The node and the older version.
-        newest: The version it was being upgraded to.
-        error: The exception's class name.
-
-    Example:
-        @node("hi", title="Hi", description="Says hi to a person.")
-        def hi_v1(name: str) -> str:
-            return f"Hi {name}"
-
-
-        def broken_rewrite(values: dict) -> dict:
-            raise KeyError("first")
-
-
-        @node("hi", title="Hi", description="Says hi to a person.", replaces=hi_v1, upgrade=Upgrade(rewrite=broken_rewrite))
-        def hi_v2(first: str) -> str:
-            return first
-
-
-        checked = NodeRegistry()
-        checked.add(hi_v2)
-        check_registry(checked)
-    """
-    return f"Upgrading to version {newest} raised {error}. Its developer can find the details in the conductor log."
+    return (
+        f"A graph saved with an older version doesn't upgrade cleanly to version {newest}: {reason}"
+    )
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()

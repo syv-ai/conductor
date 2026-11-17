@@ -1,4 +1,4 @@
-"""Checking what a node's own code returns: its function on each call, and its hooks when a graph is compiled.
+"""Checking what a node's own code returns: its function on each call, its hooks when a graph is compiled, and its upgrades.
 
 ``ReturnValidator`` checks what a node's function returns, and turns it into the node's outputs by name. Say
 ``shout(line: str) -> str`` returns ``"B!"``. The validator gives ``{"result": "B!"}``. If it returns ``3``
@@ -13,6 +13,10 @@ Only the first fault is reported.
 fields. Say a node's ``compute_outputs`` hook, given ``names="a,b"``, returns ``{"a": str, "b": (int, 0)}``. The
 node gets two outputs, ``a: str``, and ``b: int`` with the default 0. Each field is held to the same rules as one
 ``@node`` declares. A hook that returns ``{"a.b": str}`` fails, since ``a.b`` isn't a valid name.
+
+``RewriteValidator`` checks what the ``rewrite`` of a node's ``Upgrade`` returns, when ``registry.upgrade`` moves a
+graph record to a newer version of the node. It must be a dict of input name to value, and each value is written as
+JSON.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
     CoreSchema,
     SchemaValidator,
@@ -37,10 +41,12 @@ from conductor._internal.field import (
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
+    call_problems,
     compile_problems,
     conductor_error,
     run_problems,
 )
+from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import (
     Validator,
@@ -386,3 +392,63 @@ def _hint_and_default(given: Any) -> tuple[Any, Any]:
     if isinstance(given, tuple) and len(given) == 2:
         return given[0], given[1]
     return given, REQUIRED
+
+
+class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
+    """A validator for what the ``rewrite`` of an ``Upgrade`` returns, for one step of ``registry.upgrade``.
+
+    A rewrite returns the node's constants and graph-input defaults as a dict of input name to value. The validator
+    checks that it is such a dict, and writes each value as the JSON a graph record stores. Say a rewrite returns
+    ``{"day": date(2026, 1, 2)}``. The validator gives ``{"day": "2026-01-02"}``.
+
+    Raises (when called):
+        InvalidCallError: ``cannot_move_to_version``, variant ``rewrite_failed``, at the node with ``error``
+            ``not_a_mapping``, if the rewrite returned no dict, or one with a key that isn't text. ``invalid_value``
+            at the node and input for a value that can't be written as JSON.
+    """
+
+    def __init__(self, node_id: str, node: str, version: int, target: int) -> None:
+        """Builds the validator for one step of one node.
+
+        Args:
+            node_id: The node's id in the graph. The problems name it.
+            node: The id of its node definition.
+            version: The version the step moves from.
+            target: The version the step moves to.
+        """
+        self._node_id = node_id
+        self._node = node
+        self._version = version
+        self._target = target
+
+    def __call__(self, returned: Any) -> dict[str, JsonValue]:
+        """Checks what the rewrite returned, and returns it as JSON, by input name.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        try:
+            values = _REWRITTEN_VALUES.validate_python(returned)
+        except ValidationError as invalid:
+            reason = (
+                f"it returned a {type(returned).__name__}, not a dict of input names to values"
+                if not invalid.errors()[0]["loc"]
+                else "it returned a dict with a key that isn't text"
+            )
+            raise InvalidCallError(
+                [
+                    call_problems.cannot_move_to_version_rewrite_failed(
+                        self._node_id,
+                        node=self._node,
+                        version=self._version,
+                        target=self._target,
+                        reason=reason,
+                        error="not_a_mapping",
+                    )
+                ]
+            ) from None
+        return WrittenValuesValidator(self._node_id)(values)
+
+
+#: Checks what an ``Upgrade``'s rewrite returns: a dict whose keys are text.
+_REWRITTEN_VALUES = TypeAdapter(dict[str, Any])

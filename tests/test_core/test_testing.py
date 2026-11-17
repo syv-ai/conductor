@@ -250,8 +250,13 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
     assert behind(problem) == ["invalid_value"]
 
 
-def test_an_upgrade_that_raises_names_only_the_exceptions_class_and_logs_its_text(caplog):
-    """``upgrade_broken`` with the variant ``raised`` has the exception's class, and its text goes to the log."""
+def test_an_upgrade_that_raises_is_upgrade_broken_with_the_refusal_of_registry_upgrade_behind_it(
+    caplog,
+):
+    """``registry.upgrade`` refuses a rewrite that raises, and ``check_registry`` reports that refusal.
+
+    The problem behind it has the exception's class, and its text goes to the log.
+    """
 
     @node("leak", title="Leak v1", description="For a test.")
     def leak_v1(n: int) -> int:
@@ -272,11 +277,60 @@ def test_an_upgrade_that_raises_names_only_the_exceptions_class_and_logs_its_tex
 
     with caplog.at_level(logging.ERROR, logger="conductor"):
         [problem] = check_registry(registry_of(leak))
-    assert (problem.type, problem.ctx) == (
+    assert (problem.type, problem.loc, behind(problem)) == (
         "upgrade_broken",
-        {"newest": 2, "error": "KeyError", "variant": "raised"},
+        ("leak", 1),
+        ["cannot_move_to_version"],
+    )
+    [refusal] = problem.ctx["problems"]
+    assert (refusal["loc"], refusal["ctx"]["variant"], refusal["ctx"]["error"]) == (
+        ["leak"],
+        "raised",
+        "KeyError",
     )
     assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
+
+
+def test_an_upgrade_that_returns_none_is_upgrade_broken_and_the_other_nodes_are_still_checked():
+    """A rewrite that forgets its ``return`` is reported for its node, and the check goes on to the next node."""
+
+    @node("forgets", title="Forgets v1", description="For a test.")
+    def forgets_v1(n: int) -> int:
+        return n
+
+    @node(
+        "forgets",
+        title="Forgets",
+        description="For a test.",
+        replaces=forgets_v1,
+        upgrade=Upgrade(rewrite=lambda values: None),
+    )
+    def forgets(n: int) -> int:
+        return n
+
+    @node("fails", title="Fails v1", description="For a test.")
+    def fails_v1(n: int) -> int:
+        return n
+
+    def failing(values: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError("no")
+
+    @node(
+        "fails",
+        title="Fails",
+        description="For a test.",
+        replaces=fails_v1,
+        upgrade=Upgrade(rewrite=failing),
+    )
+    def fails(n: int) -> int:
+        return n
+
+    checked = check_registry(registry_of(forgets, fails))
+    assert [(p.type, p.loc, behind(p)) for p in checked] == [
+        ("upgrade_broken", ("forgets", 1), ["cannot_move_to_version"]),
+        ("upgrade_broken", ("fails", 1), ["cannot_move_to_version"]),
+    ]
+    assert [p.ctx["problems"][0]["ctx"]["variant"] for p in checked] == ["rewrite_failed", "raised"]
 
 
 def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
