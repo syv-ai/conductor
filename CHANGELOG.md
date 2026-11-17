@@ -366,6 +366,13 @@ What changes in how you work, before the name-by-name tables:
   `nan` back. So `json-parse` gave `[nan, 1]` for `[NaN, 1]`, which a saved run read back as `["NaN", 1]`, and
   `json-stringify` wrote text that isn't JSON. `json-parse` now refuses the three words and a number too large for a
   float, and `json-stringify` a value holding `inf` or `nan`.
+- **`json-parse` and `json-stringify` refuse `NaN` and `Infinity` with `not_json`.** JSON has no number that isn't
+  finite, but Python's `json` reads and writes `NaN`, `Infinity` and `-Infinity`. So `json-parse` gave `[nan, 1]` for
+  `[NaN, 1]`, which a saved run read back as `["NaN", 1]`, and `json-stringify` wrote text that isn't JSON.
+- **`json-get` reads each part of its path as a key exactly as written** [breaking]. It stripped the spaces from
+  each part, so the key `" a"` couldn't be reached. Now `" a"` finds `" a"`. A saved graph whose path has spaces
+  around a part, such as `user. name` or `items.1 `, now gets `None` where it got the value. A key with a dot in it
+  still can't be reached, since the dot always splits the path.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A choice is a `Choice` wherever conductor gives one.** `FieldDescription.choices`, on a field `describe()` writes and on a waiting call's question, is a tuple of `Choice`, each with every field a host gave it; its JSON is unchanged. `Choice("ida", "Ida B.", team="sales")` carries `team` without a subclass, and a description or a saved run read back keeps it. A `Param`'s choices and an `Ask`'s are read by one rule, `read_choices`: two ids are one choice when their JSON is, with the keys of a dict in any order, so `Param(choices=[float("inf"), float("nan")])` is taken and `[{"a": 1, "b": 2}, {"b": 2, "a": 1}]` is one choice given twice, refused by `Param` (`choices_invalid`) and by an `Ask` (`invalid_ask`) alike. An `Ask`'s choices are read by the validator of the output, as an answer is, so a yes or no is never a number there. An `Ask` refused for its choices says so as `invalid_ask` with `ctx.reason` "the choices for 'result' are refused: one is given twice" (or "none is given", "one has no JSON form", or the reason its type refuses one).
 - **An answer is read as a return is.** A person's answer is read from its JSON form by the schema that reads what the node returns, so a host type whose own check gives another class refuses an answer as it refuses a return (`invalid_answer`, "its type's own check gave a dict, not a Square"). An `Ask` choice with no JSON form fails the call with `invalid_ask` ("the value has no JSON form"), where it raised out of `resume()`.

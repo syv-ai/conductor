@@ -109,14 +109,17 @@ def get_path(value: JsonValue, path: str) -> Annotated[JsonValue, Param(title="E
 
     A number picks an item from a list, and ``-1`` is the last one. An empty path gives the whole value. If
     nothing is at the path, the node returns ``None``, which is JSON's null.
+
+    Each part between the dots is a key exactly as written, spaces included, so ``" a"`` finds the key ``" a"``.
+    A key with a dot in it can't be reached, since the dot always splits the path.
     """
     current = value
     for segment in path.split(".") if path else ():
         if isinstance(current, dict):
-            current = current.get(segment.strip())
+            current = current.get(segment)
         elif (
             isinstance(current, list)
-            and re.fullmatch(r"-?[0-9]+", segment.strip())
+            and re.fullmatch(r"-?[0-9]+", segment)
             and -len(current) <= int(segment) < len(current)
         ):
             current = current[int(segment)]
