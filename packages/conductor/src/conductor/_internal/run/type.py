@@ -558,7 +558,7 @@ class Run[C]:
                 call now asks another question, with ``ctx.moved_to`` when that question now waits on another call.
         """
         loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=status)
-        # None when the id names a subgraph, or no node at all
+        # None when the id names a subgraph, a node the graph doesn't have, or no node at all ("" reads as ())
         node = self._blueprint.function_nodes.get(nodes)
         outcome = self._outcomes[nodes].get(item_indexes) if node is not None else None
         match node, outcome:
@@ -597,7 +597,7 @@ class Run[C]:
         A waiting id names a call and the question it asked. After an edit, the same question may be waiting on another
         call of the node at ``nodes``. This finds it by the question's fingerprint.
         """
-        # None when the id names a subgraph, or no node at all
+        # None when the id names a subgraph, a node the graph doesn't have, or no node at all ("" reads as ())
         node = self._blueprint.function_nodes.get(nodes)
         if node is None:
             return None

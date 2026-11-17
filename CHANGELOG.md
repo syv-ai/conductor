@@ -494,6 +494,10 @@ What changes in how you work, before the name-by-name tables:
   record, and `"gr/eet.result"` was `node_not_in_graph`. Each is now `invalid_place` at the argument it is given in,
   inside the one `InvalidCallError`. Its message says why: "Write it as 'node.name', where neither part is empty or
   contains any of '.', '/', '@', '~'." (it ended "Write it as 'node.name'.").
+- **A waiting id is read only up to a node id that isn't a name.** `not_waiting`'s `loc` for an id with a node id
+  that is empty or has a `.` in it named that id: `""` gave `("",)`, `"e@0//q"` gave `("e", 0, "", "q")` and
+  `"e@0/q.x"` gave `("e", 0, "q.x")`. It now stops before it, as it stops before an index that isn't a number:
+  `""` and `"~3fa2c0d1"` give `()`, `"e@0//q"` gives `("e", 0)` and `"e@0/q.x"` gives `("e", 0)`.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

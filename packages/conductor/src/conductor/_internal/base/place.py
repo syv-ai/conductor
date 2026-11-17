@@ -198,14 +198,18 @@ def parse_loc(text: str) -> Loc:
 
     ``parse_loc("review@0/approve@1")`` returns ``("review", 0, "approve", 1)``. An item index counts only in the
     spelling ``place_text`` writes, a whole number with no sign, space or leading zero. The loc ends at the node
-    before the first index that isn't one, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``. To accept
-    only a text ``place_text`` wrote, write the loc back and compare: ``place_text(parse_loc(text)) == text``.
+    before the first index that isn't one, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``. In the
+    same way, the loc ends before the first node id that isn't a name (see ``is_name``), so ``"review//approve"``
+    gives ``("review",)`` and ``""`` gives ``()``. To accept only a text ``place_text`` wrote, write the loc back
+    and compare: ``place_text(parse_loc(text)) == text``.
     """
     loc: list[str | int] = []
     # the text read so far, to compare with what place_text writes for the loc read so far
     read = ""
     for part in text.split(NODE_SEPARATOR):
         node_id, *indexes = part.split(INDEX_SEPARATOR)
+        if not is_name(node_id):
+            return tuple(loc)
         read = f"{read}{NODE_SEPARATOR}{node_id}" if loc else node_id
         loc.append(node_id)
         for index in indexes:

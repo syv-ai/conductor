@@ -159,7 +159,8 @@ def read_waiting_id(
     ``~`` part names just the call, and its fingerprint is ``None``.
 
     Only the exact text ``write_waiting_id`` would write is accepted. ``"approve@01"`` names nothing, since the
-    index would be written ``1``.
+    index would be written ``1``, and ``"review//approve"`` names nothing, since a node id can't be empty. An id
+    that names no node, such as ``""``, reads as the loc ``()``; the caller finds no call there.
 
     Args:
         waiting_id: The id, as a host gave it.
@@ -186,6 +187,7 @@ def named_loc(waiting_id: str) -> Loc:
     """Returns the call a waiting id names, as a ``Problem``'s ``loc``, whether or not the id is a right one.
 
     ``"review@0/approve@1~3fa2c0d1"`` names ``("review", 0, "approve", 1)``. The fingerprint is dropped, and the
-    rest is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` name ``("approve",)``.
+    rest is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` name ``("approve",)``, and ``""``
+    names ``()``.
     """
     return parse_loc(waiting_id.partition(FINGERPRINT_SEPARATOR)[0])

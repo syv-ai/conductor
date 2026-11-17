@@ -491,8 +491,8 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
     To fix it, use one of the ids in ``run.waiting``.
 
     Args:
-        loc: The node and the item indexes the waiting id names. If one of the indexes isn't a number, only the
-            indexes before it.
+        loc: The node and the item indexes the waiting id names. If one of the indexes isn't a number, or a node id
+            isn't a name (it is empty, or has a ``.`` in it), only what comes before it, so ``""`` is ``()``.
         waiting_id: The waiting id the answer was given for.
         status: The run's status.
         moved_to: The waiting id the same question has now, if it waits for another call of the node. That happens

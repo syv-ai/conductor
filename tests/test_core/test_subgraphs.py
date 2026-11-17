@@ -1068,6 +1068,27 @@ def test_an_item_index_in_a_waiting_id_counts_only_as_the_run_writes_it(index: s
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", ("e",))]
 
 
+@pytest.mark.parametrize(
+    ("waiting_id", "loc"),
+    [
+        ("", ()),
+        ("~00000000", ()),
+        ("/q", ()),
+        ("e@0//q", ("e", 0)),
+        ("e@0/q/", ("e", 0, "q")),
+        ("e@0/q.x", ("e", 0)),
+    ],
+)
+def test_a_waiting_id_is_read_only_up_to_a_node_id_that_is_not_a_name(
+    waiting_id: str, loc: tuple[str | int, ...]
+):
+    """A node id is a name, so a waiting id is read up to the first one that isn't, as up to a wrong index."""
+    run = inside_a_loop("asking-inner").run(text="ab cd")
+    with pytest.raises(InvalidCallError) as refused:
+        run.answer(waiting_id, "x")
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", loc)]
+
+
 # -- policy: an inner node is called, retried, timed out and cancelled as in one graph -------------
 
 
