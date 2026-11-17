@@ -218,8 +218,8 @@ def run_router(
     ) -> RunView:
         """Decline to answer what waits under ``waiting_id``.
 
-        A run that takes the decline ends ``failed`` with ``answer_declined``, and is not resumed: a later resume
-        asks the question again. A run that isn't running takes it at once and comes back ``failed``. When it refuses
+        A run that takes the decline ends ``failed`` with ``answer_declined``, and the decline doesn't resume it. An
+        answer to another question that still waits, or a resume, does, and the run asks the declined question again. A run that isn't running takes it at once and comes back ``failed``. When it refuses
         the decline but takes an answer still queued from a resume call that raised, it is resumed with its queue.
         The refusal shows on the response, and in its ``refused`` until that question is answered: a queued answer
         to the same question answers it when the resume call ends. A decline the run refuses, with nothing taken, is in the 422, and so is a reason JSON

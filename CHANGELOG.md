@@ -436,8 +436,9 @@ What changes in how you work, before the name-by-name tables:
   `Worker.decline(run_id, waiting_id, *, reason=None, allows=)`, decline one question. The body's `reason` is a `str` or
   left out, and `Worker.decline` takes a reason as `run.decline` does. The decline is queued as an
   answer is, as one entry of the row's `queued`; the run takes what was queued in order, the first of an answer and a
-  decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined` and isn't
-  resumed. A run that isn't running is given the decline at once, after any replies still queued, and written
+  decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined`, and the
+  decline doesn't resume it; an answer to another question that still waits, or a resume, does, and the run asks the
+  declined question again. A run that isn't running is given the decline at once, after any replies still queued, and written
   `failed` with no resume call, so a worker that never served takes it, and the route answers with the run
   `failed`; its events get one `run_end` that says so. A decline it refuses is a 422 (`not_waiting`,
   `answer_stale`), and nothing is written, unless the run took an answer still queued from a resume call that

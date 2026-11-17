@@ -324,8 +324,9 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Decline to answer a question that waits in a run, so the run fails, as ``run.decline`` fails it.
 
-        A run that takes the decline ends ``failed``, with ``answer_declined`` as its cause, and isn't resumed: a
-        resume would ask the declined question again.
+        A run that takes the decline ends ``failed``, with ``answer_declined`` as its cause, and the decline doesn't
+        resume it. A decline is not final: an answer to another question that still waits, or a ``resume``, resumes
+        the failed run, and it asks the declined question again.
 
         While the run is running, the decline is queued as an answer is. The run is given it when its resume call
         ends, in order with the answers queued with it. The run can still refuse it then, as ``not_waiting`` after an
