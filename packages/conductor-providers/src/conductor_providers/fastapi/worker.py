@@ -722,10 +722,9 @@ class Worker(Generic[M, X]):
         written: RunChanges = {**state.columns(), **self._settings.holder()}
         if changed is not None:
             written["run"] = changed
-        if not await self._store.update(row.id, row.rev, written):
-            return None
-        claimed = replace(row, **written, rev=row.rev + 1)
-        self._resume_in_background(claimed)
+        claimed = await self._written(row, written)
+        if claimed is not None:
+            self._resume_in_background(claimed)
         return claimed
 
     async def _reply_to_a_stopped_run(
@@ -772,7 +771,8 @@ class Worker(Generic[M, X]):
                 lambda: queued.ended_with(loaded(row, nodes), row.run, row.outcome)
             )
             if declined:
-                return await self._write_ended(row, ended, changes)
+                run_end = RunEnd(status=ended.status, cause=ended.cause).model_dump_json()
+                return await self._written(row, {**ended.columns(), **changes}, run_end)
             refused = {key: ended.refused[key] for key in declines if key in ended.refused}
             if refused and not ended.is_running:
                 raise InvalidCallError([problem for each in refused.values() for problem in each])
@@ -790,27 +790,25 @@ class Worker(Generic[M, X]):
             claimed = claimed.model_copy(update={"refused": {**claimed.refused, **refused}})
         return await self._claim(row, claimed, changed=changed)
 
-    async def _write_ended(
-        self, row: StoredRun, state: RunState, changes: RunChanges
+    async def _written(
+        self, row: StoredRun, changes: RunChanges, event: str | None = None
     ) -> StoredRun | None:
-        """Write a run that stopped with no resume call, with its ``run_end``, if the row is still at the ``rev`` read.
+        """Write ``changes`` to a run's row, and ``event`` with them, if the row is still at the ``rev`` read.
 
-        The row and the ``run_end`` that says what it says are one ``update``, so both land or neither does. Of two
-        calls that write the row, one wins.
+        Of two calls that write one row, one wins. The row and the event are one ``update``, so both land or
+        neither does: a run that stops with no resume call is written with the ``run_end`` that says so.
 
         Args:
             row: The run's row as read.
-            state: The state the run stopped with.
-            changes: The row's ``run`` and ``outcome`` to write with it.
+            changes: The columns to write.
+            event: An event to append in the same write, as JSON; ``None`` for none.
 
         Returns:
             The row as written; ``None`` when another call wrote it first.
         """
-        written: RunChanges = {**state.columns(), **changes}
-        ended = RunEnd(status=state.status, cause=state.cause).model_dump_json()
-        if not await self._store.update(row.id, row.rev, written, ended):
+        if not await self._store.update(row.id, row.rev, changes, event):
             return None
-        return replace(row, **written, rev=row.rev + 1)
+        return replace(row, **changes, rev=row.rev + 1)
 
     def _resume_in_background(self, row: StoredRun) -> None:
         """Start the task that resumes a run this worker has just taken.
@@ -849,8 +847,8 @@ class Worker(Generic[M, X]):
             nothing written.
         """
         while (state := RunState.model_validate_json(row.state)).is_running:
-            changes = asked(state).columns()
-            if await self._store.update(row.id, row.rev, changes):
-                return replace(row, **changes, rev=row.rev + 1)
+            written = await self._written(row, asked(state).columns())
+            if written is not None:
+                return written
             row = await self._row(row.id)
         return row
