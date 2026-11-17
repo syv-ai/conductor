@@ -776,6 +776,8 @@ print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person':
 
 Only the newest version goes on the registry. A saved graph keeps running the version it names, because compiling never upgrades. The host calls `registry.upgrade` and shows the graph's author the result. To tell an editor that a version is going away, and which node to use instead, pass `deprecation=Deprecation(...)`. The rules are in `python -m conductor.about versions-and-policies`.
 
+A new version is also how a run made from a previous one stops reusing a node's results after you change something its function reads from outside, such as a template or a helper. Reuse sees only the function's own source (`python -m conductor.about running-again`).
+
 ## Test the whole registry
 
 Calling a node tests its body. `check_registry` tests what a call can't show: an upgrade that breaks a saved graph, a hook that fails, a body that changes the value it was given, an example that fails. It returns every problem at once:

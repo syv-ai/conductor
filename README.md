@@ -213,7 +213,7 @@ for waiting in run.waiting:
 # Approve Bo, 5500 kr.?
 ```
 
-A call that gets the same arguments as last time isn't made again. Ida's invoice didn't change, so her result is reused, and only Bo is asked again. Adding an invoice works the same way: only the new one is asked.
+A call that gets the same arguments as last time isn't made again. Ida's invoice didn't change, so her result is reused, and only Bo is asked again. Adding an invoice works the same way: only the new one is asked. The code that counts is the node's own function: a template or a helper it reads from outside isn't part of it, so after changing one, call the node again with `run.forget("approve")` (`python -m conductor.about running-again`).
 
 ```python
 run = run.answer(run.waiting[0], True).again(csv=edited + "Eva,7000\n")
