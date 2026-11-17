@@ -161,11 +161,11 @@ class Source:
 
 
 def place_text(loc: Loc, name: str | None = None, field: str | None = None) -> str:
-    """Writes a node, one of its outputs, or one call of a node as text.
+    """Writes a node, one of its inputs or outputs, or one call of a node as text.
 
     The node ids are joined with ``/``, and each item index follows the id before it after an ``@``. The name of
-    an output follows after a dot, and a record field after another dot. A node path is a loc with no item indexes,
-    and a saved run writes a node this way.
+    an input or an output follows after a dot, and a record field after another dot. A node path is a loc with no
+    item indexes, and a saved run writes a node this way.
 
     ``place_text(("loud", "shout"))`` returns ``"loud/shout"``, ``place_text(("lines",), "result")`` returns
     ``"lines.result"``, ``place_text(("read",), "result", "email")`` returns ``"read.result.email"``, and
@@ -173,7 +173,7 @@ def place_text(loc: Loc, name: str | None = None, field: str | None = None) -> s
 
     Args:
         loc: The node's path, or the loc of one call of it.
-        name: The name of an output of the node; ``None`` for the node itself.
+        name: The name of an input or an output of the node; ``None`` for the node itself.
         field: The field of the record the output returns; ``None`` for the whole output.
     """
     text = "".join(

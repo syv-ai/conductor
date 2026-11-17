@@ -19,7 +19,14 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import FIELD_SEPARATOR, REQUIRED, Source, is_field, is_name
+from conductor._internal.base import (
+    FIELD_SEPARATOR,
+    REQUIRED,
+    Source,
+    is_field,
+    is_name,
+    place_text,
+)
 from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import (
@@ -352,10 +359,12 @@ def _graph_inputs(
     for name, count in counts.items():
         if count > 1 or name in named:
             places = [
-                f"{node_id}.{input_name}" for node_id, input_name in automatic if input_name == name
+                place_text((node_id,), input_name)
+                for node_id, input_name in automatic
+                if input_name == name
             ]
             places += [
-                f"{node_id}.{input_name}"
+                place_text((node_id,), input_name)
                 for (node_id, input_name), given in graph_input_of.items()
                 if given == name
             ]
@@ -406,9 +415,9 @@ def _graph_outputs(
     counts = Counter(output for _, output in leaves)
     for name, count in counts.items():
         if count > 1 or name in declared:
-            places = [f"{node_id}.{output}" for node_id, output in leaves if output == name] + (
-                [str(declared[name])] if name in declared else []
-            )
+            places = [
+                place_text((node_id,), output) for node_id, output in leaves if output == name
+            ] + ([str(declared[name])] if name in declared else [])
             problems.append(
                 call_problems.graph_outputs_share_a_name("outputs", name, name=name, outputs=places)
             )
@@ -491,7 +500,9 @@ def _chain_edges(
             else []
         )
         if len(outputs) == 1 and len(open_inputs) == 1:
-            edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
+            edges.append(
+                (place_text((before_id,), outputs[0]), place_text((after_id,), open_inputs[0]))
+            )
         elif not open_inputs and needs_constant:
             problems.append(
                 call_problems.not_a_chain_constant_only(
