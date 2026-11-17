@@ -1086,7 +1086,7 @@ async def test_an_answer_to_a_stopped_run_whose_queue_answers_the_same_question_
     None
 ):
     """With no decline queued, an answer to a stopped run is given to the run as its row has it, and the queue waits
-    for the end of the resume call. So of two answers to one question, the later is taken, as on the base."""
+    for the end of the resume call. So of two answers to one question, the later is taken."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     store = MemoryStore()
