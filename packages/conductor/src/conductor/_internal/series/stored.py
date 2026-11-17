@@ -3,12 +3,12 @@
 A node usually returns a list, and the run stores it as a ``SeriesItems``. Say a node ``split`` returns
 ``[{"name": "Ann"}, {"name": "Bo"}]``. A node wired to it is called once per item, first with ``stored[0]`` and
 then with ``stored[1]``. If the edge picks the field ``name`` (``split.result.name``), the first call gets
-``stored.columns["name"][0]``, which is ``"Ann"``.
+``stored.cell("name", 0)``, which is ``"Ann"``.
 
 A node with a ``Series`` of records may return a ``polars.DataFrame`` instead. The run stores that as
 ``Records``, which keeps the frame and makes each row a record only when one is needed.
 
-Both classes have the same methods: ``len(stored)``, ``stored[index]``, ``columns``, ``as_list()``,
+Both classes have the same methods: ``len(stored)``, ``stored[index]``, ``cell(name, index)``, ``as_list()``,
 ``as_table_input()``, ``field_as_list(name)`` and ``for_saving()``. Code that uses a stored Series never has to
 check which of the two it has.
 """
@@ -47,32 +47,24 @@ class ColumnsOnDemand(dict[str, list[Any]]):
 class SeriesItems(list[Any]):
     """A ``Series`` output stored as the list the node returned.
 
-    An item the node returned as ``SKIPPED`` stays ``SKIPPED`` in the list. For example,
-    ``SeriesItems([{"name": "Ann"}, None]).columns["name"]`` is ``["Ann", None]``.
-
-    Attributes:
-        columns: ``columns[name]`` is the field ``name`` of every item, in order. Each list is made the first time
-            it is asked for. An item that is ``None`` or ``SKIPPED`` gives that value. An item with no field
-            ``name`` gives a ``NoSuchFieldError``, which is raised only if something uses that field.
+    An item the node returned as ``SKIPPED`` stays ``SKIPPED`` in the list, so ``SeriesItems(["a", SKIPPED])[1]``
+    is ``SKIPPED``.
     """
 
-    __slots__ = ("columns",)
+    __slots__ = ()
 
-    def __init__(self, items: list[Any]) -> None:
-        super().__init__(items)
-        self.columns = ColumnsOnDemand(self._field_of_each)
+    def cell(self, name: str, index: int) -> Any:
+        """Returns the field ``name`` of the item at ``index``.
 
-    def _field_of_each(self, name: str) -> list[Any]:
-        column = []
-        for item in self:
-            if item is None or item is SKIPPED:
-                column.append(item)
-                continue
-            try:
-                column.append(field_of(item, name))
-            except NoSuchFieldError as missing:
-                column.append(missing)
-        return column
+        An item that is ``None`` or ``SKIPPED`` gives that value. For example,
+        ``SeriesItems([{"n": 1}, None]).cell("n", 0)`` is ``1``.
+
+        Raises:
+            NoSuchFieldError: The item has no field ``name``. An item of a ``Series[dict]`` or ``Series[Any]`` may
+                not have the field an edge names.
+        """
+        item = self[index]
+        return item if item is None or item is SKIPPED else field_of(item, name)
 
     def as_list(self) -> list[Any]:
         """Returns the items as a new list, the way a node with a ``Series`` input gets them.
@@ -97,12 +89,7 @@ class SeriesItems(list[Any]):
         Raises:
             NoSuchFieldError: An item has no field ``name``.
         """
-        column = self.columns[name]
-        for cell in column:
-            # an item of a Series[dict] or Series[Any] may not have the field the edge names
-            if type(cell) is NoSuchFieldError:
-                raise NoSuchFieldError(name)
-        return [None if cell is SKIPPED else cell for cell in column]
+        return [None if item is None or item is SKIPPED else field_of(item, name) for item in self]
 
     def for_saving(self) -> tuple[SeriesItems, list[int]]:
         """Returns the Series ready to be saved, and the indexes of its ``SKIPPED`` items.
@@ -128,27 +115,23 @@ class Records[T]:
     and a column nothing uses never does.
 
     Say the frame has the columns ``name`` and ``amount`` and two rows. Then ``records[0]`` is
-    ``{"name": "Ann", "amount": 10}``, and ``records.columns["amount"]`` is ``[10, 20]``. A node with a ``Table``
+    ``{"name": "Ann", "amount": 10}``, and ``records.cell("amount", 1)`` is ``20``. A node with a ``Table``
     input wired to the Series gets ``records.frame`` itself, so no record is made for it.
 
     ``Records[R]`` is also the type hint a saved run writes and reads one back by. It is saved as a table's JSON.
 
     Attributes:
         frame: The table whose rows are the records.
-        columns: ``columns[name]`` is the cells of the column ``name``. For a name the frame has no column for, it
-            is a list of ``NoSuchFieldError``.
     """
 
-    __slots__ = ("columns", "frame")
+    __slots__ = ("_columns", "frame")
 
     def __init__(self, frame: pl.DataFrame) -> None:
         """Stores ``frame``, which has already been checked as a table of the records' type."""
         self.frame = frame
-        self.columns = ColumnsOnDemand(self._cells_of)
+        self._columns = ColumnsOnDemand(self._cells_of)
 
     def _cells_of(self, name: str) -> list[Any]:
-        if name not in self.frame.columns:
-            return [NoSuchFieldError(name)] * self.frame.height
         cells: list[Any] = self.frame[name].to_list()
         return cells
 
@@ -157,15 +140,26 @@ class Records[T]:
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         """Returns the record at ``index`` as a dict."""
-        columns = self.columns
+        columns = self._columns
         return {name: columns[name][index] for name in self.frame.columns}
+
+    def cell(self, name: str, index: int) -> Any:
+        """Returns the cell of the column ``name`` in the row at ``index``.
+
+        Raises:
+            NoSuchFieldError: The frame has no column ``name``.
+        """
+        # a frame of a Series[Any] may not have the field the edge names
+        if name not in self.frame.columns:
+            raise NoSuchFieldError(name)
+        return self._columns[name][index]
 
     def as_list(self) -> list[dict[str, Any]]:
         """Returns the records as a new list of dicts, the way a node with a ``Series`` input gets them."""
         names = self.frame.columns
         return [
             dict(zip(names, cells, strict=True))
-            for cells in zip(*(self.columns[name] for name in names), strict=True)
+            for cells in zip(*(self._columns[name] for name in names), strict=True)
         ]
 
     def as_table_input(self) -> pl.DataFrame:
@@ -182,19 +176,20 @@ class Records[T]:
         Raises:
             NoSuchFieldError: The frame has a row and no column ``name``.
         """
-        # a frame of a Series[Any] may not have the field the edge names
-        if self.frame.height and name not in self.frame.columns:
+        if not self.frame.height:
+            return []
+        if name not in self.frame.columns:
             raise NoSuchFieldError(name)
-        return list(self.columns[name])
+        return list(self._columns[name])
 
     def for_saving(self) -> tuple[Records[T], list[int]]:
         """Returns the Series ready to be saved, and no indexes, since a frame has no ``SKIPPED`` row."""
         return self, []
 
     def _as_json(self) -> dict[str, Any]:
-        # Go through ``columns``, so a run saved at every checkpoint turns each column into a list only once.
+        # Go through ``_columns``, so a run saved at every checkpoint turns each column into a list only once.
         return written_columns(
-            self.frame, {name: self.columns[name] for name in self.frame.columns}
+            self.frame, {name: self._columns[name] for name in self.frame.columns}
         )
 
     @classmethod

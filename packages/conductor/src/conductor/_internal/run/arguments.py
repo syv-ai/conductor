@@ -242,12 +242,7 @@ class ResultReader:
             return MAY_HAVE_VALUE
         if record_field is None:
             return value[index]
-        cell = value.columns[record_field][index]
-        if (
-            type(cell) is NoSuchFieldError
-        ):  # an item of a Series[dict] or Series[Any] may lack the field the edge names, so that call fails
-            raise NoSuchFieldError(record_field)
-        return cell
+        return value.cell(record_field, index)
 
     def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
