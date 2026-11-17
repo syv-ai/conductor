@@ -86,6 +86,6 @@ assert approve.context is not None and approve.context.cls is AppContext and lis
 ```
 
 - A pydantic model a node returns is one value, not one output per field.
-- A hook is for inputs or outputs a constant names. A type that follows what arrives is a type variable, with no hook.
+- Whether a field needs a hook or a type variable: `python -m conductor.about a-node-for-any-type`.
 - `Ask` is a `BaseException`: an `except Exception` in the node lets it through.
 - Only `ExternalError` and `retry_on` classes retry, on the schedule `python -m conductor.about` gives. A timed-out attempt is final.

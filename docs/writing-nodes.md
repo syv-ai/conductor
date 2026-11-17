@@ -519,7 +519,7 @@ The hook is called when the graph is compiled, with the constant given to `names
 
 The outputs are known only once the graph is compiled, so `make_graph` can't find them by itself. You name the ones the graph returns with `outputs=`, and without it `make_graph` raises `hook_outputs_not_named`. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises doesn't stop compiling: the node gets the problem `compute_hook_failed`, with your message if you raised a `NodeError`.
 
-Use a hook only for names a constant decides. When a type should follow what arrives on an edge, use a type variable. The rules are in `python -m conductor.about field-hooks`.
+Whether a field needs a hook or a type variable is in `python -m conductor.about a-node-for-any-type`, and how a hook works is in `python -m conductor.about field-hooks`.
 
 ## Asking a person
 
