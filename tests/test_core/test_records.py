@@ -186,6 +186,26 @@ def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_an
     )
 
 
+def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
+    """A record in a cell that lacks a field names the column, and doesn't say the column is missing."""
+
+    class Price(TypedDict):
+        amount: int
+        currency: str
+
+    class Priced(TypedDict):
+        name: str
+        price: Price
+
+    @node("priced", title="Priced", description="For a test.")
+    def priced(text: str) -> Table[Priced]:
+        return [{"name": "a", "price": {"amount": 1}}]  # type: ignore[return-value]
+
+    cause = Graph.compile(make_graph(priced), registry_of(priced)).run(text="x").cause
+
+    assert (cause.ctx["reason"], cause.ctx["column"]) == ("column 'price': Field required", "price")
+
+
 def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
     @node("texts", title="Texts", description="For a test.")
     def texts(text: str) -> Series[str]:

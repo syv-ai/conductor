@@ -474,6 +474,9 @@ What changes in how you work, before the name-by-name tables:
 - **`invalid_output` opens with what is true of every bad return.** "The node's return doesn't fit its outputs: …", where it said "The node returned something it doesn't declare", which was wrong for an output it declared and didn't return, or a value of a field it does declare. A hook's node that returns something other than a mapping is told "the node must return a mapping with one key per output (a, b), not a str".
 - **A hook's node declares a return a mapping fits.** `@node(..., compute_outputs=...)` on a function declared `-> str` (or any return type no mapping fits) raises `NodeDeclarationError` with the new code `outputs_not_a_mapping` (`ctx.returns`), where every call failed as `invalid_output`. Whether a mapping fits is asked by the rule an edge is checked by, so `dict[str, Any]`, `Mapping[str, Any]`, `object`, `Any`, `JsonValue`, an alias of one and a union with one are taken, and a `TypedDict` is refused.
 - **A `previous` the runs router can't find says so in its `loc`.** `POST /runs` and `POST /estimate` with a `previous` no run has, or one the filter hides, answer 404 `no_such_run` with `loc` `["previous"]` (it was `[]`, which read as a route that doesn't exist); `Worker.begin` and `Worker.estimate` raise it so. A route's own run that isn't there keeps `loc` `[]`.
+- **A field missing inside a table's cell is not a missing column.** A `Table` whose column is a record, given a
+  row whose cell lacks one of that record's fields, was refused with "the column 'price' is missing, and the row
+  type needs it". It now reads "column 'price': Field required", as any other fault inside a cell does.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
