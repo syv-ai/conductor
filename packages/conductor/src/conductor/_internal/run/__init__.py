@@ -20,7 +20,8 @@ The files, roughly in the order a run uses them:
 - ``state.py``: ``run.status``.
 - ``reuse.py``: reusing outcomes from a previous run, for ``run.again()``.
 - ``validator.py``: ``EdgeValidator``, which checks a value an edge gives an input that is stricter than the
-  output it is wired to.
+  output it is wired to; ``WaitingIdValidator``, which reads the id of a waiting call a host answers or declines;
+  and ``ForgetValidator``, which checks the node ids a host gives ``run.forget``.
 - ``json/``: saving a run as JSON and reading it back.
 """
 

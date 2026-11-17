@@ -2,7 +2,7 @@
 
 When a node raises ``Ask``, its call stops and waits. The host lists those calls with ``run.waiting``, shows each
 one to a person, and sends the answer back with ``run.answer(id, value)``. This module builds what the host is
-shown, and writes and reads the ``id`` that ties an answer to its call.
+shown. ``base/place.py`` writes the ``id`` that ties an answer to its call, and ``WaitingIdValidator`` reads it.
 
 Say ``approve(line: str) -> bool`` raises ``Ask("approve b?")`` for the second line. ``run.waiting`` then lists::
 
@@ -14,21 +14,11 @@ So a host can draw a question with the same code that draws an input.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, assert_never
 
 from conductor._internal.ask import as_asked
-from conductor._internal.base import (
-    FINGERPRINT_SEPARATOR,
-    ConductorModel,
-    ItemIndexes,
-    Loc,
-    NodePath,
-    parse_loc,
-    place_text,
-)
+from conductor._internal.base import ConductorModel, ItemIndexes, write_waiting_id
 from conductor._internal.field import FieldDescription
-from conductor._internal.problem import InvalidCallError, call_problems
 
 from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, outcome_loc
@@ -135,59 +125,3 @@ def _arguments(
             )
         case unexpected:
             assert_never(unexpected)
-
-
-def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
-    """Returns the waiting id of the call at ``loc``, whose question has the fingerprint ``fingerprint``.
-
-    The id is the loc's text (``place_text``), then ``~`` and the fingerprint. So
-    ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns ``"review@0/approve@1~3fa2c0d1"``. Without
-    a fingerprint, the id names just the call: ``"review@0/approve@1"``. ``read_waiting_id`` turns the id back into
-    its parts.
-    """
-    place = place_text(loc)
-    return place if fingerprint is None else f"{place}{FINGERPRINT_SEPARATOR}{fingerprint}"
-
-
-def read_waiting_id(
-    waiting_id: str, *, status: Callable[[], str]
-) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
-    """Splits a waiting id back into the call it names and the fingerprint of its question.
-
-    It undoes ``write_waiting_id``. For example, ``read_waiting_id("review@0/approve@1~3fa2c0d1", status=lambda:
-    "waiting")`` returns ``(("review", 0, "approve", 1), ("review", "approve"), (0, 1), "3fa2c0d1")``. An id with no
-    ``~`` part names just the call, and its fingerprint is ``None``.
-
-    Only the exact text ``write_waiting_id`` would write is accepted. ``"approve@01"`` names nothing, since the
-    index would be written ``1``, and ``"review//approve"`` names nothing, since a node id can't be empty. An id
-    that names no node, such as ``""``, reads as the loc ``()``; the caller finds no call there.
-
-    Args:
-        waiting_id: The id, as a host gave it.
-        status: Returns the run's status, for the refusal's message. It is only called when the id is refused.
-
-    Returns:
-        The call's loc, its node path, its item indexes, and the fingerprint.
-
-    Raises:
-        InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. Its loc is
-            ``named_loc``'s.
-    """
-    loc, fingerprint = named_loc(waiting_id), waiting_id.partition(FINGERPRINT_SEPARATOR)[2] or None
-    if write_waiting_id(loc, fingerprint) != waiting_id:
-        raise InvalidCallError(
-            [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())]
-        )
-    node_path = tuple(part for part in loc if isinstance(part, str))
-    item_indexes = tuple(part for part in loc if isinstance(part, int))
-    return loc, node_path, item_indexes, fingerprint
-
-
-def named_loc(waiting_id: str) -> Loc:
-    """Returns the call a waiting id names, as a ``Problem``'s ``loc``, whether or not the id is a right one.
-
-    ``"review@0/approve@1~3fa2c0d1"`` names ``("review", 0, "approve", 1)``. The fingerprint is dropped, and the
-    rest is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` name ``("approve",)``, and ``""``
-    names ``()``.
-    """
-    return parse_loc(waiting_id.partition(FINGERPRINT_SEPARATOR)[0])

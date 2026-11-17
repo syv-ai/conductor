@@ -5,7 +5,8 @@ places in a graph, how values are written and hashed as JSON, and two special va
 so this one imports nothing from conductor except ``utils``.
 
 - ``model.py``: ``ConductorModel``, the base class of every record a host saves or sends as JSON.
-- ``place.py``: how a node, an output or one call of a node is named, as a tuple and as text.
+- ``place.py``: how a node, an output or one call of a node is named, as a tuple and as text, and the id of
+  a waiting call.
 - ``json.py``: how any value is written as JSON, compared by its JSON, and checked as if it came in as JSON.
 - ``hashing.py``: short hashes, of bytes and of a value's JSON text.
 - ``sentinels.py``: ``REQUIRED`` and ``SKIPPED``, two values that each mean a different kind of "no value".
@@ -16,7 +17,6 @@ from .json import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_jso
 from .model import ConductorModel
 from .place import (
     FIELD_SEPARATOR,
-    FINGERPRINT_SEPARATOR,
     SEPARATORS,
     ItemIndexes,
     Loc,
@@ -27,13 +27,14 @@ from .place import (
     is_name,
     parse_loc,
     parse_node_path,
+    parse_waiting_id,
     place_text,
+    write_waiting_id,
 )
 from .sentinels import REQUIRED, SKIPPED
 
 __all__ = [
     "FIELD_SEPARATOR",
-    "FINGERPRINT_SEPARATOR",
     "NON_FINITE_FLOATS",
     "REQUIRED",
     "SEPARATORS",
@@ -50,7 +51,9 @@ __all__ = [
     "json_hash",
     "parse_loc",
     "parse_node_path",
+    "parse_waiting_id",
     "place_text",
+    "write_waiting_id",
     "plain_json",
     "short_hash",
     "validate_as_json",

@@ -29,7 +29,7 @@ used as one node::
 These texts use ``.``, ``/``, ``@`` and ``~`` as separators. (``~`` starts the fingerprint at the end of a waiting
 call's id, as in ``"loud@1/shout~3f2a"``.) So no node id and no name of an input or output may contain any of them.
 ``is_name`` checks one name, and ``Name`` checks every name in a graph record. This module writes and splits every
-one of these texts, so the separators are named once, below.
+one of these texts, a waiting call's id too, so the separators are named once, below.
 """
 
 from __future__ import annotations
@@ -225,3 +225,26 @@ def parse_loc(text: str) -> Loc:
                 return tuple(loc)
             loc = list(with_index)
     return tuple(loc)
+
+
+def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
+    """Writes the id of a waiting call: the call at ``loc``, whose question has the fingerprint ``fingerprint``.
+
+    The id is the loc's text (``place_text``), then ``~`` and the fingerprint. So
+    ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns ``"review@0/approve@1~3fa2c0d1"``. Without
+    a fingerprint, the id names just the call: ``"review@0/approve@1"``.
+    """
+    place = place_text(loc)
+    return place if fingerprint is None else f"{place}{FINGERPRINT_SEPARATOR}{fingerprint}"
+
+
+def parse_waiting_id(text: str) -> tuple[Loc, str | None]:
+    """Splits a waiting id back into the call's loc and its question's fingerprint, as far as it names them.
+
+    ``parse_waiting_id("review@0/approve@1~3fa2c0d1")`` returns ``(("review", 0, "approve", 1), "3fa2c0d1")``. The
+    text before the ``~`` is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``,
+    and ``""`` gives ``()``. With no ``~`` part, or an empty one, the fingerprint is ``None``. To accept only an id
+    ``write_waiting_id`` wrote, write it back and compare.
+    """
+    place, _, fingerprint = text.partition(FINGERPRINT_SEPARATOR)
+    return parse_loc(place), fingerprint or None

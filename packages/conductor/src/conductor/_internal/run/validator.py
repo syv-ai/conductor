@@ -1,4 +1,9 @@
-"""The edge validator, which checks a value an edge brings to an input when the graph's types can't vouch for it.
+"""The validators of what a run is given: the values an edge brings, the id of a waiting call, and the node ids to
+forget.
+
+``EdgeValidator`` checks a value an edge brings to an input when the graph's types can't vouch for it.
+``WaitingIdValidator`` reads the id a host names a waiting call by in ``run.answer`` and ``run.decline``.
+``ForgetValidator`` checks the node ids a host gives ``run.forget``.
 
 When a graph is compiled, each edge is checked: the output's type must fit the input's type. Often that's enough
 to know every value will be fine. Sometimes it isn't, and then the value is checked at run time, before the call.
@@ -17,15 +22,22 @@ node.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Mapping
 from typing import Any, assert_never
 
 from pydantic import ValidationError
 
-from conductor._internal.base import SKIPPED
+from conductor._internal.base import (
+    SKIPPED,
+    ItemIndexes,
+    Loc,
+    NodePath,
+    parse_waiting_id,
+    write_waiting_id,
+)
 from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
-from conductor._internal.problem import InvalidCallError, run_problems
+from conductor._internal.problem import InvalidCallError, call_problems, run_problems
 from conductor._internal.validation import Validator
 
 
@@ -122,3 +134,74 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
                     ]
                 ) from None
         return read
+
+
+class WaitingIdValidator(Validator[str, tuple[Loc, NodePath, ItemIndexes, str | None]]):
+    """A validator for the id a host names a waiting call by, in ``run.answer`` and ``run.decline``.
+
+    It undoes ``write_waiting_id``: ``"review@0/approve@1~3fa2c0d1"`` gives the loc
+    ``("review", 0, "approve", 1)``, the node path ``("review", "approve")``, the item indexes ``(0, 1)`` and the
+    fingerprint ``"3fa2c0d1"``. An id with no ``~`` part names just the call, and its fingerprint is ``None``.
+
+    Only the exact text ``write_waiting_id`` would write is taken. ``"approve@01"`` names nothing, since the index
+    would be written ``1``, and ``"review//approve"`` names nothing, since a node id can't be empty. An id that names
+    no node, such as ``""``, reads as the loc ``()``; the run finds no call there.
+
+    Raises (when called):
+        InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. Its loc is
+            as far as ``parse_waiting_id`` reads one.
+    """
+
+    def __init__(self, *, status: Callable[[], str]) -> None:
+        """Builds the validator for the ids a run is given.
+
+        Args:
+            status: Returns the run's status, for the refusal's message. It is only called when an id is refused.
+        """
+        self._status = status
+
+    def __call__(self, waiting_id: str) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
+        """Returns the call's loc, its node path, its item indexes, and the fingerprint of its question.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        loc, fingerprint = parse_waiting_id(waiting_id)
+        if write_waiting_id(loc, fingerprint) != waiting_id:
+            raise InvalidCallError(
+                [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self._status())]
+            )
+        node_path = tuple(part for part in loc if isinstance(part, str))
+        item_indexes = tuple(part for part in loc if isinstance(part, int))
+        return loc, node_path, item_indexes, fingerprint
+
+
+class ForgetValidator(Validator[tuple[str, ...], tuple[str, ...]]):
+    """A validator for the node ids a host gives ``run.forget``.
+
+    Each must be the id of a node of the graph itself. A node inside a subgraph is forgotten with its subgraph node,
+    so ``"loud"`` is taken and ``"loud/shout"`` is refused.
+
+    Raises (when called):
+        InvalidCallError: ``node_not_in_graph`` for each id the graph has no node for, in the order given.
+    """
+
+    def __init__(self, nodes: Collection[str]) -> None:
+        """Builds the validator for a graph whose nodes have the ids ``nodes``, in the graph's order."""
+        self._nodes = nodes
+
+    def __call__(self, node_ids: tuple[str, ...]) -> tuple[str, ...]:
+        """Returns ``node_ids``, each the id of a node of the graph.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        unknown = [node_id for node_id in node_ids if node_id not in self._nodes]
+        if unknown:
+            raise InvalidCallError(
+                [
+                    call_problems.node_not_in_graph(node_id, nodes=list(self._nodes))
+                    for node_id in unknown
+                ]
+            )
+        return node_ids

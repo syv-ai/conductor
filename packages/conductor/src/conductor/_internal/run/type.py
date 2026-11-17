@@ -32,6 +32,8 @@ from conductor._internal.base import (
     ItemIndexes,
     Loc,
     NodePath,
+    parse_waiting_id,
+    write_waiting_id,
 )
 from conductor._internal.graph import Graph, LimitsValidator
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, run_problems
@@ -62,14 +64,8 @@ from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
 from .state import EndedEarly, LastResume, RunStatus, deadline, kept_by_an_answer, status_of
 from .stream import stream
-from .waiting import (
-    Waiting,
-    named_loc,
-    question_fingerprint,
-    read_waiting_id,
-    waiting_record,
-    write_waiting_id,
-)
+from .validator import ForgetValidator, WaitingIdValidator
+from .waiting import Waiting, question_fingerprint, waiting_record
 
 
 class NotCalled(ConductorModel):
@@ -524,14 +520,14 @@ class Run[C]:
         for waiting_id, answer in answers.items():
             try:
                 queued[waiting_id] = AnswerAsJsonValidator(
-                    loc=named_loc(waiting_id), waiting_id=waiting_id
+                    loc=parse_waiting_id(waiting_id)[0], waiting_id=waiting_id
                 )(answer)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
         for waiting_id, reason in declines.items():
             try:
                 reasons[waiting_id] = DeclineValidator(
-                    loc=named_loc(waiting_id), waiting_id=waiting_id
+                    loc=parse_waiting_id(waiting_id)[0], waiting_id=waiting_id
                 )(reason)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
@@ -557,7 +553,7 @@ class Run[C]:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call. ``answer_stale`` for an id whose
                 call now asks another question, with ``ctx.moved_to`` when that question now waits on another call.
         """
-        loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=status)
+        loc, nodes, item_indexes, fingerprint = WaitingIdValidator(status=status)(waiting_id)
         # None when the id names a subgraph, a node the graph doesn't have, or no node at all ("" reads as ())
         node = self._blueprint.function_nodes.get(nodes)
         outcome = self._outcomes[nodes].get(item_indexes) if node is not None else None
@@ -642,11 +638,7 @@ class Run[C]:
         downstream that then gets the same arguments as before isn't called. A host forgets a node when it has to
         check the node's access again.
         """
-        unknown = [n for n in node_ids if n not in self.graph._nodes]
-        if unknown:
-            raise InvalidCallError(
-                [call_problems.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown]
-            )
+        node_ids = ForgetValidator(self.graph._nodes)(node_ids)
         fresh = self.with_inputs()
         # Forgetting a subgraph node forgets every node inside it.
         fresh._reusable.drop(
