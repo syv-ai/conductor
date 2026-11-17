@@ -8,7 +8,7 @@ Each kind of problem is a function, and calling it makes the ``Problem``::
 
     needs_example("coded", 1, inputs=["code"])
     # Problem(type="needs_example", loc=("coded", 1),
-    #         msg="The node's hooks read code, and check_registry can't make up a value for it. Give the node an example.",
+    #         msg="check_registry can't make up a value for code, and only a constant can give one. Give this version of the node an example.",
     #         ctx={"inputs": ["code"]})
 
 Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``.
@@ -53,12 +53,15 @@ def example_for_no_node(*loc: str | int, named: str) -> str:
 
 @REGISTRY_CHECK_PROBLEMS.problem()
 def needs_example(*loc: str | int, inputs: list[str]) -> str:
-    r"""A node's ``compute_...`` hook reads a required input, and ``check_registry`` can't make up a value for it.
+    r"""A required input takes only a constant, and ``check_registry`` can't make up a value for it.
 
-    Without an example, a hook is called with the node's defaults, and with a made-up value for each required input
-    it reads. Some values can't be made up, such as a text that must match a pattern.
+    Without an example, ``check_registry`` still compiles a version of a node that has hooks, to call them, and an
+    older version, to upgrade it. Each required input that takes only a constant needs a value for that, and the
+    check makes one up. Some values can't be made up, such as a text that must match a pattern. Then neither check
+    is made for that version.
 
-    To fix it, give the node an example, such as ``examples={"coded": [{"code": "1234"}]}``.
+    To fix it, give that version an example, such as ``examples={"coded": [{"code": "1234"}]}``, or
+    ``examples={("coded", 1): [...]}`` for an older version.
 
     Args:
         loc: The node and its version.
@@ -79,8 +82,8 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
         check_registry(checked)
     """
     return (
-        f"The node's hooks read {comma_separated(inputs)}, and check_registry can't make up a value for it. "
-        "Give the node an example."
+        f"check_registry can't make up a value for {comma_separated(inputs)}, and only a constant can give one. "
+        "Give this version of the node an example."
     )
 
 
@@ -142,9 +145,10 @@ def upgrade_broken(
     """A graph saved with an older version of a node doesn't upgrade cleanly to the newest.
 
     ``check_registry`` puts the node in a graph at the older version, upgrades it with ``registry.upgrade``, and
-    compiles the result. Either step can fail. ``registry.upgrade`` refuses the graph when an ``Upgrade``'s rewrite
-    raises or returns a value it can't write, and compiling reports the problems of the graph it returns. In the
-    example below, the rewrite gives ``first`` a number, but the newest version takes a text.
+    compiles the result. The node's inputs get the first example's values, or made-up ones, and each required input
+    left without a value is a graph input. Either step can fail. ``registry.upgrade`` refuses the graph when an
+    ``Upgrade``'s rewrite raises or returns a value it can't write, and compiling reports the problems of the graph it
+    returns. In the example below, the rewrite gives ``first`` a number, but the newest version takes a text.
 
     To fix it, fix the ``Upgrade`` the problems behind it name, so a graph saved with the older version compiles
     cleanly after the upgrade.

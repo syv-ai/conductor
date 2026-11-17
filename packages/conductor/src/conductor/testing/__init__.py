@@ -17,7 +17,8 @@ Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)`
 
 - ``hook_failed``: a ``compute_added_inputs`` or ``compute_outputs`` hook fails. Without an example, the hook is
   called with the node's defaults and made-up values. With one, it is called on the example.
-- ``needs_example``: a hook reads a required input that no value can be made up for.
+- ``needs_example``: a check that needs no example, of the node's hooks or of an older version's upgrade, can't
+  make up a value for a required input that takes only a constant.
 - ``subgraph_broken``: a subgraph's own graph doesn't compile on the registry's nodes, so ``registry.describe()``
   leaves it out.
 - ``upgrade_broken``: ``registry.upgrade`` refuses to move a graph saved with an older version of the node to the
@@ -37,7 +38,7 @@ import copy
 import dataclasses
 import datetime
 import typing
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal
 
@@ -112,13 +113,30 @@ def _problems_of(
     examples: Mapping[tuple[str, int], Sequence[Mapping[str, Any]]],
     context: Any,
 ) -> list[Problem]:
-    """Checks one node: its newest version, then each older one and its upgrade to the newest."""
+    """Checks one node: its newest version, then each older one and its upgrade to the newest.
+
+    An older version with no example is upgraded with made-up values. When a required input that takes only a
+    constant gets none, the version is ``needs_example``, and neither its upgrade nor its hooks are checked, since
+    both need that value.
+    """
     found = _version_problems(
         definition, registry, examples.get((definition.id, definition.version), ()), context
     )
     for older in list(definition.versions.values())[1:]:
         given = examples.get((older.id, older.version), ())
-        found += _upgrade_problems(older, registry, given)
+        if given:
+            values = dict(given[0])
+        else:
+            match older:
+                case FunctionDefinition(inputs=inputs):
+                    made = _made_up_values(inputs)
+                case SubgraphDefinition():  # its inputs' types aren't known until a graph that uses it is compiled
+                    made = {}
+            if isinstance(made, list):
+                found.append(problems.needs_example(older.id, older.version, inputs=made))
+                continue
+            values = made
+        found += _upgrade_problems(older, registry, values)
         found += _version_problems(older, registry, given, context)
     return found
 
@@ -155,17 +173,23 @@ def _version_problems(
     ]
 
 
-def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> GraphRecord:
+def _one_node_graph(
+    version: NodeDefinition, constants: Mapping[str, Any], graph_inputs: Iterable[str] = ()
+) -> GraphRecord:
     """Writes a graph record with just this node in it, under its own id and at its version.
 
     Args:
         version: The node, at the version to use.
         constants: The values to type into its inputs, by input name.
+        graph_inputs: The inputs to make graph inputs, each under the input's own name, unless ``constants`` gives
+            it a value.
 
     Raises:
         InvalidCallError: ``invalid_value`` at the node and input, for a value with no JSON form.
     """
     inputs = {
+        name: InputEntry(graph_input=name) for name in graph_inputs if name not in constants
+    } | {
         name: InputEntry(constant=value)
         for name, value in WrittenValuesValidator(version.id)(constants).items()
     }
@@ -187,14 +211,15 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
             FunctionDefinition() | SubgraphDefinition()
         ):  # a function with no hooks, or a subgraph, which never has hooks of its own
             return []
-    values = {
-        name: _made_up(field)
-        for name, field in sorted(version.inputs.items())
-        if field.param.constant_only and field.default is REQUIRED
-    }
-    missing = [name for name, value in values.items() if value is _CANNOT]
-    if missing:
-        return [problems.needs_example(version.id, version.version, inputs=missing)]
+    values = _made_up_values(
+        {
+            name: field
+            for name, field in version.inputs.items()
+            if field.param.constant_only and field.default is REQUIRED
+        }
+    )
+    if isinstance(values, list):
+        return [problems.needs_example(version.id, version.version, inputs=values)]
     failed = [
         p
         for p in Graph.compile(_one_node_graph(version, values), registry).problems
@@ -209,28 +234,17 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
 
 
 def _upgrade_problems(
-    older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[Mapping[str, Any]]
+    older: NodeDefinition, registry: NodeRegistry[Any], values: Mapping[str, Any]
 ) -> list[Problem]:
     """Checks that an older version of a node upgrades cleanly to the newest.
 
-    The node is put in a graph at the older version, with an example's values or made-up ones. Then
-    ``registry.upgrade`` moves it to the newest version, and the result is compiled.
+    The node is put in a graph at the older version, with ``values``, an example's or made-up ones, as constants.
+    Each required input that gets no value, such as one of type ``T`` that no value can be made up for, is a graph
+    input. Then ``registry.upgrade`` moves it to the newest version, and the result is compiled.
     """
-    if given:
-        values = dict(given[0])
-    else:
-        match older:
-            case FunctionDefinition(inputs=inputs):
-                values = {
-                    name: made
-                    for name, field in inputs.items()
-                    if (made := _made_up(field)) is not _CANNOT
-                }
-            case SubgraphDefinition():  # its inputs' types aren't known until a graph that uses it is compiled
-                values = {}
     newest = registry[older.id].version
     try:
-        record = _one_node_graph(older, values)
+        record = _one_node_graph(older, values, older.required_inputs)
     except InvalidCallError:
         return []  # the example's own run reports the values that can't be typed in
     try:
@@ -367,6 +381,26 @@ def _watched(
     return dataclasses.replace(
         version, function=watched, policy=dataclasses.replace(version.policy, retries=0)
     ), changed
+
+
+def _made_up_values(fields: Mapping[str, Field]) -> dict[str, Any] | list[str]:
+    """Makes up a value for each field that one can be made up for.
+
+    Returns:
+        The values, by name. Or, when a required field that takes only a constant gets none, the names of every
+        such field, sorted: only a constant can give it a value, so the node needs an example.
+    """
+    values = {
+        name: made for name, field in fields.items() if (made := _made_up(field)) is not _CANNOT
+    }
+    missing = sorted(
+        name
+        for name, field in fields.items()
+        if name not in values and field.param.constant_only and field.default is REQUIRED
+    )
+    if missing:
+        return missing
+    return values
 
 
 def _made_up(field: Field) -> Any:

@@ -250,6 +250,71 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
     assert behind(problem) == ["invalid_value"]
 
 
+def test_an_older_version_whose_input_no_value_can_be_made_up_for_upgrades_without_an_example():
+    """An input of type ``T`` takes no made-up value, so the upgraded graph gets it as a graph input."""
+
+    @node("relay", title="Relay v1", description="For a test.")
+    def relay_v1[T](value: T) -> T:
+        return value
+
+    @node("relay", title="Relay", description="For a test.", replaces=relay_v1)
+    def relay[T](value: T, loud: bool = False) -> T:
+        return value
+
+    assert found(registry_of(relay)) == []
+
+
+def test_an_older_subgraph_whose_input_gets_no_value_upgrades_without_an_example():
+    """A subgraph's inputs take no made-up value, so the upgraded graph gets each as a graph input."""
+
+    @node("pass-on", title="Pass on", description="For a test.")
+    def pass_on[T](value: T) -> T:
+        return value
+
+    wrapped_v1 = subgraph("wrapped", title="Wrapped v1", description="For a test.")(
+        make_graph(pass_on)
+    )
+    wrapped = subgraph("wrapped", title="Wrapped", description="For a test.", replaces=wrapped_v1)(
+        make_graph(pass_on)
+    )
+
+    assert found(registry_of(pass_on, wrapped)) == []
+
+
+def test_an_older_version_whose_constant_only_input_no_value_can_be_made_up_for_needs_an_example():
+    """Its upgrade can't be checked without that value, so the version needs an example.
+
+    A version whose hooks read the input gets the same one problem, not a second for its hooks.
+    """
+    pinned = Annotated[str, Param(constant_only=True, pattern=r"^\d{4}$")]
+
+    @node("pin", title="Pin v1", description="For a test.")
+    def pin_v1(code: pinned) -> str:
+        return code
+
+    @node("pin", title="Pin", description="For a test.", replaces=pin_v1)
+    def pin(code: pinned, loud: bool = False) -> str:
+        return code
+
+    def _pin_fields(code: str) -> dict[str, Any]:
+        return {"x": str}
+
+    @node(
+        "hooked-pin", title="Hooked pin v1", description="For a test.", compute_outputs=_pin_fields
+    )
+    def hooked_pin_v1(code: pinned) -> dict[str, Any]:
+        return {"x": code}
+
+    @node("hooked-pin", title="Hooked pin", description="For a test.", replaces=hooked_pin_v1)
+    def hooked_pin(code: pinned) -> str:
+        return code
+
+    checked = registry_of(pin, hooked_pin)
+    assert found(checked) == [("needs_example", ("pin", 1)), ("needs_example", ("hooked-pin", 1))]
+    examples = {("pin", 1): [{"code": "1234"}], ("hooked-pin", 1): [{"code": "1234"}]}
+    assert found(checked, examples=examples) == []
+
+
 def test_an_upgrade_that_raises_is_upgrade_broken_with_the_refusal_of_registry_upgrade_behind_it(
     caplog,
 ):

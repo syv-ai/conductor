@@ -554,6 +554,16 @@ What changes in how you work, before the name-by-name tables:
   that is empty or has a `.` in it named that id: `""` gave `("",)`, `"e@0//q"` gave `("e", 0, "", "q")` and
   `"e@0/q.x"` gave `("e", 0, "q.x")`. It now stops before it, as it stops before an index that isn't a number:
   `""` and `"~3fa2c0d1"` give `()`, `"e@0//q"` gives `("e", 0)` and `"e@0/q.x"` gives `("e", 0)`.
+- **`check_registry` upgrades an older version whose required input gets no value.** An older version, function or
+  subgraph, with no example and a required input no value can be made up for (such as `value: T`, or any input of a
+  subgraph) was `upgrade_broken`: "'value' gets no value". The check left the input empty in the graph it upgraded.
+  Each required input that gets no value, from an example or made up, is now a graph input there, as `make_graph`
+  makes it. So an older version's example that leaves out an input is reported once, as `run_failed`, where it was
+  also `upgrade_broken`. A required input that takes only a constant can't be a graph input: when no value can be
+  made up for one, the older version is `needs_example`, as a version with hooks already was, where it was
+  `upgrade_broken` (and both, for a version with hooks). `needs_example`'s message no longer speaks of hooks:
+  "check_registry can't make up a value for code, and only a constant can give one. Give this version of the node an
+  example."
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
