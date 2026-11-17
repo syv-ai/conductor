@@ -4,8 +4,9 @@ A node's hint, like ``int`` or ``Annotated[list[str], Param(max_length=3)]``, is
 wraps it and answers conductor's questions about it. What is its id, and what title does a person see? What is its
 pydantic schema? How is a value written as JSON? Which other types fit it, so an edge may join them?
 
-``Type`` doesn't check values itself. ``validation.rules.schema_validator_of`` builds a validator from its schema.
-When that validator refuses a value, ``Type.refusal`` explains why without quoting the value.
+``Type`` owns the check an argument of it gets, ``argument_validator``: its schema with conductor's rules added
+(``rules.py``). Compiling asks it of a ``Literal``'s values, the run checks an edge's value with it, and a saved run is
+read by it. When it refuses a value, ``Type.refusal`` explains why without quoting the value.
 
 ``Type(int)`` returns the same object every time, so the work of reading a hint is done once. ``Series`` and
 ``Table`` each have a subclass of ``Type``, in their own packages.
@@ -16,29 +17,22 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from collections.abc import Callable, Mapping
-from enum import Enum
+from collections.abc import Mapping
 from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
 
-from pydantic import (
-    BeforeValidator,
-    ConfigDict,
-    JsonValue,
-    TypeAdapter,
-    ValidationError,
-    ValidationInfo,
-)
+from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
     SchemaError,
     SchemaSerializer,
+    SchemaValidator,
 )
 
-from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
+from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     declaration_problems,
@@ -47,7 +41,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.utils import qualified_name
 
-from .choice import Choice, read_choices
+from .choice import Choice, declared_choices, read_choices
 from .fit import fit
 from .hint import (
     READ_AS,
@@ -60,6 +54,7 @@ from .hint import (
 )
 from .host_type import NAMES, OWN_IDS, declaration_of
 from .param import Param, split_hint
+from .rules import with_rules
 
 #: Generic classes whose arguments are each read as a ``Type`` too, so conductor's rules reach their items.
 _CONTAINERS = (list, dict, tuple, set, frozenset)
@@ -115,23 +110,6 @@ def _written_metadata(metadata: Any) -> str:
     if type(metadata).__repr__ is object.__repr__:
         return qualified_name(type(metadata))
     return repr(metadata)
-
-
-def _members_from_json(values: tuple[Any, ...]) -> Callable[[Any, ValidationInfo], Any]:
-    """Returns a check that reads a JSON value as the enum member among ``values`` it is the JSON form of.
-
-    Pydantic writes ``Literal[Color.RED]``'s value as ``"red"``, but reads ``"red"`` from JSON as no value of it,
-    so a saved run, an answer and the type's own choices couldn't be read back. With this check before it,
-    ``"red"`` from JSON is ``Color.RED``, as it is for the enum ``Color`` itself. A Python value is left as it is.
-    """
-    members = {
-        canonical_json(plain_json(value)): value for value in values if isinstance(value, Enum)
-    }
-
-    def read(value: Any, info: ValidationInfo) -> Any:
-        return members.get(canonical_json(value), value) if info.mode == "json" else value
-
-    return read
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -246,20 +224,37 @@ class Type:
         return self.takes_value(None)
 
     def takes_value(self, value: Any) -> bool:
-        """Says whether the type's own check takes ``value``, read the way its JSON text would be.
+        """Says whether the type's argument check (``argument_validator``) takes ``value``, as the run checks it.
 
-        This is the check a value gets wherever it enters, so a question asked of a type's values is answered by it,
-        never by a second rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is taken by
-        ``Annotated[float, Param(choices=[1.0])]``, and ``None`` by any type that takes ``None`` beside its choices.
-
-        A type reads back the JSON it writes, a ``Literal`` of an enum's members too (``_members_from_json``), so for
-        a value of the right class this takes what the run's check of the value itself takes.
+        This is the very check a value an edge gives gets on its call, laxly, so a question asked at compile of a
+        type's values is answered by the run's own rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is
+        taken by ``Annotated[float, Param(choices=[1.0])]``, ``None`` by any type that takes ``None`` beside its
+        choices, and ``"red"`` is not taken by ``Literal[Color.RED]``.
         """
         try:
-            validate_as_json(self._built[1], value)
+            self.argument_validator.validate_python(value, strict=False)
         except Exception:  # noqa: BLE001  # whatever the check raises, it doesn't take the value
             return False
         return True
+
+    @functools.cached_property
+    def argument_schema(self) -> CoreSchema:
+        """The schema an argument of the type is checked by: the type's ``schema`` with conductor's rules added
+        (``with_rules``), so a number refuses a ``bool`` and an enum member in a ``Literal`` is read from its JSON.
+
+        A saved run's values are read by it too, so the rules reach every door.
+        """
+        return with_rules(self.schema)
+
+    @functools.cached_property
+    def argument_validator(self) -> SchemaValidator:
+        """Pydantic's validator built from ``argument_schema``, once per type.
+
+        It checks a constant, a default, a graph input and a value from an edge, laxly or strictly, and reads the
+        type's own choices. ``validation.rules.schema_validator_of`` returns it. When it refuses a value,
+        ``Type.refusal`` explains why without quoting the value.
+        """
+        return SchemaValidator(self.argument_schema)
 
     @functools.cached_property
     def limited(self) -> bool:
@@ -284,7 +279,7 @@ class Type:
         held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
         if param.choices is not None:
             held.append(
-                f"choices={[choice.id for choice in read_choices(param.choices, self._built[1], self.to_json)]!r}"
+                f"choices={[choice.id for choice in read_choices(param.choices, self.argument_validator, self.to_json)]!r}"
             )
         held += [_written_metadata(other) for other in others]
         return f"{_written(bare)}{held}" if held else _written(bare)
@@ -400,10 +395,6 @@ class Type:
                 option = get_origin(option)[
                     tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))
                 ]
-            elif get_origin(option) is Literal and any(
-                isinstance(value, Enum) for value in get_args(option)
-            ):
-                option = Annotated[option, BeforeValidator(_members_from_json(get_args(option)))]
             options.append(option)
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
@@ -463,12 +454,24 @@ class Type:
         """The choices the type takes, if it names any, or ``None``.
 
         They come from ``Param(choices=...)``, or else from a ``Literal``'s values. Each is checked and converted
-        by the type (``read_choices``), so ``Param(choices=[1])`` on a ``float`` has the id ``1.0``.
+        by the type's argument check (``declared_choices``), so ``Param(choices=[1])`` on a ``float`` has the id
+        ``1.0``, and ``Literal[Color.RED]``'s is ``"red"``.
+
+        Raises:
+            NodeDeclarationError: ``choices_invalid``, when they can't be read. ``Field`` reads them, so ``@node``
+                refuses such a type.
         """
         given = self._parts[1].choices
         if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
             given = get_args(self.options[0])
-        return None if given is None else read_choices(given, self._built[1], self.to_json)
+        if given is None:
+            return None
+        return declared_choices(
+            tuple(given),
+            self.argument_validator,
+            self.to_json,
+            literal=self._parts[1].choices is None,
+        )
 
     def narrowed(self, choices: tuple[Choice, ...]) -> Type:
         """Returns this type with its values limited to ``choices``, as an ``Ask`` limits a question's.
@@ -489,7 +492,7 @@ class Type:
         # each id back as the value the type reads it as, so a float's "Infinity" is inf again
         values = [
             choice.model_copy(
-                update={"id": self._built[1].validate_json(canonical_json(choice.id))}
+                update={"id": self.argument_validator.validate_json(canonical_json(choice.id))}
             )
             for choice in choices
         ]

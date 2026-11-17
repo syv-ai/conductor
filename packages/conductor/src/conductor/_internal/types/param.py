@@ -24,8 +24,8 @@ from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue, Type
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import (
     CoreSchema,
-    PydanticCustomError,
     PydanticSerializationError,
+    SchemaValidator,
     core_schema,
     to_jsonable_python,
 )
@@ -34,8 +34,9 @@ from conductor._internal.base import canonical_json
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
-from .choice import Choice, check_one_of, choice_texts, pick_texts, read_choices
+from .choice import Choice, check_one_of, choice_texts, declared_choices, pick_texts
 from .hint import READ_AS, union_members, union_of
+from .rules import with_rules
 
 #: The limits ``Param`` takes, named as pydantic's ``Field`` names them.
 _LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "pattern")
@@ -179,20 +180,10 @@ class Param:
             """
             return reader.dump_python(value, mode="json")
 
-        try:
-            read = read_choices(self.choices, reader, as_json)
-        except PydanticCustomError as refused:
-            match refused.type:
-                case "no_json_form":
-                    raise NodeDeclarationError(
-                        declaration_problems.choices_invalid_no_json_form()
-                    ) from None
-                case "not_its_type":
-                    raise NodeDeclarationError(
-                        declaration_problems.choices_invalid_not_a_value(reason=refused.message())
-                    ) from None
-                case _:  # no choices, or an id given twice
-                    raise NodeDeclarationError(declaration_problems.choices_invalid()) from None
+        # read by the type's own check with conductor's rules, as an answer is, so an enum member is read from its JSON
+        read = declared_choices(
+            self.choices, SchemaValidator(with_rules(reader.core_schema)), as_json, literal=False
+        )
         texts = choice_texts(read)
         literal = [  # None is not a pick, so it is never a choice
             value

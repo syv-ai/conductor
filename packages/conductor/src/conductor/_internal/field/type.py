@@ -72,8 +72,8 @@ class Field:
 
         Raises:
             NodeDeclarationError: Naming the field. The hint is a type pydantic has no schema for, a ``Series`` of
-                ``Series``, a class not declared with ``@host_type``, a ``Param`` that doesn't fit, or a widget with
-                no JSON form.
+                ``Series``, a class not declared with ``@host_type``, a ``Param`` that doesn't fit, choices that
+                can't be read, or a widget with no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
         try:
@@ -84,6 +84,7 @@ class Field:
             whole.schema  # noqa: B018  fails for a type pydantic has no schema for
             whole.returned_schema  # noqa: B018  a Series of records may be stored as a table, and fails here if its rows can't be
             whole.id  # noqa: B018  fails for a class with no @host_type (type_not_named)
+            whole.choices, one.choices  # noqa: B018  fails for choices that can't be read (choices_invalid)
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
 

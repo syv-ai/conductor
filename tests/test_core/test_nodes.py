@@ -1895,7 +1895,7 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
 @pytest.mark.parametrize(
     ("choices", "limits", "reason"),
     [
-        ([True, 2], {}, "Input should be a valid integer"),
+        ([True, 2], {}, "a yes or no is not a number"),
         (["1", 2], {}, "Input should be a valid integer"),
         ([-1, 1], {"ge": 0}, "Input should be greater than or equal to 0"),
     ],
@@ -1939,6 +1939,37 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     assert [c.id for c in by_value.describe().inputs[0].choices or ()] == ["red"]
     assert [c.id for c in by_member.describe().inputs[0].choices or ()] == ["red"]
     assert a_day.describe().inputs[0].choices == (Choice("2024-01-02", "2024-01-02"),)
+
+
+def test_a_literal_whose_values_cant_be_read_as_choices_is_refused_at_declaration() -> None:
+    """Two values with one JSON form, or a value with none, would come back wrong from a saved run or an answer, or
+    raise out of compiling, so ``@node`` refuses them."""
+    from enum import Enum
+
+    @host_type("hue-a", title="Hue A")
+    class HueA(Enum):
+        RED = "red"
+
+    @host_type("hue-b", title="Hue B")
+    class HueB(Enum):
+        RED = "red"
+
+    refused = []
+    for hint in (Literal[HueA.RED, "red"], Literal[HueA.RED, HueB.RED], Literal[b"\xff"]):
+
+        def pick() -> str:
+            return "x"
+
+        pick.__annotations__ = {"return": hint}
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("pick", title="Pick", description="For a test.")(pick)
+        refused.append((raised.value.problems[0].type, raised.value.problems[0].ctx.get("variant")))
+
+    assert refused == [
+        ("choices_invalid", "alike"),
+        ("choices_invalid", "alike"),
+        ("choices_invalid", "no_json_form"),
+    ]
 
 
 def test_choices_that_are_not_finite_floats_are_told_apart_and_matched_by_their_json_form() -> None:

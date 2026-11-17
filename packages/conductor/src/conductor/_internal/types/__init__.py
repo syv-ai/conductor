@@ -16,6 +16,7 @@ from .hint import a_number, literal_classes, union_members, union_of
 from .host_type import NAMES, host_type
 from .param import Param, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
+from .rules import with_rules
 from .type import Type, TypeRefusal
 
 __all__ = [
@@ -37,4 +38,5 @@ __all__ = [
     "split_hint",
     "union_members",
     "union_of",
+    "with_rules",
 ]

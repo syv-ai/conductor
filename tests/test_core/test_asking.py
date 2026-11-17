@@ -2015,6 +2015,73 @@ def test_a_literal_of_enum_members_is_described_asked_and_answered_by_each_membe
     assert answered.outputs == {"result": _Shade.RED}
 
 
+def test_a_members_bare_choice_is_titled_by_its_written_id():
+    """A member is titled as a ``Literal`` of its value would be, never by its Python name ``_Shade.RED``."""
+
+    @node("shade", title="Shade", description="For a test.")
+    def shade(ticket: str) -> Literal[_Shade.RED, _Shade.BLUE]:
+        return _Shade.RED
+
+    (output,) = shade.describe().outputs
+
+    assert [(choice.id, choice.title) for choice in output.choices] == [
+        ("red", "red"),
+        ("blue", "blue"),
+    ]
+
+
+def test_param_titles_a_literal_of_members():
+    """``Param(choices=)`` on a ``Literal`` of members reads each member, as the ``Literal`` does, and titles it."""
+
+    @node("shade", title="Shade", description="For a test.")
+    def shade(
+        ticket: str,
+    ) -> Annotated[
+        Literal[_Shade.RED, _Shade.BLUE],
+        Param(choices=[Choice(_Shade.RED, "Red"), Choice("blue", "Blue")]),
+    ]:
+        return _Shade.RED
+
+    (output,) = shade.describe().outputs
+
+    assert [(choice.id, choice.title) for choice in output.choices] == [
+        ("red", "Red"),
+        ("blue", "Blue"),
+    ]
+
+
+@host_type("weight", title="Weight")
+class _Weight(Enum):
+    HALF = 0.5
+    ONE = 1.0
+
+
+class _Shaded(TypedDict):
+    shade: Literal[_Shade.RED, _Shade.BLUE]
+
+
+@pytest.mark.parametrize(
+    ("hint", "answer", "expected"),
+    [
+        (Literal[_Weight.HALF, _Weight.ONE], 1, _Weight.ONE),
+        (_Shaded, {"shade": "red"}, {"shade": _Shade.RED}),
+    ],
+)
+def test_an_answer_is_read_as_the_members_own_enum_reads_it(hint: Any, answer: Any, expected: Any):
+    """JavaScript writes ``1.0`` as ``1``, which ``Weight`` reads as ``Weight.ONE``, so ``Literal[Weight.ONE, ...]``
+    does too; and a member in a record's field is read like one on the output."""
+
+    @node("weigh", title="Weigh", description="For a test.", asks=True)
+    def weigh(ticket: str) -> hint:  # type: ignore[valid-type]
+        raise Ask(f"Weigh {ticket}?")
+
+    _, run = _once(weigh, ticket="T-1")
+    answered = run.answer(run.waiting[0], answer)
+    answered.resume()
+
+    assert answered.outputs == {"result": expected}
+
+
 def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():
     """JSON Schema would read ``inf``'s ``"Infinity"`` as text, which a number refuses, so there is no ``enum``.
 

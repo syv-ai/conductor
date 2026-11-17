@@ -44,6 +44,14 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     if target == source:
         return True
     if is_alias(target) or is_alias(source):  # an alias stands for another type, so compare that
+        if is_alias(target) and _names_its_values(source):
+            # the alias's own check is asked of the values, since what it stands for may only check right as a
+            # whole, like JsonValue's union, whose members are tagged; then its classes are compared
+            return (
+                _may_be_taken(target, source)
+                and not exact
+                and fit(aliased(target), _classes_of(source), bound, False)
+            )
         return fit(
             aliased(target) if is_alias(target) else target,
             aliased(source) if is_alias(source) else source,
@@ -144,6 +152,22 @@ def _as_one_literal(source: Any) -> Any:
         others = [*dict.fromkeys([*others, type(None)])]
     kept = tuple(value for value in values if value is not None)
     return union_of([*([Literal[kept]] if kept else []), *others])
+
+
+def _names_its_values(source: Any) -> bool:
+    """Whether ``source`` is a ``Literal``, maybe with ``None``, so its values are known."""
+    members = union_members(source)
+    return any(get_origin(member) is Literal for member in members) and all(
+        member is type(None) or get_origin(member) is Literal for member in members
+    )
+
+
+def _classes_of(source: Any) -> Any:
+    """Returns ``source`` with each ``Literal`` read as its values' classes."""
+    return union_of(
+        literal_classes(member) if get_origin(member) is Literal else member
+        for member in union_members(source)
+    )
 
 
 def _may_be_taken(target: Any, source: Any) -> bool:

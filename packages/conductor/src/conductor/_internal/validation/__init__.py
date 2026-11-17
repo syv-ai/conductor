@@ -9,8 +9,8 @@ a validator refuses a value, whoever called it decides what happens to the probl
 reach its own caller, compiling keeps them in ``graph.problems``, and a run keeps the problem as the outcome of the
 call.
 
-Validators check values with the pydantic validators built in ``rules.py``. Those add a few rules that hold for
-every type, such as "a yes or no is not a number". Outside a ``validator.py``, nothing in the engine builds one.
+Validators check values with the pydantic validators ``rules.py`` gives, each built from a type's own check, which
+adds the rules that hold for every type, such as "a yes or no is not a number". Outside a ``validator.py``, nothing in the engine builds one.
 ``conductor.testing`` does, to make up values for a node's inputs.
 
 A few values are checked elsewhere. A saved run is checked in ``run/json/``, where one schema both reads and writes
@@ -21,7 +21,6 @@ declarations are checked where the type is declared: ``Param`` checks its choice
 
 from .rules import (
     exact_classes,
-    numbers_refuse_bools,
     output_schema_of,
     schema_of,
     schema_output_validator_of,
@@ -32,7 +31,6 @@ from .type import Validator
 __all__ = [
     "Validator",
     "exact_classes",
-    "numbers_refuse_bools",
     "output_schema_of",
     "schema_of",
     "schema_output_validator_of",

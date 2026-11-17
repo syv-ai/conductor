@@ -25,7 +25,6 @@ from conductor._internal.base import place_text
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.types import Type, union_of
-from conductor._internal.validation import numbers_refuse_bools
 
 from .type import SavedOutcomes, SavedReusable, SavedRun
 
@@ -42,8 +41,8 @@ def saved_type(output: Field) -> Type:
 class _SavedValue:
     """The hint a saved run declares one value with: a graph input, an output's value on one call, or an answer.
 
-    Pydantic checks the value by its type's own schema, with ``numbers_refuse_bools`` added, so ``true`` saved for
-    an ``int`` is refused.
+    Pydantic checks the value by its type's argument check (``Type.argument_schema``), the one an argument gets, so
+    ``true`` saved for an ``int`` is refused and an enum member in a ``Literal`` is read from its JSON.
 
     The codec's config writes ``inf`` as ``"Infinity"``, which a ``float`` reads back as the float. But a pydantic
     model or a dataclass writes its fields by its own config, whatever schema it sits in. By default that writes
@@ -62,7 +61,7 @@ class _SavedValue:
     __slots__ = ("schema",)
 
     def __init__(self, value_type: Type) -> None:
-        schema = numbers_refuse_bools(value_type.schema)
+        schema = value_type.argument_schema
         if _holds_a_model(schema):
             as_json = core_schema.plain_serializer_function_ser_schema(
                 functools.partial(value_type.serializer.to_python, mode="json")

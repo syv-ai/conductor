@@ -183,6 +183,40 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
     return f"on a Literal, the choices give its values titles. Give exactly one choice for each of {comma_separated(values)}."
 
 
+@DECLARATION_PROBLEMS.problem("choices_invalid", variant="alike")
+def choices_invalid_alike(*, values: list[Any]) -> str:
+    """Two values of a ``Literal`` are written as the same JSON, like an enum's member and its value.
+
+    A saved run, a person's answer and a graph record hold a value as its JSON. Two values with one JSON form can't be
+    told apart there, so one would come back as the other.
+
+    To fix it, give values whose JSON differs, or take the enum itself as the type.
+
+    Args:
+        values: The values of the ``Literal``.
+
+    Example:
+        import enum
+        from typing import Literal
+
+
+        @host_type("cup", title="Cup")
+        class Cup(enum.Enum):
+            SMALL = "s"
+
+
+        def cup_size(pick: Literal[Cup.SMALL, "s"]) -> str:
+            return str(pick)
+
+
+        declaration_refused(lambda: node("cup_size", title="Cup size", description="Hands back the chosen size.")(cup_size))
+    """
+    return (
+        f"two of the Literal's values {comma_separated(values)} are written as the same JSON, so a saved run or an"
+        " answer can't tell them apart. Give values whose JSON differs."
+    )
+
+
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="not_a_value")
 def choices_invalid_not_a_value(*, reason: str) -> str:
     """A ``Param``'s choice isn't a value of the input's type.
@@ -207,7 +241,7 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")
 def choices_invalid_no_json_form() -> str:
-    """A ``Param``'s choice can't be written as JSON.
+    """A choice, given to ``Param`` or as a ``Literal``'s value, can't be written as JSON.
 
     An editor gets the choices as JSON to show them, and a saved graph stores them as JSON. So each choice must have a
     JSON form.
