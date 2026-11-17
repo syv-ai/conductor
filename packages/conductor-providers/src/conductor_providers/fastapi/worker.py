@@ -135,23 +135,6 @@ class Worker(Generic[M, X]):
         """
         return self._view(await self._row(run_id, allows))
 
-    async def metadata_of(self, run_id: str) -> M:
-        """A run's metadata, as it was written when the run started.
-
-        The store gives the whole row, and only its ``metadata`` is parsed. For a check of who may see a run, pass
-        the filter to the method that acts on it instead (``allows=``), which reads the row once for both.
-
-        Args:
-            run_id: The run's id.
-
-        Returns:
-            The metadata, read back by the worker's ``metadata_type``.
-
-        Raises:
-            InvalidCallError: No run has the id (``no_such_run``).
-        """
-        return self._metadata_in(await self._row(run_id))
-
     async def begin(
         self,
         graph: Any,

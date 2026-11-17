@@ -1238,7 +1238,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `await worker.events(run_id, after=-1)` checks the run, then gives an async iterator of its events.
 - `read`, `again`, `answer`, `decline`, `resume`, `cancel` and `events` each take `allows=`, the request's filter, as a required keyword. So a host's own route can't leave the access check out by accident. A host with no logins passes `allows=lambda metadata: True`.
 - `begin` and `estimate` take `allows=` too, and raise `TypeError` when given `previous` without it.
-- `await worker.metadata_of(run_id)` parses only a run's metadata. `worker.nodes_for` is what the worker was given.
+- `worker.nodes_for` is what the worker was given. A run's metadata is its view's `metadata`, which a host reads by its own type.
 - Of two calls that act on one run at once, the one whose write loses reads the run again, and acts on it as it is then.
 
 **Answers.**
