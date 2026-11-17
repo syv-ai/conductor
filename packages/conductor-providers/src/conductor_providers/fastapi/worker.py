@@ -15,7 +15,7 @@ import time
 import uuid
 from asyncio import Event as AsyncioEvent
 from asyncio import Task
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from threading import Event
@@ -285,18 +285,11 @@ class Worker(Generic[M, X]):
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served. A
                 run that takes a decline queued for it isn't resumed, so that needs no serving worker.
         """
-        row = await self._row(run_id, allows)
         if not answers:
-            return self._view(row)
-        while True:
-            row = await self._ask_of_a_running_run(row, lambda state: state.with_queued(answers))
-            state = RunState.model_validate_json(row.state)
-            if state.is_running:
-                return self._view(row)
-            written = await self._reply_to_a_stopped_run(row, state, answers=answers)
-            if written is not None:
-                return self._view(written)
-            row = await self._row(run_id)
+            return await self.read(run_id, allows=allows)
+        return await self._until_written(
+            run_id, allows, lambda row, state: self._reply(row, state, answers=answers)
+        )
 
     async def decline(
         self,
@@ -348,18 +341,9 @@ class Worker(Generic[M, X]):
                 worker has never served.
         """
         declines = {waiting_id: reason}
-        row = await self._row(run_id, allows)
-        while True:
-            row = await self._ask_of_a_running_run(
-                row, lambda state: state.with_queued(declines=declines)
-            )
-            state = RunState.model_validate_json(row.state)
-            if state.is_running:
-                return self._view(row)
-            written = await self._reply_to_a_stopped_run(row, state, declines=declines)
-            if written is not None:
-                return self._view(written)
-            row = await self._row(run_id)
+        return await self._until_written(
+            run_id, allows, lambda row, state: self._reply(row, state, declines=declines)
+        )
 
     async def resume(
         self,
@@ -394,15 +378,13 @@ class Worker(Generic[M, X]):
             RuntimeError: The run would be resumed, and the worker has never served. A run that takes a decline
                 queued for it isn't resumed, so that needs no serving worker.
         """
-        row = await self._row(run_id, allows)
-        while True:
-            state = RunState.model_validate_json(row.state)
+
+        async def resumed(row: StoredRun, state: RunState) -> StoredRun | None:
             if state.cause is None:
                 raise InvalidCallError([run_not_resumable(status=state.status)])
-            written = await self._reply_to_a_stopped_run(row, state, max_items=max_items)
-            if written is not None:
-                return self._view(written)
-            row = await self._row(run_id)
+            return await self._reply(row, state, max_items=max_items)
+
+        return await self._until_written(run_id, allows, resumed)
 
     async def cancel(self, run_id: str, *, allows: Callable[[M], bool]) -> RunView:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
@@ -434,21 +416,18 @@ class Worker(Generic[M, X]):
             RuntimeError: The run is waiting, so the cancel would resume it, and the worker has never served.
         """
 
-        row = await self._row(run_id, allows)
-        while True:
-            row = await self._ask_of_a_running_run(row, RunState.asked_to_stop)
-            state = RunState.model_validate_json(row.state)
-            if state.is_running:
-                if run_id in self._held:
-                    held, _ = self._held[run_id]
-                    await held.heard_of_a_change()
-                return self._view(row)
-            if state.status != "waiting":
-                return self._view(row)
-            claimed = await self._claim(row, state.running().asked_to_stop())
-            if claimed is not None:
-                return self._view(claimed)
-            row = await self._row(run_id)
+        async def cancelled(row: StoredRun, state: RunState) -> StoredRun | None:
+            if state.status == "waiting":
+                return await self._claim(row, state.running().asked_to_stop())
+            if not state.is_running:
+                return row
+            written = await self._written(row, state.asked_to_stop().columns())
+            if written is not None and run_id in self._held:
+                held, _ = self._held[run_id]
+                await held.heard_of_a_change()
+            return written
+
+        return await self._until_written(run_id, allows, cancelled)
 
     async def events(
         self, run_id: str, after: int = -1, *, allows: Callable[[M], bool]
@@ -712,7 +691,34 @@ class Worker(Generic[M, X]):
             self._resume_in_background(claimed)
         return claimed
 
-    async def _reply_to_a_stopped_run(
+    async def _until_written(
+        self,
+        run_id: str,
+        allows: Callable[[M], bool],
+        step: Callable[[StoredRun, RunState], Awaitable[StoredRun | None]],
+    ) -> RunView:
+        """Read a run's row and try ``step`` on it, reading the row again each time another writer moved its
+        ``rev`` on first. ``answer``, ``decline``, ``resume`` and ``cancel`` each go through it.
+
+        Args:
+            run_id: The run's id.
+            allows: The request's run filter, asked on the first read.
+            step: One try at the call, given the row as read and its state. It returns the row as the call leaves
+                it, written or not, or ``None`` when another writer wrote the row first.
+
+        Returns:
+            The run's view, as the step left it.
+
+        Raises:
+            InvalidCallError: No run has the id, or ``allows`` turns it away (``no_such_run``), or the step refuses
+                the call.
+        """
+        row = await self._row(run_id, allows)
+        while (written := await step(row, RunState.model_validate_json(row.state))) is None:
+            row = await self._row(run_id)
+        return self._view(written)
+
+    async def _reply(
         self,
         row: StoredRun,
         state: RunState,
@@ -721,8 +727,8 @@ class Worker(Generic[M, X]):
         declines: Mapping[str, Any] = MappingProxyType({}),
         max_items: int | None = None,
     ) -> StoredRun | None:
-        """Go on with a run that isn't running, with this call's answers or decline: ``resume``, ``answer`` and
-        ``decline`` all come here.
+        """One try at giving a run this call's answers or decline, or its higher ceiling: ``answer``, ``decline``
+        and ``resume`` all come here. A running run queues the replies. A run that isn't running goes on with them.
 
         When the replies queued from a resume call that raised, or this call's, hold a decline, the run is given
         them all now, this call's last, so the reply that came first to a question is taken. A run that takes a
@@ -749,6 +755,8 @@ class Worker(Generic[M, X]):
             RuntimeError: The run would be resumed, and the worker has never served.
         """
         queued = state.with_queued(answers, declines=declines)
+        if state.is_running:
+            return await self._written(row, queued.columns())
         if not (queued.holds_a_decline or answers or max_items is not None):
             return await self._claim(row, state.running())
         run = await asyncio.to_thread(loaded, row, self.nodes_for(self._metadata_in(row)))
@@ -816,27 +824,3 @@ class Worker(Generic[M, X]):
                     del self._held[row.id]
 
         self._held[row.id] = (held, asyncio.get_running_loop().create_task(hold()))
-
-    # -- a run another worker may hold ------------------------------------------------------------
-
-    async def _ask_of_a_running_run(
-        self, row: StoredRun, asked: Callable[[RunState], RunState]
-    ) -> StoredRun:
-        """Write what a caller asks of a running run (an answer to queue, a cancel) into the row's state. It is
-        tried for as long as the run is running, reading the row again each time another writer moved its ``rev``
-        on first.
-
-        Args:
-            row: The run's row as read.
-            asked: The state to write, made from the state as read for each try.
-
-        Returns:
-            The row after the call: still running, with what was asked written; or as last read, not running, with
-            nothing written.
-        """
-        while (state := RunState.model_validate_json(row.state)).is_running:
-            written = await self._written(row, asked(state).columns())
-            if written is not None:
-                return written
-            row = await self._row(row.id)
-        return row
