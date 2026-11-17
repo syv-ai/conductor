@@ -10,7 +10,14 @@ The rest of the package supports it. ``Param`` is what a node author adds to a h
 its own a name. The full rules are in the reference: ``python -m conductor.about types``.
 """
 
-from .choice import Choice, check_one_of, choice_texts, pick_texts, read_choices
+from .choice import (
+    Choice,
+    check_one_of,
+    choice_texts,
+    choices_in_message,
+    pick_texts,
+    read_choices,
+)
 from .fit import fit
 from .hint import a_number, union_members, union_of
 from .host_type import NAMES, host_type
@@ -28,6 +35,7 @@ __all__ = [
     "a_number",
     "check_one_of",
     "choice_texts",
+    "choices_in_message",
     "field_of",
     "fit",
     "host_type",

@@ -8,12 +8,12 @@ can offer choices too. Each one is a ``Choice``, an id with a title::
 Two steps use them. First, the choices are checked against the type and converted to JSON (``read_choices``).
 Later, each value is checked against the choices. That second step compares JSON texts: ``choice_texts`` gives
 the text of each choice, ``pick_texts`` the text of each value picked, and ``check_one_of`` refuses a pick that
-isn't one of the choices.
+isn't one of the choices. A message names the choices with ``choices_in_message``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from enum import Enum
 from typing import Any
 
@@ -180,15 +180,28 @@ def pick_texts(written: Any, *, several: bool) -> list[str]:
     ]
 
 
-def check_one_of(texts: frozenset[str], picks: list[str]) -> None:
-    """Checks that every pick is one of the choices.
+def check_one_of(choices: Sequence[Choice], picks: list[str]) -> None:
+    """Checks that every pick is one of ``choices``.
 
-    ``texts`` comes from ``choice_texts`` and ``picks`` from ``pick_texts``. For example, an input
-    ``Annotated[str | None, Param(choices=["a"])]`` takes ``"a"``, and ``None`` too, since ``None`` is not a pick.
+    ``picks`` comes from ``pick_texts``. For example, an input ``Annotated[str | None, Param(choices=["a"])]`` takes
+    ``"a"``, and ``None`` too, since ``None`` is not a pick.
 
     Raises:
-        PydanticCustomError: ``not_a_choice`` if a pick is not one of the choices. The message quotes nothing of
-            the value.
+        PydanticCustomError: ``not_a_choice`` if a pick is not one of the choices. The message names the choices,
+            as ``choices_in_message`` does, and quotes nothing of the value: ``the value is not "ida" or "bo"``.
     """
-    if not texts.issuperset(picks):
-        raise conductor_error("not_a_choice", "the value is not one of the choices")
+    if not choice_texts(choices).issuperset(picks):
+        raise conductor_error("not_a_choice", f"the value is not {choices_in_message(choices)}")
+
+
+def choices_in_message(choices: Sequence[Choice]) -> str:
+    """Names ``choices`` in a message, by their ids as JSON text, joined with "or".
+
+    ``"ida" or "bo"``. Past five choices the rest are counted, so the message stays one line:
+    ``"a", "b", "c", "d", "e" or 295 more``.
+    """
+    named = [canonical_json(choice.id) for choice in choices]
+    if len(named) > 5:
+        return f"{', '.join(named[:5])} or {len(named) - 5} more"
+    *others, last = named
+    return f"{', '.join(others)} or {last}" if others else last

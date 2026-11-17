@@ -641,6 +641,10 @@ What changes in how you work, before the name-by-name tables:
   Series[str], but 'bundle.parts' takes list[str]. To take every item as one list, declare the input Series[str] in
   place of list[str]." It was plain `type_mismatch`, which said to wire an output that gives `list[str]`. A `Series`
   whose items a `list[T]` doesn't take stays `type_mismatch`.
+- **A value outside the choices is refused naming them.** An answer outside an `Ask`'s choices, and a value outside
+  a `Param(choices=)`, is refused with "the value is not "ida" or "bo"" (`not_a_choice` in `ctx.errors`, and in the
+  `reason` of `invalid_answer`), past five counted as `type_mismatch` counts them: `"a", "b", "c", "d", "e" or 4
+  more`. It said "the value is not one of the choices", while a `Literal`'s refusal named its values.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

@@ -274,8 +274,20 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
     _, run = _once(assign, ticket="T-1")
     assert run.waiting[0].questions[0].choices == (Choice("ida", "Ida B."), Choice("bo", "bo"))
     (fault,) = _refused(lambda: run.answer("q", "carl"))
-    assert fault.msg == "That isn't a valid answer: the value is not one of the choices."
+    assert fault.msg == 'That isn\'t a valid answer: the value is not "ida" or "bo".'
     assert run.answer("q", "bo").resume().outputs == {"result": "bo"}
+
+
+def test_a_refused_answer_names_the_choices_and_counts_those_past_five_as_a_type_mismatch_does():
+    @node("seat", title="Seat", description="For a test.", asks=True)
+    def seat(ticket: str) -> str:
+        raise Ask(f"Where does {ticket} sit?", choices=[f"s{number}" for number in range(9)])
+
+    _, run = _once(seat, ticket="T-1")
+    (fault,) = _refused(lambda: run.answer("q", "s9"))
+    assert fault.msg == (
+        'That isn\'t a valid answer: the value is not "s0", "s1", "s2", "s3", "s4" or 4 more.'
+    )
 
 
 def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_float_choice_1_0():
@@ -293,7 +305,7 @@ def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_flo
     assert run.answer("q", 1).resume().outputs == {"result": 1.0}
     assert (
         _refused(lambda: run.answer("q", 2))[0].msg
-        == "That isn't a valid answer: the value is not one of the choices."
+        == "That isn't a valid answer: the value is not 1.0 or 2.5."
     )
 
 
@@ -316,7 +328,7 @@ def test_an_input_is_checked_against_its_choices_by_their_json_as_an_answer_is()
     for refused in (True, 1.0, {"a": True, "b": 2}):
         with pytest.raises(InvalidCallError) as raised:
             graph.run({"x": refused})
-        assert "the value is not one of the choices" in raised.value.problems[0].msg
+        assert 'the value is not 1 or {"a":1,"b":2}' in raised.value.problems[0].msg
 
 
 def test_two_fields_whose_choices_python_takes_as_equal_each_accept_only_their_own():
@@ -826,7 +838,7 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_checked_agai
     assert [
         f.msg for f in _refused(lambda: run.answer("q", {"note": "fine", "escalate": "ceo"}))
     ] == [
-        "That isn't a valid answer: 'escalate': the value is not one of the choices.",
+        'That isn\'t a valid answer: \'escalate\': the value is not "boss" or "team".',
     ]
 
 
@@ -1146,7 +1158,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
     )
     assert (
         _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg
-        == "That isn't a valid answer: the value is not one of the choices."
+        == 'That isn\'t a valid answer: the value is not "ida", "bo" or "carl".'
     )
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
@@ -1164,7 +1176,7 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
     assert one.answer("q", {"b": 2, "a": 1}).resume().outputs == {"result": {"b": 2, "a": 1}}
     assert (
         _refused(lambda: one.answer("q", {"c": 4}))[0].msg
-        == "That isn't a valid answer: the value is not one of the choices."
+        == 'That isn\'t a valid answer: the value is not {"a":1,"b":2} or {"c":3}.'
     )
     _, several = _once(picks, ticket="t")
     assert several.answer("q", [[3], [1, 2]]).resume().outputs == {"result": [[3], [1, 2]]}
@@ -1174,7 +1186,7 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
     )
     assert (
         _refused(lambda: several.answer("q", [[3], [3], [4]]))[0].msg
-        == "That isn't a valid answer: the value is not one of the choices."
+        == "That isn't a valid answer: the value is not [1,2] or [3]."
     )
 
 
@@ -1219,7 +1231,7 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         (
             lambda: Ask("?", choices=["a"], default="b"),
-            "the default for 'result' isn't an answer a person could give (the value is not one of the choices)",
+            "the default for 'result' isn't an answer a person could give (the value is not \"a\")",
         ),
         (
             lambda: Ask("?", choices=["a", object()]),

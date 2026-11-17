@@ -50,7 +50,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import MISSING, JsonValue
 from typing_extensions import sentinel
 
-from conductor._internal.base import REQUIRED, NodePath, Source, canonical_json, place_text
+from conductor._internal.base import REQUIRED, NodePath, Source, place_text
 from conductor._internal.field import (
     BoundDefaultValidator,
     Field,
@@ -70,7 +70,7 @@ from conductor._internal.problem import (
     compile_problems,
 )
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
-from conductor._internal.types import Type
+from conductor._internal.types import Type, choices_in_message
 
 from .input import (
     CollectingInput,
@@ -1202,13 +1202,7 @@ def _type_in_message(value_type: Type, text: str) -> str:
         choices = value_type.choices
     except NodeDeclarationError:
         return text
-    if choices is None:
-        return text
-    named = [canonical_json(choice.id) for choice in choices]
-    if len(named) > 5:  # a long list is cut short, so the message stays one line
-        return f"{', '.join(named[:5])} or {len(named) - 5} more"
-    *others, last = named
-    return f"{', '.join(others)} or {last}" if others else last
+    return text if choices is None else choices_in_message(choices)
 
 
 def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:

@@ -202,7 +202,7 @@ class Param:
         else:
 
             def one_of_the_choices(value: Any) -> Any:
-                check_one_of(texts, pick_texts(as_json(value), several=False))
+                check_one_of(read, pick_texts(as_json(value), several=False))
                 return value
 
             checked = core_schema.no_info_after_validator_function(one_of_the_choices, limited)

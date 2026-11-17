@@ -46,7 +46,6 @@ from conductor._internal.types import (
     Choice,
     Type,
     check_one_of,
-    choice_texts,
     pick_texts,
     read_choices,
 )
@@ -368,7 +367,7 @@ def _check_picks(field: Field, written: Any, choices: tuple[Choice, ...] | None)
         return
     picks = pick_texts(written, several=field.is_series)
     if choices is not None:
-        check_one_of(choice_texts(choices), picks)
+        check_one_of(choices, picks)
     if len(set(picks)) != len(picks):
         raise conductor_error("picked_twice", "a choice is picked twice")
 
