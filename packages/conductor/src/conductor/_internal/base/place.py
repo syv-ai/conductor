@@ -197,7 +197,8 @@ def parse_loc(text: str) -> Loc:
     """Splits a loc's text back into the loc, as far as it names one.
 
     ``parse_loc("review@0/approve@1")`` returns ``("review", 0, "approve", 1)``. An item index counts only in the
-    spelling ``place_text`` writes, a whole number with no sign, space or leading zero. The loc ends at the node
+    spelling ``place_text`` writes: a whole number in the digits 0 to 9, with no sign, space or leading zero, and
+    no longer than Python converts to an ``int`` (4300 digits by default). The loc ends at the node
     before the first index that isn't one, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``. In the
     same way, the loc ends before the first node id that isn't a name (see ``is_name``), so ``"review//approve"``
     gives ``("review",)`` and ``""`` gives ``()``. To accept only a text ``place_text`` wrote, write the loc back
@@ -214,10 +215,13 @@ def parse_loc(text: str) -> Loc:
         loc.append(node_id)
         for index in indexes:
             read = f"{read}{INDEX_SEPARATOR}{index}"
-            if not index.isdecimal():
+            # A text int() can't convert, such as "x" or a number with more digits than Python converts, names no item.
+            try:
+                with_index = (*loc, int(index))
+            except ValueError:
                 return tuple(loc)
-            # "01", "+1" or "1_0" would read as 1, which place_text writes "1", so they name no item
-            if place_text(with_index := (*loc, int(index))) != read:
+            # "01", "+1", "1_0" and the Arabic digit "١" convert to a number place_text writes another way.
+            if place_text(with_index) != read:
                 return tuple(loc)
             loc = list(with_index)
     return tuple(loc)

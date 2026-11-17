@@ -256,7 +256,7 @@ What changes in how you work, before the name-by-name tables:
   Every node event's `loc` names the node, `node_waiting` and `node_retry` included; the call is in the `loc` of
   its `waiting` or its `cause`.
   An id with an index that is not a number is `not_waiting` at the place read up to it: `e@1/ask@x` at `("e", 1, "ask")`.
-  A waiting id has one spelling, the one `run.waiting` gives (or that text without `~` and its fingerprint); any other names nothing and is `not_waiting`: `e/ask@0` for `e@0/ask`, `ask@01`, `ask@0~`.
+  A waiting id has one spelling, the one `run.waiting` gives (or that text without `~` and its fingerprint); any other names nothing and is `not_waiting`: `e/ask@0` for `e@0/ask`, `ask@01`, `ask@0~`, `ask@١` (an Arabic digit), and an index longer than Python converts to an `int` (it raised `ValueError`, a 500 from the worker's routes).
 - **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
   as their type says. `InvalidCallError` with `invalid_record` problems is what JSON text of the wrong shape raises.
 - **`registry.upgrade` drops an input the newer version doesn't have, for a subgraph as for a function.** What it gets (a constant, a graph input

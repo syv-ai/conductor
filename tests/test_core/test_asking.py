@@ -1537,7 +1537,9 @@ def test_a_waiting_id_has_one_spelling_and_any_other_names_nothing():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
     first = run.waiting[0].id
-    other_spellings = ["q@01", "q@+1", "q@ 1", "q@-0", "q@0~", f"/{first}"]
+    # "١" is an Arabic digit, and 5000 digits are more than Python converts to an int.
+    too_long = "q@" + "1" * 5000
+    other_spellings = ["q@01", "q@+1", "q@ 1", "q@-0", "q@0~", f"/{first}", "q@١", too_long]
     faults = _refused(lambda: run.answer(dict.fromkeys(other_spellings, "B")))
     assert [f.type for f in faults] == ["not_waiting"] * len(other_spellings)
     assert (
