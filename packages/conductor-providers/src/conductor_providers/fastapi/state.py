@@ -1,29 +1,40 @@
-"""The two JSON columns the worker keeps in a run's row, every way the first one changes, and what a reader is shown.
+"""A run's row as the worker reads it, the two JSON columns the worker keeps in it, and what a reader is shown.
 
-A row's ``state`` is ``RunState``: where the run is, the replies queued while it runs, and a cancel asked of it. It is small however large the run is. So queuing an answer or asking a cancel writes only it and the
-row's ``status``, though the read before the write fetches the whole row. A row's ``outcome`` is ``RunOutcome``: what
-waits for a person, the outputs, and how far the run is. It can be megabytes, so it is written only when the run
-stops and with each checkpoint. A store keeps both as text and never reads them.
+A row's ``state`` is ``RunState``: where the run is, the replies queued while it runs, and a cancel asked of it. It is
+small however large the run is. So queuing an answer or asking a cancel writes only it and the row's ``status``,
+though the read before the write fetches the whole row. A row's ``outcome`` is ``RunOutcome``: what waits for a
+person, the outputs, and how far the run is. It can be megabytes, so it is written only when the run stops and with
+each checkpoint. A store keeps both as text and never reads them.
 
-Every change of a state is a method here that returns a new state, so a test can call it on a ``Run`` with no store
-at all. ``RunView`` is what a reader sees of the two: the run's status and outcome, without the worker's own
-bookkeeping.
+``RunRow`` is a row with its JSON read into these types, as the worker's store gives it. Every change of a state is a
+method here that returns a new state, so a test can call it on a ``Run`` with no store at all. ``RunView`` is what a
+reader sees: the run's status and outcome, without the worker's own bookkeeping.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
+from functools import cached_property
 from types import MappingProxyType
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Generic, Literal
 
-from conductor import InvalidCallError, Problem, Run, RunProgress, RunStatus, Waiting
-from pydantic import BaseModel, ConfigDict, Field
+from conductor import (
+    Graph,
+    InvalidCallError,
+    NodeRegistry,
+    Problem,
+    Run,
+    RunProgress,
+    RunStatus,
+    Waiting,
+)
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.problems import raised_outside_a_node
-from conductor_providers.fastapi.store import RunChanges
 
 #: The type of a run's metadata: what the host keeps on it. ``dict[str, str]`` unless the host names a model.
 M = TypeVar("M", default=dict[str, str])
@@ -193,8 +204,8 @@ class RunState(BaseModel):
         return any(isinstance(reply, QueuedDecline) for reply in self.queued)
 
     def ended_with(
-        self, run: Run[Any], saved: str, outcome: str
-    ) -> tuple[RunState, RunChanges, bool]:
+        self, run: Run[Any], saved: str, outcome: RunOutcome
+    ) -> tuple[RunState, str, RunOutcome, bool]:
         """This state once the run stops and is given what was queued meanwhile, in the order it came.
 
         The run stops when a resume call returns it, or it is the run as a stopped row has it, given its queue
@@ -211,10 +222,11 @@ class RunState(BaseModel):
         Args:
             run: The run the resume call returned, or the run as the row has it.
             saved: ``run``, as JSON.
-            outcome: The row's ``outcome`` for ``run``, as JSON.
+            outcome: The row's outcome for ``run``.
 
         Returns:
-            The new state, the row's ``run`` and ``outcome`` to write with it, and whether the run took a decline.
+            The new state, the row's ``run`` (as JSON) and ``outcome`` to write with it, and whether the run took a
+            decline.
         """
         given, taken, declined, refused = self._given_to(run)
         # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
@@ -235,8 +247,8 @@ class RunState(BaseModel):
             }
         )
         if declined:  # the run stops here, so the row's outcome is the declined run's
-            outcome = RunOutcome.of(given).model_dump_json()
-        return state, {"run": given.to_json() if taken else saved, "outcome": outcome}, declined
+            outcome = RunOutcome.of(given)
+        return state, given.to_json() if taken else saved, outcome, declined
 
     def _given_to(self, run: Run[Any]) -> tuple[Run[Any], bool, bool, dict[str, list[Problem]]]:
         """``run`` once it is given the queued replies, in the order they came.
@@ -268,7 +280,7 @@ class RunState(BaseModel):
                 refused.pop(reply.waiting_id, None)
         return given, taken, declined, refused
 
-    def failed(self, cause: Problem, outcome: str) -> tuple[RunState, RunChanges]:
+    def failed(self, cause: Problem) -> RunState:
         """This state once a resume call raised, or conductor refused it, so it returned no run.
 
         The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued for the next call
@@ -277,20 +289,74 @@ class RunState(BaseModel):
 
         Args:
             cause: Why the resume call failed.
-            outcome: The row's ``outcome`` for the run as the row has it, as JSON.
 
         Returns:
-            The state, ``failed`` with ``cause``, and the row's ``outcome`` to write with it.
+            The state, ``failed`` with ``cause``.
         """
-        state = self.model_copy(update={"status": "failed", "cause": cause, "cancel_asked": False})
-        return state, {"outcome": outcome}
+        return self.model_copy(update={"status": "failed", "cause": cause, "cancel_asked": False})
 
-    def columns(self) -> RunChanges:
-        """The row's ``status`` and ``state`` for this state, written together in one ``update``.
 
-        ``status`` is for the host's own queries: the worker and the routes read only ``state``.
+@dataclass(frozen=True)
+class RunRow(Generic[M]):
+    """A run's row as the worker reads it: a ``StoredRun`` with its ``state`` read, and its metadata and outcome read
+    when they are first asked for.
+
+    The worker's store reads each row into one as it gets it from the host's store, and writes the changes of one
+    back as text. So nothing else in the worker parses a row's JSON. The ``outcome`` can be megabytes, and only a
+    reader's view and a resume call need it. The ``metadata`` is read on first use so that a row whose metadata the
+    worker's type refuses can still be taken over, and its resume call then fails it. A row has no ``status`` of its
+    own: the ``status`` column is written from ``state``.
+
+    Attributes:
+        id: The run's id.
+        graph: The ``GraphRecord`` the run is of, as JSON.
+        metadata_json: The run's metadata, as the JSON object the row keeps; ``metadata`` reads it.
+        metadata_type: Reads ``metadata_json``: the worker's ``metadata_type``.
+        run: ``run.to_json()``: the last checkpoint while the run is running, the whole run once it stops.
+        state: Where the run is, and what was asked of it while it was running.
+        outcome_json: What a reader gets without loading the run, as JSON; ``outcome`` reads it.
+        rev: Moved one on by every update.
+        owner: The worker resuming it.
+        lease_until: Until when the owner's lease holds, as seconds since the epoch; ``None`` when the run is not
+            running.
+    """
+
+    id: str
+    graph: str
+    metadata_json: str
+    run: str
+    state: RunState
+    outcome_json: str
+    rev: int
+    owner: str | None
+    lease_until: float | None
+    metadata_type: TypeAdapter[M] = field(repr=False, compare=False, kw_only=True)
+
+    @cached_property
+    def metadata(self) -> M:
+        """The run's metadata, read from ``metadata_json`` by its type the first time it is asked for.
+
+        Raises:
+            ValidationError: The worker's ``metadata_type`` refuses the row's metadata.
         """
-        return {"status": self.status, "state": self.model_dump_json()}
+        return self.metadata_type.validate_json(self.metadata_json)
+
+    @cached_property
+    def outcome(self) -> RunOutcome:
+        """What a reader gets without loading the run, read from ``outcome_json`` the first time it is asked for.
+
+        Raises:
+            ValidationError: The row's outcome can't be read.
+        """
+        return RunOutcome.model_validate_json(self.outcome_json)
+
+    def loaded(self, nodes: NodeRegistry[Any]) -> Run[Any]:
+        """The run this row keeps, loaded on ``nodes``.
+
+        Raises:
+            InvalidCallError: The graph doesn't compile on ``nodes``, or the saved run can't be read.
+        """
+        return Run.from_json(self.run, Graph.compile(self.graph, nodes))
 
 
 class RunView(RunOutcome):

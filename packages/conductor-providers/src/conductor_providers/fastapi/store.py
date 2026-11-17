@@ -7,19 +7,28 @@ what lets several workers act on one run. An ``update`` can append one event
 in the same write, which is how a run's ``run_end`` lands with the row that
 says how the run stopped.
 
-``GuardedStore`` wraps a host's store so that anything it raises comes out as
-one exception, ``StoreFailedError``, which names the method. The worker and
-``check_run_store`` call a store only through it.
+``GuardedStore`` is the worker's one door to a host's store. It reads each row
+into a ``RunRow``, writes a row's changes back as text, and turns anything the
+store raises into one exception, ``StoreFailedError``, which names the method.
+``check_run_store`` calls a store with ``guarded`` alone, since it checks the
+text a store keeps.
 """
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import logging
 from collections.abc import Awaitable
-from dataclasses import dataclass
-from typing import Protocol, TypedDict
+from dataclasses import dataclass, replace
+from typing import Any, Generic, Protocol, TypedDict
 
 from conductor import RunStatus
+from pydantic import TypeAdapter, ValidationError
+
+from conductor_providers.fastapi.state import M, RunOutcome, RunRow, RunState
+
+log = logging.getLogger("conductor_providers.fastapi")
 
 
 @dataclass(frozen=True)
@@ -183,61 +192,191 @@ class StoreFailedError(Exception):
         self.error = error
 
 
-async def _guarded[T](method: str, answer: Awaitable[T]) -> T:
-    """What one call of a store method gives, or ``StoreFailedError`` when it raises."""
+async def guarded[T](method: str, answer: Awaitable[T]) -> T:
+    """What one call of a store method gives, or ``StoreFailedError`` when it raises.
+
+    It is internal to this package: ``GuardedStore`` calls the host's store through it, and so does
+    ``check_run_store``, which checks the text a store keeps rather than the rows the worker reads.
+
+    Args:
+        method: The method called, such as ``"update"``, which the error names.
+        answer: The call, not yet awaited.
+    """
     try:
         return await answer
     except Exception as error:
         raise StoreFailedError(method, error) from error
 
 
-class GuardedStore:
-    """A host's store, wrapped so that whatever one of its methods raises comes out as ``StoreFailedError``.
+def refuse_an_update_without_an_event(store: RunStore) -> None:
+    """Refuse a store whose ``update`` can't be given ``event`` as its fourth argument.
 
-    It has the six methods of ``RunStore`` and passes each call on. Code that holds a ``GuardedStore`` can tell an
-    outage apart from a fault in its own code by the exception's class alone.
+    Every call to it would raise, and the worker would read each one as an outage, so the store is refused once,
+    before it is used.
+
+    Raises:
+        TypeError: The store's ``update`` can't be given ``event`` as its fourth argument.
+    """
+    try:
+        inspect.signature(store.update).bind("run_id", 0, {}, None)
+    except TypeError:
+        raise TypeError(
+            f"{type(store).__name__}.update can't be given an event as its fourth argument; add the parameter "
+            "`event: str | None = None` after changes, not keyword-only, and "
+            "when it is given, append it as add_event does, in the same statement or transaction as the write"
+        ) from None
+
+
+class GuardedStore(Generic[M]):
+    """A host's store as the worker uses it: rows read into ``RunRow``, and outages raised as ``StoreFailedError``.
+
+    It has the six methods of ``RunStore``. ``get`` and ``expired`` read each row into a ``RunRow``, and ``create``
+    and ``update`` write a ``RunRow``'s columns back as text. Code that holds a ``GuardedStore`` works on a row's
+    metadata, state and outcome as their types, and can tell an outage apart from a fault in its own code by the
+    exception's class alone.
 
     Args:
         store: The host's store.
+        metadata: Reads a run's metadata: the worker's ``metadata_type``.
 
     Raises:
-        TypeError: The store's ``update`` can't be given ``event`` as its fourth argument. Every call to it would raise, and the worker would read
-            each one as an outage, so the store is refused here, once.
+        TypeError: The store's ``update`` can't be given ``event`` as its fourth argument.
     """
 
-    def __init__(self, store: RunStore) -> None:
-        try:
-            inspect.signature(store.update).bind("run_id", 0, {}, None)
-        except TypeError:
-            raise TypeError(
-                f"{type(store).__name__}.update can't be given an event as its fourth argument; add the parameter "
-                "`event: str | None = None` after changes, not keyword-only, and "
-                "when it is given, append it as add_event does, in the same statement or transaction as the write"
-            ) from None
+    def __init__(self, store: RunStore, metadata: TypeAdapter[M]) -> None:
+        refuse_an_update_without_an_event(store)
         self._store = store
+        self._metadata = metadata
 
-    async def create(self, run: StoredRun) -> None:
-        """``RunStore.create``."""
-        await _guarded("create", self._store.create(run))
+    async def create(self, row: RunRow[M]) -> None:
+        """Insert a new run: ``RunStore.create`` with the row written as text."""
+        columns = self._columns(
+            {"owner": row.owner, "lease_until": row.lease_until},
+            state=row.state,
+            run=row.run,
+            outcome=None,
+        )
+        columns["outcome"] = row.outcome_json
+        stored = StoredRun(
+            id=row.id,
+            graph=row.graph,
+            metadata=row.metadata_json,
+            rev=row.rev,
+            **columns,
+        )
+        await guarded("create", self._store.create(stored))
 
-    async def get(self, run_id: str) -> StoredRun | None:
-        """``RunStore.get``."""
-        return await _guarded("get", self._store.get(run_id))
+    async def get(self, run_id: str) -> RunRow[M] | None:
+        """``RunStore.get``, its row read.
+
+        Raises:
+            ValidationError: The row's state can't be read.
+        """
+        stored = await guarded("get", self._store.get(run_id))
+        return None if stored is None else self._read(stored)
 
     async def update(
-        self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
-    ) -> bool:
-        """``RunStore.update``."""
-        return await _guarded("update", self._store.update(run_id, rev, changes, event))
+        self,
+        row: RunRow[M],
+        holder: RunChanges | None = None,
+        *,
+        state: RunState | None = None,
+        run: str | None = None,
+        outcome: RunOutcome | None = None,
+        event: str | None = None,
+    ) -> RunRow[M] | None:
+        """``RunStore.update`` at the ``rev`` of ``row``: write some of its columns, and ``event`` with them.
 
-    async def expired(self, now: float) -> list[StoredRun]:
-        """``RunStore.expired``."""
-        return await _guarded("expired", self._store.expired(now))
+        Of two writers at one ``rev``, one wins. The columns and the event are one ``update``, so both land or
+        neither does: a run that stops with no resume call is written with the ``run_end`` that says so.
+
+        Args:
+            row: The run's row as read.
+            holder: The row's new ``owner`` or ``lease_until``, or both; ``None`` to leave them.
+            state: The row's new state, written as its ``state`` and ``status``; ``None`` to leave both.
+            run: The row's new ``run``, as JSON; ``None`` to leave it.
+            outcome: The row's new outcome; ``None`` to leave it.
+            event: An event to append in the same write, as JSON; ``None`` for none.
+
+        Returns:
+            The row as written; ``None`` when another writer moved its ``rev`` on first, and nothing was written.
+        """
+        if outcome is None:
+            columns = self._columns(holder or {}, state=state, run=run, outcome=None)
+        else:  # an outcome can be megabytes, so it is written on a thread
+            columns = await asyncio.to_thread(
+                self._columns, holder or {}, state=state, run=run, outcome=outcome
+            )
+        if not await guarded("update", self._store.update(row.id, row.rev, columns, event)):
+            return None
+        written: dict[str, Any] = {**(holder or {}), "rev": row.rev + 1}
+        if state is not None:
+            written["state"] = state
+        if run is not None:
+            written["run"] = run
+        if outcome is not None:
+            written["outcome_json"] = columns["outcome"]
+        return replace(row, **written)
+
+    async def expired(self, now: float) -> list[RunRow[M]]:
+        """``RunStore.expired``, each row read.
+
+        A row whose state can't be read is logged and left out, so that it doesn't keep the other runs from being
+        taken over. A row whose metadata the worker's type refuses is given, since its metadata is read only when
+        it is first asked for: its resume call then fails the run.
+        """
+        rows = []
+        for stored in await guarded("expired", self._store.expired(now)):
+            try:
+                rows.append(self._read(stored))
+            except ValidationError:
+                log.exception(
+                    "run %s, whose lease ran out, was not taken over; the next sweep tries again",
+                    stored.id,
+                )
+        return rows
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         """``RunStore.add_event``."""
-        return await _guarded("add_event", self._store.add_event(run_id, owner, body))
+        return await guarded("add_event", self._store.add_event(run_id, owner, body))
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         """``RunStore.events``."""
-        return await _guarded("events", self._store.events(run_id, after))
+        return await guarded("events", self._store.events(run_id, after))
+
+    def _read(self, stored: StoredRun) -> RunRow[M]:
+        """A row with its state read; its metadata and outcome are read when they are first asked for."""
+        return RunRow(
+            id=stored.id,
+            graph=stored.graph,
+            metadata_json=stored.metadata,
+            metadata_type=self._metadata,
+            run=stored.run,
+            state=RunState.model_validate_json(stored.state),
+            outcome_json=stored.outcome,
+            rev=stored.rev,
+            owner=stored.owner,
+            lease_until=stored.lease_until,
+        )
+
+    @staticmethod
+    def _columns(
+        holder: RunChanges,
+        *,
+        state: RunState | None,
+        run: str | None,
+        outcome: RunOutcome | None,
+    ) -> RunChanges:
+        """The columns a write changes, as the store keeps them: the one place the worker writes a row's state.
+
+        ``status`` is written with ``state``, from it.
+        """
+        columns: RunChanges = {}
+        if state is not None:
+            columns["status"], columns["state"] = state.status, state.model_dump_json()
+        if run is not None:
+            columns["run"] = run
+        if outcome is not None:
+            columns["outcome"] = outcome.model_dump_json()
+        columns.update(holder)
+        return columns

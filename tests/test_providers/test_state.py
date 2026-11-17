@@ -30,8 +30,10 @@ def _waiting() -> tuple[Any, str]:
     return Graph.compile(graph, registry).run(inputs), waiting_id
 
 
-def _ended_with(state: RunState, run: Any) -> tuple[RunState, RunChanges]:
-    return state.ended_with(run, run.to_json(), RunOutcome.of(run).model_dump_json())[:2]
+def _ended_with(state: RunState, run: Any) -> tuple[RunState, dict[str, Any]]:
+    """The new state, and the row's ``run`` and ``outcome`` written with it."""
+    new, saved, outcome, _ = state.ended_with(run, run.to_json(), RunOutcome.of(run))
+    return new, {"run": saved, "outcome": outcome}
 
 
 def test_a_run_that_stopped_with_nothing_queued_takes_its_status() -> None:
@@ -45,7 +47,7 @@ def test_a_run_that_stopped_with_nothing_queued_takes_its_status() -> None:
         False,
         [],
     )
-    assert changes == {"run": run.to_json(), "outcome": RunOutcome.of(run).model_dump_json()}
+    assert changes == {"run": run.to_json(), "outcome": RunOutcome.of(run)}
 
 
 def test_a_queued_answer_the_run_takes_makes_it_running_again_with_the_answered_run() -> None:
@@ -93,11 +95,11 @@ def test_a_cancel_asked_while_the_run_ran_stays_asked_for_the_resume_a_taken_ans
     assert (state.status, state.cancel_asked) == ("running", True)
 
 
-def test_a_failed_resume_call_keeps_the_queued_and_writes_only_the_outcome() -> None:
+def test_a_failed_resume_call_keeps_the_queued_and_clears_a_cancel_asked() -> None:
     cause = Problem(type="raised_outside_a_node", msg="It raised.", ctx={"error": "KeyError"})
     queued = RunState.started().with_queued({"approve~1": True}).asked_to_stop()
 
-    state, changes = queued.failed(cause, '{"waiting": [], "outputs": null, "progress": null}')
+    state = queued.failed(cause)
 
     assert (state.status, state.cause, state.cancel_asked, state.queued) == (
         "failed",
@@ -105,7 +107,6 @@ def test_a_failed_resume_call_keeps_the_queued_and_writes_only_the_outcome() -> 
         False,
         [QueuedAnswer(waiting_id="approve~1", answer=True)],
     )
-    assert changes == {"outcome": '{"waiting": [], "outputs": null, "progress": null}'}
 
 
 def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -> None:
@@ -125,10 +126,10 @@ def test_ended_with_says_whether_the_run_took_a_decline_also_when_a_decline_alre
 ):
     run, waiting_id = _waiting()
     declined = run.decline(waiting_id, reason="No")
-    saved, outcome = run.to_json(), RunOutcome.of(run).model_dump_json()
+    saved, outcome = run.to_json(), RunOutcome.of(run)
 
     took = [
-        state.ended_with(given, saved, outcome)[2]
+        state.ended_with(given, saved, outcome)[3]
         for state, given in (
             (RunState.started().with_queued({waiting_id: True}), run),
             (RunState.started().with_queued(declines={waiting_id: "No"}), run),
@@ -148,11 +149,8 @@ def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_wit
 
     declined = run.decline(waiting_id, reason="No")
     assert (state.status, state.cause, state.queued) == ("failed", declined.cause, [])
-    assert changes == {
-        "run": declined.to_json(),
-        "outcome": RunOutcome.of(declined).model_dump_json(),
-    }
-    assert RunOutcome.model_validate_json(changes["outcome"]).waiting == []
+    assert changes == {"run": declined.to_json(), "outcome": RunOutcome.of(declined)}
+    assert changes["outcome"].waiting == []
 
 
 def test_a_decline_the_run_takes_clears_a_cancel_asked_since_the_run_has_ended() -> None:
@@ -253,11 +251,16 @@ async def test_a_held_run_whose_store_fails_gives_the_run_up_and_leaves_it_runni
         "left", graph, Graph.compile(graph, registry).with_inputs(inputs), owner="me"
     )
     store.rows[row.id] = row
+    metadata = TypeAdapter(dict[str, str])
+    # the row as the worker reads it, from a store that is up
+    readable = MemoryStore()
+    readable.rows[row.id] = row
+    held = await GuardedStore(readable, metadata).get(row.id)
+    assert held is not None
     settings = ResumeSettings(
         worker_id="me",
         nodes_for=lambda metadata: registry,
         context=None,
-        metadata=TypeAdapter(dict[str, str]),
         lease=30.0,
         checkpoint_every=5.0,
         resume_timeout=None,
@@ -265,7 +268,7 @@ async def test_a_held_run_whose_store_fails_gives_the_run_up_and_leaves_it_runni
     )
 
     async with asyncio.timeout(10):
-        await HeldRun(GuardedStore(store), row, settings).run()
+        await HeldRun(GuardedStore(store, metadata), held, settings).run()
 
     assert store.rows[row.id] == row and row.status == "running"
     assert any(

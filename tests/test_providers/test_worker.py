@@ -36,7 +36,7 @@ from conductor import (
 )
 from conductor_providers.fastapi import RunChanges, StoredRun, Worker
 from conductor_providers.fastapi.store import StoreFailedError
-from pydantic import GetCoreSchemaHandler
+from pydantic import BaseModel, ConfigDict, GetCoreSchemaHandler
 from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
 
@@ -3143,3 +3143,49 @@ async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_pre
         with pytest.raises(TypeError, match="allows="):
             await worker.begin(graph, inputs, ANNA, previous=run_id)
         assert (await worker.read(run_id, allows=EVERY_RUN)).id == run_id
+
+
+async def test_a_run_taken_over_whose_metadata_the_type_refuses_is_failed_once_with_its_run_end(
+    caplog: LogCaptureFixture,
+) -> None:
+    """The sweep takes the run without reading its metadata, and the resume call fails it, as any call that raises."""
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = MemoryStore()
+    left = left_running(
+        "bad", graph, Graph.compile(graph, registry).with_inputs(inputs), owner="dead"
+    )
+    await store.create(dataclasses.replace(left, metadata='{"user": 5}'))
+    worker = Worker(store, nodes_for=lambda metadata: registry, poll=0.01, lease=0.15)
+
+    async with worker.serving():
+        # a reader's view reads the metadata too, so the row is read as the store has it
+        row = await asyncio.wait_for(store.until("bad", lambda row: row.status != "running"), 5)
+        await asyncio.sleep(0.3)  # two more sweeps, which must leave the failed run alone
+
+    assert (row.status, store.state("bad")["cause"]["type"]) == ("failed", "raised_outside_a_node")
+    assert [event["type"] for event in await store.stored_events("bad")] == ["run_end"]
+    assert sum("bad" in record.getMessage() for record in caplog.records) == 1
+
+
+class _Owner(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    user: str
+    team: str = "none"
+
+
+async def test_a_views_metadata_is_the_json_the_row_keeps_not_as_the_type_reads_it_now() -> None:
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = Worker(store, nodes_for=lambda metadata: registry, poll=0.01, metadata_type=_Owner)
+    async with worker.serving():
+        run_id = (await worker.begin(graph, inputs, _Owner(user="anna"))).id
+        await store.ended(run_id)
+        store.rows[run_id] = dataclasses.replace(
+            store.rows[run_id], metadata='{"user": "anna", "legacy": 7}'
+        )
+
+        view = await worker.read(run_id, allows=EVERY_RUN)
+
+    assert view.metadata == {"user": "anna", "legacy": 7}
