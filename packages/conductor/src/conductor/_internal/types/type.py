@@ -536,15 +536,16 @@ class Type:
         value_free = [free for free, _ in pairs]
         columns: list[str] = []
         for error_record, raw in pairs:
-            at, kept, column, owner, ends_at_column = self, list[int | str](), None, self, False
-            for step in raw["loc"][start:]:
-                ends_at_column = False
+            at, kept, column, owner = self, list[int | str](), None, self
+            in_cell: tuple[int | str, ...] = ()
+            steps = raw["loc"][start:]
+            for number, step in enumerate(steps):
                 walked = at._walked(step)
                 if walked is None:
                     break
                 inside, is_a_place, part = walked
                 if part is not None:
-                    column, owner, ends_at_column = part, at, True
+                    column, owner, in_cell = part, at, tuple(steps[number + 1 :])
                 at = inside
                 if is_a_place:
                     kept.append(step)
@@ -552,7 +553,7 @@ class Type:
             if column is not None:
                 columns.append(column)
                 error_record["type"], error_record["msg"] = owner._fault_in(
-                    column, raw["type"], error_record["msg"], ends_at_column
+                    column, raw["type"], error_record["msg"], in_cell
                 )
             # an error conductor raised about a whole column of a frame; a host's error may put anything in its ctx
             elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
@@ -584,12 +585,15 @@ class Type:
             return Type(self.fields[step]), True, None
         return None
 
-    def _fault_in(self, part: str, kind: str, msg: str, ends_at_column: bool) -> tuple[str, str]:
+    def _fault_in(
+        self, part: str, kind: str, msg: str, in_cell: tuple[int | str, ...]
+    ) -> tuple[str, str]:
         """Returns the error's type and message, reworded to name the column ``part`` that ``_walked`` returned.
 
-        ``kind`` is pydantic's error type and ``msg`` its message. ``ends_at_column`` says the error's ``loc`` ends
-        at the column, so the error is about the column itself and not about something inside one of its cells.
-        Only a table rewords the error. Any other type returns ``kind`` and ``msg`` as they are.
+        ``kind`` is pydantic's error type and ``msg`` its message. ``in_cell`` is the rest of the error's ``loc``
+        after the column, such as ``("money", "cents")`` for a field missing from a record inside a cell. It is
+        ``()`` when the error is about the column itself. Only a table rewords the error. Any other type returns
+        ``kind`` and ``msg`` as they are.
         """
         return kind, msg
 

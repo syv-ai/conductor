@@ -207,7 +207,10 @@ def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_reco
 
 
 def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
-    """A record in a cell that lacks a field names the column, and doesn't say the column is missing."""
+    """A record in a cell that lacks a field names the column and the field, and doesn't say the column is missing.
+
+    The error keeps pydantic's type ``missing``, since the column is there.
+    """
 
     class Price(TypedDict):
         amount: int
@@ -223,7 +226,11 @@ def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
 
     cause = Graph.compile(make_graph(priced), registry_of(priced)).run(text="x").cause
 
-    assert (cause.ctx["reason"], cause.ctx["column"]) == ("column 'price': Field required", "price")
+    assert (cause.ctx["reason"], cause.ctx["column"], cause.ctx["errors"][0]["type"]) == (
+        "column 'price': the field 'currency' is required",
+        "price",
+        "missing",
+    )
 
 
 def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:

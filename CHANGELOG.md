@@ -476,7 +476,8 @@ What changes in how you work, before the name-by-name tables:
 - **A `previous` the runs router can't find says so in its `loc`.** `POST /runs` and `POST /estimate` with a `previous` no run has, or one the filter hides, answer 404 `no_such_run` with `loc` `["previous"]` (it was `[]`, which read as a route that doesn't exist); `Worker.begin` and `Worker.estimate` raise it so. A route's own run that isn't there keeps `loc` `[]`.
 - **A field missing inside a table's cell is not a missing column.** A `Table` whose column is a record, given a
   row whose cell lacks one of that record's fields, was refused with "the column 'price' is missing, and the row
-  type needs it". It now reads "column 'price': Field required", as any other fault inside a cell does.
+  type needs it". It now reads "column 'price': the field 'currency' is required", and the error's type stays
+  `missing`.
 - **A missing column is `column_missing` in every form of a table (provisional).** Records that lack a column of a
   `Table`'s row type gave the error type `missing` in a problem's `ctx.errors`, while a frame without the column
   gave `column_missing`. Both now give `column_missing`, with the same message. That changes the `ctx.errors` of a

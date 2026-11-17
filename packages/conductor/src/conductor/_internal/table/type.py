@@ -109,16 +109,21 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
             return self, True, None
         return (Type(self.fields[step]), True, step) if step in self.fields else None
 
-    def _fault_in(self, part: str, kind: str, msg: str, ends_at_column: bool) -> tuple[str, str]:
+    def _fault_in(
+        self, part: str, kind: str, msg: str, in_cell: tuple[int | str, ...]
+    ) -> tuple[str, str]:
         """Returns the error's type and message with the column ``part`` named in it.
 
         Records that lack a column get pydantic's ``missing``, whose "Field required" doesn't say it is a column. It
-        becomes ``column_missing``, the error a frame without the column gets. A field missing inside a cell, such
-        as a record's, keeps pydantic's error after the column's name.
+        becomes ``column_missing``, the error a frame without the column gets. A field missing from a record inside
+        a cell stays ``missing``, and its message names the field, which pydantic's doesn't: "column 'price': the
+        field 'currency' is required".
         """
-        if kind == "missing" and ends_at_column:
+        if kind == "missing" and not in_cell:
             missing = column_missing(part)
             return missing.type, missing.message()
+        if kind == "missing" and isinstance(field := in_cell[-1], str):
+            return kind, f"column '{part}': the field '{field}' is required"
         return kind, f"column '{part}': {msg}"
 
 
