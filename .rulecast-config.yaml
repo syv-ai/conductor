@@ -620,6 +620,7 @@ repos:
               follows:
                 kind: expression_statement
                 has: { kind: assignment, all: [ { has: { field: left, kind: identifier, pattern: $V } }, { has: { field: right, kind: call } } ] }
+                not: { has: { stopBy: end, kind: identifier, regex: '^problems$' } }
               has:
                 field: condition
                 any:
@@ -649,6 +650,12 @@ repos:
                 for path, node in function_nodes.items():
                     if path in run._reusable.done:
                         reusable[names[path]] = saved_reusable(node, run._reusable, path)
+            - path: packages/conductor/src/conductor/_internal/make_graph.py
+              code: |
+                for name, text in outputs.items():
+                    source = _source(text, ("outputs", name), definitions, problems)
+                    if source is not None:
+                        declared[name] = source
                 for name in names:
                     text = name.strip()
                     if text:
