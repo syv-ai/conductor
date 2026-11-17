@@ -397,7 +397,7 @@ class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
     ``{"day": date(2026, 1, 2)}``. The validator gives ``{"day": "2026-01-02"}``.
 
     Raises (when called):
-        InvalidCallError: ``cannot_move_to_version``, variant ``rewrite_failed``, at the node with ``error``
+        InvalidCallError: ``cannot_move_to_version_rewrite_failed``, at the node with ``error``
             ``not_a_mapping``, if the rewrite returned no dict, or one with a key that isn't text. ``invalid_value``
             at the node and input for a value that can't be written as JSON.
     """

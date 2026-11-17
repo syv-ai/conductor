@@ -1166,11 +1166,8 @@ def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuse
     unwired = Graph.compile(
         make_graph(_text_a, _first_of, edges=[("text-a.result", "first-of.first")]), registry
     )
-    assert [
-        (found.type, found.loc, found.ctx["variant"], found.ctx["type"])
-        for found in unwired.problems
-    ] == [
-        ("invalid_value", ("first-of", "second"), "bound_default", "str"),
+    assert [(found.type, found.loc, found.ctx["type"]) for found in unwired.problems] == [
+        ("invalid_value_bound_default", ("first-of", "second"), "str"),
     ]
 
 
@@ -1211,9 +1208,9 @@ def test_a_declared_default_of_none_the_bound_type_does_not_take_is_a_problem_of
         make_graph(_text_a, _kept, edges=[("text-a.result", "kept.value")]), registry
     )
     assert [
-        (found.type, found.loc, found.ctx["variant"], found.ctx["type"])
+        (found.type, found.loc, found.ctx["type"])
         for found in [*unwired.problems, *output.problems]
     ] == [
-        ("invalid_value", ("first-or-blank", "second"), "bound_default", "str"),
-        ("invalid_value", ("kept", "other"), "bound_default", "str"),
+        ("invalid_value_bound_default", ("first-or-blank", "second"), "str"),
+        ("invalid_value_bound_default", ("kept", "other"), "str"),
     ]

@@ -794,7 +794,7 @@ def test_a_hook_that_raises_is_a_problem_on_its_node_never_an_exception():
         GraphRecord.model_validate({"nodes": {"r": {"node": "refuses"}}, "outputs": {}}), REGISTRY
     ).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
-        "compute_hook_failed",
+        "compute_hook_raised",
         ("r",),
         "ValueError",
     )
@@ -1586,8 +1586,8 @@ def test_a_hook_is_not_called_without_a_required_input_and_the_problem_says_it_n
     graph = Graph.compile(
         GraphRecord.model_validate({"nodes": {"f": {"node": "formula"}}, "outputs": {}}), BROKEN
     )
-    assert [(p.type, p.loc, p.ctx.get("variant")) for p in graph.problems] == [
-        ("input_has_no_value", ("f", "formula"), "constant_only")
+    assert [(p.type, p.loc) for p in graph.problems] == [
+        ("input_has_no_value_constant_only", ("f", "formula"))
     ]
     given = Graph.compile(
         GraphRecord.model_validate(
@@ -1654,7 +1654,7 @@ def test_an_input_a_hook_reads_is_a_constant_of_the_graph_never_a_graph_input():
         )
         .problems[0]
         .type
-        == "input_has_no_value"
+        == "input_has_no_value_constant_only"
     )
 
 
@@ -1866,7 +1866,7 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
     )
     assert [(p.type, p.loc) for p in graph.problems] == [
         ("type_mismatch", ("u", "text")),
-        ("type_mismatch", ("j", "texts")),
+        ("type_mismatch_one_value", ("j", "texts")),
     ]  # u falls out of fan's loop, so as drawn j is given one value
     assert _described(graph, "u") == (
         True,
@@ -1881,12 +1881,12 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
         None,
         {"texts": "missing"},
         ["result"],
-        ["type_mismatch"],
+        ["type_mismatch_one_value"],
     )
     assert graph.describe().nodes["f"].found and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
-    assert [p.type for p in refused.value.problems] == ["type_mismatch", "type_mismatch"]
+    assert [p.type for p in refused.value.problems] == ["type_mismatch", "type_mismatch_one_value"]
 
 
 def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inputs():
@@ -1992,7 +1992,7 @@ def test_a_node_not_found_or_whose_hook_failed_has_no_inputs_or_outputs_and_the_
     assert [(p.type, p.loc) for p in graph.problems] == [
         ("unknown_node", ("gone",)),
         ("unknown_version", ("old",)),
-        ("compute_hook_failed", ("r",)),
+        ("compute_hook_raised", ("r",)),
     ]
     for unknown in ("gone", "old", "r"):
         assert _described(graph, unknown)[:4] == (False, None, {}, [])

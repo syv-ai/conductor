@@ -281,7 +281,7 @@ class ResultReader:
                 return series.field_as_list(record_field)
             return (
                 series.as_table_input()
-                if node_input.field.whole.record is not None
+                if node_input.field.whole.row is not None
                 else series.as_list()
             )
         items = []

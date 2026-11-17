@@ -23,7 +23,7 @@ RUN_PROBLEMS = ProblemCatalogue(
 )
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def ask_not_declared(*loc: str | int) -> str:
     """A node raised ``Ask``, and its ``@node`` doesn't say ``asks=True``.
 
@@ -46,7 +46,7 @@ def ask_not_declared(*loc: str | int) -> str:
     return "The node asked a person, but its @node doesn't say it may. Add asks=True to its @node."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def answer_declined(*loc: str | int, reason: str | None = None) -> str:
     """A person declined to answer a node's question, with ``run.decline``.
 
@@ -66,7 +66,7 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
     return "The question was declined, so the call failed. Call resume() to ask it again."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def execution_failed(*loc: str | int, error: str) -> str:
     """A node raised an exception that isn't a ``NodeError``.
 
@@ -96,7 +96,7 @@ def execution_failed(*loc: str | int, error: str) -> str:
     )
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def external_failed(*loc: str | int, error: str | None = None) -> str:
     """A node kept raising an exception that its ``Policy(retry_on=)`` names, on every attempt.
 
@@ -120,7 +120,7 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
     return "A call to an outside service failed."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def node_error(*loc: str | int) -> str:
     """A node raised a ``NodeError`` without a code of its own.
 
@@ -144,7 +144,7 @@ def node_error(*loc: str | int) -> str:
     return "The node reported a failure."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def invalid_ask(*loc: str | int, reason: str) -> str:
     """A node raised an ``Ask`` whose choices or default don't fit the node's outputs.
 
@@ -168,7 +168,7 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
     return f"The node's Ask doesn't fit its outputs: {reason.rstrip('.')}. Fix the Ask."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def invalid_edge_value(
     *loc: str | int,
     name: str,
@@ -218,7 +218,7 @@ def invalid_edge_value(
     )
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def invalid_output(
     *loc: str | int,
     reason: str,
@@ -258,7 +258,7 @@ def invalid_output(
     return f"The node's return doesn't fit its outputs: {reason.rstrip('.')}. Fix what the node returns."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     """A series has more items than the run's ``max_items``, so the run stopped before calling any node for them.
 
@@ -278,7 +278,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     return f"{series} has {items} items, more than this run's max_items of {max_items}. Raise max_items and resume the run."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def question_unwritable(*loc: str | int, error: str, input: str) -> str:  # noqa: A002  the ctx key a host reads
     """A node asked a person, and one of its arguments can't be written as JSON to show them.
 
@@ -307,7 +307,7 @@ def question_unwritable(*loc: str | int, error: str, input: str) -> str:  # noqa
     )
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def run_cancelled() -> str:
     """The ``cancel`` event given to ``run.stream`` was set.
 
@@ -328,7 +328,7 @@ def run_cancelled() -> str:
     return "The run was cancelled. Resume it to go on, or start a new run."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def run_timed_out(*, timeout: float) -> str:
     """A call of ``run``, ``resume`` or ``stream`` took longer than the ``timeout`` it was given.
 
@@ -350,7 +350,7 @@ def run_timed_out(*, timeout: float) -> str:
     return f"The run took longer than its timeout of {timeout} seconds, so it stopped. Resume it to go on from where it stopped."
 
 
-@RUN_PROBLEMS.problem()
+@RUN_PROBLEMS.problem
 def timeout(*loc: str | int, seconds: float) -> str:
     """One call of a node took longer than its ``Policy(attempt_timeout=)``.
 

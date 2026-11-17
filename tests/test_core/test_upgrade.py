@@ -469,9 +469,9 @@ def test_a_rewrite_that_raises_is_refused_at_the_node_naming_only_the_exceptions
         registry_of(leak).upgrade(saved, "l")
     [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx) == (
-        "cannot_move_to_version",
+        "cannot_move_to_version_raised",
         ("l",),
-        {"node": "leak", "version": 2, "target": 3, "error": "ValueError", "variant": "raised"},
+        {"node": "leak", "version": 2, "target": 3, "error": "ValueError"},
     )
     assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
 
@@ -513,7 +513,7 @@ def test_a_rewrite_that_returns_no_dict_of_input_names_is_refused_at_the_node(re
     """A rewrite that forgets its ``return``, or returns a list, is refused at the node, never a bare exception."""
     [problem] = _bye_upgraded_by(lambda values: returned).problems
     assert (problem.type, problem.loc, problem.ctx) == (
-        "cannot_move_to_version",
+        "cannot_move_to_version_rewrite_failed",
         ("b",),
         {
             "node": "bye",
@@ -521,7 +521,6 @@ def test_a_rewrite_that_returns_no_dict_of_input_names_is_refused_at_the_node(re
             "target": 2,
             "reason": reason,
             "error": "not_a_mapping",
-            "variant": "rewrite_failed",
         },
     )
 
@@ -534,7 +533,7 @@ def test_a_rewrites_node_error_keeps_its_code_its_message_and_its_ctx():
 
     [problem] = _bye_upgraded_by(first_name).problems
     assert (problem.type, problem.loc, problem.ctx) == (
-        "cannot_move_to_version",
+        "cannot_move_to_version_rewrite_failed",
         ("b",),
         {
             "node": "bye",
@@ -543,7 +542,6 @@ def test_a_rewrites_node_error_keeps_its_code_its_message_and_its_ctx():
             "reason": "A full name can't be a first name.",
             "error": "full_name",
             "error_ctx": {"parts": 2},
-            "variant": "rewrite_failed",
         },
     )
     assert problem.msg == (

@@ -7,7 +7,7 @@ and quotes nothing of the object. Given no context at all, when the graph has a 
 
 A graph where no node takes the context runs without one. A context it is given is still checked, though. It must be
 an instance of the registry's class, and a registry that names no class takes no context at all: it refuses one
-with the ``invalid_context`` variant ``no_context_type``.
+with ``invalid_context_no_context_type``.
 
 Compiling has already checked each node's ``Context[X]`` against the registry's class. So an instance of that class
 is what every node asks for, and checking the class is enough.

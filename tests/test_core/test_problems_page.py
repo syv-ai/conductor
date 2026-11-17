@@ -53,10 +53,10 @@ def _setup() -> str:
 def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
     """Whether ``problem`` is a problem of ``kind``.
 
-    Its code and variant must match the kind's. Its message must be one the kind's sentence could write, with any text
+    Its code must be the kind's. Its message must be one the kind's sentence could write, with any text
     in place of each ``{field}``.
     """
-    if (problem.type, problem.ctx.get("variant")) != (kind.code, kind.variant):
+    if problem.type != kind.code:
         return False
     if kind.code in _MESSAGE_IS_THE_NODES:
         return True
@@ -66,17 +66,15 @@ def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
     return re.fullmatch(pattern, problem.msg, re.S) is not None
 
 
-def _examples(page: str) -> dict[tuple[str, str | None], str]:
-    """Returns the example of each kind of problem on the printed page, by the kind's code and variant.
+def _examples(page: str) -> dict[str, str]:
+    """Returns the example of each kind of problem on the printed page, by the kind's code.
 
     A kind's example is the first Python block in its section. A kind with no example gets an empty string.
     """
     examples = {}
-    for code, variant, body in re.findall(
-        r"^### `(\w+)`(?:, variant `(\w+)`)?\n(.*?)(?=^##|\Z)", page, re.S | re.M
-    ):
+    for code, body in re.findall(r"^### `(\w+)`\n(.*?)(?=^##|\Z)", page, re.S | re.M):
         block = re.search(r"```python\n(.*?)```", body, re.S)
-        examples[code, variant or None] = block[1] if block else ""
+        examples[code] = block[1] if block else ""
     return examples
 
 
@@ -86,7 +84,7 @@ _PAGE_EXAMPLES = _examples(problems_page())
 _KINDS = [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
 
 
-@pytest.mark.parametrize("kind", _KINDS, ids=[f"{kind.code}-{kind.variant}" for kind in _KINDS])
+@pytest.mark.parametrize("kind", _KINDS, ids=[kind.code for kind in _KINDS])
 def test_a_kinds_example_makes_its_problem_and_no_other(
     kind: ProblemKind[...], monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -97,7 +95,7 @@ def test_a_kinds_example_makes_its_problem_and_no_other(
     monkeypatch.chdir(tmp_path)
     page = ModuleType("problems_page")  # a dataclass in an example looks up its module by name
     monkeypatch.setitem(sys.modules, page.__name__, page)
-    example = _PAGE_EXAMPLES[kind.code, kind.variant]
+    example = _PAGE_EXAMPLES[kind.code]
     assert example, f"{kind.code} has no example"
     *body, last = ast.parse(example).body
     assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
@@ -125,9 +123,7 @@ _MET_BY = {
 _SECTIONED = [*PROBLEMS, *DECLARATION_PROBLEMS]
 
 
-@pytest.mark.parametrize(
-    "kind", _SECTIONED, ids=[f"{kind.code}-{kind.variant}" for kind in _SECTIONED]
-)
+@pytest.mark.parametrize("kind", _SECTIONED, ids=[kind.code for kind in _SECTIONED])
 def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(
     kind: ProblemKind[...],
 ) -> None:
@@ -136,7 +132,7 @@ def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(
     The example's last line calls its section's helper. The test above runs that line, so the problem really turns up
     there.
     """
-    *_, last = ast.parse(_PAGE_EXAMPLES[kind.code, kind.variant]).body
+    *_, last = ast.parse(_PAGE_EXAMPLES[kind.code]).body
     assert (
         isinstance(last, Expr)
         and isinstance(last.value, Call)

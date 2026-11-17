@@ -198,7 +198,7 @@ class Run[C]:
             A new run, after those calls. The run you called it on is left as it was, so keep this one.
 
         Raises:
-            InvalidCallError: ``invalid_limit`` if ``timeout`` isn't a number of seconds above 0.
+            InvalidCallError: ``invalid_limit_seconds`` if ``timeout`` isn't a number of seconds above 0.
                 ``invalid_context`` if ``context`` isn't an instance of the registry's ``context_type``, and
                 ``context_missing`` if it is ``None`` while a node takes it.
         """
@@ -241,7 +241,7 @@ class Run[C]:
           checkpoint loses the calls in flight, and the outcomes recorded since the last checkpoint.
 
         Raises:
-            InvalidCallError: Whatever ``resume`` raises, and ``invalid_limit`` if ``checkpoint_every`` isn't a number
+            InvalidCallError: Whatever ``resume`` raises, and ``invalid_limit_seconds`` if ``checkpoint_every`` isn't a number
                 of seconds above 0. Both are raised at this call, before any event.
         """
         limits = LimitsValidator()({"timeout": timeout, "checkpoint_every": checkpoint_every})
@@ -464,8 +464,8 @@ class Run[C]:
 
         Raises:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
-                whose call now asks another question, as ``answer`` refuses them. ``invalid_answer``, variant
-                ``reason``, for a reason that isn't text JSON can write, or ``None``. It is checked as its JSON text
+                whose call now asks another question, as ``answer`` refuses them. ``invalid_decline_reason``
+                for a reason that isn't text JSON can write, or ``None``. It is checked as its JSON text
                 would be, so ``bytes`` and a ``str`` enum member are taken as their text, and ``1.5`` and a ``str``
                 with a lone surrogate are refused. The run is left as it was.
         """
@@ -511,8 +511,8 @@ class Run[C]:
 
         Raises:
             InvalidCallError: Every refusal at once, each at the call its waiting id names. ``invalid_answer`` for
-                an answer JSON can't write, such as a ``str`` with a lone surrogate. ``invalid_answer``, variant
-                ``reason``, for a reason that isn't a ``str`` JSON can write, or ``None``.
+                an answer JSON can't write, such as a ``str`` with a lone surrogate. ``invalid_decline_reason``
+                for a reason that isn't a ``str`` JSON can write, or ``None``.
         """
         problems: list[Problem] = []
         queued: dict[str, Any] = {}

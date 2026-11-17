@@ -144,11 +144,6 @@ def _problems(catalogue: ProblemCatalogue) -> str:
         docs = _kind_docs(kind)
         rows = []
         for key, hint in typing.get_type_hints(kind.ctx_type).items():
-            if key == "variant":
-                rows.append(
-                    f"| `variant` | `'{kind.variant}'` | always | Which of the code's sentences this is. |"
-                )
-                continue
             if key not in docs.arguments:
                 raise LookupError(
                     f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'"
@@ -160,7 +155,7 @@ def _problems(catalogue: ProblemCatalogue) -> str:
         out.append(
             "\n\n".join(
                 [
-                    f"### `{kind.code}`" + (f", variant `{kind.variant}`" if kind.variant else ""),
+                    f"### `{kind.code}`",
                     docs.text,
                     *([f"```python\n{docs.example}\n```"] if docs.example else []),
                     f"> {kind.sentence}",

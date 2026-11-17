@@ -123,8 +123,8 @@ def _check_named_values(schema: dict[str, Any]) -> None:
     ``Literal[float("nan")]`` and an enum of tuples don't.
 
     Raises:
-        NodeDeclarationError: ``named_value_invalid`` for a ``Literal``'s value, its variant ``enum`` for an enum's
-            member, and ``alike`` for two of a ``Literal``'s values or an enum's members written as the same JSON, like
+        NodeDeclarationError: ``named_value_invalid`` for a ``Literal``'s value, ``named_value_invalid_enum`` for an enum's
+            member, and ``named_value_invalid_alike`` for two of a ``Literal``'s values or an enum's members written as the same JSON, like
             ``inf`` and ``"Infinity"``.
     """
     kind = schema.get("type")

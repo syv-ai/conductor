@@ -333,9 +333,8 @@ def test_a_node_taking_items_of_a_list_inside_a_subgraph_and_of_one_outside_is_r
     refused = Graph.compile(
         make_graph(REGISTRY["titled"], lines, pair, edges=edges), REGISTRY
     ).problems[0]
-    assert (refused.type, refused.ctx["variant"], refused.ctx["subgraphs"]) == (
-        "series_not_nested",
-        "inside_subgraph",
+    assert (refused.type, refused.ctx["subgraphs"]) == (
+        "series_not_nested_inside_subgraph",
         ["titled"],
     )
     assert sorted(refused.ctx["series"]) == ["lines.result", "titled/lines.result"]

@@ -13,7 +13,7 @@ one could ever pick ``1`` or ``2``. The ``Ask`` is refused with ``invalid_ask``.
 host that keeps an answer to give a run later keeps that data.
 
 ``DeclineValidator`` runs when a person declines with ``run.decline``. Its reason is text, or ``None`` for none, so
-``reason=123`` is refused with ``invalid_answer``, variant ``reason``.
+``reason=123`` is refused with ``invalid_decline_reason``.
 
 An answer is read strictly, the way its JSON text would be read. That way an answer given from Python and the same
 answer sent over HTTP are read the same. It is read by the same rules as a value the node returns, since the
@@ -499,7 +499,7 @@ class DeclineValidator(Validator[Any, str | None]):
     ``"Over budget"`` is taken. ``123`` is refused, and so is a ``str`` JSON can't write, such as a lone surrogate.
 
     Raises (when called):
-        InvalidCallError: One ``invalid_answer`` problem, variant ``reason``, with the class of what was given. It
+        InvalidCallError: One ``invalid_decline_reason`` problem, with the class of what was given. It
             doesn't quote the reason.
     """
 
@@ -524,7 +524,7 @@ class DeclineValidator(Validator[Any, str | None]):
         except (ValidationError, PydanticSerializationError):
             raise InvalidCallError(
                 [
-                    call_problems.invalid_answer_reason(
+                    call_problems.invalid_decline_reason(
                         *self._loc, waiting_id=self._waiting_id, got=type(reason).__name__
                     )
                 ]

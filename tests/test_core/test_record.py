@@ -817,7 +817,7 @@ def test_one_graph_input_given_two_different_defaults_in_the_record_is_used_two_
         (
             "graph_input_used_two_ways",
             ("b", "text"),
-            {"node_id": "b", "field": "text", "graph_input": "x"},
+            {"node_id": "b", "input": "text", "graph_input": "x"},
         )
     ]
 
@@ -1028,16 +1028,15 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
     assert record.nodes["pad"].inputs == {"text": InputEntry(sources=(Source("hello", "result"),))}
     graph = Graph.compile(record, registry_of(_hello, pad))
     assert list(graph.inputs) == ["name"] and [(p.type, p.loc) for p in graph.problems] == [
-        ("input_has_no_value", ("pad", "width"))
+        ("input_has_no_value_constant_only", ("pad", "width"))
     ]
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, blank, outputs={"blank": "blank.result"})
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         (
-            "not_a_chain",
+            "not_a_chain_constant_only",
             ("blank",),
             {
-                "variant": "constant_only",
                 "node_id": "blank",
                 "before": "hello",
                 "inputs": ["width"],
@@ -1392,7 +1391,7 @@ def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_
     with pytest.raises(InvalidCallError) as refused:
         graph.run({"text": ["a"]})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_input", ("inputs", "text"))
+        ("invalid_input_make_a_series", ("inputs", "text"))
     ]
 
 
@@ -1466,9 +1465,9 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
         ("missing_input", ("inputs", "yes"), {"name": "yes"}),
         ("invalid_input", ("inputs", "no"), not_a_text),
         (
-            "invalid_input",
+            "invalid_input_make_a_series",
             ("inputs", "text"),
-            {"name": "text", "expected": "str", "length": 2, "variant": "make_a_series"},
+            {"name": "text", "expected": "str", "length": 2},
         ),
     ]
     run = graph.with_inputs({"text": "a", "yes": "y", "no": "n"})
@@ -1503,7 +1502,7 @@ def test_a_list_a_graph_input_whose_type_takes_a_list_refuses_gives_its_reason_n
         graph.run({"words": given})
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx.get("variant")) == ("invalid_input", None)
+    assert problem.type == "invalid_input"
     assert reason in problem.ctx["reason"]
 
 
@@ -1593,7 +1592,7 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
     problem = _a_table_read_by_one_text("r.result.name")
 
     assert (problem.type, problem.loc, problem.ctx["record_field"]) == (
-        "unknown_output",
+        "unknown_output_make_a_series",
         ("u", "text"),
         "name",
     )
@@ -1601,7 +1600,10 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
 
 @pytest.mark.parametrize("source", ["r.result.name", "r.result"])
 def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
-    assert _a_table_read_by_one_text(source).ctx["variant"] == "make_a_series"
+    assert _a_table_read_by_one_text(source).type in {
+        "type_mismatch_make_a_series",
+        "unknown_output_make_a_series",
+    }
 
 
 def test_a_series_of_tables_is_accepted_where_it_is_declared():

@@ -43,7 +43,7 @@ DECLARATION_PROBLEMS = ProblemCatalogue(
 )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def arriving_on_compute_added_inputs(*, parameter: str) -> str:
     """A ``compute_added_inputs`` hook asks for the type arriving on an input.
 
@@ -72,7 +72,7 @@ def arriving_on_compute_added_inputs(*, parameter: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def async_run() -> str:
     """A node's function is an ``async def``.
 
@@ -88,7 +88,7 @@ def async_run() -> str:
     return "a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
     """A ``Param`` sets a limit that pydantic has no rule for on the input's type.
 
@@ -116,8 +116,8 @@ def limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
     return f"pydantic has no rule for {comma_separated(unknown_limits)} on {type}. Remove it from the Param, or check the value in the node instead."
 
 
-@DECLARATION_PROBLEMS.problem("limit_not_supported", variant="limit_value")
-def limit_not_supported_value(*, limits: str, type: str, error: str) -> str:
+@DECLARATION_PROBLEMS.problem
+def limit_value_invalid(*, limits: str, type: str, error: str) -> str:
     """A ``Param`` sets a limit to the wrong kind of value for the type, such as ``ge="a"`` on an ``int``.
 
     To fix it, give each limit a value of the input's type, such as a number for ``ge`` on an ``int``.
@@ -137,7 +137,7 @@ def limit_not_supported_value(*, limits: str, type: str, error: str) -> str:
     return f"the limits {limits} don't fit {type}: {error}. Give each limit a value that fits the type."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def choices_invalid() -> str:
     """A ``Param``'s choices list the same id twice, or list none at all.
 
@@ -156,7 +156,7 @@ def choices_invalid() -> str:
     return "the choices give an id twice, or give none at all. Give each choice once, as a value of the field's type."
 
 
-@DECLARATION_PROBLEMS.problem("choices_invalid", variant="on_a_literal")
+@DECLARATION_PROBLEMS.problem
 def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
     """A ``Param`` gives choices for a ``Literal``, and they don't give each of its values one title.
 
@@ -183,7 +183,7 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
     return f"on a Literal, the choices give its values titles. Give exactly one choice for each of {comma_separated(values)}."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def named_value_invalid(*, value: str, instead: str) -> str:
     """A ``Literal``'s value doesn't read back from its own JSON as itself.
 
@@ -224,7 +224,7 @@ def named_value_invalid(*, value: str, instead: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("named_value_invalid", variant="enum")
+@DECLARATION_PROBLEMS.problem
 def named_value_invalid_enum(*, enum: str, member: str) -> str:
     """An enum's member doesn't read back from its own JSON as itself, so the enum can't be a type.
 
@@ -261,7 +261,7 @@ def named_value_invalid_enum(*, enum: str, member: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("named_value_invalid", variant="alike")
+@DECLARATION_PROBLEMS.problem
 def named_value_invalid_alike(*, values: list[Any]) -> str:
     """Two values of a ``Literal``, or two members of an enum, are written as the same JSON, like ``inf`` and the text
     ``"Infinity"``.
@@ -290,7 +290,7 @@ def named_value_invalid_alike(*, values: list[Any]) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("choices_invalid", variant="not_a_value")
+@DECLARATION_PROBLEMS.problem
 def choices_invalid_not_a_value(*, reason: str) -> str:
     """A ``Param``'s choice isn't a value of the input's type.
 
@@ -312,7 +312,7 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
     return f"a choice isn't a value of the field's type: {reason}. Give each choice as a value of that type."
 
 
-@DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")
+@DECLARATION_PROBLEMS.problem
 def choices_invalid_no_json_form() -> str:
     """A ``Param``'s choice can't be written as JSON.
 
@@ -334,7 +334,7 @@ def choices_invalid_no_json_form() -> str:
     return "a choice can't be written as JSON. Give each choice a value of the field's type that can be."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def compute_added_inputs_without_var_keyword() -> str:
     """A node has a ``compute_added_inputs`` hook, but no ``**`` parameter to take the inputs it adds.
 
@@ -354,7 +354,7 @@ def compute_added_inputs_without_var_keyword() -> str:
     return "the node has compute_added_inputs, but no ** parameter to take the inputs it adds. Add one, like **values: float."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def context_misplaced() -> str:
     """A ``Context[...]`` is written somewhere other than as the whole of a node's first parameter.
 
@@ -373,7 +373,7 @@ def context_misplaced() -> str:
     return "Context[...] must be the whole of the node's first parameter, like def sign(ctx: Context[HostContext], text: str). Anywhere else, a caller would have to give its value."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def context_not_a_class() -> str:
     """A ``Context[...]`` names something that isn't a class.
 
@@ -389,7 +389,7 @@ def context_not_a_class() -> str:
     return "Context[...] names the class of the object the host passes. Write a class, like Context[HostContext]."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def context_type_differs(*, subregistry_type: str, registry_type: str) -> str:
     """A registry added to another names a different ``context_type``.
 
@@ -416,7 +416,7 @@ def context_type_differs(*, subregistry_type: str, registry_type: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("context_type_differs", variant="on_subregistry_only")
+@DECLARATION_PROBLEMS.problem
 def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
     """A registry that names no ``context_type`` is given a registry that names one.
 
@@ -442,7 +442,7 @@ def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def costs_nothing_takes_context() -> str:
     """A node whose ``Policy`` says ``costs_nothing`` takes the run's context.
 
@@ -467,7 +467,7 @@ def costs_nothing_takes_context() -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def default_invalid(*, default: str, type: str, reason: str) -> str:
     """An input's default isn't a value of its type, or can't be written as JSON.
 
@@ -490,7 +490,7 @@ def default_invalid(*, default: str, type: str, reason: str) -> str:
     return f"the default {default} isn't a value of {type} that can be written as JSON: {reason}. Give a default that is."
 
 
-@DECLARATION_PROBLEMS.problem("default_invalid", variant="none_not_taken")
+@DECLARATION_PROBLEMS.problem
 def default_none_not_taken() -> str:
     """An input's default is ``None``, and its type doesn't take ``None``.
 
@@ -506,7 +506,7 @@ def default_none_not_taken() -> str:
     return "the default is None, but the type doesn't take None. Write the type with | None, like str | None."
 
 
-@DECLARATION_PROBLEMS.problem("default_invalid", variant="skipped_on_input")
+@DECLARATION_PROBLEMS.problem
 def default_skipped_on_input() -> str:
     """An input's default is ``SKIPPED``.
 
@@ -524,7 +524,7 @@ def default_skipped_on_input() -> str:
     return "an input can't default to SKIPPED, since SKIPPED is only ever the value of a skipped output. Give the input a value of its type as its default, or none."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def duplicate_node_id(*, id: str, first: str, second: str) -> str:
     """Two nodes added to one registry have the same id.
 
@@ -551,7 +551,7 @@ def duplicate_node_id(*, id: str, first: str, second: str) -> str:
     return f"two nodes have the id {id!r}: {first} and {second}. Give one of them another id, or swap the old one for the new one with registry.replace(...)."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def duplicate_type_id(*, id: str, first: str, second: str) -> str:
     """Two classes given to one registry are declared with the same type id.
 
@@ -582,7 +582,7 @@ def duplicate_type_id(*, id: str, first: str, second: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def empty_title_or_description(
     *, declared_with: str, id: str, empty: Literal["title", "description"]
 ) -> str:
@@ -607,7 +607,7 @@ def empty_title_or_description(
     return f"{declared_with}({id!r}) has an empty {empty}. Write what a person should read about the node in a palette."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def constant_only_on_output() -> str:
     """An output's ``Param`` says ``constant_only``.
 
@@ -626,7 +626,7 @@ def constant_only_on_output() -> str:
     return "constant_only is for inputs, not outputs. Put it on an input's Param."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> str:
     """A hook's parameter doesn't match any input of the node.
 
@@ -653,7 +653,7 @@ def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> s
     return f"the {hook} parameter {parameter!r} isn't an input of the node. Its inputs are {comma_separated(inputs)}."
 
 
-@DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="not_by_name")
+@DECLARATION_PROBLEMS.problem
 def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
     """A hook's parameter is ``*args`` or positional-only.
 
@@ -679,7 +679,7 @@ def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
     return f"the {hook} parameter {parameter!r} can't be passed by name, and a hook gets each input by name. Make it a plain parameter named after an input."
 
 
-@DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="var_keyword")
+@DECLARATION_PROBLEMS.problem
 def hook_parameter_var_keyword(*, hook: str, parameter: str) -> str:
     """A hook takes a ``**`` parameter where it can't.
 
@@ -710,7 +710,7 @@ def hook_parameter_var_keyword(*, hook: str, parameter: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def input_without_type() -> str:
     """An input has no type hint.
 
@@ -728,7 +728,7 @@ def input_without_type() -> str:
     return "the input has no type hint. Give it one, since the hint says what the input takes."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def invalid_node_id(*, declared_with: str, id: str) -> str:
     """A node is declared with an id that is empty, or that contains ``.``, ``/``, ``@`` or ``~``.
 
@@ -756,7 +756,7 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def nested_series() -> str:
     """An input or output is a ``Series`` of ``Series``.
 
@@ -775,7 +775,7 @@ def nested_series() -> str:
     return "a Series of Series isn't allowed, since a Series has one level of items. Use one Series, and let the next node make the next level."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def output_without_type() -> str:
     """A node's function has no return type.
 
@@ -791,7 +791,7 @@ def output_without_type() -> str:
     return "the node has no return type. Write one, or -> None for no outputs."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def outputs_not_frozen() -> str:
     """A node returns a dataclass that isn't frozen.
 
@@ -815,7 +815,7 @@ def outputs_not_frozen() -> str:
     return "the dataclass the node returns isn't frozen. Write @dataclass(frozen=True)."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def outputs_not_a_mapping(*, returns: str) -> str:
     """A node whose ``compute_outputs`` hook gives its outputs declares a return type that can't be a mapping.
 
@@ -846,7 +846,7 @@ def outputs_not_a_mapping(*, returns: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def parameter_not_by_name() -> str:
     """A node's function takes an input by position only, before a ``/``, or as ``*args``.
 
@@ -864,7 +864,7 @@ def parameter_not_by_name() -> str:
     return "the node takes an input by position only. Conductor passes every input by name, so drop the / and *args."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def pydantic_field_in_hint() -> str:
     """An input's or output's hint has pydantic's ``Field(...)`` in it.
 
@@ -894,7 +894,7 @@ def pydantic_field_in_hint() -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("pydantic_field_in_hint", variant="discriminator")
+@DECLARATION_PROBLEMS.problem
 def pydantic_discriminator_in_hint() -> str:
     """An input's or output's hint has pydantic's ``Field(discriminator=...)`` on a union.
 
@@ -928,7 +928,7 @@ def pydantic_discriminator_in_hint() -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
     """A node's ``replaces=`` names a node with a different id.
 
@@ -951,7 +951,7 @@ def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
     return f"{declared_with}({id!r}) replaces {replaces}, which is another node. A node only replaces an earlier version of itself, with the same id."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def type_declaration_invalid(*, id: str, faults: str) -> str:
     """``@host_type`` is given an id, a title or an ``accepts`` it can't take.
 
@@ -972,7 +972,7 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
     return f"@host_type({id!r}) can't take these arguments: {faults}. Give an id that is one word and not one of conductor's own, a title, and only classes in accepts."
 
 
-@DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_on_a_class")
+@DECLARATION_PROBLEMS.problem
 def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
     """``@host_type`` is put above something that isn't a class it can name, such as a function or a ``TypedDict``.
 
@@ -994,7 +994,7 @@ def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
     return f"@host_type({id!r}) goes above a class, and {given} isn't one it can name. A TypedDict is a record, and needs no declaration."
 
 
-@DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_writable")
+@DECLARATION_PROBLEMS.problem
 def type_declaration_not_writable(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that Python doesn't let anyone change, such as ``int``.
 
@@ -1010,7 +1010,7 @@ def type_declaration_not_writable(*, id: str, cls: str) -> str:
     return f"@host_type({id!r}) can't declare {cls}, since Python doesn't let anyone change that class. Put the value in a class of your own, and declare that."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def row_field_optional(*, row: str, field: str) -> str:
     """The row type of a ``Table``, or of a ``Series`` of records, lets a field be left out.
 
@@ -1042,7 +1042,7 @@ def row_field_optional(*, row: str, field: str) -> str:
     return f"the row type {row} lets '{field}' be left out, but every row of a table has every column. Declare it '{field}: X | None' instead."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def type_not_supported(*, type: str) -> str:
     """An input's or output's type is one pydantic can't validate or write as JSON, such as a record with a field of a plain
     class, or a hint that is no type at all, like ``-> 5``.
@@ -1075,8 +1075,8 @@ def type_not_supported(*, type: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("type_not_supported", variant="host_type_not_supported")
-def type_not_supported_declared(*, id: str, cls: str) -> str:
+@DECLARATION_PROBLEMS.problem
+def host_type_not_supported(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 
     To fix it, make the class a pydantic model or a dataclass, with ``@host_type`` above ``@dataclass``. Or give the
@@ -1100,7 +1100,7 @@ def type_not_supported_declared(*, id: str, cls: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def type_not_named(
     *, cls: str, suggested_id: str, suggested_title: str, parent: str | None = None
 ) -> str:
@@ -1139,7 +1139,7 @@ def type_not_named(
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def type_variable_constrained(*, variable: str) -> str:
     """A type variable is constrained to a few types, like ``T: (int, str)``.
 
@@ -1160,7 +1160,7 @@ def type_variable_constrained(*, variable: str) -> str:
     return f"the type variable {variable} is constrained to a few types. Give it a bound instead, like T: int | str, or write the union."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def type_variable_only_in_return(*, variable: str) -> str:
     """A type variable is in the return type and on no input.
 
@@ -1182,7 +1182,7 @@ def type_variable_only_in_return(*, variable: str) -> str:
     return f"the type variable {variable} is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def upgrade_missing(*, gone: list[str]) -> str:
     """A node's new version drops an input or output of the version it replaces, and its ``Upgrade`` doesn't say where it
     went.
@@ -1209,7 +1209,7 @@ def upgrade_missing(*, gone: list[str]) -> str:
     return f"the new version drops {comma_separated(gone)}, which the version it replaces has. Say where they went in its Upgrade."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def upgrade_renames_unknown(*, old: list[str], new: list[str]) -> str:
     """A node's ``Upgrade`` renames a field that the version it replaces doesn't declare, or renames one to a field
     that the new version doesn't declare.
@@ -1245,7 +1245,7 @@ def upgrade_renames_unknown(*, old: list[str], new: list[str]) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def upgrade_without_replaces(*, declared_with: str, id: str) -> str:
     """A node has an ``upgrade=`` but no ``replaces=``.
 
@@ -1265,7 +1265,7 @@ def upgrade_without_replaces(*, declared_with: str, id: str) -> str:
     return f"{declared_with}({id!r}) has an upgrade= but no replaces=. Name the version it upgrades from with replaces=."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def var_keyword_without_hook() -> str:
     """A node takes a ``**`` parameter, and has no ``compute_added_inputs`` hook.
 
@@ -1283,7 +1283,7 @@ def var_keyword_without_hook() -> str:
     return "the node takes a ** parameter, but has no compute_added_inputs hook to fill it. Remove the ** parameter, or add compute_added_inputs=."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def version_not_after(*, declared_with: str, id: str, version: int, replaced: int) -> str:
     """A node's ``version=`` isn't higher than the version it replaces.
 
@@ -1310,7 +1310,7 @@ def version_not_after(*, declared_with: str, id: str, version: int, replaced: in
     return f"{declared_with}({id!r}) is version {version}, which isn't after version {replaced}, the one it replaces. Leave version= out, or give a number above {replaced}."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def widget_outside_param() -> str:
     """A widget is written in ``Annotated`` next to the type, instead of on ``Param``.
 
@@ -1333,7 +1333,7 @@ def widget_outside_param() -> str:
     return "the widget is written in Annotated next to the type, where it is ignored. Put it on Param: Annotated[..., Param(widget=...)]."
 
 
-@DECLARATION_PROBLEMS.problem()
+@DECLARATION_PROBLEMS.problem
 def widget_without_json_form(*, widget: str) -> str:
     """A field's widget has a value that can't be written as JSON, so it can't be sent to an editor.
 

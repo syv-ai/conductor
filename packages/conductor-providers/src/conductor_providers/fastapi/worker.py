@@ -308,7 +308,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), ``reason`` can't be written as JSON
-                (``invalid_answer``), or a run that isn't running refuses the decline and takes nothing else
+                (``invalid_decline_reason``), or a run that isn't running refuses the decline and takes nothing else
                 (``not_waiting``, ``answer_stale``). Nothing is written then.
             RuntimeError: The run would be resumed, and the worker has never served.
         """

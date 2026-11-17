@@ -13,9 +13,6 @@ Each kind of problem is a function, and calling it makes the ``Problem``::
 
 Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``.
 
-Some kinds share a code, such as the two kinds of ``hook_failed``. The second one names a variant, which the
-problem's ``ctx.variant`` gives, and its message says which case it is.
-
 Each function's docstring is its entry on the problems page. Its example runs after the setup at the top of that
 page, and a test checks that the example makes this kind of problem.
 """
@@ -31,7 +28,7 @@ from conductor._internal.utils import comma_separated
 REGISTRY_CHECK_PROBLEMS = ProblemCatalogue()
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def example_for_no_node(*loc: str | int, named: str) -> str:
     """An example is for a node, or a version of a node, that isn't in the registry.
 
@@ -51,7 +48,7 @@ def example_for_no_node(*loc: str | int, named: str) -> str:
     return f"The example {named} is for a node the registry doesn't have. Correct its key, or remove the example."
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def needs_example(*loc: str | int, inputs: list[str]) -> str:
     r"""A required input takes only a constant, and ``check_registry`` can't make up a value for it.
 
@@ -87,7 +84,7 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
     )
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's ``compute_...`` hook failed when it was called with the node's defaults and made-up values.
 
@@ -117,7 +114,7 @@ def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) ->
     return f"A hook failed on the node's defaults and the values made up for its inputs: {reason}"
 
 
-@REGISTRY_CHECK_PROBLEMS.problem("hook_failed", variant="on_an_example")
+@REGISTRY_CHECK_PROBLEMS.problem
 def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example doesn't compile, and every problem is in a ``compute_...`` hook.
 
@@ -138,7 +135,7 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[
     return f"The example doesn't compile: {reason}"
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def upgrade_broken(
     *loc: str | int, newest: int, reason: str, problems: list[dict[str, Any]]
 ) -> str:
@@ -179,7 +176,7 @@ def upgrade_broken(
     )
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def subgraph_broken(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A subgraph's own graph doesn't compile on the registry's nodes.
 
@@ -203,7 +200,7 @@ def subgraph_broken(*loc: str | int, reason: str, problems: list[dict[str, Any]]
     return f"The subgraph's graph doesn't compile: {reason}"
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the ctx key a developer reads
     """A node changed a value it was given, in place.
 
@@ -229,7 +226,7 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
     return f"The node changed its input {input!r} in place. Several calls of a run can be given the same value, so copy it before you change it."
 
 
-@REGISTRY_CHECK_PROBLEMS.problem()
+@REGISTRY_CHECK_PROBLEMS.problem
 def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example ran, and the run ended early.
 
@@ -261,7 +258,7 @@ def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[st
     return f"The example's run ended {status}: {reason}"
 
 
-@REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="not_compiled")
+@REGISTRY_CHECK_PROBLEMS.problem
 def example_not_compiled(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example doesn't compile, and the problem isn't in a ``compute_...`` hook.
 
@@ -283,7 +280,7 @@ def example_not_compiled(*loc: str | int, reason: str, problems: list[dict[str, 
     return f"The example doesn't compile: {reason}"
 
 
-@REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="refused")
+@REGISTRY_CHECK_PROBLEMS.problem
 def example_refused(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example compiles, but running it is refused.
 

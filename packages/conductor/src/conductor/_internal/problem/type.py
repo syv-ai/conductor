@@ -9,13 +9,13 @@ and calling a kind makes a ``Problem``::
 
     PROBLEMS = ProblemCatalogue()
 
-    @PROBLEMS.problem()
-    def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
-        return f"'{node_id}' has no input '{field}'. Its inputs are {comma_separated(inputs)}."
+    @PROBLEMS.problem
+    def unknown_input(node_id: str, input: str, /, *, inputs: list[str]) -> str:
+        return f"'{node_id}' has no input '{input}'. Its inputs are {comma_separated(inputs)}."
 
     unknown_input("upper", "txet", inputs=["text"])
     # Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'. Its inputs are text.",
-    #         ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
+    #         ctx={"node_id": "upper", "input": "txet", "inputs": ["text"]})
 
 Since each kind is a plain function, a type checker checks every call to it. A host that writes its own messages
 goes through the catalogue to find each code and the keys of its ``ctx``.
@@ -27,7 +27,7 @@ import inspect
 import typing
 from collections.abc import Callable, Iterator, Mapping
 from inspect import Parameter
-from typing import Any, Literal, NotRequired, TypedDict, Union, final
+from typing import Any, NotRequired, TypedDict, Union, final
 
 from pydantic import Field, JsonValue
 
@@ -41,7 +41,7 @@ class Problem(ConductorModel):
     It has the same four fields as a pydantic error. Here is one::
 
         Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'. Its inputs are text.",
-                ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
+                ctx={"node_id": "upper", "input": "txet", "inputs": ["text"]})
 
     ``loc`` says where the problem is. What it names depends on where the problem was found:
 
@@ -79,15 +79,13 @@ class Problem(ConductorModel):
 class ProblemKind[**Params]:
     """One kind of problem, such as ``unknown_input``.
 
-    It wraps the function that writes the message, and calling it makes a ``Problem``. ``@catalogue.problem()``
+    It wraps the function that writes the message, and calling it makes a ``Problem``. ``@catalogue.problem``
     builds one from a function, and works out a few things from the function's signature. For ``unknown_input``
-    above, ``code`` is ``"unknown_input"``, ``sentence`` is ``"'{node_id}' has no input '{field}'. Its inputs
-    are {inputs}."``, and ``ctx_type`` is a ``TypedDict`` with the keys ``node_id``, ``field`` and ``inputs``.
+    above, ``code`` is ``"unknown_input"``, ``sentence`` is ``"'{node_id}' has no input '{input}'. Its inputs
+    are {inputs}."``, and ``ctx_type`` is a ``TypedDict`` with the keys ``node_id``, ``input`` and ``inputs``.
 
     Attributes:
-        code: The problem's ``type``.
-        variant: Set when this kind is a second message under a code, for one particular mistake. It is the value
-            of ``ctx.variant``. ``None`` for a code's main message.
+        code: The problem's ``type``: the function's name.
         sentence: The message with a placeholder such as ``{node_id}`` where each ``ctx`` value goes. A host can use
             it as a template.
         ctx_type: The keys of ``ctx`` and their types, as a ``TypedDict``. A key that may be left out is not
@@ -95,10 +93,8 @@ class ProblemKind[**Params]:
         section: The title of the catalogue the kind was declared on, or empty if it has none.
     """
 
-    def __init__(
-        self, write_message: Callable[Params, str], code: str, variant: str | None, section: str
-    ) -> None:
-        self.code, self.variant, self.section = code, variant, section
+    def __init__(self, write_message: Callable[Params, str], section: str) -> None:
+        self.code, self.section = write_message.__name__, section
         self.__doc__ = write_message.__doc__
         self._message = write_message
         signature = inspect.signature(write_message, eval_str=True)
@@ -110,7 +106,6 @@ class ProblemKind[**Params]:
                 f"{write_message.__name__}: 'return' is the message a person reads; annotate it -> str"
             )
         self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_ONLY)
-        self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
         # Build the sentence by calling the function with a placeholder "{key}" for each ctx value. A key that may be
@@ -127,15 +122,12 @@ class ProblemKind[**Params]:
             *loc_replacement_fields, **replacement_fields
         )
         self.ctx_type: Any = typing.cast("Any", TypedDict)(
-            code,
+            self.code,
             {  # the fields come from the signature, which a type checker can't follow
-                **{
-                    p.name: NotRequired[_without_none(p.annotation)]
-                    if p.default is None
-                    else p.annotation
-                    for p in keys
-                },
-                **({"variant": Literal[variant]} if variant else {}),
+                p.name: NotRequired[_without_none(p.annotation)]
+                if p.default is None
+                else p.annotation
+                for p in keys
             },
         )
 
@@ -153,7 +145,7 @@ class ProblemKind[**Params]:
             type=self.code,
             loc=loc,
             msg=self._message(*loc, **ctx),
-            ctx={**dict(zip(self._loc_parameters, loc)), **given, **self._variant_ctx},
+            ctx={**dict(zip(self._loc_parameters, loc)), **given},
         )
 
 
@@ -238,7 +230,7 @@ class ProblemCatalogue:
             text: What the kinds have in common: where a host meets them, and what their ``loc`` is.
         """
         self._title = title
-        self._kinds: dict[tuple[str, str | None], ProblemKind[...]] = {}
+        self._kinds: dict[str, ProblemKind[...]] = {}
         self.sections: dict[str, str] = {title: text} if title else {}
 
     @classmethod
@@ -248,7 +240,7 @@ class ProblemCatalogue:
         The kinds keep their order, and each stays in the section it was declared in.
 
         Raises:
-            TypeError: Two sections declare a kind with the same code and variant.
+            TypeError: Two sections declare a kind with the same code.
         """
         catalogue = cls()
         for section in sections:
@@ -257,10 +249,8 @@ class ProblemCatalogue:
                 catalogue._add(kind)
         return catalogue
 
-    def problem[**Params](
-        self, code: str | None = None, *, variant: str | None = None
-    ) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
-        """Turns the function under it into a kind of problem.
+    def problem[**Params](self, write_message: Callable[Params, str]) -> ProblemKind[Params]:
+        """Turns the function under it into a kind of problem, whose code is the function's name.
 
         Use it as a decorator. It returns a ``ProblemKind``, and calling that makes a ``Problem``.
 
@@ -276,8 +266,8 @@ class ProblemCatalogue:
         - **A positional-only parameter is a part of** ``loc`` **and also a key of** ``ctx``. It is a ``str`` or an
           ``int``. It can't be given by name, so ``loc`` and ``ctx`` always agree::
 
-              def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str: ...
-              unknown_input("upper", "txet", inputs=["text"])      # loc == ("upper", "txet"), ctx has node_id and field
+              def unknown_input(node_id: str, input: str, /, *, inputs: list[str]) -> str: ...
+              unknown_input("upper", "txet", inputs=["text"])      # loc == ("upper", "txet"), ctx has node_id and input
 
         - ``*loc: str | int`` **is the rest of** ``loc``, the parts the message doesn't use. They are in ``loc``
           only::
@@ -285,49 +275,28 @@ class ProblemCatalogue:
               def cycle(*loc: str | int) -> str: ...
               cycle("a")                                           # loc == ("a",), ctx == {}
 
-        A code can have more than one message, each for one particular mistake. Its main kind has no variant and is
-        declared first. Each later kind names the code and a variant of its own, like
-        ``@catalogue.problem("type_mismatch", variant="make_a_series")``. The problem's ``ctx.variant`` says which
-        one it is.
-
-        Args:
-            code: The problem's ``type``. Leave it out to use the function's name.
-            variant: The name of a second message under a code declared earlier. It becomes ``ctx.variant``.
+        Each mistake a host may want to tell apart is a kind of its own, with its own code. Kinds that belong
+        together share the start of their code, like ``type_mismatch`` and ``type_mismatch_make_a_series``.
 
         Raises:
             TypeError: When the function is declared, if a parameter is none of the three, if the return type isn't
-                ``str``, if the code already has a kind with this variant (or with no variant), or if the variant is
-                for a code not declared yet.
+                ``str``, or if the catalogue already has a kind with the function's name.
         """
-
-        def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
-            kind = ProblemKind(write_message, code or write_message.__name__, variant, self._title)
-            self._add(kind)
-            return kind
-
-        return declared
+        kind = ProblemKind(write_message, self._title)
+        self._add(kind)
+        return kind
 
     def _add(self, kind: ProblemKind[...]) -> None:
         """Adds one kind to the catalogue.
 
-        A code has one kind with no variant, and at most one kind for each variant. A variant needs its code to be
-        declared first.
-
         Raises:
-            TypeError: The catalogue already has a kind with this code and variant, or ``kind`` is a variant of a
-                code the catalogue doesn't have.
+            TypeError: The catalogue already has a kind with this code.
         """
-        name = kind._message.__name__
-        if (kind.code, kind.variant) in self._kinds:
-            taken = f"the variant {kind.variant!r}" if kind.variant else "a kind"
+        if kind.code in self._kinds:
             raise TypeError(
-                f"{name}: '{kind.code}' has {taken} declared before it; give this kind a variant of its own"
+                f"{kind.code}: a kind with this code is declared before it; give the function another name"
             )
-        if kind.variant and (kind.code, None) not in self._kinds:
-            raise TypeError(
-                f"{name}: a variant is a second message under a code, and '{kind.code}' is not declared before it"
-            )
-        self._kinds[kind.code, kind.variant] = kind
+        self._kinds[kind.code] = kind
 
     def __iter__(self) -> Iterator[ProblemKind[...]]:
         """Goes through the kinds in the order they were declared."""
@@ -336,4 +305,4 @@ class ProblemCatalogue:
     @property
     def codes(self) -> frozenset[str]:
         """Every code in the catalogue."""
-        return frozenset(code for code, _ in self._kinds)
+        return frozenset(self._kinds)

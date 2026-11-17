@@ -208,7 +208,7 @@ print([problem.type for problem in Graph.compile(names_and_greetings, registry).
 try:
     graph.run({"text": ["a", "b"]})
 except InvalidCallError as e:
-    print([p.type for p in e.problems])  # ['invalid_input']
+    print([p.type for p in e.problems])  # ['invalid_input_make_a_series']
 ```
 
 **Worth questioning:** a list sent to a `str` input is refused, where it could have run the node once per item. It

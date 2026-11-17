@@ -117,8 +117,8 @@ class ContextParameter:
 
         Returns:
             ``None`` when it fits. Otherwise a ``context_does_not_fit`` problem at ``(node_id, name)``, which says
-            why: the class isn't ``cls`` or a subclass of it, it lacks members of the Protocol ``cls`` (variant
-            ``lacks``), or the registry names no class (variant ``no_context_type``).
+            why: the class isn't ``cls`` or a subclass of it, it lacks members of the Protocol ``cls``
+            (``context_does_not_fit_lacks``), or the registry names no class (``context_does_not_fit_no_context_type``).
         """
         needs = self.cls.__name__
         if context_type is None:

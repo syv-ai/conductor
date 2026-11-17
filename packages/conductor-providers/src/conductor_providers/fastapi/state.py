@@ -160,7 +160,8 @@ class RunState(BaseModel):
             declines: Reasons by waiting id, as ``run.decline`` takes them.
 
         Raises:
-            InvalidCallError: An answer or a reason can't be written as JSON (``invalid_answer``).
+            InvalidCallError: An answer can't be written as JSON (``invalid_answer``), or a reason can't
+                (``invalid_decline_reason``).
         """
         answered, reasons = Run.queued_as_json(answers, declines=declines)
         added = [

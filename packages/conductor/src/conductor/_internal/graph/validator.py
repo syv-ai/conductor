@@ -50,8 +50,8 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     Raises (when called):
         InvalidCallError: Lists every fault, in this order. First, each name the caller gave that the graph doesn't
             offer (``unknown_graph_input``), in the order given. Then each graph input, in the graph's order, that's
-            missing (``missing_input``) or whose value its type refuses (``invalid_input``). Its variant
-            ``make_a_series`` is for a list given to an input whose type takes no list.
+            missing (``missing_input``) or whose value its type refuses (``invalid_input``), or
+            ``invalid_input_make_a_series`` for a list given to an input whose type takes no list.
     """
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
@@ -227,7 +227,7 @@ class LimitsValidator(Validator[Limits, Limits]):
 
     Raises (when called):
         InvalidCallError: One ``invalid_limit`` for each limit refused, in the order above. It quotes the value
-            given. For ``timeout`` and ``checkpoint_every``, it's the variant ``seconds``.
+            given. For ``timeout`` and ``checkpoint_every``, it's ``invalid_limit_seconds``.
     """
 
     def __call__(self, limits: Limits) -> Limits:

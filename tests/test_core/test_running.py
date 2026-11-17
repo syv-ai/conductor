@@ -2564,9 +2564,9 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
         graph.with_inputs({"text": "a"}).stream(checkpoint_every=every)
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         (
-            "invalid_limit",
+            "invalid_limit_seconds",
             ("checkpoint_every",),
-            {"limit": "checkpoint_every", "value": every, "variant": "seconds"},
+            {"limit": "checkpoint_every", "value": every},
         ),
     ]
 
@@ -2579,9 +2579,9 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
             call(graph.with_inputs({"text": "a"}))
-        assert [
-            (p.type, p.loc, p.ctx["limit"], p.ctx["variant"]) for p in refused.value.problems
-        ] == [("invalid_limit", ("timeout",), "timeout", "seconds")]
+        assert [(p.type, p.loc, p.ctx["limit"]) for p in refused.value.problems] == [
+            ("invalid_limit_seconds", ("timeout",), "timeout")
+        ]
         if not (isinstance(timeout, float) and math.isnan(timeout)):
             assert refused.value.problems[0].ctx["value"] == timeout
 
@@ -2591,8 +2591,8 @@ def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_o
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs({"text": "a"}).stream(checkpoint_every=True, timeout=0)
     assert [(p.type, p.ctx) for p in refused.value.problems] == [
-        ("invalid_limit", {"limit": "timeout", "value": 0, "variant": "seconds"}),
-        ("invalid_limit", {"limit": "checkpoint_every", "value": True, "variant": "seconds"}),
+        ("invalid_limit_seconds", {"limit": "timeout", "value": 0}),
+        ("invalid_limit_seconds", {"limit": "checkpoint_every", "value": True}),
     ]
 
 

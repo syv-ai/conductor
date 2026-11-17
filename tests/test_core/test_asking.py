@@ -2365,7 +2365,7 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
         def assign_by_param(who: Annotated[str, Param(choices=[ida])]) -> str:
             return who
 
-    assert declared.value.problems[0].type == "choices_invalid"
+    assert declared.value.problems[0].type == "choices_invalid_not_a_value"
 
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign() -> str:
@@ -2676,9 +2676,9 @@ def test_a_decline_whose_reason_isnt_text_is_refused_and_the_run_is_left_as_it_w
     for reason in (123, object(), "\ud800"):
         (problem,) = _refused(lambda reason=reason: run.decline(waiting, reason=reason))
         assert (problem.type, problem.loc, problem.ctx) == (
-            "invalid_answer",
+            "invalid_decline_reason",
             ("approval", 0),
-            {"variant": "reason", "waiting_id": waiting.id, "got": type(reason).__name__},
+            {"waiting_id": waiting.id, "got": type(reason).__name__},
         )
     assert (run.status, [w.id for w in run.waiting]) == ("waiting", [waiting.id])
 

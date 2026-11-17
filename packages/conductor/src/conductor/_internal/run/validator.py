@@ -58,7 +58,7 @@ def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
         case EdgeInput():
             return not all(field.whole.holds(source) for source in sources)
         case CollectingInput():
-            return field.whole.record is not None or not all(
+            return field.whole.row is not None or not all(
                 field.type.holds(source) for source in sources
             )
         case _:

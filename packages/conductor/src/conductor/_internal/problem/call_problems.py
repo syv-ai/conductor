@@ -28,7 +28,7 @@ CALL_PROBLEMS = ProblemCatalogue(
 )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def answer_stale(
     *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
 ) -> str:
@@ -55,7 +55,7 @@ def answer_stale(
     return f"The question under {waiting_id!r} was replaced by a newer one, {current!r}. Use that id instead."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def cannot_move_to_version(
     *loc: str | int, node: str, version: int, target: int, versions: list[int]
 ) -> str:
@@ -76,7 +76,7 @@ def cannot_move_to_version(
     return f"'{node}' can't move from version {version} to version {target}. Its versions are {comma_separated(versions)}."
 
 
-@CALL_PROBLEMS.problem("cannot_move_to_version", variant="rewrite_failed")
+@CALL_PROBLEMS.problem
 def cannot_move_to_version_rewrite_failed(
     *loc: str | int,
     node: str,
@@ -91,7 +91,7 @@ def cannot_move_to_version_rewrite_failed(
     A ``NodeError`` keeps its message, since the node's developer wrote it for people. ``ctx.error`` is its ``code``
     and ``ctx.error_ctx`` its ``ctx``. A rewrite that returns anything but a dict whose keys are text, such as
     ``None`` when it forgets its ``return``, has ``ctx.error`` ``not_a_mapping``. A rewrite that raises any other
-    exception is the variant ``raised``.
+    exception is ``cannot_move_to_version_raised``.
 
     ``ctx.version`` and ``ctx.target`` are the step whose rewrite failed. On a move over several versions, that may
     be a later step than the first.
@@ -135,7 +135,7 @@ def cannot_move_to_version_rewrite_failed(
     )
 
 
-@CALL_PROBLEMS.problem("cannot_move_to_version", variant="raised")
+@CALL_PROBLEMS.problem
 def cannot_move_to_version_raised(
     *loc: str | int, node: str, version: int, target: int, error: str
 ) -> str:
@@ -181,7 +181,7 @@ def cannot_move_to_version_raised(
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
     """A node takes the run's context, and the call that starts or resumes the run gives no ``context``.
 
@@ -202,7 +202,7 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
     return f"The node takes the run's context as '{parameter}', of class {needs}, but the call gave no context. Pass context= on every call that starts or resumes the run."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def invalid_answer(
     *loc: str | int, waiting_id: str, reason: str, question: str | None = None
 ) -> str:
@@ -225,8 +225,8 @@ def invalid_answer(
     return f"That isn't a valid answer: {reason.rstrip('.')}."
 
 
-@CALL_PROBLEMS.problem("invalid_answer", variant="reason")
-def invalid_answer_reason(*loc: str | int, waiting_id: str, got: str) -> str:
+@CALL_PROBLEMS.problem
+def invalid_decline_reason(*loc: str | int, waiting_id: str, got: str) -> str:
     """The reason given to ``run.decline`` isn't text that JSON can write.
 
     The reason goes in the ``ctx`` of the run's ``answer_declined`` problem, for a host to show, and a saved run
@@ -250,7 +250,7 @@ def invalid_answer_reason(*loc: str | int, waiting_id: str, got: str) -> str:
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def invalid_context(*loc: str | int, expected: str, got: str) -> str:
     """A call gives ``context`` an object that isn't an instance of the class the registry names.
 
@@ -267,7 +267,7 @@ def invalid_context(*loc: str | int, expected: str, got: str) -> str:
     return f"The context given is of class {got}, but the registry's context class is {expected}. Pass an instance of {expected}."
 
 
-@CALL_PROBLEMS.problem("invalid_context", variant="no_context_type")
+@CALL_PROBLEMS.problem
 def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
     """A call gives ``context`` to a run of a graph whose registry names no ``context_type``.
 
@@ -285,7 +285,7 @@ def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
     return f"The context given is of class {got}, but this graph's registry takes no context. Pass no context, or name its class with NodeRegistry(context_type=...)."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def invalid_input(
     *loc: str | int,
     name: str,
@@ -313,7 +313,7 @@ def invalid_input(
     return f"The value given for '{name}' isn't valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
-@CALL_PROBLEMS.problem("invalid_input", variant="make_a_series")
+@CALL_PROBLEMS.problem
 def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, length: int) -> str:
     """A call gives a list to a graph input that doesn't take a list.
 
@@ -338,7 +338,7 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def invalid_limit(limit: str, /, *, value: Any) -> str:
     """A call gives ``max_items`` a value that isn't a whole number of at least 1, such as ``0``, ``2.5`` or ``True``.
 
@@ -356,7 +356,7 @@ def invalid_limit(limit: str, /, *, value: Any) -> str:
     return f"{limit} must be a whole number of 1 or more, not {value}. Leave it out for no limit on items."
 
 
-@CALL_PROBLEMS.problem("invalid_limit", variant="seconds")
+@CALL_PROBLEMS.problem
 def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
     """A call gives ``timeout`` or ``checkpoint_every`` a value that isn't a finite number of seconds above 0.
 
@@ -374,7 +374,7 @@ def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
     return f"{limit} must be a finite number of seconds above 0, not {value}. Leave it out for no limit."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def invalid_record(
     *loc: str | int, where: str, reason: str, error: str, written_by: str | None = None
 ) -> str:
@@ -400,7 +400,7 @@ def invalid_record(
     return f"This isn't a valid graph record. At '{where}': {reason.rstrip('.')}. Fix {written_by or "the record's JSON"}."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def missing_input(*loc: str | int, name: str) -> str:
     """A call leaves out a graph input that has no default.
 
@@ -416,7 +416,7 @@ def missing_input(*loc: str | int, name: str) -> str:
     return f"The graph input '{name}' is required. Give it in the call."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
     """A call names a node the graph doesn't have.
 
@@ -433,7 +433,7 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
     return f"'{node_id}' isn't a node of this graph. Its nodes are {comma_separated(nodes)}."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def hook_outputs_not_named(node_id: str, /) -> str:
     """``make_graph`` is given a node whose ``compute_outputs`` hook gives its outputs, and nothing reads them.
 
@@ -456,7 +456,7 @@ def hook_outputs_not_named(node_id: str, /) -> str:
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: list[str]) -> str:
     """``make_graph`` is given no edges, and it can't wire one of its nodes to the node before it.
 
@@ -482,7 +482,7 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     )
 
 
-@CALL_PROBLEMS.problem("not_a_chain", variant="constant_only")
+@CALL_PROBLEMS.problem
 def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]) -> str:
     """``make_graph`` is given no edges, and the node's required inputs only take a constant.
 
@@ -506,9 +506,9 @@ def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> str:
-    """``make_graph`` would make two inputs into graph inputs with the same name, and nothing says they take one value.
+    """``make_graph`` would make two or more inputs into graph inputs with the same name, and nothing says they take one value.
 
     ``make_graph`` turns each required input that gets nothing, no edge and no constant, into a graph input with the
     input's name. Each key of ``defaults`` becomes one too. Two inputs with the same name would then share the caller's
@@ -525,12 +525,12 @@ def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> 
     Example:
         refused(lambda: make_graph(upper, upper, edges=[], outputs={"a": "upper-1.result", "b": "upper-2.result"}))
     """
-    return f"Two inputs, {comma_separated(inputs)}, would both become the graph input '{name}'. Name them, or say they share one value, with make_graph's inputs=."
+    return f"The inputs {comma_separated(inputs)} would each become the graph input '{name}'. Name them, or say they share one value, with make_graph's inputs=."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -> str:
-    """``make_graph`` would make two outputs into graph outputs with the same name.
+    """``make_graph`` would make two or more outputs into graph outputs with the same name.
 
     ``make_graph`` turns each output that no edge leaves into a graph output with the output's name. Two outputs with
     the same name are still two values, so they can't share it.
@@ -545,10 +545,10 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
     Example:
         refused(lambda: make_graph(upper, words, edges=[], inputs={"a": "upper.text", "b": "words.text"}))
     """
-    return f"Two outputs, {comma_separated(outputs)}, would both become the graph output '{name}'. Name them with make_graph's outputs=."
+    return f"The outputs {comma_separated(outputs)} would each become the graph output '{name}'. Name them with make_graph's outputs=."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def invalid_place(*loc: str | int, text: str) -> str:
     """``make_graph`` is given a place in the graph that isn't written ``"node.name"``.
 
@@ -572,7 +572,7 @@ def invalid_place(*loc: str | int, text: str) -> str:
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def unknown_graph_input(*loc: str | int, name: str, inputs: list[str]) -> str:
     """A call gives a value under a name that isn't a graph input.
 
@@ -589,7 +589,7 @@ def unknown_graph_input(*loc: str | int, name: str, inputs: list[str]) -> str:
     return f"The graph has no input '{name}'. Its inputs are {comma_separated(inputs)}."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | None = None) -> str:
     """An answer, or a decline with ``run.decline``, is for a waiting id that no call of the run is waiting under.
 
@@ -610,7 +610,7 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
     return f"The id {waiting_id!r} waits on nothing. The run is {status}. run.waiting lists the questions that are waiting."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
     """``run.outputs`` is read on a run that isn't complete.
 
@@ -629,7 +629,7 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
     return f"The run is {status}, so it has no outputs yet. run.results has the outputs so far. {reason}".rstrip()
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def saved_run_of_another_graph(*loc: str | int, graph: str, saved: str | None = None) -> str:
     """A saved run is loaded into a different graph from the one it was saved from.
 
@@ -651,7 +651,7 @@ def saved_run_of_another_graph(*loc: str | int, graph: str, saved: str | None = 
     return f"This saved run is of another graph, not this one ({graph}). Load it into the graph it was saved from."
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
     """A saved run of this graph can't be read back.
 
@@ -677,7 +677,7 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
     )
 
 
-@CALL_PROBLEMS.problem()
+@CALL_PROBLEMS.problem
 def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     """A run has a value that can't be written as JSON.
 

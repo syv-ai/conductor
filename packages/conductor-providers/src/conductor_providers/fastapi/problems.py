@@ -21,7 +21,7 @@ from conductor import ProblemCatalogue, RunStatus
 SERVING_PROBLEMS = ProblemCatalogue()
 
 
-@SERVING_PROBLEMS.problem()
+@SERVING_PROBLEMS.problem
 def no_such_run(*loc: str | int) -> str:
     """No run has the id, or the run filter doesn't let this request see the run.
 
@@ -32,7 +32,7 @@ def no_such_run(*loc: str | int) -> str:
     return "There is no run by that id that you may see; check the id."
 
 
-@SERVING_PROBLEMS.problem()
+@SERVING_PROBLEMS.problem
 def run_not_resumable(*, status: RunStatus) -> str:
     """A resume was asked of a run that didn't end early.
 
@@ -42,7 +42,7 @@ def run_not_resumable(*, status: RunStatus) -> str:
     return f"The run is {status}, and only a run that ended early can be resumed; read the run to see what it needs."
 
 
-@SERVING_PROBLEMS.problem()
+@SERVING_PROBLEMS.problem
 def raised_outside_a_node(*, error: str) -> str:
     """Something raised outside any node while the worker resumed the run, or checked an answer or a decline queued
     while it ran.

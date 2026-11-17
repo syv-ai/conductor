@@ -141,7 +141,7 @@ def declared_choices(
         write: Converts a value ``reader`` gave back to JSON.
 
     Raises:
-        NodeDeclarationError: ``choices_invalid``, with the variant ``no_json_form`` or ``not_a_value`` when one fits.
+        NodeDeclarationError: ``choices_invalid``, or ``choices_invalid_no_json_form`` or ``choices_invalid_not_a_value`` when one fits.
     """
     try:
         return read_choices(given, reader, write)

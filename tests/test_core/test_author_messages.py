@@ -108,14 +108,13 @@ def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
 
 def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_lists_the_fields():
     found = problem({"read": "contacts", "send": "send"}, [("read.result", "send.to")])
-    assert (found.type, found.loc) == ("type_mismatch", ("send", "to"))
+    assert (found.type, found.loc) == ("type_mismatch_make_a_series", ("send", "to"))
     assert found.ctx == {
         "node_id": "send",
-        "field": "to",
+        "input": "to",
         "source": "read.result",
         "got": "Table[name: str, email: str]",
         "expected": "str",
-        "variant": "make_a_series",
         "kind": "table",
         "fields": ["name", "email"],
     }
@@ -127,8 +126,8 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
 
 def test_a_table_of_any_columns_says_to_make_a_series_and_knows_no_fields():
     found = problem({"read": "csv", "send": "send"}, [("read.result", "send.to")])
-    assert (found.ctx["variant"], found.ctx["kind"], found.ctx["fields"]) == (
-        "make_a_series",
+    assert (found.type, found.ctx["kind"], found.ctx["fields"]) == (
+        "type_mismatch_make_a_series",
         "table",
         [],
     )
@@ -139,10 +138,9 @@ def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
     assert (
         found.type,
         found.loc,
-        found.ctx["variant"],
         found.ctx["kind"],
         found.ctx["fields"],
-    ) == ("type_mismatch", ("send", "to"), "make_a_series", "list", [])
+    ) == ("type_mismatch_make_a_series", ("send", "to"), "list", [])
     assert found.msg.startswith("'tags.result' is a whole list, but 'send.to' takes one str.")
     assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx[
         "fields"
@@ -151,17 +149,16 @@ def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
 
 def test_a_whole_list_into_a_series_input_is_the_ordinary_mismatch():
     found = problem({"tags": "tags", "count": "count"}, [("tags.result", "count.values")])
-    assert found.type == "type_mismatch" and "variant" not in found.ctx
+    assert found.type == "type_mismatch"
 
 
 def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series():
     found = problem({"read": "contacts", "send": "send"}, [("read.result.email", "send.to")])
-    assert (found.type, found.loc) == ("unknown_output", ("send", "to"))
+    assert (found.type, found.loc) == ("unknown_output_make_a_series", ("send", "to"))
     assert found.ctx == {
         "source": "read.result.email",
         "outputs": ["read.result"],
         "record_field": "email",
-        "variant": "make_a_series",
         "kind": "table",
         "fields": ["name", "email"],
     }
@@ -173,9 +170,8 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series()
 
 def test_a_field_named_on_a_whole_list_says_to_make_a_series_too():
     found = problem({"people": "people", "send": "send"}, [("people.result.email", "send.to")])
-    assert (found.type, found.ctx["variant"], found.ctx["kind"], found.ctx["fields"]) == (
-        "unknown_output",
-        "make_a_series",
+    assert (found.type, found.ctx["kind"], found.ctx["fields"]) == (
+        "unknown_output_make_a_series",
         "list",
         ["name", "email"],
     )
@@ -219,14 +215,13 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
 
 def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_has():
     found = problem({"read": "contacts", "report": "report"}, [("read.result", "report.table")])
-    assert (found.type, found.loc) == ("type_mismatch", ("report", "table"))
+    assert (found.type, found.loc) == ("type_mismatch_add_column", ("report", "table"))
     assert found.ctx == {
         "node_id": "report",
-        "field": "table",
+        "input": "table",
         "source": "read.result",
         "got": "Table[name: str, email: str]",
         "expected": "Table[name: str, amount: float]",
-        "variant": "add_column",
         "column": "amount",
         "column_type": "float",
         "has": ["name", "email"],
@@ -242,8 +237,8 @@ def test_records_collected_without_a_column_the_table_input_names_say_the_same()
         {"read": "contacts", "records": "records", "report": "report"},
         [("read.result", "records.table"), ("records.result", "report.table")],
     )
-    assert (found.ctx["variant"], found.ctx["column"], found.ctx["has"], found.ctx["source"]) == (
-        "add_column",
+    assert (found.type, found.ctx["column"], found.ctx["has"], found.ctx["source"]) == (
+        "type_mismatch_add_column",
         "amount",
         ["name", "email"],
         "records.result",
@@ -272,11 +267,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
         ),
         registry,
     ).problems
-    assert (
-        found.type == "type_mismatch"
-        and "variant" not in found.ctx
-        and found.ctx["got"] == "Table[name: str, amount: str]"
-    )
+    assert found.type == "type_mismatch" and found.ctx["got"] == "Table[name: str, amount: str]"
 
 
 # -- two Series with nothing to pair their items -----------------------------------------------------------

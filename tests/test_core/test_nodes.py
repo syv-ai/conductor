@@ -283,7 +283,7 @@ def test_a_class_pydantic_cannot_check_is_refused_where_the_class_is_declared():
         class Thing:
             pass
 
-    assert raised.value.problems[0].type == "type_not_supported"
+    assert raised.value.problems[0].type == "host_type_not_supported"
 
 
 def test_a_series_of_tables_is_accepted_as_many_tables():
@@ -489,7 +489,7 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(g)
-    assert raised.value.problems[0].type == "default_invalid"
+    assert raised.value.problems[0].type == "default_none_not_taken"
 
 
 def test_none_on_an_input_that_takes_none_is_not_checked_against_its_limits():
@@ -955,10 +955,14 @@ def test_a_hook_parameter_must_name_an_input_by_name():
     def double_star(**kwargs):
         return {}
 
-    for hook in (names_nothing, star, double_star):
+    for hook, code in (
+        (names_nothing, "hook_parameter_unknown"),
+        (star, "hook_parameter_not_by_name"),
+        (double_star, "hook_parameter_var_keyword"),
+    ):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(f, compute_outputs=hook)
-        assert raised.value.problems[0].type == "hook_parameter_unknown", hook
+        assert raised.value.problems[0].type == code, hook
 
 
 def test_a_compute_added_inputs_hook_needs_a_var_keyword_parameter():
@@ -985,7 +989,7 @@ def test_an_added_input_whose_default_is_skipped_is_the_hooks_failure_and_the_fu
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
         "compute_hook_failed",
         ("adds",),
-        "default_invalid",
+        "default_skipped_on_input",
     )
     with pytest.raises(InvalidCallError):
         compiled_graph(adds).run({"text": "a"})
@@ -1026,7 +1030,7 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
     graph = compiled_graph(fan, outputs={"result": "fan.result"})
     assert (
         seen == []
-        and codes(graph) == ["input_has_no_value"]
+        and codes(graph) == ["input_has_no_value_constant_only"]
         and graph.problems[0].loc == ("fan", "n")
     )
 
@@ -1186,7 +1190,7 @@ def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
             ),
         )
         # The node after it has no problem of its own.
-        assert [(p.type, p.loc) for p in graph.problems] == [("compute_hook_failed", ("n",))], kind
+        assert [(p.type, p.loc) for p in graph.problems] == [("compute_hook_raised", ("n",))], kind
         assert graph.problems[0].ctx["error"] == "ValueError"
 
 
@@ -1388,7 +1392,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
 
     with caplog.at_level(logging.ERROR, logger="conductor"):
         [problem] = _computing(boom).problems
-    assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "KeyError")
+    assert (problem.type, problem.ctx["error"]) == ("compute_hook_raised", "KeyError")
     logged = caplog.records[0]  # logged once each time the graph is compiled
     assert (
         logged.exc_info is not None
@@ -1399,7 +1403,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
 
 
 def test_a_hooks_own_exception_text_goes_to_the_log_and_never_into_its_problem(caplog):
-    """A hook's exception other than a ``NodeError`` is ``compute_hook_failed`` with the variant ``raised``.
+    """A hook's exception other than a ``NodeError`` is ``compute_hook_raised``.
 
     The problem has only the exception's class, since its text might quote a value. The text goes to the log.
     """
@@ -1410,8 +1414,8 @@ def test_a_hooks_own_exception_text_goes_to_the_log_and_never_into_its_problem(c
     with caplog.at_level(logging.ERROR, logger="conductor"):
         [problem] = _computing(leaks).problems
     assert (problem.type, problem.ctx) == (
-        "compute_hook_failed",
-        {"error": "ValueError", "variant": "raised"},
+        "compute_hook_raised",
+        {"error": "ValueError"},
     )
     assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
 
@@ -1469,7 +1473,7 @@ def test_a_none_default_on_an_input_that_takes_no_none_is_refused():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.problems[0].type == "default_invalid"
+    assert raised.value.problems[0].type == "default_none_not_taken"
 
 
 def test_a_default_reaches_the_function_as_its_declared_type():
@@ -1670,7 +1674,7 @@ def test_a_wrongly_typed_limit_is_refused_as_a_bound():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.problems[0].type == "limit_not_supported"
+    assert raised.value.problems[0].type == "limit_value_invalid"
 
 
 def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
@@ -1742,14 +1746,18 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     assert Graph.compile(make_graph(size), registry).run({"name": "M"}).outputs == {"result": "M"}
     asked = Graph.compile(make_graph(rate), registry).run({"text": "x"}).waiting[0].questions[0]
     assert asked.choices == (Choice("low", "Lav"), Choice("high", "Høj"))
-    for wrong in ((Choice("low", "Lav"),), ("low", "low", "high"), (1, 2)):
+    for wrong, code in (
+        ((Choice("low", "Lav"),), "choices_invalid_on_a_literal"),
+        (("low", "low", "high"), "choices_invalid"),
+        ((1, 2), "choices_invalid_not_a_value"),
+    ):
         with pytest.raises(NodeDeclarationError) as raised:
 
             @node("bad", title="Bad", description="For a test.")
             def bad(level: Annotated[Literal["low", "high"], Param(choices=wrong)]) -> str:
                 return level
 
-        assert raised.value.problems[0].type == "choices_invalid"
+        assert raised.value.problems[0].type == code
         assert ". Give " in str(raised.value)
 
 
@@ -1762,7 +1770,7 @@ def test_the_choices_of_a_literal_are_its_values_by_their_text_and_none_is_never
         def bad(level: Annotated[Literal["low", "high"] | str, Param(choices=["low", "x"])]) -> str:
             return level
 
-    assert raised.value.problems[0].type == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid_on_a_literal"
     registry = NodeRegistry()
     for hint, node_id in ((Literal["low", None], "spelt-in"), (Literal["low"] | None, "beside")):
 
@@ -1915,7 +1923,7 @@ def test_a_declared_choice_is_read_strictly_and_checked_against_the_fields_limit
         def bad(n: Annotated[int, Param(choices=choices, **limits)]) -> int:  # type: ignore[arg-type]
             return n
 
-    assert raised.value.problems[0].type == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
     assert f"a choice isn't a value of the field's type: {reason}." in str(raised.value)
 
 
@@ -1961,22 +1969,22 @@ class _RawRecord(TypedDict):
 
 
 @pytest.mark.parametrize(
-    ("hint", "variant"),
+    ("hint", "code"),
     [
-        (Literal[_Hue.RED], None),
-        (list[Literal[_Hue.RED, _Hue.BLUE]], None),
-        (Series[Literal[_Hue.RED]], None),
-        (_HueRecord, None),
-        (Table[_RawRecord], None),
-        (Literal[b"a"], None),
-        (Literal[float("nan")], None),
-        (list[Literal[float("nan")]], None),
-        (Literal[float("inf"), "Infinity"], "alike"),  # type: ignore[valid-type]
-        (list[Literal[float("inf"), "Infinity"]], "alike"),  # type: ignore[valid-type]
+        (Literal[_Hue.RED], "named_value_invalid"),
+        (list[Literal[_Hue.RED, _Hue.BLUE]], "named_value_invalid"),
+        (Series[Literal[_Hue.RED]], "named_value_invalid"),
+        (_HueRecord, "named_value_invalid"),
+        (Table[_RawRecord], "named_value_invalid"),
+        (Literal[b"a"], "named_value_invalid"),
+        (Literal[float("nan")], "named_value_invalid"),
+        (list[Literal[float("nan")]], "named_value_invalid"),
+        (Literal[float("inf"), "Infinity"], "named_value_invalid_alike"),  # type: ignore[valid-type]
+        (list[Literal[float("inf"), "Infinity"]], "named_value_invalid_alike"),  # type: ignore[valid-type]
     ],
 )
 def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
-    hint: Any, variant: Any
+    hint: Any, code: str
 ) -> None:
     """A ``Literal``'s values are text, numbers, yes or no, or ``None``, each with a JSON form of its own, on the
     field, a list's or a ``Series``'s item, a record's field and a table's column alike."""
@@ -1989,7 +1997,7 @@ def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
         node("give", title="Give", description="For a test.")(give)
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx.get("variant")) == ("named_value_invalid", variant)
+    assert problem.type == code
 
 
 @host_type("pair", title="Pair")
@@ -2016,7 +2024,7 @@ def test_an_enum_that_cant_read_its_members_back_is_refused_at_any_depth_naming_
         node("give", title="Give", description="For a test.")(give)
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx.get("variant")) == ("named_value_invalid", "enum")
+    assert problem.type == "named_value_invalid_enum"
     assert "the enum _Pair's member" in problem.msg
     assert "take a Literal of such values" in problem.msg
 
@@ -2090,7 +2098,7 @@ def test_an_enum_with_two_members_of_one_json_form_is_alike() -> None:
             return _CapKind.NONE
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx.get("variant")) == ("named_value_invalid", "alike")
+    assert problem.type == "named_value_invalid_alike"
 
 
 def test_a_literal_of_an_enums_member_is_told_to_take_the_enum() -> None:
@@ -2186,14 +2194,14 @@ def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_
         class Order:
             n: Annotated[int, Param(choices=["one", "two"])]
 
-    assert raised.value.problems[0].type == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
 
     def on_table(x: Annotated[Table, Param(choices=["a"])]) -> int:
         return 0
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(on_table)
-    assert raised.value.problems[0].type == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
 
 
 @pytest.mark.parametrize("default", [b"\xff\xfe", object()], ids=["bytes-not-utf-8", "any-object"])

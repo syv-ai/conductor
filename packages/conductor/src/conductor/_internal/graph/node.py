@@ -45,7 +45,7 @@ class RequiredBranch(NamedTuple):
 
     The compiler uses these in two checks. Two edges may share an input when they need different branches of one
     node drawn in the same graph, since those never both have a value. And two lists collected on different
-    branches of one node are refused (``lists_from_different_loops``), wherever that node is, a subgraph included.
+    branches of one node are refused (``series_from_different_branches``), wherever that node is, a subgraph included.
 
     Attributes:
         node: The path of the function node the branch belongs to, from the graph being compiled. That's

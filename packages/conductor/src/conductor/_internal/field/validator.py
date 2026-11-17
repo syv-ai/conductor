@@ -73,7 +73,7 @@ class DeclaredInputValidator(Validator[Any, Field]):
 
     Raises (when called):
         NodeDeclarationError: Naming the input. The default is wrong for the type (``default_invalid``), or it is
-            ``SKIPPED`` (``default_invalid``, variant ``skipped_on_input``).
+            ``SKIPPED`` (``default_skipped_on_input``).
     """
 
     def __init__(self, name: str, hint: Any) -> None:
@@ -145,8 +145,8 @@ class BoundDefaultValidator(Validator[Field, Field]):
     The compiler builds one for each node and calls it with each of the node's fields.
 
     Raises (when called):
-        InvalidCallError: The type refuses the default, ``None`` included. It carries one ``invalid_value`` problem
-            (variant ``bound_default``) on the node and the field.
+        InvalidCallError: The type refuses the default, ``None`` included. It carries one ``invalid_value_bound_default``
+            problem on the node and the field.
     """
 
     def __init__(self, node_id: str, bound: Mapping[TypeVar, Any]) -> None:

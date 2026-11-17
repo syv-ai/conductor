@@ -27,7 +27,7 @@ Only the declared types decide the loops, never the values:
 - An input declared ``Series[T]``, or a ``Table[R]`` wired to records, collects. What it's wired to must be inside
   a loop. It gets one value per item of the innermost of those loops, as a list, and its node is outside that loop.
   Wired to one value per call, because what it's wired to is in no loop or its node is inside that loop too, it gets
-  the problem ``type_mismatch`` (``one_value``). A ``Series`` output wired to it is passed whole.
+  the problem ``type_mismatch_one_value``. A ``Series`` output wired to it is passed whole.
 - A node is inside the loops of the input that has the most. Every other input's loops must be the outermost of
   those, since the items of two different lists are never paired. An input whose loops aren't gets the problem
   ``series_not_nested``.
@@ -567,8 +567,8 @@ class Compiler:
         Say ``rank(line: str, everyone: Series[str])`` has ``line`` wired to ``lines.result`` and ``everyone`` to
         ``shout.result``, where ``shout`` is called once per line. ``line`` puts ``rank`` inside the loop over
         ``lines.result``, so a call of ``rank`` is for one line, and ``shout`` has one value for it. Wired to
-        ``title.result``, made once, ``everyone`` would get one value too. Either way it gets ``type_mismatch``
-        (``one_value``) and becomes ``MissingInput``.
+        ``title.result``, made once, ``everyone`` would get one value too. Either way it gets
+        ``type_mismatch_one_value`` and becomes ``MissingInput``.
 
         An edge from a ``Series`` output gives the whole list, and never one value. A ``Table`` input whose edges
         are all declared ``Any`` (``_only_any``) takes their one value as a whole table.
@@ -592,7 +592,7 @@ class Compiler:
             if not one_value:
                 continue
             field = node_input.field
-            if field.whole.record is not None and _only_any(sources):
+            if field.whole.row is not None and _only_any(sources):
                 changed[name] = EdgeInput(field, tuple(sources), sources[0].loops_of_value)
                 continue
             self.problems.append(
@@ -635,7 +635,7 @@ class Compiler:
             )
             if subgraphs:
                 self.problems.append(
-                    compile_problems.loops_not_nested_inside_subgraph(
+                    compile_problems.series_not_nested_inside_subgraph(
                         node_id,
                         series=[place_text(*s) for s in series],
                         inputs=[reading, name],
@@ -703,7 +703,7 @@ class Compiler:
 
         This is also the one place that checks ``constant_only``, on an input that takes only a constant. If the
         record gives such an input an edge or a graph input, it gets ``input_takes_only_a_constant``. If it has no
-        constant and no default, it gets ``input_has_no_value`` (variant ``constant_only``). Both get ``_INVALID``,
+        constant and no default, it gets ``input_has_no_value_constant_only``. Both get ``_INVALID``,
         so a hook that needs the input isn't called, and the input has no value.
         """
         constants: dict[str, Any] = {}
@@ -935,7 +935,7 @@ class Compiler:
         it's ``branches_from_different_loops``.
 
         Two collecting inputs are a problem too, when neither takes ``None`` items and all their edges are on
-        different branches of one node (``lists_from_different_loops``), a node inside a subgraph node included. An
+        different branches of one node (``series_from_different_branches``), a node inside a subgraph node included. An
         item that one list has no value for is left out of both lists, so both would always be empty.
 
         Args:
@@ -978,7 +978,7 @@ class Compiler:
             for b, branches_b in aligned[i + 1 :]:
                 if all(_never_together(x, y) for x in branches_a for y in branches_b):
                     self.problems.append(
-                        compile_problems.lists_from_different_loops(node_id, inputs=[a, b])
+                        compile_problems.series_from_different_branches(node_id, inputs=[a, b])
                     )
                     refused.update((a, b))
         return refused
@@ -1050,17 +1050,17 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     input whose edges are all ``Any`` (``_only_any``) collects records from a loop it is outside, and takes a whole
     table where they give each call one value (``Compiler._inputs_given_one_value``).
     """
-    record = field.whole.record
+    row = field.whole.row
     typed = [s for s in sources if s.type.bare is not Any]
     collects = field.is_series or (
-        record is not None
+        row is not None
         and (_only_any(sources) or not all(field.whole.fits(s.type) is not None for s in typed))
     )
     if not collects:
         return False, field.whole
-    if record is None:
+    if row is None:
         return True, field.type
-    return True, record
+    return True, row
 
 
 def _only_any(sources: list[Edge]) -> bool:
@@ -1126,7 +1126,7 @@ def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
         columns aren't known, or for a list whose items aren't records. ``None`` for a type that's neither a table
         nor a list.
     """
-    if whole.record is not None:
+    if whole.row is not None:
         return "table", list(whole.fields)
     one = whole.options[0] if len(whole.options) == 1 else None
     if one is list or typing.get_origin(one) is list:
@@ -1148,8 +1148,8 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
         expected = f"{expected} with other choices or limits"
     got = f"Series[{got_one}]" if edge.per_item else got_one
     parts = _taken_apart(edge.type)
-    if field.whole.record is not None:
-        has = (edge.type.record or edge.type).fields
+    if field.whole.row is not None:
+        has = (edge.type.row or edge.type).fields
         missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
@@ -1163,7 +1163,7 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
                 column_type=column_type,
                 has=list(has),
             )
-    elif parts and not field.is_series:
+    elif parts and not field.is_series and _taken_apart(field.whole) is None:
         return compile_problems.type_mismatch_make_a_series(
             node_id,
             field.name,
@@ -1179,7 +1179,7 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
 
 
 def _type_in_message(value_type: Type, text: str) -> str:
-    """Names a type in a ``type_mismatch`` message, any variant: by its values when it names them, else as ``text``.
+    """Names a type in a ``type_mismatch`` message, or a ``type_mismatch_...`` one: by its values when it names them, else as ``text``.
 
     A ``Literal``, or a plain class with ``Param(choices=)``, is named by its values: ``Literal["ida", "bo"]`` is
     ``"ida" or "bo"``, where its id, ``str``, would say nothing of which values it takes. An enum, and a ``Literal``

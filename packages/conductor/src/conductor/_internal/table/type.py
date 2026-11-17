@@ -101,7 +101,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         )
 
     @functools.cached_property
-    def record(self) -> Type:
+    def row(self) -> Type:
         """The type of one row: the ``TypedDict`` ``R``, or ``dict`` for a bare ``Table``."""
         return Type(dict if self._row is Any else self._row)
 

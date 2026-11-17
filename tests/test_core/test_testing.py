@@ -172,13 +172,13 @@ def test_each_code_check_registry_returns_is_in_the_catalogue_conductor_testing_
 def test_a_hook_that_fails_on_made_up_values_or_an_example_is_hook_failed():
     assert found(registry_of(breaks)) == [("hook_failed", ("breaks", 1))]
     assert found(registry_of(breaks), examples={"breaks": [{"names": "a"}]}) == [
-        ("hook_failed", ("breaks", 1))
+        ("hook_failed_on_an_example", ("breaks", 1))
     ]
 
 
 def test_a_hook_that_gives_a_field_a_name_it_cannot_have_is_hook_failed():
     assert found(registry_of(columns), examples={"columns": [{"text": "a", "names": "a.b"}]}) == [
-        ("hook_failed", ("columns", 1))
+        ("hook_failed_on_an_example", ("columns", 1))
     ]
 
 
@@ -345,14 +345,10 @@ def test_an_upgrade_that_raises_is_upgrade_broken_with_the_refusal_of_registry_u
     assert (problem.type, problem.loc, behind(problem)) == (
         "upgrade_broken",
         ("leak", 1),
-        ["cannot_move_to_version"],
+        ["cannot_move_to_version_raised"],
     )
     [refusal] = problem.ctx["problems"]
-    assert (refusal["loc"], refusal["ctx"]["variant"], refusal["ctx"]["error"]) == (
-        ["leak"],
-        "raised",
-        "KeyError",
-    )
+    assert (refusal["loc"], refusal["ctx"]["error"]) == (["leak"], "KeyError")
     assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
 
 
@@ -392,10 +388,9 @@ def test_an_upgrade_that_returns_none_is_upgrade_broken_and_the_other_nodes_are_
 
     checked = check_registry(registry_of(forgets, fails))
     assert [(p.type, p.loc, behind(p)) for p in checked] == [
-        ("upgrade_broken", ("forgets", 1), ["cannot_move_to_version"]),
-        ("upgrade_broken", ("fails", 1), ["cannot_move_to_version"]),
+        ("upgrade_broken", ("forgets", 1), ["cannot_move_to_version_rewrite_failed"]),
+        ("upgrade_broken", ("fails", 1), ["cannot_move_to_version_raised"]),
     ]
-    assert [p.ctx["problems"][0]["ctx"]["variant"] for p in checked] == ["rewrite_failed", "raised"]
 
 
 def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
@@ -480,8 +475,8 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
     assert [(p.type, p.loc, behind(p)) for p in problems] == [
         ("run_failed", ("unsure", 1), ["invalid_ask"]),
         ("run_failed", ("offline", 1), ["external_failed"]),
-        ("run_failed", ("who", 1), ["context_missing"]),
-        ("run_failed", ("upper", 1), ["unknown_input", "input_has_no_value"]),
+        ("example_refused", ("who", 1), ["context_missing"]),
+        ("example_not_compiled", ("upper", 1), ["unknown_input", "input_has_no_value"]),
     ]
 
 
@@ -525,7 +520,7 @@ def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_ra
 
     (problem,) = check_registry(registry_of(takes), examples={"takes": [{"thing": Opaque()}]})
     assert (problem.type, problem.loc, behind(problem)) == (
-        "run_failed",
+        "example_not_compiled",
         ("takes", 1),
         ["invalid_value"],
     )

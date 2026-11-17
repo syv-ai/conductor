@@ -149,7 +149,7 @@ def _rewritten(
         inputs: The node's inputs after renaming, without the ones the step drops.
 
     Raises:
-        InvalidCallError: ``cannot_move_to_version``, variant ``rewrite_failed`` or ``raised``, if the rewrite
+        InvalidCallError: ``cannot_move_to_version_rewrite_failed`` or ``cannot_move_to_version_raised``, if the rewrite
             raises or returns no dict of input names. See ``RewriteValidator`` for the rest.
     """
     values = {

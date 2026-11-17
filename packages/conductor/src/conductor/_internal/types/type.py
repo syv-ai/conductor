@@ -318,7 +318,7 @@ class Type:
             and not typing.is_typeddict(option)
             and option is not Any
             and Type(option).item is None
-            and Type(option).record is None
+            and Type(option).row is None
             for option in options
         )
         return options if plain and not self.limited else ()
@@ -482,7 +482,7 @@ class Type:
         # a limit of the wrong kind for the type, like ge="a" on an int
         except SchemaError as error:
             raise NodeDeclarationError(
-                declaration_problems.limit_not_supported_value(
+                declaration_problems.limit_value_invalid(
                     limits=repr(param.limits), type=self.id, error=str(error)
                 )
             ) from None
@@ -578,7 +578,7 @@ class Type:
         return None
 
     @property
-    def record(self) -> Type | None:
+    def row(self) -> Type | None:
         """The type of one row, for a table: its ``TypedDict``, or ``dict``. ``None`` for every other type.
 
         A table input wired to a ``Series`` of records gets all the records as one table. Each record must be a

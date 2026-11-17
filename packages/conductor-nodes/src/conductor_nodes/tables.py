@@ -112,7 +112,7 @@ def collect(
     The columns of ``columns`` come first, then those of ``constant_columns``. ``values`` has one argument for each
     new column, under its name. For a name in ``columns`` it is a list with one value per record. For a name in
     ``constant_columns`` it is one value. A column wired from a value returned once, the same for every record, goes
-    in ``constant_columns``: under ``columns`` it is ``type_mismatch`` (``one_value``) when the graph is compiled.
+    in ``constant_columns``: under ``columns`` it is ``type_mismatch_one_value`` when the graph is compiled.
 
     Raises:
         NodeError: ``column_taken`` if a new column has the name of a column the records already have.

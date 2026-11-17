@@ -93,7 +93,7 @@ def test_a_node_that_adds_no_inputs_has_no_added_types_to_read():
             description="For a test.",
             compute_outputs=_typed_like_what_arrives,
         )(plain)
-    assert raised.value.problems[0].type == "hook_parameter_unknown"
+    assert raised.value.problems[0].type == "hook_parameter_var_keyword"
 
 
 def test_var_keyword_on_a_hook_is_only_the_added_types():
@@ -123,7 +123,7 @@ def test_var_keyword_on_a_hook_is_only_the_added_types():
             compute_outputs=_typed_like_what_arrives,
         )(run)
     assert (untyped.value.problems[0].type, too_early.value.problems[0].type) == (
-        "hook_parameter_unknown",
+        "hook_parameter_var_keyword",
         "arriving_on_compute_added_inputs",
     )
 

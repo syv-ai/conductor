@@ -602,9 +602,8 @@ def test_collect_refuses_a_column_wired_from_a_value_returned_once_and_takes_it_
         )
 
     (refused,) = team_column("columns").problems
-    assert (refused.type, refused.ctx["variant"], refused.ctx["source"], refused.loc) == (
-        "type_mismatch",
-        "one_value",
+    assert (refused.type, refused.ctx["source"], refused.loc) == (
+        "type_mismatch_one_value",
         "sentence.result",
         ("table-collect", "team"),
     )

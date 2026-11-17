@@ -800,7 +800,9 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
         registry_of(hooky, upper),
     )
 
-    assert [(p.type, p.loc) for p in graph.problems] == [("input_has_no_value", ("h", "n"))]
+    assert [(p.type, p.loc) for p in graph.problems] == [
+        ("input_has_no_value_constant_only", ("h", "n"))
+    ]
 
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
@@ -1116,10 +1118,10 @@ def test_a_list_of_text_into_a_list_of_choices_compiles_and_each_item_is_checked
 
 
 def test_one_value_into_a_series_of_choices_names_the_values_in_its_type_mismatch():
-    """``type_mismatch``'s ``one_value`` variant names a type with choices by its values, as the plain one does."""
+    """``type_mismatch_one_value`` names a type with choices by its values, as ``type_mismatch`` does."""
     (problem,) = _edge(as_low, show_all_levels).problems
 
-    assert (problem.type, problem.ctx["variant"]) == ("type_mismatch", "one_value")
+    assert problem.type == "type_mismatch_one_value"
     assert problem.msg.startswith(
         """'a.result' gives each call of 'b' one "low", but 'b.value' takes a Series of "low" or "high"."""
     )
@@ -1436,7 +1438,7 @@ def test_two_series_on_different_branches_refused():
         "outputs": {"result": {"node": "p", "output": "result"}},
     }
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
-    assert [p.type for p in graph.problems] == ["lists_from_different_loops"], graph.problems
+    assert [p.type for p in graph.problems] == ["series_from_different_branches"], graph.problems
     record["nodes"]["p"]["node"] = "pair-optional"
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
     assert not graph.problems
@@ -1492,13 +1494,13 @@ def test_a_fault_in_a_signature_is_refused_at_node_with_its_problem_type():
     from conductor import NodeDeclarationError
 
     cases = {
-        "default_invalid": lambda: node("a", title="A", description="For a test.")(
+        "default_none_not_taken": lambda: node("a", title="A", description="For a test.")(
             _fn("x: int = None")
         ),
         "nested_series": lambda: node("b", title="B", description="For a test.")(
             _fn("x: Series[Series[int]]")
         ),
-        "limit_not_supported": lambda: node("d", title="D", description="For a test.")(
+        "limit_value_invalid": lambda: node("d", title="D", description="For a test.")(
             _fn('x: Annotated[int, Param(ge="a")]')
         ),
     }

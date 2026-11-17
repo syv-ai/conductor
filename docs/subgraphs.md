@@ -193,7 +193,7 @@ To join two branches, wire them into one input inside the subgraph, and return w
 
 Such an output may still be skipped, so `describe()` shows it as one that may be skipped: `"required": false`, with no
 `default`. A skipped branch inside skips the nodes after the subgraph node that read it, as it would drawn flat, and
-two lists collected on different branches of one node inside are refused with `lists_from_different_loops`, as they
+two lists collected on different branches of one node inside are refused with `series_from_different_branches`, as they
 are drawn flat.
 
 ## A `None` or a skip coming in
@@ -285,7 +285,7 @@ print(palette["shout-contacts"].inputs[0].type)  # Table[name: str]
 would still compile.
 
 `shout-contacts` starts with `known`, whose input says exactly what it takes. Its edges are checked when it's
-compiled. A graph that wires the wrong kind of table into it gets a `type_mismatch`.
+compiled. A graph that wires the wrong kind of table into it gets a `type_mismatch`, or `type_mismatch_add_column` for a table that lacks a column.
 
 So give a subgraph a first node with a precise input type.
 

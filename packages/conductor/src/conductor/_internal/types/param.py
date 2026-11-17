@@ -139,7 +139,8 @@ class Param:
 
         Raises:
             NodeDeclarationError: ``limit_not_supported`` if pydantic has no rule for a limit on ``source``, like
-                ``ge`` on a ``str``. ``choices_invalid`` if the choices aren't each a value of ``source``, given
+                ``ge`` on a ``str``. ``limit_value_invalid`` if a limit's value doesn't fit ``source``. ``choices_invalid``
+                or one of the ``choices_invalid_...`` codes if the choices aren't each a value of ``source``, given
                 once.
         """
         limited_hint: Any = (

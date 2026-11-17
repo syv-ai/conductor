@@ -200,7 +200,7 @@ def test_a_subregistry_naming_another_class_or_one_a_registry_with_none_lacks_is
     assert raised.value.problems[0].type == "context_type_differs"
     with pytest.raises(NodeDeclarationError, match="AppContext") as raised:
         NodeRegistry().add_subregistry(app_registry(sign))  # type: ignore[arg-type]
-    assert raised.value.problems[0].type == "context_type_differs"
+    assert raised.value.problems[0].type == "context_type_on_subregistry_only"
 
 
 # -- compiling checks that the class has what each node asks for ---------------------------------
@@ -245,14 +245,13 @@ def test_a_node_asking_for_what_the_class_lacks_is_a_problem_at_the_node_and_par
 
     graph = Graph.compile(make_graph(count), app_registry(count))
     [problem] = graph.problems
-    assert (problem.type, problem.loc) == ("context_does_not_fit", ("count", "ctx"))
+    assert (problem.type, problem.loc) == ("context_does_not_fit_lacks", ("count", "ctx"))
     assert problem.ctx == {
         "node_id": "count",
         "parameter": "ctx",
         "needs": "HasDatabase",
         "context_type": "AppContext",
         "lacks": ["database"],
-        "variant": "lacks",
     }
 
 
@@ -293,11 +292,7 @@ def test_a_node_that_takes_a_context_on_a_registry_that_names_no_class_is_a_prob
     registry = NodeRegistry()
     registry.add(sign)
     [problem] = Graph.compile(make_graph(sign), registry).problems
-    assert (problem.type, problem.loc, problem.ctx["variant"]) == (
-        "context_does_not_fit",
-        ("sign", "ctx"),
-        "no_context_type",
-    )
+    assert (problem.type, problem.loc) == ("context_does_not_fit_no_context_type", ("sign", "ctx"))
     assert "NodeRegistry(context_type=" in problem.msg
 
 
@@ -312,7 +307,7 @@ def test_a_node_inside_a_subgraph_is_checked_with_the_rest_and_its_problem_is_at
 
     counted = subgraph("counted", title="Counted", description="For a test.")(make_graph(count))
     assert problems_of(Graph.compile(make_graph(counted), app_registry(count, counted))) == [
-        ("context_does_not_fit", ("counted", "count", "ctx"))
+        ("context_does_not_fit_lacks", ("counted", "count", "ctx"))
     ]
 
 
@@ -370,7 +365,7 @@ def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(make_graph(upper), registry).run({"text": "a"}, context=IDA)  # type: ignore[arg-type]
     assert [(p.type, p.ctx) for p in refused.value.problems] == [
-        ("invalid_context", {"got": "AppContext", "variant": "no_context_type"})
+        ("invalid_context_no_context_type", {"got": "AppContext"})
     ]
 
 
@@ -439,7 +434,7 @@ def test_check_registry_runs_each_example_with_the_context_it_is_given():
     assert check_registry(registry, examples={"sign": [{"text": "a"}]}, context=IDA) == []
     [problem] = check_registry(registry, examples={"sign": [{"text": "a"}]})
     assert (problem.type, problem.loc, [one["type"] for one in problem.ctx["problems"]]) == (
-        "run_failed",
+        "example_refused",
         ("sign", 1),
         ["context_missing"],
     )

@@ -1556,11 +1556,9 @@ async def test_an_answer_or_a_reason_json_cant_write_is_refused_alike_whether_or
         stopped = await refusals(running)
 
     assert while_running == stopped
-    assert [
-        [(problem.type, problem.ctx.get("variant")) for problem in each] for each in stopped
-    ] == [
-        [("invalid_answer", None)],
-        [("invalid_answer", "reason")],
+    assert [[problem.type for problem in each] for each in stopped] == [
+        ["invalid_answer"],
+        ["invalid_decline_reason"],
     ]
 
 

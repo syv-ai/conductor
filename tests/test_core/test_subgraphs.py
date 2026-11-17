@@ -707,7 +707,7 @@ def test_two_lists_collected_from_different_branches_inside_a_subgraph_are_refus
     )
     # a word is short or long, so each list leaves some words out. p takes one item of each, but no word is in both.
     # The compiler follows each output of the subgraph node to the branch it needs inside.
-    assert problems(inside) == problems(one_graph) == [("lists_from_different_loops", ("p",))]
+    assert problems(inside) == problems(one_graph) == [("series_from_different_branches", ("p",))]
 
 
 def subgraph_of(node_id: str) -> str:

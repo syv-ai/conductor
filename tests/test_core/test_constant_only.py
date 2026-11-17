@@ -94,7 +94,7 @@ def test_the_problem_says_what_the_record_gave_and_what_to_give():
         }
     )
     [problem] = Graph.compile(record, REGISTRY).problems
-    assert problem.ctx == {"node_id": "p", "field": "width", "given": "graph_input"}
+    assert problem.ctx == {"node_id": "p", "input": "width", "given": "graph_input"}
     assert (
         problem.msg
         == "'width' only takes a constant, not an edge or a graph input. Give it a constant."
@@ -114,11 +114,7 @@ def test_an_input_a_hook_reads_with_no_value_has_no_value_and_is_told_to_take_a_
         ),
         REGISTRY,
     ).problems
-    assert (problem.type, problem.loc, problem.ctx["variant"]) == (
-        "input_has_no_value",
-        ("p", "width"),
-        "constant_only",
-    )
+    assert (problem.type, problem.loc) == ("input_has_no_value_constant_only", ("p", "width"))
     assert problem.msg == "'width' gets no value, and it only takes a constant. Give it one."
 
 
@@ -141,7 +137,7 @@ def test_make_graph_never_makes_it_a_graph_input():
     left_open = make_graph(cut)
     assert list(left_open.nodes["cut"].inputs) == ["text"]
     assert [(p.type, p.loc) for p in Graph.compile(left_open, _registry(cut)).problems] == [
-        ("input_has_no_value", ("cut", "at"))
+        ("input_has_no_value_constant_only", ("cut", "at"))
     ]
 
 
@@ -154,8 +150,8 @@ def test_make_graph_never_chains_into_it():
         make_graph(word, cut)
     problem = refused.value.problems[0]
     assert (problem.type, problem.ctx) == (
-        "not_a_chain",
-        {"variant": "constant_only", "node_id": "cut", "before": "word", "inputs": ["at"]},
+        "not_a_chain_constant_only",
+        {"node_id": "cut", "before": "word", "inputs": ["at"]},
     )
 
 
@@ -259,13 +255,13 @@ def settings(count: int, **settings: int) -> int:
             ("input_takes_only_a_constant", "sources"),
         ),
         ({"graph_input": "s"}, ("input_takes_only_a_constant", "graph_input")),
-        (None, ("input_has_no_value", "constant_only")),
+        (None, ("input_has_no_value_constant_only", None)),
         ({"constant": 2}, None),
     ],
     ids=["edge", "graph_input", "nothing", "constant"],
 )
 def test_an_input_a_hook_adds_can_take_only_a_constant(
-    entry: dict[str, Any] | None, found: tuple[str, str] | None
+    entry: dict[str, Any] | None, found: tuple[str, str | None] | None
 ):
     inputs = {"count": {"constant": 1}, **({} if entry is None else {"setting0": entry})}
     record = GraphRecord.model_validate(
@@ -277,7 +273,7 @@ def test_an_input_a_hook_adds_can_take_only_a_constant(
         }
     )
     graph = Graph.compile(record, _registry(word, settings))
-    assert [(p.type, p.loc, p.ctx.get("given", p.ctx.get("variant"))) for p in graph.problems] == (
+    assert [(p.type, p.loc, p.ctx.get("given")) for p in graph.problems] == (
         [] if found is None else [(found[0], ("s", "setting0"), found[1])]
     )
     assert [i.field.constant_only for i in graph.describe().nodes["s"].inputs] == [True, True]

@@ -284,12 +284,12 @@ def _written(catalogue: ProblemCatalogue, monkeypatch: MonkeyPatch) -> str:
     return about.fill_placeholders("<!-- problems: rooms.CATALOGUE -->")
 
 
-def test_a_key_that_may_be_left_out_and_a_variant_are_shown_in_a_kinds_entry(
+def test_a_key_that_may_be_left_out_is_shown_in_a_kinds_entry(
     monkeypatch: MonkeyPatch,
 ):
     catalogue = ProblemCatalogue()
 
-    @catalogue.problem()
+    @catalogue.problem
     def room_closed(*loc: str | int, until: str, opener: str | None = None) -> str:
         """A room is closed.
 
@@ -306,16 +306,6 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_shown_in_a_kinds_entry(
         """
         return f"The room is closed until {until}."
 
-    @catalogue.problem("room_closed", variant="holiday")
-    def room_closed_for_a_holiday(*loc: str | int, until: str) -> str:
-        """A room is closed for a holiday.
-
-        Args:
-            loc: The room and the door.
-            until: When it opens.
-        """
-        return f"The room is closed over the holiday, until {until}."
-
     entries = _written(catalogue, monkeypatch)
 
     assert (
@@ -327,10 +317,6 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_shown_in_a_kinds_entry(
     assert (
         "| `opener` | `str` | when it applies | Who opens it, when someone is named. |" in entries
     )
-    assert "### `room_closed`, variant `holiday`" in entries
-    assert (
-        "| `variant` | `'holiday'` | always | Which of the code's sentences this is. |" in entries
-    )
 
 
 def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_reference_is_read(
@@ -338,7 +324,7 @@ def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_referen
 ):
     catalogue = ProblemCatalogue()
 
-    @catalogue.problem()
+    @catalogue.problem
     def room_closed(*loc: str | int, until: str) -> str:
         """A room is closed.
 

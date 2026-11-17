@@ -479,7 +479,7 @@ def _chain_edges(
     ``filled`` is the inputs that already get a constant or a default. Between two nodes, the edge goes from the
     first node's one output into the second node's one required input that's left. A subgraph is chained the same
     way, by the graph inputs and outputs its record declares. If two nodes can't be joined
-    that way, ``not_a_chain`` goes to ``problems``. Its variant ``constant_only`` is used when the only required
+    that way, ``not_a_chain`` goes to ``problems``. ``not_a_chain_constant_only`` is used when the only required
     inputs left take only a constant.
     """
     edges: list[tuple[str, str]] = []

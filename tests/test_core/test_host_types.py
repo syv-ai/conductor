@@ -195,7 +195,7 @@ def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> 
                 self.path = path
 
     refused = _refused(build)
-    assert refused.problems[0].type == "type_not_supported" and "Handle" in str(refused)
+    assert refused.problems[0].type == "host_type_not_supported" and "Handle" in str(refused)
 
 
 def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says_to_put_it_on_top() -> (
@@ -210,14 +210,14 @@ def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says
     refused = _refused(build)
     assert refused.problems[
         0
-    ].type == "type_not_supported" and "@host_type above @dataclass" in str(refused)
+    ].type == "host_type_not_supported" and "@host_type above @dataclass" in str(refused)
 
 
 def test_a_class_python_lets_nobody_write_on_is_refused_with_the_way_out() -> None:
     refused = _refused(lambda: host_type("whole", title="Whole")(int))
-    assert refused.problems[0].type == "type_declaration_invalid" and "a class of your own" in str(
-        refused
-    )
+    assert refused.problems[
+        0
+    ].type == "type_declaration_not_writable" and "a class of your own" in str(refused)
 
 
 def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_line_to_write() -> (
@@ -327,4 +327,4 @@ def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused()
 
     for wrong in (42, list[int], a_function, Row):
         refused = _refused(lambda wrong=wrong: host_type("thing", title="Thing")(wrong))
-        assert refused.problems[0].type == "type_declaration_invalid", wrong
+        assert refused.problems[0].type == "type_declaration_not_on_a_class", wrong

@@ -330,7 +330,7 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
         node("pet", title="Pet", description="For a test.")(
             _returning_its_input(Annotated[Cat | Dog, Field(discriminator="kind")])
         )
-    assert raised.value.problems[0].type == "pydantic_field_in_hint" and "Param" not in str(
+    assert raised.value.problems[0].type == "pydantic_discriminator_in_hint" and "Param" not in str(
         raised.value
     )
 
