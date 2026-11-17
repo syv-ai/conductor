@@ -96,8 +96,8 @@ class RunState(BaseModel):
     Attributes:
         status: ``running`` while a worker resumes the run or is about to; else the run's status as it was stored.
         cause: Why the run ended early; ``None`` for a running run, and for one that didn't end early.
-        queued: The replies that came for the run's questions while it was running, one per waiting id, in the
-            order they came. The run is given them when it stops.
+        queued: The replies that came for the run's questions while it was running, one entry per reply, each to
+            one waiting id, in the order they came. The run is given them when it stops.
         refused: By waiting id, the problems of the last answer or decline to that question, when the run refused
             it.
         cancel_asked: Whether someone asked the running run to stop. A waiting run that is cancelled is made

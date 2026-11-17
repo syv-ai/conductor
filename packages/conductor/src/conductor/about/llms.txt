@@ -1237,7 +1237,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 **Answers.**
 
 - An answer to a run that isn't running is given to it as `run.answer` does, whatever its status, and the run is resumed.
-- Answers sent while a run is running are queued, one per waiting id, as JSON data. They are given to the run in the order they came, when its resume call ends. An answer JSON can't write is refused at once, with the `invalid_answer` `run.answer` gives it, running or not (a 422), and so is a decline's reason JSON can't write.
+- Answers sent while a run is running are queued, one entry per reply, each to one waiting id, as JSON data. They are given to the run in the order they came, when its resume call ends. An answer JSON can't write is refused at once, with the `invalid_answer` `run.answer` gives it, running or not (a 422), and so is a decline's reason JSON can't write.
 - An answer the run refuses goes to `refused`, by waiting id. One it takes clears what `refused` had. So `refused` says what became of the last answer to each question.
 - A second answer to a question the first answered is conductor's `not_waiting`, and so is an answer to a complete run (a 422).
 
