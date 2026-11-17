@@ -143,6 +143,8 @@ What changes in how you work, before the name-by-name tables:
   `invalid_input_list_for_one_value` (every option of the input's type refuses a list as a whole): a list into
   `list[str]`, `tuple[int, ...]`, `set[int]` or `int | list[str]`, and a table into a list input, are plain
   `type_mismatch`, where they had the make-a-series message, which says the input takes one value.
+- **A problem's `ctx` keys follow the kind's declared order (provisional).** `ProblemKind.__call__` writes `ctx` in the order of
+  the kind's function's parameters, not the order the caller gave its keywords. No key or value changes.
 - **Breaking: one value is never a list of one (provisional).** An edge that gives each call of its node one value,
   wired to a `Series[T]` input or to a `Table[R]` input that collects records, is the compile problem
   `type_mismatch_series_given_one_value`, at that input, with the edge's source in `ctx.source` and the item type in

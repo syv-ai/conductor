@@ -108,6 +108,7 @@ class ProblemKind[**Params]:
         self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_ONLY)
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
+        self._ctx_keys = tuple(p.name for p in keys)
         # Build the sentence by calling the function with a placeholder "{key}" for each ctx value. A key that may be
         # left out isn't passed, so the sentence is the message written when that key is missing.
         replacement_fields = {
@@ -134,18 +135,21 @@ class ProblemKind[**Params]:
     def __call__(self, *loc: Params.args, **ctx: Params.kwargs) -> Problem:
         """Makes the problem, with its ``loc`` and ``ctx`` taken from the arguments.
 
-        The values aren't validated here. A type checker already checks each call against the function's signature.
+        The ``ctx`` keys come in the order the function declares its parameters, however the caller orders its
+        keywords. The values aren't validated here. A type checker already checks each call against the function's
+        signature.
         """
-        given = (
-            {key: value for key, value in ctx.items() if value is not None}
-            if self._has_optional_ctx
-            else ctx
-        )
+        values = {**dict(zip(self._loc_parameters, loc)), **ctx}
+        given = {
+            key: values[key]
+            for key in self._ctx_keys
+            if key in values and not (self._has_optional_ctx and values[key] is None)
+        }
         return Problem.model_construct(
             type=self.code,
             loc=loc,
             msg=self._message(*loc, **ctx),
-            ctx={**dict(zip(self._loc_parameters, loc)), **given},
+            ctx=given,
         )
 
 

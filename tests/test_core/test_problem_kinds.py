@@ -57,6 +57,15 @@ def test_a_kind_makes_the_problem_its_function_declares() -> None:
     assert Problem.model_validate_json(made.model_dump_json()) == made
 
 
+def test_ctx_keys_come_in_the_order_the_function_declares_them() -> None:
+    declared = unknown_shelf("study", "top", shelves=["low"], nearest="low")
+    reversed_keywords = unknown_shelf("study", "top", nearest="low", shelves=["low"])
+
+    assert list(declared.ctx) == ["room", "shelf", "shelves", "nearest"]
+    assert list(reversed_keywords.ctx) == list(declared.ctx)
+    assert reversed_keywords.model_dump_json() == declared.model_dump_json()
+
+
 def test_a_key_that_may_be_left_out_is_in_ctx_only_when_it_is_given() -> None:
     assert "nearest" not in unknown_shelf("study", "top", shelves=[]).ctx
     assert unknown_shelf("study", "top", shelves=[], nearest="tip").ctx["nearest"] == "tip"
