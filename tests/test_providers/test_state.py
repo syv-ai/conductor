@@ -285,10 +285,19 @@ def test_a_cancel_heard_only_as_the_run_ends_waiting_keeps_it_running_to_end_can
     assert changes["run"] == run.to_json()
 
 
-def test_a_cancel_asked_of_a_run_that_completes_is_cleared() -> None:
+def test_a_run_that_completes_with_a_cancel_asked_ends_cancelled_with_every_outcome_kept_and_no_outputs() -> (
+    None
+):
     run, waiting_id = _waiting()
     complete = run.answer(waiting_id, True).resume()
 
-    state, _ = _ended_with(RunState.started().asked_to_stop(), complete)
+    state, changes = _ended_with(RunState.started().asked_to_stop(), complete)
 
-    assert (state.status, state.cancel_asked) == ("complete", False)
+    assert state.cause is not None
+    assert (state.status, state.cause.type, state.cancel_asked) == (
+        "cancelled",
+        "run_cancelled",
+        False,
+    )
+    assert changes["run"] == complete.to_json()
+    assert (changes["outcome"].outputs, changes["outcome"].progress) == (None, complete.progress)

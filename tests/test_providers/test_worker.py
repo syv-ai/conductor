@@ -627,6 +627,104 @@ async def test_a_node_sees_the_stop_event_set_when_another_worker_cancels_its_ru
     assert graph.seen == [True]
 
 
+async def test_a_worker_hears_a_cancel_sent_to_another_at_its_first_lease_renewal_after_the_cancel() -> (
+    None
+):
+    """The run's one node waits for its stop event, which the worker holding the run sets when it hears the cancel.
+    The store keeps whether each renewal tried since the cancel was written landed, so nothing rests on a clock. The
+    first one finds the row moved on by the cancel, and the holder reads the row again and hears it. The node makes
+    no checkpoint, since it never returns, so that renewal is the only read."""
+    registry, started, heard = NodeRegistry(context_type=Stoppable), ThreadEvent(), []
+
+    class CountsRenewals(MemoryStore):
+        """Keeps whether each lease renewal tried once a cancel is written landed."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.cancelled = False
+            self.renewals: list[bool] = []
+
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
+            written = await super().update(run_id, rev, changes, event)
+            if changes.keys() == {"lease_until"} and self.cancelled:
+                self.renewals.append(written)
+            if written and "state" in changes and json.loads(changes["state"])["cancel_asked"]:
+                self.cancelled = True
+            return written
+
+    store = CountsRenewals()
+
+    @registry.node("listen", title="Listen", description="Waits until it is told to stop.")
+    def listen(ctx: Context[Stoppable], text: str) -> str:
+        started.set()
+        assert ctx.stop.wait(10)
+        heard.append(list(store.renewals))
+        raise NodeError("The call was stopped.", code="stopped")
+
+    holder = _worker(store, registry, context=stoppable, lease=0.6)
+    other = _worker(store, registry, context=stoppable)
+    async with holder.serving():
+        run_id = await _started(holder, make_graph(listen), {"text": "x"})
+        await asyncio.to_thread(started.wait, 10)
+        assert (await other.cancel(run_id, allows=EVERY_RUN)).status == "running"
+
+        assert (await store.ended(run_id)).status == "cancelled"
+    assert heard[0][:1] == [False]
+
+
+async def test_a_cancel_sent_to_another_worker_ends_the_run_cancelled_though_it_completes_before_its_holder_hears_it() -> (
+    None
+):
+    """The worker holding a run hears a cancel sent to another worker only at its next checkpoint or lease renewal.
+    A run that completes before then still ends ``cancelled``, as the cancel's answer said. Every call's outcome is
+    kept, so a resume makes no call and completes the run."""
+    registry, started, gate, calls = NodeRegistry(), ThreadEvent(), ThreadEvent(), []
+
+    @registry.node("parts", title="Parts", description="Splits a text at its commas.")
+    def parts(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("work", title="Work", description="Waits on a gate, then gives its part back.")
+    def work(part: str) -> str:
+        calls.append(part)
+        started.set()
+        gate.wait(10)
+        return part
+
+    store = MemoryStore()
+    graph = make_graph(parts, work, edges=[("parts.result", "work.part")])
+    holder, other = _worker(store, registry), _worker(store, registry)
+    async with holder.serving(), other.serving():
+        run_id = await _started(holder, graph, {"text": "p,q,r"})
+        await asyncio.to_thread(started.wait, 10)
+        assert (await other.cancel(run_id, allows=EVERY_RUN)).status == "running"
+        gate.set()
+
+        cancelled = await store.ended(run_id)
+        assert (cancelled.status, cancelled.outputs, sorted(calls)) == (
+            "cancelled",
+            None,
+            ["p", "q", "r"],
+        )
+        assert cancelled.cause is not None and cancelled.cause.type == "run_cancelled"
+        ends = [
+            event["status"]
+            for event in await store.stored_events(run_id)
+            if event["type"] == "run_end"
+        ]
+        assert ends == ["cancelled"]
+
+        await other.resume(run_id, allows=EVERY_RUN)
+        completed = await store.ended(run_id)
+    assert (completed.status, completed.outputs, len(calls)) == (
+        "complete",
+        {"result": ["p", "q", "r"]},
+        3,
+    )
+
+
 async def test_the_stop_event_is_not_set_without_a_cancel() -> None:
     graph = stopping()
     store = MemoryStore()

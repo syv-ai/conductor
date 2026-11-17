@@ -21,6 +21,7 @@ from types import MappingProxyType
 from typing import Annotated, Any, Generic, Literal
 
 from conductor import (
+    PROBLEMS,
     Graph,
     InvalidCallError,
     NodeRegistry,
@@ -40,6 +41,9 @@ from conductor_providers.fastapi.problems import raised_outside_a_node
 M = TypeVar("M", default=dict[str, str])
 
 log = logging.getLogger("conductor_providers.fastapi")
+
+#: The cause of a run a cancel ended: conductor's own ``run_cancelled``, the cause ``run.stream(cancel=)`` gives.
+_RUN_CANCELLED = {kind.code: kind for kind in PROBLEMS}["run_cancelled"]
 
 
 class RunOutcome(BaseModel):
@@ -120,8 +124,9 @@ class RunState(BaseModel):
     "cancel_asked": false}``.
 
     ``status`` and ``cause`` repeat the run's own, so a route reads them without loading a run that can be
-    megabytes. Two values are the worker's own, which no saved run can hold: ``running``, while a worker resumes the
-    run or is about to, and ``failed`` with a cause of the worker's, when a resume call raised and returned no run.
+    megabytes. Three values are the worker's own, which no saved run can hold: ``running``, while a worker resumes the
+    run or is about to; ``failed`` with a cause of the worker's, when a resume call raised and returned no run; and
+    ``cancelled`` over a run that completed after a cancel was asked of it (see ``ended_with``).
 
     Attributes:
         status: ``running`` while a worker resumes the run or is about to; else the run's status as it was stored.
@@ -214,10 +219,15 @@ class RunState(BaseModel):
         as ``raised_outside_a_node``.
 
         A run that takes a decline has failed, so it isn't resumed, and a cancel asked is cleared. A run that takes
-        any answer is running again, for the worker to resume at once. A cancel that this resume call didn't hear
-        then stays asked, and ends the next one before any node call; so does one that came after the call's last
-        node call, when the run ends ``waiting``. Otherwise the cancel is cleared: a run that is complete or ended
-        early has nothing to cancel.
+        any answer is running again, for the worker to resume at once. A cancel asked that the run didn't end on then
+        stays asked, and ends the next resume call before any node call. So does one asked of a run that ends
+        ``waiting``.
+
+        A run that completes with a cancel asked ends ``cancelled``. The cancel came before the run's end was
+        written, so the run ends as the cancel's answer said it would, even though its last calls were made: another
+        worker hears a cancel only at its next checkpoint or lease renewal. Every call's outcome is kept, so a resume
+        makes no call and completes the run. Like any run that isn't complete, it shows no outputs until then. A run
+        that ended early keeps how it ended, and the cancel is cleared.
 
         Args:
             run: The run the resume call returned, or the run as the row has it.
@@ -229,12 +239,15 @@ class RunState(BaseModel):
             decline.
         """
         given, taken, declined, refused = self._given_to(run)
-        # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
+        # a cancel asked that the run didn't end on: this resume call heard it too late, or not at all
         unheard = self.cancel_asked and run.status != "cancelled"
         if declined:
             status, cause, cancel_asked = given.status, given.cause, False
         elif taken or (unheard and run.status == "waiting"):
             status, cause, cancel_asked = "running", None, unheard
+        elif unheard and run.status == "complete":
+            status, cause, cancel_asked = "cancelled", _RUN_CANCELLED(), False
+            outcome = outcome.model_copy(update={"outputs": None})
         else:
             status, cause, cancel_asked = run.status, run.cause, False
         state = self.model_copy(

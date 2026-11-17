@@ -357,7 +357,9 @@ class Worker(Generic[M, X]):
         A running run is asked to stop: at once when this worker resumes it, at its next checkpoint or lease renewal
         when another does. The cancel is written to the row's state, and a resume call is stopped only by what its
         row says: this worker reads the row again here, and another worker reads it when its next checkpoint or
-        renewal finds the row changed.
+        renewal finds the row changed. A run that completes before its worker hears the cancel still ends
+        ``cancelled``, since the worker reads the row again as it writes the run's end. Every call's outcome is
+        kept, so a ``resume`` then makes no call and completes it.
 
         A waiting run is claimed with the cancel already asked, as ``resume`` claims a run, and resumed: its resume
         call ends ``cancelled`` before it calls any node, as ``run.stream(cancel=...)`` ends a waiting run, and its

@@ -244,10 +244,11 @@ def run_router(
     async def cancel_run(
         run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
     ) -> RunView:
-        """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``. The calls
-        already made are kept, its questions still wait, and an answer or a resume goes on. A waiting run is resumed
-        for it, with no node call, so like any resume it can end ``failed``. A run that is complete or ended early is
-        answered as it is."""
+        """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``. A run that
+        answers ``running`` ends ``cancelled``, unless it ends early first, even if its calls all finish first. The
+        calls already made are kept, its questions still wait, and an answer or a resume goes on. A waiting run is
+        resumed for it, with no node call, so like any resume it can end ``failed``. A run that is complete or ended
+        early is answered as it is."""
         return await worker.cancel(run_id, allows=allows)
 
     return router

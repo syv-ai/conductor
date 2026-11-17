@@ -1242,7 +1242,8 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 
 - A cancel asks a running run to stop before its next node call. So it ends `cancelled`, with its questions still answerable.
 - A waiting run is resumed for the cancel, with no node call. So like any resume, it can end `failed`.
-- The run it answers with says `running` when the cancel was asked, and such a run always ends `cancelled`. A cancel that lands as a resume call ends `waiting` makes the worker go on at once with a resume call that ends `cancelled` before any node call.
+- The run it answers with says `running` when the cancel was asked, and such a run ends `cancelled`, unless it ends early first. A cancel that lands as a resume call ends `waiting` makes the worker go on at once with a resume call that ends `cancelled` before any node call.
+- The worker that holds the run hears a cancel sent to another worker at its next checkpoint or lease renewal, so calls may still be made until then. A run that completes before then still ends `cancelled`, as does one whose last call was going on when the cancel came, on any worker. Its cause and its `run_end` say `run_cancelled`. Every call's outcome is kept and it shows no outputs, so a resume makes no call and completes it.
 - A run that is complete or ended early is left as it is.
 
 **Several workers.**
