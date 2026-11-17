@@ -6,12 +6,17 @@ Wire the answer into ``control-decide.when`` to send a value one way or the othe
 from collections.abc import Sized
 from typing import Annotated, Any
 
-from conductor import NodeRegistry, Param
+from conductor import NodeRegistry, Param, Policy
 
 registry = NodeRegistry(category="logic")
 
 
-@registry.node("logic-not", title="Not", description="Turns yes into no and no into yes.")
+@registry.node(
+    "logic-not",
+    title="Not",
+    description="Turns yes into no and no into yes.",
+    policy=Policy(costs_nothing=True),
+)
 def negate(value: bool) -> Annotated[bool, Param(title="Negated")]:
     """Turns yes into no and no into yes."""
     return not value
@@ -21,6 +26,7 @@ def negate(value: bool) -> Annotated[bool, Param(title="Negated")]:
     "logic-equals",
     title="Equals",
     description="Tells whether the value is the same as the other value.",
+    policy=Policy(costs_nothing=True),
 )
 def equals[T](value: T, other: T) -> Annotated[bool, Param(title="Equal")]:
     """Whether ``value == other``.
@@ -36,6 +42,7 @@ def equals[T](value: T, other: T) -> Annotated[bool, Param(title="Equal")]:
     "logic-is-empty",
     title="Is empty",
     description="Tells whether the value is missing, or is a text, list or table with nothing in it.",
+    policy=Policy(costs_nothing=True),
 )
 def is_empty(value: Any) -> Annotated[bool, Param(title="Empty")]:
     """Whether ``value`` is ``None``, or has a length of 0.

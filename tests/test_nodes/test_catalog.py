@@ -1,7 +1,14 @@
 """Checks that every node in ``conductor_nodes`` must pass, run over the whole registry at once."""
 
 import conductor_nodes
+from conductor import Graph, NodeRegistry, make_graph
 from conductor.testing import check_registry
+
+#: ``conductor_nodes.registry`` and each module's own, read from what the package lists in ``__all__``.
+REGISTRIES = [
+    conductor_nodes.registry if name == "registry" else getattr(conductor_nodes, name).registry
+    for name in conductor_nodes.__all__
+]
 
 #: Sample inputs for each node, one dict per call. ``check_registry`` runs the node on each of them. The nodes here
 #: only compute, with no outside service, so every one of them can have an example.
@@ -88,3 +95,35 @@ def test_each_module_offers_its_own_nodes_and_the_package_all_of_them() -> None:
         assert {
             d.id for d in conductor_nodes.registry.filter(lambda d, c=category: d.category == c)
         } == {d.id for d in module.registry}
+
+
+def test_every_version_of_every_node_costs_nothing_as_the_package_promises() -> None:
+    for registry in REGISTRIES:
+        for definition in registry:
+            for version in definition.versions.values():
+                assert version.policy.costs_nothing, (version.id, version.version)
+
+
+def test_an_estimate_counts_the_calls_after_a_split_before_any_costly_call() -> None:
+    registry = NodeRegistry()
+    registry.add_subregistry(conductor_nodes.registry)
+
+    @registry.node(
+        "costly", title="Costly", description="Stands for a node whose call costs something."
+    )
+    def costly(item: str) -> str:
+        return item
+
+    graph = Graph.compile(
+        make_graph(
+            conductor_nodes.series.split, costly, edges=[("series-split.result", "costly.item")]
+        ),
+        registry,
+    )
+    estimated = graph.with_inputs(value=["a", "b", "c"]).resume(only_costs_nothing=True)
+
+    assert estimated.status == "ready"
+    assert (
+        estimated.progress.nodes["costly"].finished,
+        estimated.progress.nodes["costly"].total,
+    ) == (0, 3)

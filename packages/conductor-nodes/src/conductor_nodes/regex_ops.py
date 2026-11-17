@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from typing import Annotated
 
 import regex
-from conductor import NodeError, NodeRegistry, Param, Series
+from conductor import NodeError, NodeRegistry, Param, Policy, Series
 from conductor.widgets import Textarea
 from regex import Pattern
 from regex import error as RegexError
@@ -64,6 +64,7 @@ def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
     "regex-match",
     title="Matches pattern",
     description="Tells whether a pattern is found anywhere in the text.",
+    policy=Policy(costs_nothing=True),
 )
 def match(
     text: Annotated[str, Param(widget=Textarea())], pattern: str, ignore_case: bool = False
@@ -78,6 +79,7 @@ def match(
     "regex-replace",
     title="Replace pattern",
     description="Replaces everything in the text that matches a pattern.",
+    policy=Policy(costs_nothing=True),
 )
 def replace_all(
     text: Annotated[str, Param(widget=Textarea())],
@@ -98,6 +100,7 @@ def replace_all(
     "regex-extract",
     title="Find pattern",
     description="Finds every piece of the text that matches a pattern, so what follows runs once for each match.",
+    policy=Policy(costs_nothing=True),
 )
 def extract(
     text: Annotated[str, Param(widget=Textarea())], pattern: str, ignore_case: bool = False

@@ -18,7 +18,7 @@ back a list. ``series-stack`` ends a loop whose nodes return a table for each it
 import typing
 
 import polars as pl
-from conductor import NodeRegistry, Series, Table
+from conductor import NodeRegistry, Policy, Series, Table
 
 registry = NodeRegistry(category="series")
 
@@ -27,6 +27,7 @@ registry = NodeRegistry(category="series")
     "series-split",
     title="Split",
     description="Takes a table or a list apart, so what follows runs once for each record or item.",
+    policy=Policy(costs_nothing=True),
 )
 def split[T](value: Table[T] | list[T]) -> Series[T]:
     """Returns a table's records, or a list's items, as a ``Series``.
@@ -44,6 +45,7 @@ def split[T](value: Table[T] | list[T]) -> Series[T]:
     "series-collect",
     title="Collect",
     description="Puts the result of each item into one list, so the next node gets all of them at once.",
+    policy=Policy(costs_nothing=True),
 )
 def collect[T](values: Series[T]) -> Series[T]:
     """Returns the value of every item as one list, in the order of the items, such as ``["A", "B"]``.
@@ -61,6 +63,7 @@ def collect[T](values: Series[T]) -> Series[T]:
     "series-stack",
     title="Stack",
     description="Puts the table of each item into one table, one under the other.",
+    policy=Policy(costs_nothing=True),
 )
 def stack[R](tables: Series[Table[R]]) -> Table[R]:
     """Puts the tables of every item into one table, one under the other, in the order of the items.

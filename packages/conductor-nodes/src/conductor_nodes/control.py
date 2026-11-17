@@ -17,7 +17,7 @@ Its type is a type variable, and the outputs take the type of whatever is wired 
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, NodeError, NodeRegistry, Param
+from conductor import SKIPPED, NodeError, NodeRegistry, Param, Policy
 
 registry = NodeRegistry(category="control")
 
@@ -36,6 +36,7 @@ class Decided[T]:
     "control-decide",
     title="Decision",
     description="Sends the value one way when the switch is on and the other way when it is off.",
+    policy=Policy(costs_nothing=True),
 )
 def decision[T](value: T, when: bool = True) -> Decided[T]:
     """Sends ``value`` to ``if_true`` when ``when`` is true, and to ``if_false`` when it is false."""
@@ -73,6 +74,7 @@ def _branches(cases: list[str], value: type) -> dict[str, Any]:
     title="Switch",
     description="Sends the value down the branch named by the case, or down 'other' when no branch has that name.",
     compute_outputs=_branches,
+    policy=Policy(costs_nothing=True),
 )
 def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
     """Sends ``value`` to the output named ``case``, or to ``other`` when ``case`` isn't one of ``cases``.
@@ -88,6 +90,7 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
     "control-default",
     title="Default",
     description="Gives the value, or the fallback when the value is missing.",
+    policy=Policy(costs_nothing=True),
 )
 def default[T](value: T | None, fallback: T) -> T:
     """Returns ``value``, or ``fallback`` when ``value`` is ``None``.

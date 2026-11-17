@@ -8,7 +8,7 @@ import re
 from json import JSONDecodeError
 from typing import Annotated
 
-from conductor import NodeError, NodeRegistry, Param
+from conductor import NodeError, NodeRegistry, Param, Policy
 from conductor.widgets import Textarea
 from pydantic import JsonValue
 
@@ -19,6 +19,7 @@ registry = NodeRegistry(category="json")
     "json-parse",
     title="Read JSON",
     description="Reads JSON text into a value. Text that isn't JSON is an error.",
+    policy=Policy(costs_nothing=True),
 )
 def parse(
     text: Annotated[str, Param(title="JSON text", widget=Textarea())],
@@ -40,7 +41,12 @@ def parse(
     return parsed
 
 
-@registry.node("json-stringify", title="Write JSON", description="Writes a value out as JSON text.")
+@registry.node(
+    "json-stringify",
+    title="Write JSON",
+    description="Writes a value out as JSON text.",
+    policy=Policy(costs_nothing=True),
+)
 def stringify(
     value: JsonValue, indent: Annotated[int, Param(ge=0, le=8)] = 0, sort_keys: bool = False
 ) -> Annotated[str, Param(title="JSON")]:
@@ -52,6 +58,7 @@ def stringify(
     "json-get",
     title="Get from JSON",
     description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.",
+    policy=Policy(costs_nothing=True),
 )
 def get_path(value: JsonValue, path: str) -> Annotated[JsonValue, Param(title="Extracted")]:
     """Picks one value out of a JSON value by a dotted path, such as ``user.name`` or ``items.0.id``.

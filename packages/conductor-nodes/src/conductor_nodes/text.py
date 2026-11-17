@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 
-from conductor import NodeRegistry, Param, Series
+from conductor import NodeRegistry, Param, Policy, Series
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -12,6 +12,7 @@ registry = NodeRegistry(category="text")
     "text-uppercase",
     title="Uppercase",
     description="Makes every letter in the text a capital letter.",
+    policy=Policy(costs_nothing=True),
 )
 def uppercase(
     text: Annotated[str, Param(widget=Textarea())],
@@ -24,6 +25,7 @@ def uppercase(
     "text-lowercase",
     title="Lowercase",
     description="Makes every letter in the text a small letter.",
+    policy=Policy(costs_nothing=True),
 )
 def lowercase(
     text: Annotated[str, Param(widget=Textarea())],
@@ -36,6 +38,7 @@ def lowercase(
     "text-trim",
     title="Trim",
     description="Removes spaces and blank lines from the start and end of the text.",
+    policy=Policy(costs_nothing=True),
 )
 def trim(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[str, Param(title="Trimmed")]:
     """Removes spaces, tabs and blank lines from both ends of the text."""
@@ -43,7 +46,10 @@ def trim(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[str, Param
 
 
 @registry.node(
-    "text-length", title="Length", description="Counts how many characters the text has."
+    "text-length",
+    title="Length",
+    description="Counts how many characters the text has.",
+    policy=Policy(costs_nothing=True),
 )
 def length(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[int, Param(title="Length")]:
     """Counts the characters of the text."""
@@ -54,6 +60,7 @@ def length(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[int, Par
     "text-concat",
     title="Join two texts",
     description="Puts two texts together, with a separator between them if you want one.",
+    policy=Policy(costs_nothing=True),
 )
 def concat(a: str, b: str, separator: str = "") -> str:
     """Puts ``a`` and ``b`` together, with ``separator`` between them."""
@@ -64,6 +71,7 @@ def concat(a: str, b: str, separator: str = "") -> str:
     "text-replace",
     title="Replace",
     description="Replaces every place a piece of text appears with another text.",
+    policy=Policy(costs_nothing=True),
 )
 def replace(
     text: Annotated[str, Param(widget=Textarea())],
@@ -78,6 +86,7 @@ def replace(
     "text-contains",
     title="Contains",
     description="Tells whether the text contains another piece of text.",
+    policy=Policy(costs_nothing=True),
 )
 def contains(
     text: Annotated[str, Param(widget=Textarea())], needle: str, case_sensitive: bool = True
@@ -92,6 +101,7 @@ def contains(
     "text-split",
     title="Split text",
     description="Splits the text wherever the separator appears, so what follows runs once for each part.",
+    policy=Policy(costs_nothing=True),
 )
 def split(
     text: Annotated[str, Param(widget=Textarea())],
@@ -109,6 +119,7 @@ def split(
     "text-list",
     title="Text list",
     description="A list of texts that you enter. Wire a list of items to 'for each' to get the whole list once for each item.",
+    policy=Policy(costs_nothing=True),
 )
 def text_list(
     items: list[str], for_each: Any = None
@@ -126,13 +137,19 @@ def text_list(
     "text-join",
     title="Join",
     description="Joins all the parts into one text, with a separator between them.",
+    policy=Policy(costs_nothing=True),
 )
 def join(parts: Series[str], separator: str = ", ") -> Annotated[str, Param(title="Joined")]:
     """Joins every part into one text, with ``separator`` between them."""
     return separator.join(parts)
 
 
-@registry.node("text-reverse", title="Reverse", description="Writes the text backwards.")
+@registry.node(
+    "text-reverse",
+    title="Reverse",
+    description="Writes the text backwards.",
+    policy=Policy(costs_nothing=True),
+)
 def reverse(
     text: Annotated[str, Param(widget=Textarea())],
 ) -> Annotated[str, Param(title="Reversed")]:

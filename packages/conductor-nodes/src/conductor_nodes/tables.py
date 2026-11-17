@@ -22,7 +22,7 @@ import typing
 from typing import Any, TypedDict
 
 import polars as pl
-from conductor import NodeError, NodeRegistry, Series, Table
+from conductor import NodeError, NodeRegistry, Policy, Series, Table
 
 registry = NodeRegistry(category="table")
 
@@ -102,6 +102,7 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     description="Puts the records back into one table, with a new column for each result worked out per record.",
     compute_added_inputs=_column_inputs,
     compute_outputs=_table,
+    policy=Policy(costs_nothing=True),
 )
 def collect(
     records: Table, columns: list[str] = [], constant_columns: list[str] = [], **values: Any

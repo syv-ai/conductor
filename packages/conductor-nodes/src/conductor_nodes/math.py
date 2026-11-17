@@ -7,26 +7,39 @@ import math
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
-from conductor import NodeError, NodeRegistry, Param, Series
+from conductor import NodeError, NodeRegistry, Param, Policy, Series
 
 registry = NodeRegistry(category="math")
 
 
-@registry.node("math-add", title="Add", description="Adds two numbers together.")
+@registry.node(
+    "math-add",
+    title="Add",
+    description="Adds two numbers together.",
+    policy=Policy(costs_nothing=True),
+)
 def add(a: float, b: float) -> Annotated[float, Param(title="Sum")]:
     """Returns ``a + b``."""
     return a + b
 
 
 @registry.node(
-    "math-subtract", title="Subtract", description="Takes the second number away from the first."
+    "math-subtract",
+    title="Subtract",
+    description="Takes the second number away from the first.",
+    policy=Policy(costs_nothing=True),
 )
 def subtract(a: float, b: float) -> Annotated[float, Param(title="Difference")]:
     """Returns ``a - b``."""
     return a - b
 
 
-@registry.node("math-multiply", title="Multiply", description="Multiplies two numbers.")
+@registry.node(
+    "math-multiply",
+    title="Multiply",
+    description="Multiplies two numbers.",
+    policy=Policy(costs_nothing=True),
+)
 def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
     """Returns ``a * b``."""
     return a * b
@@ -36,6 +49,7 @@ def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
     "math-divide",
     title="Divide",
     description="Divides the first number by the second. Dividing by zero is an error.",
+    policy=Policy(costs_nothing=True),
 )
 def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
     """Returns ``a / b``.
@@ -54,6 +68,7 @@ def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
     "math-modulo",
     title="Remainder",
     description="Gives what is left over when the first number is divided by the second. Dividing by zero is an error.",
+    policy=Policy(costs_nothing=True),
 )
 def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
     """Returns ``a % b``, what is left over when ``a`` is divided by ``b``.
@@ -72,6 +87,7 @@ def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
     "math-round",
     title="Round",
     description="Rounds a number to the number of decimals you choose, with halves rounded away from zero.",
+    policy=Policy(costs_nothing=True),
 )
 def round_to(
     value: float, decimals: Annotated[int, Param(ge=0, le=10)] = 0
@@ -94,6 +110,7 @@ def round_to(
     "math-min",
     title="Smallest",
     description="Finds the smallest of the numbers. With no numbers it is an error.",
+    policy=Policy(costs_nothing=True),
 )
 def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
     """Returns the smallest of the numbers.
@@ -110,6 +127,7 @@ def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
     "math-max",
     title="Largest",
     description="Finds the largest of the numbers. With no numbers it is an error.",
+    policy=Policy(costs_nothing=True),
 )
 def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
     """Returns the largest of the numbers.
@@ -123,7 +141,10 @@ def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
 
 
 @registry.node(
-    "math-abs", title="Absolute value", description="Gives the number without its minus sign."
+    "math-abs",
+    title="Absolute value",
+    description="Gives the number without its minus sign.",
+    policy=Policy(costs_nothing=True),
 )
 def absolute(value: float) -> Annotated[float, Param(title="Absolute")]:
     """Returns ``value`` without its minus sign."""
