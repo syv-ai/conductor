@@ -162,8 +162,9 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
 
     On a ``Literal``, the choices are there to give its values titles. So there must be one choice for each value.
 
-    To fix it, give one choice for each value, like ``[Choice("s", "Small"), Choice("m", "Medium")]`` for
-    ``Literal["s", "m"]``.
+    To fix it, take the values' plain type with the titled choices, like
+    ``Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]`` for ``Literal["s", "m"]``. Each
+    value is then written once. Or give one choice for each of the ``Literal``'s values.
 
     Args:
         values: The values of the ``Literal``.
@@ -232,8 +233,8 @@ def named_value_invalid_enum(*, enum: str, member: str) -> str:
     are tuples, ``bytes`` or dates reads no member back, so a run of it couldn't be saved, described or asked. This
     holds at any depth.
 
-    To fix it, give the enum's members values that are text, numbers or yes or no. Or take a ``Literal`` of such
-    values, titled with ``Param(choices=[Choice(value, title), ...])``.
+    To fix it, give the enum's members values that are text, numbers or yes or no. Or take the values' type, such
+    as ``str``, with ``Param(choices=[Choice(value, title), ...])``.
 
     Args:
         enum: The enum's name.

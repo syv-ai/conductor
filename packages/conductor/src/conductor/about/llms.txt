@@ -91,7 +91,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - With no constant and no default, it is `input_has_no_value_constant_only`.
 - `constant_only` on an output is `constant_only_on_output`.
 
-**Choices.** A field's choices are a `Literal`'s values, an enum's members, or `Param(choices=[...])` on any type. Each choice is a value, or a `Choice(id, title)` from `conductor` to give it a title. A `Choice` carries any other keyword it is given along with it: `Choice("ida", "Ida B.", team="sales")`. The field's record has the choices as `choices`, a tuple of `Choice`.
+**Choices.** Fixed choices are written with `Param(choices=[...])` on the field's plain type: `Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]`, or `Annotated[str, Param(choices=["s", "m"])]` without titles. Each choice is a value, or a `Choice(id, title)` from `conductor` to give it a title. So each value is written once. A `Literal`'s values and an enum's members are choices too, and `Literal["s", "m"]` gives the same choices and the same `enum` in the schema. But a `Literal` can't carry titles, and titling one means writing each value twice, so the docs write choices with `Param(choices=)`. A `Choice` carries any other keyword it is given along with it: `Choice("ida", "Ida B.", team="sales")`. The field's record has the choices as `choices`, a tuple of `Choice`.
 
 - On a `Literal` field, the choices give its values titles, one each. On any other field, they limit what it takes.
 - Each choice is read the way an answer is: strictly, from its JSON form, and held to the field's limits. So an enum's value, or a date's ISO text, can be a choice.
@@ -682,14 +682,14 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 **What the return type asks.**
 
 - `bool` asks for a yes or no.
-- `Literal["low", "high"]` asks for one of its values.
+- A type with choices, such as `Annotated[str, Param(choices=["low", "high"])]`, asks for one of them.
 - `str`, `int`, `float` and `date` ask for a value.
 - A frozen dataclass is a form of one question per field. A field's default is proposed. A branch, a field whose default is `SKIPPED`, proposes nothing, and left out of the answer it is skipped.
 - `Table[R]` is a table answered as records. It is read as a caller's table is, but each cell strictly from its JSON form: other columns are dropped, and a missing column is refused.
-- `Series[X]` asks for several values. So `Series[Literal[...]]`, or `Series[str]` with `choices`, is a pick of several.
+- `Series[X]` asks for several values. So `Series[Annotated[str, Param(choices=[...])]]` is a pick of several.
 - A hook's output types ask the same way.
 
-**What `Ask` adds.** The return type is the node's contract. Choices that are part of what the node means go on it, as a `Literal` or `Param(choices=)`, and `describe()` shows them before any run. `Ask` adds what only the run knows: choices that come from the run's data, such as a list on an input or in the context, and a proposed answer.
+**What `Ask` adds.** The return type is the node's contract. Choices that are part of what the node means go on it with `Param(choices=)`, and `describe()` shows them before any run. `Ask` adds what only the run knows: choices that come from the run's data, such as a list on an input or in the context, and a proposed answer.
 
 - A type is in the node's code fingerprint as it is written (see "A waiting call"): a `Literal`'s values and `Param(choices=)` are, so changing them gives a waiting call a new id, and an enum is written by its class, so adding a member to it keeps the id. An `Ask`'s choices are kept with the call.
 - On a node of one output, `choices=[...]` gives the question choices, each a value or a `Choice(id, title)`. `default=` proposes an answer.

@@ -75,8 +75,8 @@ assert registry["greet"] is greet
 
 ### Asking a person
 
-- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, `-> Literal["low", "high"]` one of those values, and a frozen dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
-- The output's `Param` says how the question looks. Fixed choices are part of the type: a `Literal`, with `Param(choices=[Choice(id, title), ...])` to give its values titles.
+- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, `-> Annotated[str, Param(choices=["low", "high"])]` one of those values, and a frozen dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
+- The output's `Param` says how the question looks. Fixed choices are part of the type: `Param(choices=[...])` on a plain type, each a value or a `Choice(id, title)` to give it a title, as `Annotated[str, Param(choices=[Choice("low", "Can wait"), Choice("high", "Today")])]`. Write each value once: never a `Literal` that repeats the choices' values.
 - `Ask(prompt, choices=..., default=...)` carries what only the run knows: choices that are data, such as a list on an input, and a proposed answer. Each has the answer's shape. On a node with several outputs, they go by output name.
 - A node that needs the answer reads it through an edge. For example, `approval(invoice) -> bool` asks, and is wired into `pay(invoice, ok: bool)`. To offer the two as one palette entry, put them in a `subgraph`.
 

@@ -264,8 +264,8 @@ item and which input, so a host can say "Bo was not sent: no middle name" instea
 ## Asking a person
 
 `raise Ask(prompt)` pauses one call. That call and whatever reads it wait, and the rest of the run goes on. The
-return type says what the answer is: `bool` a yes or no, a `Literal` one of its values, a frozen dataclass a small
-form. So fixed choices are on the type, and `Ask(choices=)` is only for choices that come from the run's data, such
+return type says what the answer is: `bool` a yes or no, a type with `Param(choices=)` one of its choices, a frozen
+dataclass a small form. So fixed choices are on the type, and `Ask(choices=)` is only for choices that come from the run's data, such
 as a team that changes from run to run. `AskBool` or a `type=` argument would declare the answer's type a second
 time.
 
@@ -290,13 +290,13 @@ the reference's `asking-a-person` section says what it covers. So an answer to a
 fingerprint is refused as `answer_stale`, and one to a place that waits on nothing as `not_waiting`. The rules are in `python -m conductor.about asking-a-person`.
 
 ```python
-from typing import Literal
+from typing import Annotated
 
-from conductor import Ask
+from conductor import Ask, Param
 
 
 @registry.node("tone", title="Tone", description="Asks a person which tone a text should have.", asks=True)
-def tone(text: str) -> Literal["formal", "casual"]:
+def tone(text: str) -> Annotated[str, Param(choices=["formal", "casual"])]:
     raise Ask(f"Which tone for {text!r}?")
 
 

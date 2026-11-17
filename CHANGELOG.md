@@ -649,6 +649,11 @@ What changes in how you work, before the name-by-name tables:
   `example_refused`, `example_hook_failed`, `subgraph_broken` and `upgrade_broken` is the messages of the
   problems behind it, each whole sentences, joined by a space: "'old' has no input 'bb'. Its inputs are b. 'b' gets
   no value. ..." They were joined by "; ", which put ".;" between them.
+- **The docs teach one form for fixed choices.** `docs/`, the reference, the skills, the notebooks and the
+  docstrings write fixed choices as `Param(choices=[...])` on a plain type, each value once:
+  `Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]`. A `Literal` gives the same
+  choices, but it can't carry titles, so the docs write none for choices, and never one beside `Param(choices=)`
+  that repeats its values. The code is unchanged.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

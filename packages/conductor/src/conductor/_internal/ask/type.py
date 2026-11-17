@@ -16,9 +16,9 @@ class Ask(BaseException):
     """Raised by a node to ask a person for a value.
 
     The node's return type says what kind of answer it takes. ``-> str`` asks for a line of text, ``-> bool`` for a
-    yes or no, ``-> Literal["ida", "bo"]`` for one of those values, and a frozen dataclass for a form with one
-    question per field. The person's answer becomes the node's outputs, so the node isn't called again for it.
-    Nothing that reads those outputs runs until then.
+    yes or no, ``-> Annotated[str, Param(choices=["ida", "bo"])]`` for one of those values, and a frozen dataclass
+    for a form with one question per field. The person's answer becomes the node's outputs, so the node isn't
+    called again for it. Nothing that reads those outputs runs until then.
 
     A node that may raise ``Ask`` says so with ``asks=True`` on its ``@node``. If it raises ``Ask`` without that,
     the call fails with ``ask_not_declared``.
@@ -31,7 +31,7 @@ class Ask(BaseException):
             raise Ask(f"Why was {ticket} closed?")
 
         @node("assign", title="Assign", description="Asks who takes a ticket.", asks=True)
-        def assign(ticket: str) -> Literal["ida", "bo"]:
+        def assign(ticket: str) -> Annotated[str, Param(choices=["ida", "bo"])]:
             raise Ask(f"Who takes {ticket}?")
 
         @node("pick", title="Pick", description="Asks which member of a team takes a ticket.", asks=True)
@@ -50,8 +50,8 @@ class Ask(BaseException):
         prompt: The text the person reads, such as ``"Who takes T-12?"``.
         choices: The values the person may pick from, when they come from the run's data, such as a list on an
             input or in the context. Choices you know when you write the node are its contract, so they go on its
-            return type instead: a ``Literal``, or ``Param(choices=)``. Each is a value, or a ``Choice`` to give
-            it a title. For a node with one output, pass a list. For a node with several, pass a mapping from
+            return type instead, with ``Param(choices=)``. Each is a value, or a ``Choice`` to give it a
+            title. For a node with one output, pass a list. For a node with several, pass a mapping from
             output name to list, naming only the outputs you want to limit. On a ``Series`` output, the person may
             pick several.
         default: A proposed answer. It has the answer's shape: a value for a node with one output, or a mapping by
