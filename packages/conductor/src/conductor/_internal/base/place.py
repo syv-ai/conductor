@@ -20,7 +20,7 @@ used as one node::
   the node inside its loop, in the graph where the loop is. Here the loop over ``lines.result`` is in the outer
   graph, and the node inside it there is ``loud``. So the call is ``("loud", 1, "shout")``, written
   ``"loud@1/shout"``. A host is given a loc whenever it is told about one call, as in
-  ``NotCalled(loc=("loud", 1, "shout"), input="line")`` in ``run.not_called``.
+  ``NoneInputCall(loc=("loud", 1, "shout"), input="line")`` in ``run.none_input_calls``.
 - A **source** is where an edge or a graph output gets its value: one output of a node, or one field of the record
   that output returns. ``Source("lines", "result")`` is written ``"lines.result"``. A graph record stores where
   each edge comes from as a ``Source``. Inside the engine, an output deep in a graph is named by its node path and

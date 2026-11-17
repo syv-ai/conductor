@@ -1387,7 +1387,7 @@ def test_an_enum_is_wired_run_and_read_back(target):
 def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():
     run = _edge(parse_json, show_json).run({"text": "null"})
 
-    assert run.outputs == {"result": "null"} and run.not_called == []
+    assert run.outputs == {"result": "null"} and run.none_input_calls == []
 
 
 # -- 5. branches ------------------------------------------------------------------------------------

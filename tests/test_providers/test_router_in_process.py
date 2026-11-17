@@ -778,7 +778,7 @@ async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothin
         "finished": 0,
         "waiting": 0,
         "skipped": 0,
-        "not_called": 0,
+        "none_input": 0,
         "known": 3,
         "total": 3,
     }
@@ -890,7 +890,7 @@ async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
         "finished": 2,
         "waiting": 0,
         "skipped": 0,
-        "not_called": 0,
+        "none_input": 0,
         "known": 2,
         "total": 2,
     }

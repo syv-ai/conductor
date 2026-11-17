@@ -35,7 +35,7 @@ from conductor import (
     InputEntry,
     InvalidCallError,
     NodeRecord,
-    NotCalled,
+    NoneInputCall,
     Param,
     Policy,
     Run,
@@ -429,7 +429,7 @@ def test_a_node_whose_input_takes_none_is_called_with_none():
         text=CSV,
     )
     assert run.results["s"]["result"] == ["sent to ida@x", "no address", "sent to nina@x"]
-    assert run.not_called == []
+    assert run.none_input_calls == []
 
 
 def test_a_default_is_for_an_unwired_input_never_in_place_of_a_none_from_an_edge():
@@ -445,7 +445,7 @@ def test_a_default_is_for_an_unwired_input_never_in_place_of_a_none_from_an_edge
         text=CSV,
     )
     assert run.results["d"]["result"] == ["ida@x", None, "nina@x"]
-    assert run.not_called == [NotCalled(loc=("d", 1), input="email")]
+    assert run.none_input_calls == [NoneInputCall(loc=("d", 1), input="email")]
 
 
 def test_a_node_not_called_for_none_is_complete_and_never_skipped():
@@ -463,9 +463,9 @@ def test_a_node_not_called_for_none_is_complete_and_never_skipped():
     said = streamed(compiled.with_inputs())
     assert not [e for e in said if e.type == "node_complete" and e.count.skipped]
     (complete,) = [e for e in said if e.type == "node_complete" and e.loc[0] == "s"]
-    assert (complete.count.finished, complete.count.not_called) == (1, 1)
-    assert said[-1].status == "complete" and said[-1].run.not_called == [
-        NotCalled(loc=("s",), input="email")
+    assert (complete.count.finished, complete.count.none_input) == (1, 1)
+    assert said[-1].status == "complete" and said[-1].run.none_input_calls == [
+        NoneInputCall(loc=("s",), input="email")
     ]
 
 
@@ -498,7 +498,7 @@ def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(
         nothing="z",
     )
     assert run.results["u"]["result"] == "OK"
-    assert run.not_called == []
+    assert run.none_input_calls == []
 
 
 @pytest.mark.parametrize("collecting_first", [False, True])
@@ -558,11 +558,11 @@ def test_an_input_read_from_one_edge_and_a_collecting_input_keep_the_order_a_ski
     states = json.loads(run.to_json())["outcomes"]["m"][
         "states"
     ]  # a call not made because of a None is saved with no state
-    not_called = [n for n in run.not_called if n.loc == ("m",)]
-    assert (states, not_called) == (
+    none_input_calls = [n for n in run.none_input_calls if n.loc == ("m",)]
+    assert (states, none_input_calls) == (
         (["skipped"], [])
         if outcome == "skipped"
-        else ([None], [NotCalled(loc=("m",), input=first)])
+        else ([None], [NoneInputCall(loc=("m",), input=first)])
     )
 
 
@@ -623,7 +623,7 @@ def test_both_branches_of_a_node_not_called_are_skipped():
     )
     assert run.results["b"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
     assert run.results["u"]["result"] == ["IDA@X", None, "NINA@X"]
-    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [
+    assert [(n.loc[0], n.loc[1:]) for n in run.none_input_calls] == [
         ("b", (1,))
     ]  # b was not called there, so no branch was taken and u is skipped
 
@@ -655,12 +655,12 @@ def test_a_branching_node_not_called_for_an_item_skips_both_branches_even_an_inp
         "n"
     ]["result"] == [None, None, None]
     assert run.results["j"]["result"] == "sent to ida@x+sent to nina@x"
-    assert run.not_called == [NotCalled(loc=("d", 1), input="text")]
+    assert run.none_input_calls == [NoneInputCall(loc=("d", 1), input="text")]
     again = through_json(run).again()
-    assert (again.results["y"], again.results["n"], again.not_called) == (
+    assert (again.results["y"], again.results["n"], again.none_input_calls) == (
         run.results["y"],
         run.results["n"],
-        run.not_called,
+        run.none_input_calls,
     )
 
 
@@ -682,7 +682,7 @@ def test_a_branching_node_outside_loops_not_called_skips_the_nodes_on_its_branch
     assert (
         run.status == "complete"
         and run.results["y"]["result"] is None
-        and run.not_called == [NotCalled(loc=("d",), input="text")]
+        and run.none_input_calls == [NoneInputCall(loc=("d",), input="text")]
     )
     assert [
         (e.loc, e.count.finished) for e in said if e.type == "node_complete" and e.count.skipped
@@ -806,14 +806,14 @@ def test_a_none_from_outside_the_loop_leaves_the_collecting_node_not_called_as_a
     """
     nothing = _pairs_with_an_outer_value("nothing")
     assert nothing.status == "complete" and nothing.results["n"]["result"] is None
-    assert nothing.not_called == [
-        NotCalled(loc=("p", 0), input="b"),
-        NotCalled(loc=("p", 1), input="b"),
-        NotCalled(loc=("n",), input="values"),
+    assert nothing.none_input_calls == [
+        NoneInputCall(loc=("p", 0), input="b"),
+        NoneInputCall(loc=("p", 1), input="b"),
+        NoneInputCall(loc=("n",), input="values"),
     ]
-    assert through_json(nothing).again().not_called == nothing.not_called
+    assert through_json(nothing).again().none_input_calls == nothing.none_input_calls
     skipped = _pairs_with_an_outer_value("skip")
-    assert skipped.results["n"]["result"] is None and skipped.not_called == []
+    assert skipped.results["n"]["result"] is None and skipped.none_input_calls == []
     assert _pairs_with_an_outer_value("x").results["n"]["result"] == 2
 
 
@@ -827,7 +827,7 @@ def test_a_collecting_input_that_takes_none_gets_the_none_from_outside_the_loop(
 def test_a_none_from_outside_that_an_input_takes_gives_the_collecting_node_every_item():
     """``pair-or-alone`` takes ``None``, so it is called for every item, and ``count`` collects both results."""
     run = _pairs_with_an_outer_value("nothing", reader="pair-or-alone")
-    assert run.results["n"]["result"] == 2 and run.not_called == []
+    assert run.results["n"]["result"] == 2 and run.none_input_calls == []
 
 
 def test_a_none_per_item_is_left_out_and_none_for_every_item_collects_an_empty_series():
@@ -839,7 +839,7 @@ def test_a_none_per_item_is_left_out_and_none_for_every_item_collects_an_empty_s
         registry=registry_of(contacts, records, upper, count_texts),
         text="Bo,;Cy,",
     )
-    assert run.results["n"]["result"] == 0 and [n.loc for n in run.not_called] == [
+    assert run.results["n"]["result"] == 0 and [n.loc for n in run.none_input_calls] == [
         ("u", 0),
         ("u", 1),
     ]
@@ -854,7 +854,7 @@ def test_a_series_not_returned_for_an_item_given_none_is_not_empty_so_its_count_
         text=CSV,
     )
     assert run.results["n"]["result"] == [1, None, 1]
-    assert NotCalled(loc=("n", 1), input="values") in run.not_called
+    assert NoneInputCall(loc=("n", 1), input="values") in run.none_input_calls
 
 
 def test_a_table_not_returned_for_an_item_given_none_is_not_split_so_its_count_is_not_called():
@@ -927,7 +927,7 @@ def test_a_node_downstream_of_one_not_called_is_not_called_either():
     )
     assert run.results["v"]["result"] == ["IDA@X", None, "NINA@X"]
     assert len(CALLED) == 4
-    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("u", (1,)), ("v", (1,))]
+    assert [(n.loc[0], n.loc[1:]) for n in run.none_input_calls] == [("u", (1,)), ("v", (1,))]
 
 
 def test_a_none_item_is_left_out_of_every_collecting_input_so_they_stay_paired():
@@ -957,7 +957,7 @@ def test_a_none_item_is_left_out_of_every_collecting_input_so_they_stay_paired()
 def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_empty_series():
     """A document that is ``None`` is not an empty document.
 
-    Its count isn't called with an empty Series. It isn't called at all, and ``not_called`` says which input got
+    Its count isn't called with an empty Series. It isn't called at all, and ``none_input_calls`` says which input got
     the ``None``.
     """
 
@@ -1019,7 +1019,7 @@ def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_e
     ]  # the last document is empty, so it has 0 lines and is still counted
     assert run.results["w"]["result"] == [1, None, 1, 1]
     assert run.results["t"]["result"] == 3
-    assert {(n.loc[0], n.loc[1:], n.input) for n in run.not_called} >= {
+    assert {(n.loc[0], n.loc[1:], n.input) for n in run.none_input_calls} >= {
         ("c", (1,), "items"),
         ("w", (1,), "table"),
     }
@@ -2668,7 +2668,7 @@ def test_a_table_not_returned_on_the_branch_that_ran_is_none_as_from_a_single_so
 
     for run in (one_source, alternatives):
         assert run.results["w"] == {"result": None}
-        assert NotCalled(loc=("w",), input="table") in run.not_called
+        assert NoneInputCall(loc=("w",), input="table") in run.none_input_calls
 
 
 def test_two_tables_that_can_both_have_a_value_into_one_table_input_are_a_problem():
@@ -3521,7 +3521,7 @@ def test_a_contact_with_no_email_is_not_mailed_and_keeps_its_row_in_the_collecte
     run = compiled.run({"text": CSV})
 
     assert run.status == "complete" and mailed == ["ida@x", "nina@x"]
-    assert run.not_called == [NotCalled(loc=("m", 1), input="email")]
+    assert run.none_input_calls == [NoneInputCall(loc=("m", 1), input="email")]
     sheet = run.outputs["result"]
     assert sheet.select("name", "sent").to_dicts() == [
         {"name": "Ida", "sent": True},
@@ -3562,7 +3562,7 @@ def test_a_document_with_no_lines_counts_zero_and_its_count_is_called():
     )
 
     assert run.results["c"]["result"] == [2, 0, 1] and counted == [2, 0, 1]
-    assert run.outputs == {"result": 3} and run.not_called == []
+    assert run.outputs == {"result": 3} and run.none_input_calls == []
 
 
 def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_document_asks_only_its_own_lines():

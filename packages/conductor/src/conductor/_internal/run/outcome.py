@@ -103,7 +103,7 @@ class Skipped:
     ``shout.result``.
 
     ``Skipped`` and ``NoneInput`` have the same kind of ``outputs``. They are two classes because a host is told
-    about them differently: ``run.not_called`` lists the ``NoneInput`` calls, and no list shows the skipped ones.
+    about them differently: ``run.none_input_calls`` lists the ``NoneInput`` calls, and no list shows the skipped ones.
 
     Attributes:
         outputs: The call's outputs by name, each ``SKIPPED``.

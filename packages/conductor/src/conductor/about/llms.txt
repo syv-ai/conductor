@@ -127,7 +127,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 
 **`None`.** A value can be `None`.
 
-- An input gets `None` only if its type says so, as `email: str | None` or `Any` do. Otherwise the node isn't called for that item. Its outputs are `None` there, and `run.not_called` records the node, the item and the input.
+- An input gets `None` only if its type says so, as `email: str | None` or `Any` do. Otherwise the node isn't called for that item. Its outputs are `None` there, and `run.none_input_calls` records the node, the item and the input.
 - Its branches are all skipped there, and so is what is wired to them.
 - `Series[X]` leaves `None` items out, and `Series[X | None]` keeps them (see "One or many").
 - `Series[X] | None` is a list, or `None` in its place. `Table[R] | None` is a table, or `None`. Such an input takes `None` given as a constant or as its default. A node may return `None` for either. And a list or table that was never returned (its node had a `None` argument, or returned `None`) reaches it as `None`.
@@ -401,7 +401,7 @@ Branches and a subgraph.
 - A branch is a function node's output. A subgraph node's outputs are never branches, even one read from a branch inside. So no two outputs of one subgraph node may be wired into one input (`several_edges_into_one_input`). Merge branches inside the subgraph, and return the merged value.
 - An output that needs a branch inside may still be skipped, so it is described as one that may be skipped: `"required": false`, with no `default`. A skipped branch inside reaches the nodes after the subgraph node as a skip, and they are skipped.
 - Two `Series` inputs collected from two outputs of a subgraph node that come from different branches of one node inside are `series_from_different_branches`, as they are drawn flat.
-- A `None`, or a skipped branch, arriving at one of its inputs makes the inner nodes wired to it not called, or skipped. `run.not_called` lists those nodes.
+- A `None` arriving at one of its inputs is a `None` input of the inner nodes wired to it, which `run.none_input_calls` lists. A skipped branch arriving there skips them.
 
 A subgraph is compiled on its own, apart from the graph it is used in. So a type variable at one of its graph inputs has no edge to bind it, and reads as its bound, else `Any`.
 
@@ -421,7 +421,7 @@ What is inside a subgraph is told with where it is.
 
 - A problem's `loc` starts with the node and item of each subgraph around it: `("emb", 1, "upper")`.
 - A compile problem of the subgraph is its own problem, behind the subgraph node's id: `("emb", "upper", "text")`.
-- A `Waiting` and a `NotCalled` have the same `loc`, and a waiting id spells it `emb@1/ask~3fa2c0d1`.
+- A `Waiting` and a `NoneInputCall` have the same `loc`, and a waiting id spells it `emb@1/ask~3fa2c0d1`.
 - An inner node says its events once, as any node that runs per item does. Their `loc` has the ids of the subgraph nodes around it in front: `("emb", "upper")`.
 
 ### Writing a graph in Python
@@ -632,7 +632,7 @@ A `Table` input collects records the same way.
    - The answers are ordered: skipped, then `None`, then "could have a value".
    - An outer value is read as it is.
    - A node inside the loop is the worst of its inputs, where an input that takes `None` receives it. An input is the best of its edges. A branch of a node that isn't called is skipped.
-   - When no item could have a value, the collecting node is treated like any node wired there, with two items as with none. It is skipped when the cause is a skipped branch, and not called when the cause is a `None`. `Series[T] | None` then receives `None`. `Series[T | None]`, which takes `None` per item, is called with a `None` in each item's place.
+   - When no item could have a value, the collecting node is treated like any node wired there, with two items as with none. It is skipped when the cause is a skipped branch, and a `None` input when the cause is a `None`. `Series[T] | None` then receives `None`. `Series[T | None]`, which takes `None` per item, is called with a `None` in each item's place.
    - A series that was never returned has no items, so it is the input's own `None`. A node that would take a branch for an item of it takes none, which skips what collects that branch. But downstream of a node that takes `None`, the branching node could be called, so what collects its branch isn't called, as for any `None`.
    - When an item could have a value, each item answers for itself by rule 1. A branch taken per item, or a `None` item, leaves only that item out.
 3. A collecting node waits until every item has an outcome.
@@ -928,7 +928,7 @@ assert GraphRecord.model_validate_json(text) == record
 **What it holds.**
 
 - The run's inputs.
-- The outcome of each call of each node: its outputs, waiting (with what its `Ask` said), not called for a `None`, or skipped. Each output is written by the output's type, the same whether the function returned it or a person answered.
+- The outcome of each call of each node: its outputs, waiting (with what its `Ask` said), a `None` input, or skipped. Each output is written by the output's type, the same whether the function returned it or a person answered.
 - The reusable outcomes from a previous run.
 - How the last `resume()` ended.
 - Only nodes that were called are in it. So a long graph waiting at its start saves small.
@@ -1029,13 +1029,13 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 **How far a run is.** `run.progress` is a `RunProgress`. It is worked out from the run's outcomes each time it is read. So a run read back with `Run.from_json` in another process has the same progress, and none of it is saved.
 
 - It has a `CallCount` for the run, and one for each node by its node path as text: `nodes["shout"]`, `nodes["emb/upper"]`. A subgraph node is never called itself, so its count is the sum of the nodes inside it. The events carry the same counts (see "Events").
-- `finished` is the calls with an outcome that is not waiting: done, skipped or not called.
+- `finished` is the calls with an outcome that is not waiting: done, skipped or a `None` input.
 - `skipped` is the finished calls that were skipped: a skipped branch, or `SKIPPED` returned on every output. A node was skipped when `finished > 0` and `skipped` equals `finished`.
-- `not_called` is the finished calls not made because an input got `None`.
+- `none_input` is the finished calls not made because an input got `None`.
 - `waiting` is the calls waiting for a person.
 - `known` is the calls known so far: one per item of each series the node is looped over that exists. It only grows.
 - `total` is `None` while a series that decides it doesn't exist yet. The run's `total` is `None` while any node's is.
-- `total` counts calls, so a call skipped, not called or reused is counted.
+- `total` counts calls, so a call skipped, not made for a `None` input or reused is counted.
 
 **Calls that cost nothing.** `Policy(costs_nothing=True)` marks a node whose call costs nothing and touches nothing outside the run. Such a node hands on an upload, splits a table, or returns a list given to it.
 
@@ -1057,7 +1057,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 **The rest of a run.**
 
 - `run.outputs` is the graph's outputs, by the names `graph.outputs` lists. It is there on a `complete` run only, and is `run_not_complete` otherwise.
-- `run.waiting` (each a `Waiting`), `run.not_called` (each a `NotCalled`, with `loc` and `input`), `run.status` and `run.cause`.
+- `run.waiting` (each a `Waiting`), `run.none_input_calls` (each a `NoneInputCall`, with `loc` and `input`), `run.status` and `run.cause`.
 
 **The status.** One rule gives the status, from the outcomes and from how the last `resume()` left the run. The first that applies wins:
 

@@ -214,17 +214,17 @@ graph = Graph.compile(
 run = graph.run({"text": "hi none"})
 
 print(run.results["shout"])  # {'result': ['HI!', None]}
-for not_called in run.not_called:
-    print(not_called.loc, not_called.input)
+for call in run.none_input_calls:
+    print(call.loc, call.input)
 # ('shout', 1, 'upper') text
 # ('shout', 1, 'exclaim') text
 ```
 
 For the second word, `maybe` returns `None`. `upper` takes a `str`, not `str | None`, so it isn't called for that
-word. Neither is `exclaim`, which is wired to `upper`. `run.not_called` lists both calls. Each `loc` says where the
+word. Neither is `exclaim`, which is wired to `upper`. `run.none_input_calls` lists both calls. Each `loc` says where the
 call is: the subgraph node, the item index, then the inner node.
 
-`shout` itself is never listed. A subgraph node is never called, so it's never "not called" or skipped either.
+`shout` itself is never listed. A subgraph node is never called, so it's never listed there, or skipped, either.
 
 A skipped branch works the same way: it skips the inner nodes wired to it.
 
@@ -299,7 +299,7 @@ the item index comes next. Then comes the inner node.
 
 - A problem in the subgraph's own record gets the subgraph node's id in front: `("shout", "upper", "text")`.
 - A failure of `upper` for the second word is at `("shout", 1, "upper")`.
-- `run.waiting` (calls waiting for a person) and `run.not_called` use the same kind of `loc`.
+- `run.waiting` (calls waiting for a person) and `run.none_input_calls` use the same kind of `loc`.
 - A waiting call's `id` says the same in text. If `shout` had an inner node `ask` that asked a person, its call for
   the second word would be `shout@1/ask~3fa2c0d1`. The part after `~` is a fingerprint of the node, the call's inputs
   and its items, as `python -m conductor.about asking-a-person` says. If they change, an answer meant for the

@@ -15,12 +15,12 @@ Take this example graph::
 
     NodeStart(lines)
     NodeStart(shout)
-    NodeProgress(shout, count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=3, total=3))
+    NodeProgress(shout, count=CallCount(finished=1, waiting=0, skipped=0, none_input=0, known=3, total=3))
     NodeStart(join)
-    NodeComplete(lines, count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=1, total=1))
-    NodeProgress(shout, count=CallCount(finished=3, waiting=0, skipped=0, not_called=0, known=3, total=3))
-    NodeComplete(shout, count=CallCount(finished=3, waiting=0, skipped=0, not_called=0, known=3, total=3))
-    NodeComplete(join, count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=1, total=1))
+    NodeComplete(lines, count=CallCount(finished=1, waiting=0, skipped=0, none_input=0, known=1, total=1))
+    NodeProgress(shout, count=CallCount(finished=3, waiting=0, skipped=0, none_input=0, known=3, total=3))
+    NodeComplete(shout, count=CallCount(finished=3, waiting=0, skipped=0, none_input=0, known=3, total=3))
+    NodeComplete(join, count=CallCount(finished=1, waiting=0, skipped=0, none_input=0, known=1, total=1))
 
 The scheduler reports seven kinds of news: a call is about to be made, the next outcome is reused from the previous
 run, an outcome was recorded, a call will be retried, a call failed, no call is ready, and the scheduler has ended.

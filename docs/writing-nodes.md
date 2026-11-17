@@ -226,7 +226,7 @@ Conductor's own types already have titles: `str` is "Text" and `int` is "Whole n
 
 A few types mean something special:
 
-- `X | None` takes `None`. An input gets `None` only if its type says so. Otherwise the node isn't called when that input would be `None`, its outputs are `None` too, and `run.not_called` lists the call.
+- `X | None` takes `None`. An input gets `None` only if its type says so. Otherwise the node isn't called when that input would be `None`, its outputs are `None` too, and `run.none_input_calls` lists the call.
 - `Series[X]` is many values of `X`. To your function it is a plain list. [One or many](#one-or-many) shows what it does.
 - `Table[R]` is a whole table, as one value. The next example shows one.
 - `list[X]` is one value that happens to be a list.
@@ -697,7 +697,7 @@ ready = Graph.compile(make_graph(files, summarize), registry).with_inputs({"name
 estimated = ready.resume(only_costs_nothing=True)
 
 print(estimated.status)                       # ready
-print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 skipped=0 not_called=0 known=3 total=3
+print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 skipped=0 none_input=0 known=3 total=3
 print(estimated.resume().progress.finished)   # 4
 ```
 

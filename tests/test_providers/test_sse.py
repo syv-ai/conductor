@@ -90,7 +90,7 @@ def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
 
 
 def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
-    count = CallCount(finished=3, waiting=0, skipped=0, not_called=1, known=3, total=3)
+    count = CallCount(finished=3, waiting=0, skipped=0, none_input=1, known=3, total=3)
     assert _payload(NodeComplete(loc=("n",), count=count)) == {
         "type": "node_complete",
         "loc": ["n"],
@@ -98,7 +98,7 @@ def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_te
             "finished": 3,
             "waiting": 0,
             "skipped": 0,
-            "not_called": 1,
+            "none_input": 1,
             "known": 3,
             "total": 3,
         },

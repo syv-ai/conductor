@@ -219,8 +219,8 @@ fan out, and a table that's only passed along costs nothing.
 
 ## `None` and values from outside a loop
 
-A `None` skips one call. If an argument is `None` and the input's type lacks `| None`, the node isn't called for that
-item, and `run.not_called` records which item and input. Failing the whole run, after other items already had side
+A `None` stops one call. If an argument is `None` and the input's type lacks `| None`, the node isn't called for that
+item, and `run.none_input_calls` records which item and input. Failing the whole run, after other items already had side
 effects, would be worse.
 
 Each spelling says one thing: `Series[X]` leaves `None` items out, `Series[X | None]` keeps them, and `Series[X] | None`
@@ -255,7 +255,7 @@ def send(middle: str) -> str:
 
 sent = Graph.compile(make_graph(words, middle_name, send), registry).run({"text": "Ida Bo"})
 print(sent.status, sent.results["send"]["result"])  # complete ['sent Marie', None]
-print([(skipped.loc, skipped.input) for skipped in sent.not_called])  # [(('send', 1), 'middle')]
+print([(call.loc, call.input) for call in sent.none_input_calls])  # [(('send', 1), 'middle')]
 ```
 
 **Worth questioning:** the run ends `complete` with one message not sent. It stands because the run records which

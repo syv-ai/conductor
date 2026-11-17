@@ -225,7 +225,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         return dict.fromkeys(self.outputs, SKIPPED)
 
     @functools.cached_property
-    def outputs_when_not_called(self) -> dict[str, Any]:
+    def outputs_when_none_input(self) -> dict[str, Any]:
         """The outputs of the node when it isn't called because an argument was ``None``, and its parameter doesn't
         take ``None``.
 

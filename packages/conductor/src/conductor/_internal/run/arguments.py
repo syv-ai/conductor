@@ -145,7 +145,7 @@ class ResultReader:
         if fault is not None:
             raise fault
         if none_input is not None:
-            return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
+            return NoneInput(node.compiled_node.outputs_when_none_input, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
     def read_input(self, node_input: EdgeInput | CollectingInput, item_indexes: ItemIndexes) -> Any:

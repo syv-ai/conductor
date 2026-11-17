@@ -113,7 +113,7 @@ def _arguments(
     because those outcomes don't change while the call waits.
 
     Raises:
-        RuntimeError: The call comes out as skipped, not called or not ready, so it has no arguments. That's a bug:
+        RuntimeError: The call comes out as skipped, has a ``None`` input or is not ready, so it has no arguments. That's a bug:
             the call did ask, and the outcomes it was given haven't changed since.
     """
     match reader.arguments_for(node, item_indexes):

@@ -52,7 +52,7 @@ class SavedOutcomes(BaseModel):
     wasn't called for the second line, because its input ``line`` got ``None``::
 
         "shout": {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]},
-                  "not_called_because": {"1": "line"}}
+                  "none_inputs": {"1": "line"}}
 
     A key after ``outputs`` is left out of the JSON when it is empty.
 
@@ -61,7 +61,7 @@ class SavedOutcomes(BaseModel):
             skipped, and ``None`` otherwise.
         outputs: By output name, the output's value for each call. ``None`` for a call with no outputs.
         questions: By call number, what the ``Ask`` of a waiting call said: its prompt, choices and defaults.
-        not_called_because: By call number, the input that got ``None`` and doesn't take it, so the call wasn't
+        none_inputs: By call number, the input that got ``None`` and doesn't take it, so the call wasn't
             made.
         skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for that output.
         skipped_items: By output name and call number, the indexes of the ``SKIPPED`` items in a returned series.
@@ -71,7 +71,7 @@ class SavedOutcomes(BaseModel):
     states: list[SavedOutcomeState | None]
     outputs: dict[str, list[Any]]
     questions: dict[NonNegativeInt, Unanswered] = PydanticField(default_factory=dict)
-    not_called_because: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
+    none_inputs: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
     skipped: dict[str, list[NonNegativeInt]] = PydanticField(default_factory=dict)
     skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] = PydanticField(
         default_factory=dict

@@ -259,7 +259,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
                     "finished": 1,
                     "waiting": 0,
                     "skipped": 0,
-                    "not_called": 0,
+                    "none_input": 0,
                     "known": 1,
                     "total": 1,
                 },

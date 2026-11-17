@@ -62,7 +62,7 @@ A table is one value, and so is a `list`. Neither starts a loop by itself. To lo
 
 Two series that aren't one inside the other never pair up item by item. Compiling reports `series_not_nested` until you put one inside the other.
 
-When an argument is `None` and its input doesn't take `None`, the node isn't called for that item. `run.not_called` lists those calls ([writing nodes](writing-nodes.md#types) says more).
+When an argument is `None` and its input doesn't take `None`, the node isn't called for that item. `run.none_input_calls` lists those calls ([writing nodes](writing-nodes.md#types) says more).
 
 ## Branches and questions
 

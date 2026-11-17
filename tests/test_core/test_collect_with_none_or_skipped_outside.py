@@ -217,7 +217,9 @@ def outcome_of(run: Any, node_id: str) -> Any:
     result = run.results[node_id]["result"]
     if result is not None:
         return result
-    return "not called" if any(call.loc == (node_id,) for call in run.not_called) else "skipped"
+    return (
+        "not called" if any(call.loc == (node_id,) for call in run.none_input_calls) else "skipped"
+    )
 
 
 BOTH_WAYS = (
@@ -319,7 +321,7 @@ def test_a_none_or_a_skipped_branch_outside_nested_loops_decides_the_inner_and_t
     )  # For each item, the inner collect is not called, so there is a None in its place.
     # With the branch outside skipped, no item can get a value, so there is one None for the whole loop.
     assert skipped.results["j"]["result"] is None
-    assert [call.loc[0] for call in skipped.not_called] == []
+    assert [call.loc[0] for call in skipped.none_input_calls] == []
     assert _nested_loops("join", "x", "ab cd").results["n"]["result"] == 2
 
 
@@ -423,12 +425,12 @@ def test_a_skipped_branch_outside_skips_an_inner_collect_also_for_an_item_whose_
         ("j.result", "n.values"),
     ]
     run = ran(nodes, edges, kind="skip", text="ab no-value")
-    assert (run.results["j"]["result"], outcome_of(run, "n"), run.not_called[0].loc) == (
+    assert (run.results["j"]["result"], outcome_of(run, "n"), run.none_input_calls[0].loc) == (
         None,
         "skipped",
         ("c", 1),
     )
-    assert [call.loc[0] for call in run.not_called] == [
+    assert [call.loc[0] for call in run.none_input_calls] == [
         "c"
     ]  # j is skipped for both items, even the one whose list is None.
 
@@ -472,7 +474,7 @@ def test_a_node_in_a_loop_collecting_a_series_never_returned_is_not_called_nor_i
         text="ab cd",
     )
     assert run.results["n"]["result"] == [None, None]
-    assert [call.loc for call in run.not_called] == [
+    assert [call.loc for call in run.none_input_calls] == [
         ("z",),
         ("j", 0, 0),
         ("j", 0, 1),

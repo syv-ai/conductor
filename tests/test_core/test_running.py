@@ -37,7 +37,7 @@ from conductor import (
     InvalidCallError,
     NodeError,
     NodeRegistry,
-    NotCalled,
+    NoneInputCall,
     Policy,
     Run,
     Series,
@@ -149,9 +149,9 @@ def test_node_complete_counts_the_items_not_called_for_a_none_and_the_saved_run_
     events = _events(graph.with_inputs({"text": "ida@a.dk,,al@a.dk"}))
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
-    assert (mail.count.finished, mail.count.not_called, mail.reused) == (3, 1, 0)
+    assert (mail.count.finished, mail.count.none_input, mail.reused) == (3, 1, 0)
     read_back = Run.from_json(events[-1].run.to_json(), graph)
-    assert read_back.not_called == [NotCalled(loc=("send", 1), input="email")]
+    assert read_back.none_input_calls == [NoneInputCall(loc=("send", 1), input="email")]
     assert read_back.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
     assert read_back.status == "complete"
 
@@ -545,15 +545,17 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
     run = events[-1].run
     checkpoints = [event.run for event in events if event.type == "run_checkpoint"]
 
-    assert [call.loc for call in run.not_called] == in_item_order
-    assert [call.loc for call in Run.from_json(run.to_json(), graph).not_called] == in_item_order
+    assert [call.loc for call in run.none_input_calls] == in_item_order
+    assert [
+        call.loc for call in Run.from_json(run.to_json(), graph).none_input_calls
+    ] == in_item_order
     assert checkpoints and all(
-        [call.loc for call in checkpoint.not_called]
-        == sorted(call.loc for call in checkpoint.not_called)
+        [call.loc for call in checkpoint.none_input_calls]
+        == sorted(call.loc for call in checkpoint.none_input_calls)
         for checkpoint in checkpoints
     )
     assert any(
-        len(checkpoint.not_called) > 1 for checkpoint in checkpoints
+        len(checkpoint.none_input_calls) > 1 for checkpoint in checkpoints
     )  # some checkpoint has later items before the first
 
 
@@ -2260,7 +2262,7 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
         {"name": "ida", "email": "ida@a.dk"},
         {"name": "bo", "email": None},
     ]
-    assert read_back.not_called == [NotCalled(loc=("m", 1), input="email")]
+    assert read_back.none_input_calls == [NoneInputCall(loc=("m", 1), input="email")]
 
 
 def test_node_start_comes_first_for_a_node_whose_items_are_reused_from_the_previous_run():
@@ -2699,7 +2701,7 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one
     events = _events(graph.with_inputs({"text": "a _ b _"}))
 
     complete = {
-        e.loc: (e.count.finished, e.count.not_called) for e in events if e.type == "node_complete"
+        e.loc: (e.count.finished, e.count.none_input) for e in events if e.type == "node_complete"
     }
     assert complete == {
         ("w",): (1, 0),
@@ -2707,10 +2709,10 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one
         ("sub", "v"): (4, 2),
         ("sub",): (8, 4),
     }  # the subgraph node is never called: its count is its inner nodes' added up
-    assert events[-1].run.not_called == [
-        NotCalled(loc=("sub", 1, "u"), input="text"),
-        NotCalled(loc=("sub", 3, "u"), input="text"),
-        NotCalled(loc=("sub", 1, "v"), input="text"),
-        NotCalled(loc=("sub", 3, "v"), input="text"),
+    assert events[-1].run.none_input_calls == [
+        NoneInputCall(loc=("sub", 1, "u"), input="text"),
+        NoneInputCall(loc=("sub", 3, "u"), input="text"),
+        NoneInputCall(loc=("sub", 1, "v"), input="text"),
+        NoneInputCall(loc=("sub", 3, "v"), input="text"),
     ]
     assert events[-1].run.results["sub"] == {"result": ["A", None, "B", None]}

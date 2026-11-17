@@ -68,11 +68,11 @@ from .validator import ForgetValidator, WaitingIdValidator
 from .waiting import Waiting, question_fingerprint, waiting_record
 
 
-class NotCalled(ConductorModel):
+class NoneInputCall(ConductorModel):
     """A call that wasn't made because one of its arguments was ``None`` and its input doesn't take ``None``.
 
     Say ``strip(line: str) -> str | None`` returns ``None`` for the line ``" "``, and ``shout(line: str)`` is wired
-    to it. Then ``run.not_called`` lists ``NotCalled(loc=("shout", 1), input="line")``.
+    to it. Then ``run.none_input_calls`` lists ``NoneInputCall(loc=("shout", 1), input="line")``.
 
     Attributes:
         loc: Which call it was, written as a ``Problem``'s ``loc``: the node's id, then its item index in each loop
@@ -704,24 +704,24 @@ class Run[C]:
         return progress_of(self)
 
     @property
-    def not_called(self) -> list[NotCalled]:
+    def none_input_calls(self) -> list[NoneInputCall]:
         """The calls that weren't made because an input got ``None``: which node, which item and which input.
 
         A call inside a subgraph is listed where its subgraph node is.
         """
-        not_called = []
+        calls = []
         for node in self._blueprint.function_nodes.values():
             for item_indexes, outcome in self._outcomes[node.node_path].items():
                 match outcome:
                     case NoneInput():
-                        not_called.append(
-                            NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
+                        calls.append(
+                            NoneInputCall(loc=outcome_loc(node, item_indexes), input=outcome.input)
                         )
                     case Done() | Skipped() | Unanswered():
                         pass
                     case _:
                         assert_never(outcome)
-        return not_called
+        return calls
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:

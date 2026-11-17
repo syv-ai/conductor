@@ -8,10 +8,10 @@ Take this graph::
 
 Before any call, ``graph.with_inputs({"text": "a\\nb\\nc"}).progress`` is::
 
-    RunProgress(finished=0, waiting=0, skipped=0, not_called=0, known=2, total=None, nodes={
-        "lines": CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=1, total=1),
-        "shout": CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=0, total=None),
-        "join":  CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=1, total=1)})
+    RunProgress(finished=0, waiting=0, skipped=0, none_input=0, known=2, total=None, nodes={
+        "lines": CallCount(finished=0, waiting=0, skipped=0, none_input=0, known=1, total=1),
+        "shout": CallCount(finished=0, waiting=0, skipped=0, none_input=0, known=0, total=None),
+        "join":  CallCount(finished=0, waiting=0, skipped=0, none_input=0, known=1, total=1)})
 
 How many calls ``shout`` has depends on how many lines ``lines`` returns, so its ``total`` is ``None`` for now.
 Once ``lines`` has returned three lines, ``shout`` has ``known=3, total=3``, and the run has
@@ -43,16 +43,16 @@ if TYPE_CHECKING:
 class CallCount(ConductorModel):
     """How many calls of one node have an outcome, and how many it will have.
 
-    ``CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=3, total=3)`` is ``shout`` after its first
+    ``CallCount(finished=1, waiting=0, skipped=0, none_input=0, known=3, total=3)`` is ``shout`` after its first
     line. A subgraph node is never called itself, so its count is the sum of the counts of the nodes inside it.
 
     Attributes:
-        finished: How many calls have an outcome other than waiting: done, answered, skipped or not called.
+        finished: How many calls have an outcome other than waiting: done, answered, skipped or a ``None`` input.
         waiting: How many calls wait for a person.
         skipped: How many of the finished calls were skipped: the node is downstream of a branch that wasn't
             chosen, or its function returned ``SKIPPED`` for every output. A node was skipped when ``finished`` is
             more than 0 and ``skipped`` equals it.
-        not_called: How many of the finished calls weren't made because an argument was ``None`` and its input
+        none_input: How many of the finished calls weren't made because an argument was ``None`` and its input
             doesn't take ``None``.
         known: How many calls the node has so far: one per item of every series it loops over that exists. It only
             grows as the run goes.
@@ -63,7 +63,7 @@ class CallCount(ConductorModel):
     finished: int
     waiting: int
     skipped: int
-    not_called: int
+    none_input: int
     known: int
     total: int | None
 
@@ -75,7 +75,7 @@ class RunProgress(CallCount):
     count of each node.
 
     ``total`` is ``None`` while any node's total is. It counts calls, so it is the most calls the run can make. A
-    call that is skipped, not called, or reused from a previous run is counted too, though it costs nothing.
+    call that is skipped, not made for a ``None`` input, or reused from a previous run is counted too, though it costs nothing.
 
     Attributes:
         nodes: The count of each node, by its path as text. ``"shout"`` is a node of the graph, and
@@ -92,7 +92,7 @@ def call_count(
     """Returns the count of one node, from a run's outcomes.
 
     Before ``lines`` has returned, ``shout``'s count is
-    ``CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=0, total=None)``. A subgraph node's count is
+    ``CallCount(finished=0, waiting=0, skipped=0, none_input=0, known=0, total=None)``. A subgraph node's count is
     the sum of the counts of the nodes inside it.
 
     Args:
@@ -107,13 +107,13 @@ def call_count(
         case _:
             assert_never(node)
     of_node = outcomes[node.node_path]
-    waiting = skipped = not_called = 0
+    waiting = skipped = none_input = 0
     for outcome in of_node.values():
         match outcome:
             case Unanswered():
                 waiting += 1
             case NoneInput():
-                not_called += 1
+                none_input += 1
             case Skipped():
                 skipped += 1
             case Done():
@@ -128,7 +128,7 @@ def call_count(
         finished=len(of_node) - waiting,
         waiting=waiting,
         skipped=skipped,
-        not_called=not_called,
+        none_input=none_input,
         known=known,
         total=known if final else None,
     )
@@ -156,20 +156,20 @@ def progress_of(run: Run[Any]) -> RunProgress:
 
 def _sum(counts: Iterable[CallCount]) -> CallCount:
     """Returns the sum of several counts. The ``total`` is ``None`` if any of theirs is."""
-    finished = waiting = skipped = not_called = known = 0
+    finished = waiting = skipped = none_input = known = 0
     total: int | None = 0
     for count in counts:
         finished += count.finished
         waiting += count.waiting
         skipped += count.skipped
-        not_called += count.not_called
+        none_input += count.none_input
         known += count.known
         total = None if total is None or count.total is None else total + count.total
     return CallCount.model_construct(
         finished=finished,
         waiting=waiting,
         skipped=skipped,
-        not_called=not_called,
+        none_input=none_input,
         known=known,
         total=total,
     )

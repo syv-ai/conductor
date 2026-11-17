@@ -42,7 +42,7 @@ from .json import SavedRun, codec_of
 from .progress import CallCount, RunProgress
 from .state import RunStatus
 from .type import (
-    NotCalled,
+    NoneInputCall,
     Run,
     make_run,
 )
@@ -57,7 +57,7 @@ __all__ = [
     "NodeRetry",
     "NodeStart",
     "NodeWaiting",
-    "NotCalled",
+    "NoneInputCall",
     "Run",
     "RunBlueprint",
     "RunCheckpoint",

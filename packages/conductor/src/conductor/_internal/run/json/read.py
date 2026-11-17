@@ -157,7 +157,7 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
 
     A call with no outcome is ``None`` in the list. Say ``shout`` wasn't called for its second line::
 
-        {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]}, "not_called_because": {"1": "line"}}
+        {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]}, "none_inputs": {"1": "line"}}
 
     That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``.
 
@@ -168,7 +168,7 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
     Raises:
         ValueError: An output's list isn't as long as ``states``. Or a done call has ``null`` for an output whose
             type takes no ``None``, or for an item whose type takes none, and ``skipped`` or ``skipped_items``
-            doesn't list it. Or ``skipped``, ``skipped_items``, ``questions`` or ``not_called_because`` names a
+            doesn't list it. Or ``skipped``, ``skipped_items``, ``questions`` or ``none_inputs`` names a
             call that doesn't exist or can't have it.
     """
     states, values_by_output = saved.states, saved.outputs
@@ -199,16 +199,16 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
             if states[call_number] is not None:
                 raise LookupError(call_number)
             outcomes[call_number] = waiting
-        for call_number, input_name in saved.not_called_because.items():
+        for call_number, input_name in saved.none_inputs.items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)
-            outcomes[call_number] = NoneInput(node.outputs_when_not_called, input_name)
+            outcomes[call_number] = NoneInput(node.outputs_when_none_input, input_name)
     except (
         LookupError,
         TypeError,
         AttributeError,
     ):  # a call number past the end of the lists, or a call of another kind
-        message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
+        message = "'skipped', 'skipped_items', 'questions' or 'none_inputs' names a call that does not exist or cannot have it"
         raise ValueError(message) from None
     _refuse_null_where_none_is_refused(node, states, values_by_output)
     return outcomes
@@ -268,7 +268,7 @@ def add_reusable_from_saved(
 
     Raises:
         ValueError: ``fingerprints`` isn't as long as the lists of ``outcomes``. Or an outcome isn't one a call
-            made, because it is skipped, not called or missing. Or, for a node that never asks, an outcome has no
+            made, because it is skipped, a ``None`` input or missing. Or, for a node that never asks, an outcome has no
             item indexes or is a waiting question.
     """
     if len(saved.fingerprints) != len(in_call_order):
@@ -293,7 +293,7 @@ def add_reusable_from_saved(
                 raise ValueError(f"outcome {place} is waiting, and the node never asks")
             case Skipped() | NoneInput() | None:
                 raise ValueError(
-                    "an outcome is skipped, not called or missing, and only an outcome of a call is reused"
+                    "an outcome is skipped, a None input or missing, and only an outcome of a call is reused"
                 )
             case _:
                 assert_never(outcome)

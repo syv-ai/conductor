@@ -836,7 +836,7 @@ def test_an_item_whose_branch_was_skipped_outside_skips_the_inner_nodes_for_that
     run = graph.run({"text": "ab long cd"})
     assert run.status == "complete" and run.results["e"] == {"result": ["AB!", None, "CD!"]}
     # skipped, not None: the item is left out of what count collects
-    assert run.results["n"]["result"] == 2 and run.not_called == []
+    assert run.results["n"]["result"] == 2 and run.none_input_calls == []
     assert CALLS["upper"] == 2 and CALLS["exclaim"] == 2
 
 
@@ -940,13 +940,13 @@ def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is
 def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
     run = inside_a_loop("maybe-inner").run({"text": "a none"})
     assert run.status == "complete" and run.results["e"]["result"] == ["A", None]
-    assert [(n.loc, n.input) for n in run.not_called] == [(("e", 1, "up"), "text")]
+    assert [(n.loc, n.input) for n in run.none_input_calls] == [(("e", 1, "up"), "text")]
     none_in = compile_graph(
         {"w": "words", "m": "maybe", "e": "shout-inner"},
         [("w.result", "m.text"), ("m.result", "e.text")],
     ).run({"text": "a none"})
     assert none_in.results["e"]["result"] == ["A!", None]
-    assert [(n.loc, n.input) for n in none_in.not_called] == [
+    assert [(n.loc, n.input) for n in none_in.none_input_calls] == [
         (("e", 1, "up"), "text"),
         (("e", 1, "ex"), "text"),
     ]  # the nodes inside, as in one graph
@@ -954,7 +954,7 @@ def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
         {"w": "words", "m": "maybe", "up": "upper", "ex": "exclaim"},
         [("w.result", "m.text"), ("m.result", "up.text"), ("up.result", "ex.text")],
     ).run({"text": "a none"})
-    assert [(n.loc, n.input) for n in one_graph.not_called] == [
+    assert [(n.loc, n.input) for n in one_graph.none_input_calls] == [
         (("up", 1), "text"),
         (("ex", 1), "text"),
     ]
@@ -1438,12 +1438,12 @@ def test_tables_returned_per_item_reach_a_table_input_one_per_item_wherever_they
 def what_a_host_reads(run) -> tuple[Any, ...]:
     """Returns everything a host reads of ``run``."""
     waiting = [waiting_call.model_dump() for waiting_call in run.waiting]
-    not_called = [call.model_dump() for call in run.not_called]
+    none_input_calls = [call.model_dump() for call in run.none_input_calls]
     return (
         run.status,
         run.results,
         waiting,
-        not_called,
+        none_input_calls,
         run.outputs if run.status == "complete" else None,
     )
 
@@ -1541,7 +1541,7 @@ def test_an_inner_node_not_called_for_none_reads_the_same_saved_and_read_back():
     run = inside_a_loop("maybe-inner").run({"text": "ab none cd"})
     assert (
         run.status == "complete"
-        and [call.loc for call in run.not_called] == [("e", 1, "up")]
+        and [call.loc for call in run.none_input_calls] == [("e", 1, "up")]
         and reads_the_same_saved_and_read_back(run)
     )
 

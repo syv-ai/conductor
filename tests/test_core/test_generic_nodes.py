@@ -228,7 +228,9 @@ def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called
     }
     assert not graph.describe().nodes["seen"].inputs[0].field.json_schema.get("anyOf")
     run = graph.run()
-    assert calls == [] and [(n.loc, n.input) for n in run.not_called] == [(("seen",), "value")]
+    assert calls == [] and [(n.loc, n.input) for n in run.none_input_calls] == [
+        (("seen",), "value")
+    ]
     inside_a_list = _compiled(
         keep, seen, edges=[["keep.result", "seen.value"]], constants={"keep": {"value": 1}}
     )
@@ -244,13 +246,13 @@ def test_a_branch_node_not_called_for_a_none_leaves_both_branches_skipped() -> N
     )
     assert graph.problems == []
     run = graph.run()
-    assert run.results["maybe"] == {"result": None} and [n.loc for n in run.not_called] == [
+    assert run.results["maybe"] == {"result": None} and [n.loc for n in run.none_input_calls] == [
         ("decision",)
     ]
 
     async def said() -> list[tuple[tuple[str, ...], int, int]]:
         return [
-            (event.loc, event.count.skipped, event.count.not_called)
+            (event.loc, event.count.skipped, event.count.none_input)
             async for event in graph.with_inputs().stream()
             if event.type == "node_complete"
         ]

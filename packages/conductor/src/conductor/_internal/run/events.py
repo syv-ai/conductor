@@ -22,7 +22,7 @@ Take the first graph in conductor's README. It has three nodes::
     NodeComplete(loc=("join",), count=CallCount(finished=1, known=1, total=1, ...))
     RunEnd(status="complete")
 
-The ``...`` stands for the count's ``waiting``, ``skipped`` and ``not_called``, all 0 here.
+The ``...`` stands for the count's ``waiting``, ``skipped`` and ``none_input``, all 0 here.
 
 ``RunStart`` always comes first and ``RunEnd`` last. The one exception is a stream stopped with ``hand_back``,
 which ends with ``RunCheckpoint`` instead. A node's ``NodeStart``, if it has one, comes before every other event
@@ -132,7 +132,7 @@ class NodeProgress(_NodeEvent):
     has only one call, so it gets no ``NodeProgress``.
 
     In the README example, ``shout`` first has
-    ``count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=2, total=2)``, and then the same with
+    ``count=CallCount(finished=1, waiting=0, skipped=0, none_input=0, known=2, total=2)``, and then the same with
     ``finished=2``.
 
     Attributes:
@@ -147,15 +147,15 @@ class NodeComplete(_NodeEvent):
     """Sent when a node is finished: every call of it has an outcome.
 
     None of those outcomes is waiting for a person, and no call of the node, or of a node upstream of it, is still
-    running. Each outcome may be done, answered, not called or skipped. A node gets at most one ``NodeComplete`` in
+    running. Each outcome may be done, answered, a ``None`` input or skipped. A node gets at most one ``NodeComplete`` in
     a run.
 
-    The event doesn't carry the node's values. They are in the run, in ``run.results`` and ``run.not_called``, so
+    The event doesn't carry the node's values. They are in the run, in ``run.results`` and ``run.none_input_calls``, so
     the event stays small however large the values are.
 
     Its ``count`` is the node's ``CallCount``, the same as ``run.progress`` has for the node. Some examples. Run the
     README graph with ``text="a\\n \\nb"``, and put a node ``strip`` before ``shout`` that returns ``None`` for
-    the line ``" "``. Then ``shout``'s count has ``finished=3, not_called=1``. A node was skipped when every one of
+    the line ``" "``. Then ``shout``'s count has ``finished=3, none_input=1``. A node was skipped when every one of
     its calls was: ``finished > 0`` and ``skipped == finished``. A node inside a loop over an empty list has
     ``finished=0, skipped=0``, and wasn't skipped. A subgraph node completes once every node inside it has, and its
     count is the sum of theirs.

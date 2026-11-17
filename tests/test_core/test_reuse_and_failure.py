@@ -1359,7 +1359,9 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
         for e in events
         if e.type == "node_complete" and e.loc == ("o",)
     ] == [(3, 3)]
-    assert again.results == first.results == read_back_again.results and first.not_called == []
+    assert (
+        again.results == first.results == read_back_again.results and first.none_input_calls == []
+    )
     nothing_long = _events(graph.with_inputs({"items": ["a", "b"]}))
     assert [
         (e.loc, e.count.finished, e.count.skipped)

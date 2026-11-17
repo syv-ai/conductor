@@ -57,7 +57,7 @@ from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, read
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import (
     CallCount,
-    NotCalled,
+    NoneInputCall,
     Run,
     RunProgress,
     RunStatus,
@@ -102,7 +102,7 @@ __all__ = [
     # A run
     "Run",
     "Waiting",
-    "NotCalled",
+    "NoneInputCall",
     "RunProgress",
     "CallCount",
     "RunStatus",

@@ -30,7 +30,7 @@ from conductor import (
     InputEntry,
     InvalidCallError,
     NodeRecord,
-    NotCalled,
+    NoneInputCall,
     Param,
     Run,
     Series,
@@ -1702,8 +1702,8 @@ def ok_word(word: str) -> bool:
             lambda s: s["outcomes"]["ok"]["questions"].__setitem__("0", {}),
         ),
         (
-            "outcomes.upper.not_called_because.0",
-            lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": 1}),
+            "outcomes.upper.none_inputs.0",
+            lambda s: s["outcomes"]["upper"].__setitem__("none_inputs", {"0": 1}),
         ),
         (
             "outcomes.upper.undeclared",
@@ -1727,11 +1727,11 @@ def ok_word(word: str) -> bool:
         ),
         (
             "outcomes.upper",
-            lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": "word"}),
+            lambda s: s["outcomes"]["upper"].__setitem__("none_inputs", {"0": "word"}),
         ),  # a call that is done can't also be not called for a None
         (
             "outcomes.ok",
-            lambda s: s["outcomes"]["ok"].__setitem__("not_called_because", {"0": "word"}),
+            lambda s: s["outcomes"]["ok"].__setitem__("none_inputs", {"0": "word"}),
         ),  # a call that waits can't also be not called for a None
         (
             "graph",
@@ -1831,7 +1831,7 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
     assert run.status == "waiting" and [w.loc for w in run.waiting] == [("c", 0), ("c", 3)]
     saved = json.loads(run.to_json())["outcomes"]
     # s is not called for the empty address and returns SKIPPED for the long one
-    assert (saved["s"]["states"], saved["s"]["not_called_because"], saved["s"]["skipped"]) == (
+    assert (saved["s"]["states"], saved["s"]["none_inputs"], saved["s"]["skipped"]) == (
         ["done", None, "done", "done"],
         {"1": "email"},
         {"result": [2]},
@@ -1840,7 +1840,7 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
     # c asks about ab and cd. It isn't called after s's None, and is skipped after s's SKIPPED
     assert (
         saved["c"]["states"],
-        saved["c"]["not_called_because"],
+        saved["c"]["none_inputs"],
         list(saved["c"]["questions"]),
     ) == (
         [None, None, "skipped", None],
@@ -1850,11 +1850,11 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
     read_back = Run.from_json(run.to_json(), graph)
     assert read_back.to_json() == run.to_json() and read_back.waiting == run.waiting
     assert (
-        read_back.resume().not_called
-        == run.not_called
+        read_back.resume().none_input_calls
+        == run.none_input_calls
         == [
-            NotCalled(loc=("s", 1), input="email"),
-            NotCalled(loc=("c", 1), input="email"),
+            NoneInputCall(loc=("s", 1), input="email"),
+            NoneInputCall(loc=("c", 1), input="email"),
         ]
     )
 

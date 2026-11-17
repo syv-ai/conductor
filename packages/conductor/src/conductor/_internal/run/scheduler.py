@@ -463,7 +463,7 @@ class Scheduler:
 
         - Nothing, if the call already has an outcome, is running, isn't ready, or is out of turn for an answer it
           could reuse.
-        - If the call is skipped or not called, ``arguments_for`` returns that outcome, and it is recorded.
+        - If the call is skipped or has a ``None`` input, ``arguments_for`` returns that outcome, and it is recorded.
         - If an earlier run has an outcome for these arguments, that outcome is recorded, and the node isn't called.
         - Otherwise an ``_Attempt`` is made, and the outcome is recorded once the node has returned.
 

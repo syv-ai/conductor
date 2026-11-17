@@ -496,7 +496,7 @@ def test_scenario_6_a_document_with_no_lines_counts_zero():
         REGISTRY,
     )
     run = graph.run({"files": [A_PDF, B_PDF, C_PDF]})
-    assert run.results["count"]["result"] == [2, 0, 3] and run.not_called == []
+    assert run.results["count"]["result"] == [2, 0, 3] and run.none_input_calls == []
 
 
 # -- 7. CSV, a mail per contact, an Excel of everyone; Bo has no email: 5 nodes -------------------------
@@ -528,7 +528,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
     )
     run = graph.run({"file": CONTACTS})
     assert run.status == "complete" and [
-        (n.loc[0], n.loc[1:], n.input) for n in run.not_called
+        (n.loc[0], n.loc[1:], n.input) for n in run.none_input_calls
     ] == [("send-mail", (1,), "to")]
     assert run.results["send-mail"]["result"] == ["sent to ann@x.dk", None, "sent to cy@x.dk"]
     assert (

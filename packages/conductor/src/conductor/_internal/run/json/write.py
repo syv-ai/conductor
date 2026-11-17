@@ -161,7 +161,7 @@ def saved_outcomes(
     """Returns the outcomes of one node the way a saved run writes them: a list per output, with an entry per call.
 
     ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
-    ``saved_class(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, not_called_because={1: "line"})``.
+    ``saved_class(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, none_inputs={1: "line"})``.
 
     Args:
         saved_class: The codec's class for the node's outcomes.
@@ -171,7 +171,7 @@ def saved_outcomes(
     states: list[SavedOutcomeState | None] = []
     values_by_output: dict[str, list[Any]] = {name: [] for name in outputs}
     questions: dict[int, Unanswered] = {}
-    not_called_because: dict[int, str] = {}
+    none_inputs: dict[int, str] = {}
     for call_number, outcome in enumerate(outcomes):
         match outcome:
             case Done():
@@ -186,7 +186,7 @@ def saved_outcomes(
                 questions[call_number] = outcome
             case NoneInput():
                 states.append(None)
-                not_called_because[call_number] = outcome.input
+                none_inputs[call_number] = outcome.input
             case None:
                 states.append(None)
             case _:
@@ -214,7 +214,7 @@ def saved_outcomes(
         states=states,
         outputs=values_by_output,
         questions=questions,
-        not_called_because=not_called_because,
+        none_inputs=none_inputs,
         skipped=skipped,
         skipped_items=skipped_items,
     )

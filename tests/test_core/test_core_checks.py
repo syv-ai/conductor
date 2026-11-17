@@ -25,7 +25,7 @@ from conductor import (
     InvalidCallError,
     NodeDeclarationError,
     NodeRegistry,
-    NotCalled,
+    NoneInputCall,
     Run,
     Series,
     Source,
@@ -428,7 +428,7 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     )
     run = with_none.run({"text": "name,email,amount\nIda,ida@a.dk,1\nBo,,2\n"})
     assert run.status == "complete" and run.results["mail"]["result"] == ["sent to ida@a.dk", None]
-    assert run.not_called == [NotCalled(loc=("mail", 1), input="email")]
+    assert run.none_input_calls == [NoneInputCall(loc=("mail", 1), input="email")]
 
 
 def test_a_list_given_for_one_value_is_refused():
