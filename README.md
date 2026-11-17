@@ -200,6 +200,8 @@ A run never changes in place. `answer` and `resume` each return a new run, so ke
 
 The answer is checked before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` carries on from where the run stopped, and no node is called twice for the same invoice.
 
+To stop without an answer, `run.decline(waiting, reason=...)` ends the run as failed. A decline is not an answer: the next `resume()` asks the same question again. To turn one invoice down and let the run go on, answer it `False` (`python -m conductor.about asking-a-person`).
+
 ## Run it again with a change
 
 Bo's invoice was for 5500, not 5000. Run again with the corrected CSV:
