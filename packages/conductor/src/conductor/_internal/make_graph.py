@@ -92,6 +92,8 @@ def make_graph(
             ``not_a_chain``: there are no ``edges``, and the nodes can't be chained. The automatic graph
             inputs, and the outputs of every node but the last, aren't made then, since they would follow from the
             gap, so a clash among them isn't listed; ``inputs``, ``outputs`` and ``defaults`` are still checked.
+            An edge that can't be written, such as one that names a node that wasn't given, leaves out every
+            automatic graph input and output the same way.
             ``hook_outputs_not_named``: no edge leaves a node whose ``compute_outputs`` hook gives its outputs,
             and ``outputs`` names none of them.
         TypeError: An argument isn't of the type its annotation says, such as ``outputs=None``. The message names
@@ -102,10 +104,10 @@ def make_graph(
     definitions = _by_id(nodes, problems)
     constant_of = _values_by_place("constants", constants, definitions, problems)
     default_of = _values_by_place("defaults", defaults, definitions, problems)
-    # A chain with a gap leaves inputs unwired and outputs unread. The automatic graph inputs and outputs made
-    # from those would clash for the gap alone, so only the last node's outputs are made then, and no automatic
-    # inputs; inputs=, outputs= and defaults= are still checked.
-    gap = False
+    # A chain with a gap, or an edge that can't be written, leaves inputs unwired and outputs unread. The automatic
+    # graph inputs and outputs made from those would clash for that alone. So no automatic inputs are made then,
+    # and automatic outputs only for the last node of a chain; inputs=, outputs= and defaults= are still checked.
+    chained, gap = edges is None, False
     if edges is None:
         found_before_the_chain = len(problems)
         edges = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
@@ -118,6 +120,8 @@ def make_graph(
         )
         if source is not None and target is not None:
             sources_of.setdefault((target[0], target[1]), []).append(source)
+        else:
+            gap = True
     graph_input_of = _graph_inputs(
         definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), gap, problems
     )
@@ -135,8 +139,10 @@ def make_graph(
             )
         )
     led_out = {source.node for found in sources_of.values() for source in found}
-    if gap:  # a chain leads out of every node but its last, so only the last one's outputs are the graph's
-        led_out |= set(list(definitions)[:-1])
+    # A chain leads out of every node but its last, so only the last one's outputs are the graph's. An edge that
+    # can't be written may have led out of any node, so then no node's are.
+    if gap:
+        led_out |= set(list(definitions)[:-1] if chained else definitions)
     declared = _graph_outputs(
         definitions,
         outputs,
@@ -321,8 +327,8 @@ def _graph_inputs(
     """Returns the graph input each input becomes, keyed by place.
 
     First come the ones ``named`` gives. Then, under the input's own name, every key of ``defaults``
-    (``defaulted``), and every required input that gets nothing else (isn't in ``filled``), unless the chain has a
-    ``gap``, which leaves such inputs unwired.
+    (``defaulted``), and every required input that gets nothing else (isn't in ``filled``), unless there is a
+    ``gap``: a chain that can't be drawn or an edge that can't be written, which leaves such inputs unwired.
 
     If two of those automatic graph inputs share a name, or one shares a name with a graph input in ``named``,
     ``graph_inputs_share_a_name`` goes to ``problems``.

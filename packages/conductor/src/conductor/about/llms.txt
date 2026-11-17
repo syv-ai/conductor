@@ -462,7 +462,7 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 - a place that isn't `"node.name"`, or whose id or name isn't a valid name, such as `"greet.result~"` (`invalid_place`). Its `loc` is the argument and where in it: `("edges", 1, 0)` or `("constants", key)`;
 - two graph inputs or two graph outputs of one name;
 - what the record refuses (`invalid_record`, with `ctx.written_by` `make_graph's arguments`): an input given a constant and an edge, an edge written twice, one id given to two nodes, a field on a graph output;
-- a chain it can't draw (`not_a_chain`). The automatic graph inputs, and the automatic outputs of every node but the last, aren't made then, so a clash that would only follow from the gap isn't listed; what `inputs=`, `outputs=` and `defaults=` name is still checked;
+- a chain it can't draw (`not_a_chain`). The automatic graph inputs, and the automatic outputs of every node but the last, aren't made then, so a clash that would only follow from the gap isn't listed; what `inputs=`, `outputs=` and `defaults=` name is still checked. An edge it can't write, such as one that names a node it wasn't given, leaves out every automatic graph input and output the same way, so `make_graph(shout, count, edges=[("shuot.result", "count.text")])` raises `node_not_in_graph` alone;
 - a node with a `compute_outputs` hook whose outputs no edge reads and `outputs=` doesn't name (`hook_outputs_not_named`).
 
 An argument of the wrong type, such as `outputs=None` or an edge that isn't a pair of texts, is a mistake in the calling code, not in the graph. It raises a `TypeError` that names the argument, before anything else is checked.

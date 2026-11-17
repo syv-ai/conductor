@@ -990,6 +990,15 @@ def test_make_graph_reports_only_the_gap_in_a_chain_not_the_graph_outputs_that_w
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_a_chain", ("count",))]
 
 
+def test_make_graph_reports_an_edge_to_a_node_it_was_not_given_alone_not_the_ports_that_would_follow():
+    """With the edge left out, both ``text`` inputs would become graph inputs, and both ``result`` outputs graph
+    outputs, and each pair would clash. Those clashes are the typo's doing, so the author is shown the typo."""
+    for edge in [("shuot.result", "loud.text"), ("shout.result", "luod.text")]:
+        with pytest.raises(InvalidCallError) as refused:
+            make_graph(_shout, ("loud", _shout), edges=[edge])
+        assert [p.type for p in refused.value.problems] == ["node_not_in_graph"]
+
+
 def test_make_graph_with_a_gap_in_its_chain_still_reports_the_places_inputs_and_outputs_name():
     """Only what follows from the gap is left out. A place the author wrote in ``outputs=`` or ``inputs=`` that
     names no node is their own fault, and is listed beside the gap."""
