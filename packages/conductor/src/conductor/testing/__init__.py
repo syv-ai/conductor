@@ -58,8 +58,9 @@ from conductor._internal.problem import InvalidCallError, Problem, compile_probl
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, WrittenValuesValidator
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param
-from conductor.testing import problems
-from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
+
+from . import problems
+from .problems import REGISTRY_CHECK_PROBLEMS
 
 #: What ``_made_up`` returns for a field it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")

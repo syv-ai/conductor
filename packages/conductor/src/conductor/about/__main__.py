@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 
-from conductor.about import get_content, get_section, list_sections, problems_page
+from . import get_content, get_section, list_sections, problems_page
 
 _USAGE = """\
 Usage: python -m conductor.about [section]
