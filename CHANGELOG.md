@@ -653,7 +653,8 @@ What changes in how you work, before the name-by-name tables:
   docstrings write fixed choices as `Param(choices=[...])` on a plain type, each value once:
   `Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]`. A `Literal` gives the same
   choices, but it can't carry titles, so the docs write none for choices, and never one beside `Param(choices=)`
-  that repeats its values. The code is unchanged.
+  that repeats its values. `named_value_invalid_enum`'s message says to "take the values' type, such as str, with
+  Param(choices=[...])", where it said to take a `Literal` titled with `Param(choices=)`.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

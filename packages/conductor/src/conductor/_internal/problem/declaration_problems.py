@@ -257,8 +257,8 @@ def named_value_invalid_enum(*, enum: str, member: str) -> str:
     """
     return (
         f"the enum {enum}'s member {member} doesn't read back from its own JSON as itself, so a run of it couldn't be"
-        " saved, described or asked. Give its members values that are text, numbers or yes or no, or take a"
-        " Literal of such values titled with Param(choices=[Choice(value, title), ...])."
+        " saved, described or asked. Give its members values that are text, numbers or yes or no, or take the"
+        " values' type, such as str, with Param(choices=[...])."
     )
 
 

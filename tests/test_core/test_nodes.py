@@ -2026,7 +2026,7 @@ def test_an_enum_that_cant_read_its_members_back_is_refused_at_any_depth_naming_
     (problem,) = raised.value.problems
     assert problem.type == "named_value_invalid_enum"
     assert "the enum _Pair's member" in problem.msg
-    assert "take a Literal of such values" in problem.msg
+    assert "take the values' type, such as str, with Param(choices=[...])" in problem.msg
 
 
 class _IntHue(IntEnum):
