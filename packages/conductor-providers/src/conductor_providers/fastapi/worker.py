@@ -258,8 +258,10 @@ class Worker(Generic[M, X]):
         """Answer what waits in a run, by waiting id.
 
         A running run queues the answers until its resume call ends. A run that isn't running takes them as
-        ``run.answer`` does, whatever its status, and is resumed. No answers at all change nothing. The queue's
-        rules are in ``python -m conductor.about answers-and-declines``.
+        ``run.answer`` does, whatever its status, and is resumed. When a decline is still queued from a resume call
+        that raised, the run is given it first, and when the run takes it, it is written ``failed``, and an answer it
+        refuses then is in its ``refused`` instead of raised. No answers at all change nothing. The queue's rules are
+        in ``python -m conductor.about answers-and-declines``.
 
         Args:
             run_id: The run's id.
@@ -270,7 +272,8 @@ class Worker(Generic[M, X]):
             The run as written: ``running``, or ``failed`` when a decline queued before the answers failed it.
 
         Raises:
-            InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written.
+            InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written;
+                not when the run takes a queued decline.
             RuntimeError: The answers would resume the run, and the worker has never served.
         """
         if not answers:
@@ -323,8 +326,8 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again.
 
-        A run whose resume call raised with a decline still queued takes the decline instead, and is written
-        ``failed`` (``python -m conductor.about answers-and-declines``).
+        When a decline is still queued from a resume call that raised and the run takes it, the run isn't resumed
+        and is written ``failed`` (``python -m conductor.about answers-and-declines``).
 
         Args:
             run_id: The run's id.

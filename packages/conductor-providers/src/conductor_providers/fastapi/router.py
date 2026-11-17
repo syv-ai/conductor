@@ -191,9 +191,10 @@ def run_router(
             ),
         ],
     ) -> RunView:
-        """Answer what waits by its ids, whatever the run's status: the run goes on with them, an answer it refuses is
-        a 422, and a decline still queued from a resume call that raised is taken first and fails it. While the run is
-        running, the answers are queued until it stops, and one it refuses then is in its ``refused``."""
+        """Answer what waits by its ids, whatever the run's status: the run goes on with them, and an answer it refuses
+        is a 422. A decline still queued from a resume call that raised is given first, and when the run takes it, the
+        run comes back ``failed`` and an answer it refuses then is in its ``refused``, not the 422; while the run is
+        running, the answers are queued until it stops, and one it refuses then is in its ``refused`` too."""
         return await worker.answer(run_id, answers, allows=allows)
 
     @router.post("/runs/{run_id}/declines", status_code=202, responses=_refusals(no_such_run))
@@ -219,8 +220,8 @@ def run_router(
         body: Resume = Resume(),
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again, and ``{"max_items": ...}`` raises
-        the item limit of a run that stopped at it. A decline still queued from a resume call that raised is taken
-        instead, and the run comes back ``failed``."""
+        the item limit of a run that stopped at it. When a decline is still queued from a resume call that
+        raised and the run takes it, the run isn't resumed and comes back ``failed``."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_refusals(no_such_run))
