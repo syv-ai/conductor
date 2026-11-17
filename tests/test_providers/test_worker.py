@@ -995,6 +995,30 @@ async def test_a_worker_that_never_served_answers_and_resumes_a_stopped_run_whos
         assert (written.status, written.cause.type) == ("failed", "answer_declined")
 
 
+async def test_an_answer_to_a_stopped_run_whose_queued_decline_it_doesnt_take_loads_the_run_once() -> (
+    None
+):
+    """The queue holds a decline of a question the run never asked, so the run is given the queue, takes nothing, and
+    is to be resumed with this call's answer. The run it was given the queue as is the run the answer is given to."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    served = _worker(store, registry)
+    async with served.serving():
+        run_id = await _started(served, graph, inputs)
+        await store.ended(run_id)
+    _failed_with_queued(store, run_id, _queued_decline(waiting_id.replace("confirm", "after", 1)))
+    loads: list[object] = []
+    never_served: Worker[Any, Any] = Worker(
+        store, nodes_for=lambda metadata: loads.append(metadata) or registry
+    )
+
+    with pytest.raises(RuntimeError):
+        await never_served.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+
+    assert len(loads) == 1
+
+
 def _failed_with_queued(store: MemoryStore, run_id: str, reply: dict[str, Any]) -> None:
     """Writes the run's row as a resume call that raised leaves it, with ``reply`` queued while it ran."""
     store.rows[run_id] = dataclasses.replace(

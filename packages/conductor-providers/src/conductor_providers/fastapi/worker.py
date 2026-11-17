@@ -764,11 +764,13 @@ class Worker(Generic[M, X]):
             RuntimeError: The run would be resumed, and the worker has never served.
         """
         queued = state.with_queued(answers, declines=declines)
+        if not (queued.holds_a_decline or answers or max_items is not None):
+            return await self._claim(row, state.running())
+        run = await asyncio.to_thread(loaded, row, self.nodes_for(self._metadata_in(row)))
         refused: dict[str, list[Problem]] = {}
         if queued.holds_a_decline:
-            nodes = self.nodes_for(self._metadata_in(row))
             ended, changes, declined = await asyncio.to_thread(
-                lambda: queued.ended_with(loaded(row, nodes), row.run, row.outcome)
+                queued.ended_with, run, row.run, row.outcome
             )
             if declined:
                 run_end = RunEnd(status=ended.status, cause=ended.cause).model_dump_json()
@@ -778,11 +780,12 @@ class Worker(Generic[M, X]):
                 raise InvalidCallError([problem for each in refused.values() for problem in each])
         changed = None
         if answers or max_items is not None:
-            nodes = self.nodes_for(self._metadata_in(row))
 
             def given() -> str:
-                run = loaded(row, nodes).answer(answers)
-                return (run if max_items is None else run.with_max_items(max_items)).to_json()
+                answered = run.answer(answers)
+                return (
+                    answered if max_items is None else answered.with_max_items(max_items)
+                ).to_json()
 
             changed = await asyncio.to_thread(given)
         claimed = state.answered(answers.keys()).running()
