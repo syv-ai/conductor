@@ -34,12 +34,15 @@ def no_such_run(*loc: str | int) -> str:
 
 @SERVING_PROBLEMS.problem
 def run_not_resumable(*, status: RunStatus) -> str:
-    """A resume was asked of a run that didn't end early.
+    """A resume was asked of a run that didn't end early, or that a person's decline ended for good.
 
     Args:
         status: The run's status.
     """
-    return f"The run is {status}, and only a run that ended early can be resumed; read the run to see what it needs."
+    return (
+        f"The run is {status}, and only a run that failed, stopped, was cancelled or timed out can be resumed; read "
+        "the run to see what it needs."
+    )
 
 
 @SERVING_PROBLEMS.problem

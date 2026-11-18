@@ -2712,54 +2712,69 @@ def test_pay_failing_after_the_answer_is_retried_and_resumed_and_nothing_is_aske
 # -- declining a question ------------------------------------------------------------------------------
 
 
-def test_a_declined_question_fails_the_run_with_the_reason_in_ctx_and_calls_nothing_after_it():
+def test_a_declined_question_ends_the_run_declined_with_the_reason_in_ctx_and_keeps_what_ran():
     run = _approve_then_pay().run({"text": "A:100,B:900"})
     calls_made.clear()
     declined = run.decline(run.waiting[0], reason="Over budget")
-    assert (declined.status, declined.waiting) == ("failed", [])
+    assert (declined.status, declined.waiting) == ("declined", [])
     assert (declined.cause.type, declined.cause.loc, declined.cause.ctx) == (
         "answer_declined",
         ("approval", 1),
         {"reason": "Over budget"},
     )
     assert "Over budget" not in declined.cause.msg
+    # What ran before the decline is kept, and the message says so.
     assert declined.results["pay"]["result"] == ["paid A", None]
+    assert "calls made before keep their results" in declined.cause.msg
     assert run.status == "waiting"  # The run declined is left as it was.
     assert calls_made == []
 
 
-def test_resume_after_a_decline_asks_again_under_the_same_id():
+async def test_a_declined_run_calls_no_node_on_resume_or_stream_and_stays_declined():
     run = _approve_then_pay().run({"text": "B:900"})
     declined = run.decline(run.waiting[0].id)
     assert declined.cause.ctx.get("reason") is None
     calls_made.clear()
-    again = declined.resume()
-    assert (again.status, again.cause, [w.id for w in again.waiting]) == (
-        "waiting",
-        None,
-        [run.waiting[0].id],
-    )
+    resumed = declined.resume()
+    assert (resumed.status, resumed.cause, resumed.waiting) == ("declined", declined.cause, [])
+    events = [event async for event in declined.stream()]
+    assert [event.type for event in events] == ["run_start", "run_end"]
+    assert (events[-1].status, events[-1].cause) == ("declined", declined.cause)
+    assert calls_made == []
+
+
+def test_again_after_a_decline_starts_a_new_run_that_reuses_what_ran_and_asks_again():
+    run = _approve_then_pay().run({"text": "A:100,B:900"})
+    declined = run.decline(run.waiting[0])
+    calls_made.clear()
+    again = declined.again()
+    assert (again.status, [w.id for w in again.waiting]) == ("waiting", [run.waiting[0].id])
+    # Only the declined question is asked again: what ran for A is reused.
     assert calls_made == [("approval", "B")]
-    assert again.answer(again.waiting[0], True).resume().outputs == {"result": "paid B"}
+    assert again.answer(again.waiting[0], True).resume().outputs == {"result": "paid A; paid B"}
 
 
-def test_a_declined_run_saved_and_read_back_is_failed_with_the_same_cause_and_asks_again():
+def test_a_declined_run_saved_and_read_back_is_declined_with_the_same_cause_and_calls_nothing():
     graph = _approve_then_pay()
     run = graph.run({"text": "B:900"})
     declined = run.decline(run.waiting[0], reason="Over budget")
     read = Run.from_json(declined.to_json(), graph)
-    assert (read.status, read.cause, read.waiting) == ("failed", declined.cause, [])
-    assert [w.id for w in read.resume().waiting] == [run.waiting[0].id]
+    assert (read.status, read.cause, read.waiting) == ("declined", declined.cause, [])
+    calls_made.clear()
+    assert read.resume().status == "declined" and calls_made == []
 
 
-def test_a_decline_leaves_the_other_questions_waiting_and_an_answer_to_them_keeps_the_run_failed():
+def test_a_decline_ends_the_other_questions_too_so_an_answer_or_a_decline_to_them_is_not_waiting():
     run = _approve_then_pay().run({"text": "A:900,B:900"})
     first, second = run.waiting
     declined = run.decline(first)
-    assert [w.id for w in declined.waiting] == [second.id]
-    answered = declined.answer(second, True)
-    assert (answered.status, answered.cause.type) == ("failed", "answer_declined")
-    assert [w.id for w in answered.resume().waiting] == [first.id]
+    assert declined.waiting == []
+    (answered,) = _refused(lambda: declined.answer(second, True))
+    (again,) = _refused(lambda: declined.decline(second))
+    assert [(p.type, p.ctx["status"]) for p in (answered, again)] == [
+        ("not_waiting", "declined"),
+        ("not_waiting", "declined"),
+    ]
 
 
 def test_a_decline_names_its_call_by_the_rules_an_answer_does():
@@ -2771,7 +2786,7 @@ def test_a_decline_names_its_call_by_the_rules_an_answer_does():
     (nothing,) = _refused(lambda: run.decline("pay@0"))
     assert (twice.type, twice.ctx["status"], nothing.type) == (
         "not_waiting",
-        "failed",
+        "declined",
         "not_waiting",
     )
     moved = graph.with_inputs({"text": "A:950"}, previous=run).resume()

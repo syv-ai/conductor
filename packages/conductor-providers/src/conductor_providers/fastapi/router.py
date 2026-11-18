@@ -192,9 +192,8 @@ def run_router(
         ],
     ) -> RunView:
         """Answer what waits by its ids, whatever the run's status: the run goes on with them, and an answer it refuses
-        is a 422. A decline still queued from a resume call that raised is given first, and when the run takes it, the
-        run comes back ``failed`` and an answer it refuses then is in its ``refused``, not the 422; while the run is
-        running, the answers are queued until it stops, and one it refuses then is in its ``refused`` too."""
+        is a 422, such as any answer to a ``declined`` run; while the run is running, the answers are queued until it
+        stops, and one it refuses then is in its ``refused``."""
         return await worker.answer(run_id, answers, allows=allows)
 
     @router.post("/runs/{run_id}/declines", status_code=202, responses=_refusals(no_such_run))
@@ -203,10 +202,9 @@ def run_router(
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         body: Decline,
     ) -> RunView:
-        """Decline to answer what waits under ``waiting_id``: a run that takes it ends ``failed`` with
-        ``answer_declined`` until another answer or a resume goes on with it, and one that refuses it and takes
-        nothing else is a 422. While the run is running, the decline is queued until it stops, and a refusal then is
-        in its ``refused``."""
+        """Decline to answer what waits under ``waiting_id``: a run that takes it ends ``declined`` with
+        ``answer_declined``, for good, and one that refuses it is a 422. While the run is running, the decline is
+        queued until it stops, and a refusal then is in its ``refused``."""
         return await worker.decline(run_id, body.waiting_id, reason=body.reason, allows=allows)
 
     @router.post(
@@ -220,8 +218,7 @@ def run_router(
         body: Resume = Resume(),
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again, and ``{"max_items": ...}`` raises
-        the item limit of a run that stopped at it. When a decline is still queued from a resume call that
-        raised and the run takes it, the run isn't resumed and comes back ``failed``."""
+        the item limit of a run that stopped at it. A ``declined`` run has ended for good, and is refused."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_refusals(no_such_run))

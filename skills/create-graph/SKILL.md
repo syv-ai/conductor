@@ -123,7 +123,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 | One value for two inputs | name one graph input on both, `{"graph_input": "text"}`. In `make_graph`, `inputs={"text": ["a.text", "b.text"]}` |
 | Events as they happen | `async for event in graph.with_inputs(...).stream(): ...` |
 | To answer a node that asked | `run = run.answer(run.waiting[0], answer)`, or `run.answer({waiting.id: answer, ...})` for several, then `run.resume()` |
-| To refuse to answer it | `run = run.decline(run.waiting[0], reason="...")`: the run is `failed` with `answer_declined`, and `run.resume()` asks again |
+| To refuse to answer it | `run = run.decline(run.waiting[0], reason="...")`: the run is `declined` with `answer_declined`, and has ended for good; `run.again()` starts a new run that asks again |
 | A service or the caller inside a node | `graph.run(context=AppContext(caller=caller))`, with the class named on the registry: `NodeRegistry(context_type=AppContext)` |
 | A limit on a run | `run.resume(timeout=60)`; `run.stream(cancel=asyncio.Event())`; `run.stream(hand_back=asyncio.Event())` to stop and leave the run going for another process; `graph.run(max_items=1000)` |
 | To save | `record.model_dump_json()`. A run: `run.to_json()`, and `Run.from_json(saved, graph)` to read it back |

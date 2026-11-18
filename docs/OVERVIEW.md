@@ -38,6 +38,7 @@ Compiling never raises for a broken graph. Everything wrong goes in `graph.probl
 | `stopped` | A series had more items than the limit you set with `max_items=`. |
 | `cancelled` | The run was cancelled. |
 | `timed_out` | The `timeout=` you gave ran out. |
+| `declined` | A person declined to answer a question, so the run ended for good. |
 | `ready` | There's a call left to make, as before the first call or once the last question is answered. |
 | `running` | Only in a checkpoint taken while nodes were still being called, or in a run handed on to another process. |
 
@@ -68,7 +69,7 @@ When an argument is `None` and its input doesn't take `None`, the node isn't cal
 
 A node with branches returns `SKIPPED` for the ones it doesn't take. Nodes wired only to a skipped branch are skipped. Inside a loop, that's for that one item. Outside a loop, they're skipped altogether.
 
-A node raises `Ask` when a person has to answer. That call waits, and so does every call after it. The rest of the graph runs on, and the run ends `waiting`. `run.answer(...)` gives the answers, and each one is checked before anything runs. Then `run.resume()` carries on. No call that finished is made again. A person who won't answer is declined with `run.decline(waiting, reason=...)`: the call fails, and the run ends `failed`, until a `resume()` asks again. A decline is not an answer. To reject one item and let the run go on, answer it.
+A node raises `Ask` when a person has to answer. That call waits, and so does every call after it. The rest of the graph runs on, and the run ends `waiting`. `run.answer(...)` gives the answers, and each one is checked before anything runs. Then `run.resume()` carries on. No call that finished is made again. A person who won't answer is declined with `run.decline(waiting, reason=...)`: the run ends `declined`, for good. What ran before keeps its results, and nothing more is called. A decline is not an answer. To reject one item and let the run go on, answer it.
 
 ## Running again
 

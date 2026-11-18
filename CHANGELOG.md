@@ -481,43 +481,29 @@ What changes in how you work, before the name-by-name tables:
 - **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`, and one that gives a field a name a graph cannot have is `compute_hook_failed` at that name with `error: not_a_name`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
 - **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. A node's `CallCount` counts its skipped calls in `skipped`: a call downstream of a skipped branch, or one whose every output is `SKIPPED`; a node with no output that returns `SKIPPED` is not counted. A node was skipped when `finished > 0` and `skipped` equals `finished`.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early. The run saved in the row is its last checkpoint, which reads back as its outcomes say: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
-- **A person can decline a question.** `run.decline(waiting, reason=None)` takes a waiting call as `run.answer`
-  does and returns a new run: the call fails as a node that raised does, and the run is `failed` with the new
-  problem `answer_declined` as its `cause`, whose `ctx.reason` holds the host's reason. Nothing downstream is
-  called, a saved run keeps it as a failed call, and the next `resume()` asks again. An id is refused as `answer`
-  refuses it (`not_waiting`, `answer_stale`). A reason is checked as its JSON text would be: `bytes`
-  and a `str` enum member are taken as their text, and one that isn't text JSON can write, such as `1.5` or a `str`
-  with a lone surrogate, is refused as `invalid_decline_reason` (`ctx.got`, its class).
-- **The runs router takes a decline.** `POST /runs/{id}/declines` with `{"waiting_id", "reason"}`, and
-  `Worker.decline(run_id, waiting_id, *, reason=None, allows=)`, decline one question. The body's `reason` is a `str` or
-  left out, and `Worker.decline` takes a reason as `run.decline` does. The decline is queued as an
-  answer is, as one entry of the row's `queued`; the run takes what was queued in order, the first of an answer and a
-  decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined`, and the
-  decline doesn't resume it; an answer to another question that still waits, or a resume, does, and the run asks the
-  declined question again. A run that isn't running is given the decline at once, after any replies still queued, and written
-  `failed` with no resume call, so a worker that never served takes it, and the route answers with the run
-  `failed`; its events get one `run_end` that says so. A decline it refuses is a 422 (`not_waiting`,
-  `answer_stale`), and nothing is written, unless the run took an answer still queued from a resume call that
-  raised: then the run is resumed with its queue, which needs a serving worker. The refusal shows on the response,
-  and in `refused` until that question is answered: a queued answer to the same question answers it when the
-  resume call ends. A resume of a run whose queue holds a
-  decline it takes makes no resume call: the run is given the queue and written `failed`, `answer_declined`. So
-  does a running run that a worker takes over, or that was handed back, whose queue holds a decline it takes; an
-  answer queued there to a question the run asked after its last checkpoint is then refused as `not_waiting`, as
-  when a decline is taken at the door, where it used to be taken because the whole call ran first. An
-  answer to a run whose queue holds a decline is given after it, so a decline the run takes fails it, written with
-  no resume call, and an answer it then refuses is in `refused`; any other answer to a stopped run goes to
-  `run.answer` as before, with the queue kept for the end of the resume call. Against 2.0's pre-releases, on a
-  stopped run: a decline to a stale question while a queued answer is taken
-  resumes the run with `answer_stale` in `refused` (was a 422); a decline needs a serving worker only when it
-  resumes the run (was: always); and a decline sent together with an answer to another question is written at
-  once, so the answer that lands after it resumes the failed run (both used to be queued, and the decline won).
-  The body is `{"waiting_id", "reason"}` alone: a body with `"kind": "decline"`, which the pre-releases took, is a
-  422 `extra_forbidden`.
-  A call that answers one question well and another badly, one that answers one call twice, an answer to a
-  stale question, and a queued answer to a question asked after the last checkpoint behave as before. The last `run_end` the run's events store says what the row says: a decline sent while the run
-  runs, and taken when the resume call stops, makes that call's `run_end` `failed` with `answer_declined`, though
-  its stream ended `waiting`, or `cancelled` with a cancel asked too.
+- **A person can decline a question, and that ends the run for good** (provisional). `run.decline(waiting,
+  reason=None)` takes a waiting call as `run.answer` does and returns a new run, `declined`, a status of its own,
+  with the new problem `answer_declined` as its `cause`, whose `ctx.reason` holds the host's reason. Every call
+  made before keeps its outcome, so the run's results show what ran; nothing waits any more, `resume()` and
+  `stream()` call no node, and a later `answer` or `decline` is refused as `not_waiting` (`ctx.status`
+  `declined`), as on a complete run. `run.again()` starts a new run that reuses what ran and asks again. A saved
+  run reads back `declined`. An id is refused as `answer` refuses it (`not_waiting`, `answer_stale`). A reason is
+  checked as its JSON text would be: `bytes` and a `str` enum member are taken as their text, and one that isn't
+  text JSON can write, such as `1.5` or a `str` with a lone surrogate, is refused as `invalid_decline_reason`
+  (`ctx.got`, its class).
+- **The runs router takes a decline** (provisional). `POST /runs/{id}/declines` with `{"waiting_id", "reason"}`, and
+  `Worker.decline(run_id, waiting_id, *, reason=None, allows=)`, decline one question. The body's `reason` is a
+  `str` or left out, and `Worker.decline` takes a reason as `run.decline` does. A run that isn't running is given
+  the decline at once and written `declined` with no resume call, so a worker that never served takes it; its
+  events get one `run_end` that says so, and the replies a resume call that raised left queued are dropped. A
+  decline it refuses is a 422 (`not_waiting`, `answer_stale`), and nothing is written. On a running run the
+  decline is queued as an answer is, as one entry of the row's `queued`, and given in order when the resume call
+  stops: the first of two replies to one question wins, and a run that takes a decline ends `declined`, so that
+  call's last `run_end` says `declined`, though its stream ended `waiting`, or `cancelled` with a cancel asked too.
+  A declined run is never resumed: `POST /runs/{id}/resume` is `run_not_resumable` (409), and an answer or a
+  decline is `not_waiting` (422). A resume, a takeover and a run handed back give a queued decline when the resume
+  call stops, as any queued reply. The body is `{"waiting_id", "reason"}` alone: a body with `"kind": "decline"`,
+  which the pre-releases took, is a 422 `extra_forbidden`.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and resumes the run, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`invalid_answer`, and `not_waiting`, also for an answer to a `complete` run). Answers queued while the run is running are given to the run it stopped as, whatever its status; a resume that raised keeps them queued. The code `run_not_waiting` is gone.
 - **The runs router cancels a waiting run.** `POST /runs/{id}/cancel` on a run that is `waiting` resumes it with the cancel already set, so it ends `cancelled` before any node call, as `run.stream(cancel=...)` does, and answers with the run, `running`: its questions still wait, and an answer or a resume carries it on. A host's own scheduler sends it to end a run whose question nobody answers. Like any resume call, it can end the run `failed` when its context or a node can't be had. A cancel that meets a run another call changed first goes by the run as it now is, and a run that is complete or already ended early is answered as it is.
 - **A cancel sent to any worker ends the run `cancelled`, even when the run completes before its worker hears it.** The worker that holds a run hears a cancel sent to another worker at its next checkpoint or lease renewal, and a run that completed before then ended `complete`, though `POST /runs/{id}/cancel` had answered `running`. Now a run that completes with a cancel asked ends `cancelled`, with conductor's `run_cancelled` as its cause and its `run_end`, whichever worker took the cancel, so a cancel that came during the run's last call is no longer dropped either. Every call's outcome is kept and its outputs aren't shown, as no cancelled run's are; `POST /runs/{id}/resume` makes no call and completes it.

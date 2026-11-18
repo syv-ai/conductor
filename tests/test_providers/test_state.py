@@ -32,7 +32,7 @@ def _waiting() -> tuple[Any, str]:
 
 def _ended_with(state: RunState, run: Any) -> tuple[RunState, dict[str, Any]]:
     """The new state, and the row's ``run`` and ``outcome`` written with it."""
-    new, saved, outcome, _ = state.ended_with(run, run.to_json(), RunOutcome.of(run))
+    new, saved, outcome = state.ended_with(run, run.to_json(), RunOutcome.of(run))
     return new, {"run": saved, "outcome": outcome}
 
 
@@ -121,26 +121,7 @@ def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -
     )
 
 
-def test_ended_with_says_whether_the_run_took_a_decline_also_when_a_decline_already_failed_it() -> (
-    None
-):
-    run, waiting_id = _waiting()
-    declined = run.decline(waiting_id, reason="No")
-    saved, outcome = run.to_json(), RunOutcome.of(run)
-
-    took = [
-        state.ended_with(given, saved, outcome)[3]
-        for state, given in (
-            (RunState.started().with_queued({waiting_id: True}), run),
-            (RunState.started().with_queued(declines={waiting_id: "No"}), run),
-            (RunState.started().with_queued(declines={waiting_id: "Again"}), declined),
-        )
-    ]
-
-    assert took == [False, True, False]
-
-
-def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_with_nothing_waiting() -> (
+def test_a_queued_decline_the_run_takes_ends_it_declined_and_writes_the_declined_run_with_nothing_waiting() -> (
     None
 ):
     run, waiting_id = _waiting()
@@ -148,20 +129,20 @@ def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_wit
     state, changes = _ended_with(RunState.started().with_queued(declines={waiting_id: "No"}), run)
 
     declined = run.decline(waiting_id, reason="No")
-    assert (state.status, state.cause, state.queued) == ("failed", declined.cause, [])
+    assert (state.status, state.cause, state.queued) == ("declined", declined.cause, [])
     assert changes == {"run": declined.to_json(), "outcome": RunOutcome.of(declined)}
     assert changes["outcome"].waiting == []
 
 
 def test_a_decline_the_run_takes_clears_a_cancel_asked_since_the_run_has_ended() -> None:
-    """The run is failed and not resumed, so a cancel left asked would end its next resume call for nothing."""
+    """The run is declined and never resumed, so a cancel left asked would mean nothing."""
     run, waiting_id = _waiting()
 
     state, _ = _ended_with(
         RunState.started().asked_to_stop().with_queued(declines={waiting_id: None}), run
     )
 
-    assert (state.status, state.cancel_asked) == ("failed", False)
+    assert (state.status, state.cancel_asked) == ("declined", False)
 
 
 def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() -> None:
@@ -177,9 +158,11 @@ def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() 
     )
 
     assert answered_first.status == "running"
-    assert (declined_first.status, declined_first.cause.type) == ("failed", "answer_declined")
-    for state in (answered_first, declined_first):
-        assert [problem.type for problem in state.refused[waiting_id]] == ["not_waiting"]
+    assert (declined_first.status, declined_first.cause.type) == ("declined", "answer_declined")
+    assert [
+        [(problem.type, problem.ctx["status"]) for problem in state.refused[waiting_id]]
+        for state in (answered_first, declined_first)
+    ] == [[("not_waiting", "ready")], [("not_waiting", "declined")]]
 
 
 def test_the_queue_is_stored_as_one_reply_per_waiting_id_and_reads_back_as_it_was() -> None:

@@ -138,10 +138,6 @@ class HeldRun:
     async def _resume_call(self) -> tuple[RunEnd | None, _After]:
         """Make one resume call and store its events and checkpoints.
 
-        A run taken over, or handed back, may hold a decline queued while its last worker ran it. When the run as the
-        row has it takes that decline, a person said stop, so no call is made: the run ends as ``RunState.ended_with``
-        gives it the queue, ``failed`` with ``answer_declined``, as a decline to a run that isn't running ends it.
-
         Returns:
             The call's own ``run_end``, and how the row's state changes with it, as a function of the state as it is
             when it is written (one of ``RunState.ended_with`` and ``RunState.failed``). A run handed back, as the
@@ -159,14 +155,6 @@ class HeldRun:
         try:
             run = await asyncio.to_thread(row.loaded, settings.nodes_for(row.metadata))
             held = await asyncio.to_thread(RunOutcome.of, run)
-            if row.state.holds_a_decline:
-                # a person said stop before this call: a run that takes the decline is written ended, with no call
-                ended, _, _, declined = await asyncio.to_thread(
-                    row.state.ended_with, run, row.run, row.outcome
-                )
-                if declined:
-                    end = RunEnd(status=ended.status, cause=ended.cause)
-                    return end, lambda state: state.ended_with(run, row.run, row.outcome)[:3]
             stream = run.stream(
                 context=settings.context_for(row.metadata, self._stop),
                 timeout=settings.resume_timeout,
@@ -188,7 +176,7 @@ class HeldRun:
                         saved, outcome = await asyncio.to_thread(
                             lambda: (returned.to_json(), RunOutcome.of(returned))
                         )
-                        return event, lambda state: state.ended_with(returned, saved, outcome)[:3]
+                        return event, lambda state: state.ended_with(returned, saved, outcome)
                     elif not await self._store.add_event(
                         self.run_id, settings.worker_id, event.model_dump_json()
                     ):
@@ -214,8 +202,8 @@ class HeldRun:
         What is written is worked out again from the row's state as it is on each try of the write, so a cancel or
         an answer written meanwhile is never written over. The ``run_end`` is written with the row, in one
         ``update``, so it lands once, with the write that lands, and a follower that reads that the run stopped has
-        the event to read. When the run stops, it says what the row says: a decline queued meanwhile fails the run,
-        though the call's own ``run_end`` said ``waiting``. When the run goes on, it is the call's own. A run another
+        the event to read. When the run stops, it says what the row says: a decline queued meanwhile ends the run
+        ``declined``, though the call's own ``run_end`` said ``waiting``. When the run goes on, it is the call's own. A run another
         worker took is left as it is. A run that is to go on as the worker shuts down is handed back for another
         worker.
 

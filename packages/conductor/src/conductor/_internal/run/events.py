@@ -290,7 +290,8 @@ class RunEnd(_EventWithRun):
         status: ``complete``, ``waiting`` (for a person's answer), or how the run ended early. It ends early as
             ``failed`` when a call failed, and as ``stopped`` when a series had more items than the run's item
             limit, set with ``run.with_max_items(...)``. It ends as ``cancelled`` when the stream's ``cancel`` was
-            set, and as ``timed_out`` when the stream's ``timeout`` passed.
+            set, and as ``timed_out`` when the stream's ``timeout`` passed. A run a person declined is ``declined``,
+            and a stream of it calls no node.
         cause: The problem that ended the run early, or ``None`` when the status is ``complete`` or ``waiting``.
         run: The run as the stream left it, with all its values. It isn't in the event's JSON.
     """

@@ -59,11 +59,12 @@ def ask_not_declared(*loc: str | int) -> str:
 
 @RUN_PROBLEMS.problem
 def answer_declined(*loc: str | int, reason: str | None = None) -> str:
-    """A person declined to answer a node's question, with ``run.decline``.
+    """A person declined to answer a node's question, with ``run.decline``, and so ended the run for good.
 
-    The call fails as if the node had raised. It has no outcome, and nothing that reads its outputs is called.
+    The run is ``declined``. Every call made before the decline keeps its outcome, so the run's results show what
+    ran. No call is made any more, and nothing waits.
 
-    To fix it, call ``resume()``. The node is called again and asks again.
+    To fix it, start a new run with ``run.again()``. It reuses what this run ran, and the node asks again.
 
     Args:
         loc: The call that asked.
@@ -74,7 +75,10 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         why_it_stopped(waiting.decline(waiting.waiting[0], reason="Over budget"))
     """
-    return "The question was declined, so the call failed. Call resume() to ask it again."
+    return (
+        "A person declined to answer, so the run ended here. The calls made before keep their results. "
+        "Call run.again() to start a new run that asks again."
+    )
 
 
 @RUN_PROBLEMS.problem

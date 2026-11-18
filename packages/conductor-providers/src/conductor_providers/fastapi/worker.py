@@ -21,7 +21,7 @@ from threading import Event
 from types import MappingProxyType
 from typing import Any, Generic
 
-from conductor import Graph, InvalidCallError, NodeRegistry, Problem, Run, RunProgress
+from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
 from conductor.events import RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -257,10 +257,9 @@ class Worker(Generic[M, X]):
         """Answer what waits in a run, by waiting id.
 
         A running run queues the answers until its resume call ends. A run that isn't running takes them as
-        ``run.answer`` does, whatever its status, and is resumed. When a decline is still queued from a resume call
-        that raised, the run is given it first, and when the run takes it, it is written ``failed``, and an answer it
-        refuses then is in its ``refused`` instead of raised. No answers at all change nothing. The queue's rules are
-        in ``python -m conductor.about answers-and-declines``.
+        ``run.answer`` does, whatever its status, and is resumed. A ``declined`` run waits on nothing, so it refuses
+        every answer as ``not_waiting``. No answers at all change nothing. The queue's rules are in
+        ``python -m conductor.about answers-and-declines``.
 
         Args:
             run_id: The run's id.
@@ -268,11 +267,10 @@ class Worker(Generic[M, X]):
             allows: The request's run filter.
 
         Returns:
-            The run as written: ``running``, or ``failed`` when a decline queued before the answers failed it.
+            The run as written: ``running``.
 
         Raises:
-            InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written;
-                not when the run takes a queued decline.
+            InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written.
             RuntimeError: The answers would resume the run, and the worker has never served.
         """
         if not answers:
@@ -289,12 +287,12 @@ class Worker(Generic[M, X]):
         reason: str | None = None,
         allows: Callable[[M], bool],
     ) -> RunView:
-        """Decline to answer a question that waits in a run, so the run fails, as ``run.decline`` fails it.
+        """Decline to answer a question that waits in a run, so the run ends for good, as ``run.decline`` ends it.
 
-        A run that takes the decline ends ``failed`` with ``answer_declined``, and nothing resumes it until another
-        answer or a ``resume``. A running run queues the decline as it queues an answer. A run that isn't running
-        takes it here, with no resume call. The queue's rules are in ``python -m conductor.about
-        answers-and-declines``.
+        A run that takes the decline is ``declined``, with ``answer_declined``: nothing more is called, and a later
+        answer, decline or resume is refused. A running run queues the decline as it queues an answer, and takes it
+        when its resume call ends. A run that isn't running takes it here, with no resume call, so this needs no
+        serving worker. The queue's rules are in ``python -m conductor.about answers-and-declines``.
 
         Args:
             run_id: The run's id.
@@ -303,18 +301,34 @@ class Worker(Generic[M, X]):
             allows: The request's run filter.
 
         Returns:
-            The run as written: ``failed`` when it took the decline, else ``running``.
+            The run as written: ``declined`` when it took the decline, else ``running``.
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), ``reason`` can't be written as JSON
-                (``invalid_decline_reason``), or a run that isn't running refuses the decline and takes nothing else
-                (``not_waiting``, ``answer_stale``). Nothing is written then.
-            RuntimeError: The run would be resumed, and the worker has never served.
+                (``invalid_decline_reason``), or a run that isn't running refuses the decline (``not_waiting``,
+                ``answer_stale``). Nothing is written then.
         """
-        declines = {waiting_id: reason}
-        return await self._until_written(
-            run_id, allows, lambda row: self._reply(row, declines=declines)
-        )
+
+        async def declined(row: RunRow[M]) -> RunRow[M] | None:
+            state = row.state
+            if state.is_running:
+                return await self._store.update(
+                    row, state=state.with_queued(declines={waiting_id: reason})
+                )
+            run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
+
+            def given() -> tuple[RunState, str, RunOutcome]:
+                ended = run.decline(waiting_id, reason=reason)
+                return state.declined(ended), ended.to_json(), RunOutcome.of(ended)
+
+            ended, saved, outcome = await asyncio.to_thread(given)
+            # the run ends here, so its run_end goes in the same write
+            run_end = RunEnd(status=ended.status, cause=ended.cause).model_dump_json()
+            return await self._store.update(
+                row, state=ended, run=saved, outcome=outcome, event=run_end
+            )
+
+        return await self._until_written(run_id, allows, declined)
 
     async def resume(
         self,
@@ -325,8 +339,7 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again.
 
-        When a decline is still queued from a resume call that raised and the run takes it, the run isn't resumed
-        and is written ``failed`` (``python -m conductor.about answers-and-declines``).
+        A ``declined`` run has ended for good, so it is refused as one that didn't end early.
 
         Args:
             run_id: The run's id.
@@ -335,17 +348,16 @@ class Worker(Generic[M, X]):
             allows: The request's run filter.
 
         Returns:
-            The run as written: ``running``, or ``failed`` when a decline queued for it ended it.
+            The run as written: ``running``.
 
         Raises:
-            InvalidCallError: No run has the id (``no_such_run``), the run did not end early
-                (``run_not_resumable``), or the stored run can't be loaded to give it a decline queued for it or,
-                with ``max_items``, to raise its ceiling.
+            InvalidCallError: No run has the id (``no_such_run``), the run did not end early or was declined
+                (``run_not_resumable``), or, with ``max_items``, the stored run can't be loaded to raise its ceiling.
             RuntimeError: The run would be resumed, and the worker has never served.
         """
 
         async def resumed(row: RunRow[M]) -> RunRow[M] | None:
-            if row.state.cause is None:
+            if row.state.cause is None or row.state.status == "declined":
                 raise InvalidCallError([run_not_resumable(status=row.state.status)])
             return await self._reply(row, max_items=max_items)
 
@@ -677,53 +689,34 @@ class Worker(Generic[M, X]):
         row: RunRow[M],
         *,
         answers: Mapping[str, Any] = MappingProxyType({}),
-        declines: Mapping[str, Any] = MappingProxyType({}),
         max_items: int | None = None,
     ) -> RunRow[M] | None:
-        """One try at giving a run this call's answers or decline, or its higher ceiling: ``answer``, ``decline``
-        and ``resume`` all come here.
+        """One try at giving a run this call's answers, or its higher ceiling: ``answer`` and ``resume`` both come
+        here.
 
-        A running run queues the replies. A run that isn't running is given its queue now when the queue holds a
-        decline, and is written ``failed`` with no resume call if it takes one. Otherwise this call's answers go to
-        ``run.answer``, and the run is claimed and resumed with its queue kept. The rules are in
-        ``python -m conductor.about answers-and-declines``.
+        A running run queues the answers. Otherwise they go to ``run.answer``, and the run is claimed and resumed
+        with its queue kept. The rules are in ``python -m conductor.about answers-and-declines``.
 
         Args:
             row: The run's row as read.
             answers: This call's answers, by waiting id.
-            declines: This call's reasons, by waiting id.
             max_items: A higher ceiling on the items of any one Series, written with the claim.
 
         Returns:
             The row as written; ``None`` when another call wrote it first.
 
         Raises:
-            InvalidCallError: The run refuses an answer of this call, or takes nothing and refuses its decline, with
-                every problem it gave them. Or the run can't be loaded on its metadata's nodes.
+            InvalidCallError: The run refuses an answer of this call, with every problem it gave them. Or the run
+                can't be loaded on its metadata's nodes.
             RuntimeError: The run would be resumed, and the worker has never served.
         """
         state = row.state
-        queued = state.with_queued(answers, declines=declines)
+        queued = state.with_queued(answers)
         if state.is_running:
             return await self._store.update(row, state=queued)
-        if not (queued.holds_a_decline or answers or max_items is not None):
-            return await self._claim(row, state.running())
-        run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
-        refused: dict[str, list[Problem]] = {}
-        if queued.holds_a_decline:
-            ended, saved, outcome, declined = await asyncio.to_thread(
-                queued.ended_with, run, row.run, row.outcome
-            )
-            if declined:
-                run_end = RunEnd(status=ended.status, cause=ended.cause).model_dump_json()
-                return await self._store.update(
-                    row, state=ended, run=saved, outcome=outcome, event=run_end
-                )
-            refused = {key: ended.refused[key] for key in declines if key in ended.refused}
-            if refused and not ended.is_running:
-                raise InvalidCallError([problem for each in refused.values() for problem in each])
         changed = None
         if answers or max_items is not None:
+            run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
 
             def given() -> str:
                 answered = run.answer(answers)
@@ -732,10 +725,7 @@ class Worker(Generic[M, X]):
                 ).to_json()
 
             changed = await asyncio.to_thread(given)
-        claimed = state.answered(answers.keys()).running()
-        if refused:
-            claimed = claimed.model_copy(update={"refused": {**claimed.refused, **refused}})
-        return await self._claim(row, claimed, changed=changed)
+        return await self._claim(row, state.answered(answers.keys()).running(), changed=changed)
 
     def _resume_in_background(self, row: RunRow[M]) -> None:
         """Start the task that resumes a run this worker has just taken.

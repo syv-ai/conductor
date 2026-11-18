@@ -140,14 +140,14 @@ class Run[C]:
 
         ``ready`` means a call is left to make, ``waiting`` that a call waits for a person, and ``complete`` that
         every call has an outcome. A run that a ``resume()`` ended early says how: ``failed``, ``stopped``,
-        ``cancelled`` or ``timed_out``. A copy made while a ``resume()`` is still going is ``running``. ``state.py``
-        has the whole rule.
+        ``cancelled`` or ``timed_out``. A run a person ended with ``decline`` is ``declined``. A copy made while a
+        ``resume()`` is still going is ``running``. ``state.py`` has the whole rule.
         """
         return status_of(self)[0]
 
     @property
     def cause(self) -> Problem | None:
-        """The problem that ended the run early, with its ``loc`` and code. ``None`` when it didn't end early."""
+        """The problem that ended the run early or declined it, with its ``loc`` and code. ``None`` otherwise."""
         return status_of(self)[1]
 
     # -- running ----------------------------------------------------------------
@@ -176,6 +176,7 @@ class Run[C]:
         """Calls every node that is ready, and returns a new run once it has to stop.
 
         It stops when the run is complete, waits for a person, fails, or reaches its item limit or its ``timeout``.
+        A ``declined`` run has ended for good: it calls no node, and stays ``declined``.
 
         The context isn't saved with a run, so pass it again on every call. Once ``timeout`` has passed, no new call
         starts. The calls already running on threads are waited for, up to their ``attempt_timeout``, and their
@@ -315,21 +316,26 @@ class Run[C]:
                     )
                     listener(with_run(RunCheckpoint(), saved))
 
-        stopped = Scheduler(
-            nodes=function_nodes,
-            threads=blueprint.threads,
-            outcomes=working._outcomes,
-            reusable=working._reusable,
-            max_items=working.max_items,
-            arguments_for=_only_costs_nothing(reader)
-            if only_costs_nothing
-            else reader.arguments_for,
-            node_events=node_events,
-            stop=stop,
-            context=context,
-            checkpoint=checkpoint,
-            checkpoint_every=checkpoint_every,
-        ).run()
+        stopped: LastResume
+        if self.status == "declined":
+            # A person ended the run for good, so no node is called and it stays declined.
+            stopped = self._last_resume
+        else:
+            stopped = Scheduler(
+                nodes=function_nodes,
+                threads=blueprint.threads,
+                outcomes=working._outcomes,
+                reusable=working._reusable,
+                max_items=working.max_items,
+                arguments_for=_only_costs_nothing(reader)
+                if only_costs_nothing
+                else reader.arguments_for,
+                node_events=node_events,
+                stop=stop,
+                context=context,
+                checkpoint=checkpoint,
+                checkpoint_every=checkpoint_every,
+            ).run()
         outcomes = working._outcomes
         complete = frozenset(
             path
@@ -370,8 +376,9 @@ class Run[C]:
         ``run.answer(waiting, value)`` answers one call, and ``run.answer({waiting_id: value, ...})`` answers several.
         Each answer is checked against the questions its call asked (``AnswerValidator`` has the rules). An answer
         becomes the call's outputs, and the call's outcome becomes ``Done``. The next ``resume`` then calls the nodes
-        that read those outputs. A run that ended early, even a cancelled one, takes answers the same way. An empty
-        mapping answers no call, so it changes nothing: the run is returned as it is.
+        that read those outputs. A run that ended early, even a cancelled one, takes answers the same way. A
+        ``declined`` run waits on nothing, so every answer to it is ``not_waiting``. An empty mapping answers no
+        call, so it changes nothing: the run is returned as it is.
 
         Args:
             waiting: The call to answer, as ``run.waiting`` lists it or by its id. Or a mapping of answers by waiting
@@ -445,14 +452,15 @@ class Run[C]:
         return run
 
     def decline(self, waiting: Waiting | str, /, *, reason: str | None = None) -> Run[C]:
-        """Declines to answer a waiting call, and fails the run. Nothing runs until the next ``resume``.
+        """Declines to answer a waiting call, and so ends the run for good.
 
-        The call fails as a call whose node raised does: it loses its outcome, and the run is ``failed``, with
-        ``answer_declined`` as its ``cause``. Nothing that reads the call's outputs is called. The next ``resume``
-        calls the node again, so it asks again. A decline is the host's latest act, so its problem becomes the run's
-        ``cause`` even when a ``resume`` had already ended the run ``failed`` or ``stopped``. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
-        ``run.decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``failed``, and its ``cause.ctx["reason"]``
-        is ``"Over budget"``.
+        The run is ``declined``, with ``answer_declined`` as its ``cause``. Every call made before keeps its
+        outcome, so ``run.results`` still shows what ran. But no call is made any more: nothing waits, ``resume``
+        and ``stream`` call no node, and a later ``answer`` or ``decline`` is refused as ``not_waiting``, as on a
+        complete run. To try again, start a new run with ``again`` or ``with_inputs``, which reuses what this one
+        ran and asks again. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
+        ``run.decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``declined``, and its
+        ``cause.ctx["reason"]`` is ``"Over budget"``.
 
         Args:
             waiting: The call to decline, as ``run.waiting`` lists it or by its id.
@@ -460,7 +468,7 @@ class Run[C]:
                 message doesn't quote it.
 
         Returns:
-            A new run with the call failed. The run you called it on is left as it was, so keep this one.
+            A new run, ``declined``. The run you called it on is left as it was, so keep this one.
 
         Raises:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
@@ -470,18 +478,20 @@ class Run[C]:
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
-        node, item_indexes, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
+        _, _, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         cause = run_problems.answer_declined(*loc, reason=reason)
         run = dataclasses.replace(
-            self._copy(share_outcomes=True), _last_resume=EndedEarly(status="failed", cause=cause)
+            self._copy(share_outcomes=True), _last_resume=EndedEarly(status="declined", cause=cause)
         )
-        path = node.node_path
-        run._outcomes[path] = {
-            indexes: outcome
-            for indexes, outcome in self._outcomes[path].items()
-            if indexes != item_indexes
-        }
+        # Nothing waits on a run that has ended: the declined question and every other one lose their outcome.
+        asked = {(node.node_path, indexes) for node, indexes, _ in self._waiting_outcomes()}
+        for path in {path for path, _ in asked}:
+            run._outcomes[path] = {
+                indexes: outcome
+                for indexes, outcome in self._outcomes[path].items()
+                if (path, indexes) not in asked
+            }
         return run
 
     @staticmethod
