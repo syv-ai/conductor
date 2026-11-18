@@ -668,6 +668,16 @@ What changes in how you work, before the name-by-name tables:
 - **A refused default of a table names its column.** `invalid_value_bound_default` and
   `output_default_bound_invalid` carry `ctx.column` for a table's default that a type refuses, as `invalid_value`,
   `invalid_input`, `invalid_edge_value` and `invalid_output` do. They left it out.
+- **A declaration problem says where it is in its `loc` (provisional).** A `NodeDeclarationError`'s problem has the
+  `loc` a graph problem has: `("fetch",)` for a fault in the node, such as an `async def`, an empty title, a missing
+  `Upgrade` or a node id used twice, and `("fetch", "url")` for one in a parameter or an output. A fault about no one
+  node keeps `()`: an id that isn't a valid name, two registries whose `context_type` differ, a `@host_type`
+  declared wrong, two classes under one type id. `NodeDeclarationError.where` is gone: it said the same as text,
+  like `("@node('fetch') on fetch", "url")`, for some faults only. The error's text is the `loc` written as a place,
+  with the node's version after its id, then the message: `fetch (version 2).url: the input has no type hint. ...`
+  (was `@node('fetch') on fetch: url: ...`). The version is in the text only, for every fault at a node; the text no
+  longer names the function, which the traceback's decorator line shows. A declaration problem's `loc[0]` is the node definition's id, such as `"upper"`, where a graph
+  problem's is a node's id in the graph record, such as `"u"`.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

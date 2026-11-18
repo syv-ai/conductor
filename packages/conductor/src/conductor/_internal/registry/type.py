@@ -303,7 +303,9 @@ class NodeRegistry[C]:
                         id=definition.id,
                         first=held.where_declared,
                         second=definition.where_declared,
-                    )
+                    ),
+                    definition.id,
+                    version=definition.version,
                 )
             nodes[definition.id] = with_defaults(
                 definition, tags=self._tags, category=self._category, extra=self._extra

@@ -768,8 +768,12 @@ def test_an_upgrade_renaming_a_field_a_version_does_not_declare_is_refused_where
         )(_newer_y)
 
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx) == ("upgrade_renames_unknown", {"old": old, "new": new})
-    assert str(raised.value).startswith("@node('two') on _newer_y: ")
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "upgrade_renames_unknown",
+        ("two",),
+        {"old": old, "new": new},
+    )
+    assert str(raised.value).startswith("two (version 2): ")
 
 
 def test_a_subgraph_upgrade_renaming_a_graph_input_it_does_not_have_is_refused():

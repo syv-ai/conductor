@@ -7,15 +7,13 @@ imported. ``@node``, ``subgraph``, ``@host_type``, ``Param`` and ``NodeRegistry`
 
     @node("fetch", title="Fetch", description="Fetches a page.")
     async def fetch(url: str) -> str: ...
-    # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def, not an async def. ...
-    # error.problems == [async_run()], whose type is "async_run"
+    # NodeDeclarationError: fetch (version 1): a node is a plain def, not an async def. ...
+    # error.problems[0] is async_run() at the loc ("fetch",)
 
-A kind is declared the same way as the other kinds of problem (see ``ProblemCatalogue.problem``). The difference is
-that a declaration problem has no ``loc``. Instead, the error's ``where`` says where the fault is when ``@node`` or
-``subgraph`` finds it while building the node: in the function or its signature, a hook, or a missing ``Upgrade``.
-It is like ``@node('fetch') on fetch`` and then the input's name, and the error's text puts it in front of the
-message. Other faults, such as an empty title or a node id used twice, have no ``where``; their message names the
-node, or nothing.
+A kind is declared the same way as the other kinds of problem (see ``ProblemCatalogue.problem``), with no part of
+``loc`` among its parameters: the code that finds the fault knows where it is, and puts it in the ``loc`` as it
+raises (``NodeDeclarationError(problem, *place)``). The ``loc`` is the node, then the parameter or output the fault
+is in, if it is in one. A fault that is about no one node, such as a ``@host_type``, has no ``loc``.
 
 Each kind's docstring is its entry on the problems page (``python -m conductor.about problems``). Its example runs
 after the setup at the top of that page. The example's last line, ``declaration_refused(lambda: ...)``, returns the
@@ -37,10 +35,11 @@ DECLARATION_PROBLEMS = ProblemCatalogue(
     "Declaring a node",
     "These are raised as `NodeDeclarationError` when the module that declares the node or the type is imported. "
     "`error.problems` has the one problem. Its `type` is the code, and its message is written for the node's "
-    "developer. When `@node` or `subgraph` finds the fault while building the node (in the function or its "
-    "signature, a hook, or a missing `Upgrade`), the error's text puts where it is in front of the message: "
-    "`@node('adds') on adds: value: ...`. Other faults, such as an empty title or a node id used twice, name the "
-    "node in their message, or nothing.",
+    "developer. `loc` is `(node_id,)` for a fault in the node, or `(node_id, name)` for one in a parameter or an "
+    "output, and the error's text puts it in front of the message, with the node's version: "
+    "`adds (version 1).value: ...`. It is `()` for a fault "
+    "that is about no one node: an id that isn't a valid name, two registries that disagree, or a type's own "
+    "declaration.",
 )
 
 

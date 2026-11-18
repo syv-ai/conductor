@@ -124,22 +124,46 @@ class Invoice(TypedDict):
 # -- declaration errors ------------------------------------------------------------------------
 
 
-def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_function():
+def test_a_wrong_declaration_is_a_type_error_with_a_code_at_the_node():
+    """A declaration problem's ``loc`` is the node, as a graph problem's is, and the error's text starts with it."""
+
     def bad(text: str):
         return text
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(bad)
     assert isinstance(raised.value, TypeError)
-    assert raised.value.problems[0].type == "output_without_type"
-    assert "@node('x') on bad" in str(raised.value)
+    assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
+        "output_without_type",
+        ("x",),
+    )
+    assert str(raised.value).startswith("x (version 1): the node has no return type.")
+
+
+def test_two_versions_of_a_node_with_the_same_fault_read_apart_by_their_version():
+    """The version is in the error's text after the node's id; the ``loc`` is the place alone."""
+
+    def bad(text: str):
+        return text
+
+    texts = []
+    for version in (1, 2):
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("x", title="X", description="For a test.", version=version)(bad)
+        assert raised.value.problems[0].loc == ("x",)
+        texts.append(str(raised.value).split(":")[0])
+    assert texts == ["x (version 1)", "x (version 2)"]
 
 
 def test_a_node_id_must_have_something_in_it_and_no_character_a_source_or_waiting_id_uses():
     for wrong in ("", "a.b", "a/b", "a@b", "a~b"):
         with pytest.raises(NodeDeclarationError) as raised:
             node(wrong, title="Wrong", description="For a test.")
-        assert raised.value.problems[0].type == "invalid_node_id"
+        # an id that isn't a name can't be a place, so the problem has no loc
+        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
+            "invalid_node_id",
+            (),
+        )
         assert "can't contain any of '.', '/', '@', '~', since" in raised.value.problems[0].msg
 
     def amount() -> int:
@@ -173,7 +197,10 @@ def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_
     ):
         with pytest.raises(NodeDeclarationError) as raised:
             declaration()
-        assert raised.value.problems[0].type == "empty_title_or_description"
+        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
+            "empty_title_or_description",
+            ("x",),
+        )
         assert f"('x') has an empty {empty}" in str(raised.value)
 
 
@@ -195,9 +222,11 @@ def test_an_async_function_is_refused():
     async def fetch(url: str) -> str:
         return url
 
-    with pytest.raises(NodeDeclarationError, match="@node\\('x'\\) on fetch") as raised:
+    with pytest.raises(
+        NodeDeclarationError, match=r"^x \(version 1\): a node is a plain def"
+    ) as raised:
         declared(fetch)
-    assert raised.value.problems[0].type == "async_run"
+    assert (raised.value.problems[0].type, raised.value.problems[0].loc) == ("async_run", ("x",))
 
 
 def test_a_default_its_type_cannot_read_fails_where_it_is_written():

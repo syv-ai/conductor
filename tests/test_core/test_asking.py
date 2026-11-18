@@ -2536,9 +2536,12 @@ def test_a_node_whose_own_body_raises_ask_without_declaring_asks_is_refused_wher
     for function in (reason, by_another_name, through_its_module, by_a_subclass):
         with pytest.raises(NodeDeclarationError) as raised:
             node("reason", title="Reason", description="For a test.")(function)
-        assert raised.value.problems[0].type == "ask_not_declared_in_source", function.__name__
+        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
+            "ask_not_declared_in_source",
+            ("reason",),
+        ), function.__name__
         assert str(raised.value) == (
-            f"@node('reason') on {function.__name__}: the function raises Ask, but its @node doesn't say it may. "
+            "reason (version 1): the function raises Ask, but its @node doesn't say it may. "
             "Add asks=True to its @node."
         )
         assert node("reason", title="Reason", description="For a test.", asks=True)(function).asks

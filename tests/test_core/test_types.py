@@ -195,11 +195,11 @@ def test_a_widget_with_no_json_form_is_a_declaration_problem_naming_the_field() 
 
     with pytest.raises(
         NodeDeclarationError,
-        match=r"@node\('pick'\) on .*pick: value: the widget Picker has a value that can't be written as JSON",
+        match=r"^pick \(version 1\)\.value: the widget Picker has a value that can't be written as JSON",
     ) as raised:
         node("pick", title="Pick", description="For a test.")(pick)
-    assert [(p.type, p.ctx["widget"]) for p in raised.value.problems] == [
-        ("widget_without_json_form", "Picker")
+    assert [(p.type, p.loc, p.ctx["widget"]) for p in raised.value.problems] == [
+        ("widget_without_json_form", ("pick", "value"), "Picker")
     ]
 
 

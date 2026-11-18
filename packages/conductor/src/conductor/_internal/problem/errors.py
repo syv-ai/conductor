@@ -52,6 +52,8 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from pydantic_core import ErrorDetails, PydanticCustomError, PydanticKnownError
 from pydantic_core.core_schema import ErrorType
 
+from conductor._internal.base import place_text
+
 from .run_problems import external_failed, node_error
 from .type import Problem
 
@@ -185,33 +187,53 @@ class NodeDeclarationError(ConductorError, TypeError):
 
         @node("fetch", title="Fetch", description="Fetches a page.")
         async def fetch(url: str) -> str: ...
-        # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def, not an async def. For slow calls, ...
+        # NodeDeclarationError: fetch (version 1): a node is a plain def, not an async def. For slow calls, ...
 
     ``@node``, ``subgraph``, ``Param``, ``@host_type`` and ``NodeRegistry`` raise it. Only the node's developer can
     fix it, in code, so it is an exception rather than one of a graph's problems. Its code, like ``async_run``, is
     ``error.problems[0].type``, and it stays the same between versions.
 
+    The problem's ``loc`` says where the fault is, as a graph problem's does: ``("fetch",)`` for the node, and
+    ``("fetch", "url")`` for one of its inputs or outputs. It is ``()`` for a fault that is about no one node, such as
+    a ``@host_type`` or two registries that disagree. The error's text is the ``loc``, written as a place is, with
+    the node's version after its id, like ``fetch (version 2).url``, and then the message. So two versions of one node
+    read apart.
+
+    ``loc[0]`` is the node definition's id, such as ``"upper"``, where a graph problem's is a node's id in the graph
+    record. The version is in the text only: ``loc`` is the place, as a graph problem's is. The text doesn't name the
+    function; the traceback's decorator line shows it.
+
     Attributes:
         problems: One problem, whose ``type`` is the code, like ``async_run`` above. The codes are in
             ``DECLARATION_PROBLEMS``, and ``python -m conductor.about problems`` has each with an example.
-        where: Where the fault is, outermost first, when ``@node`` or ``subgraph`` finds it while building the node:
-            in the function or its signature, a hook, or a missing ``Upgrade``. It starts with the node, like
-            ``"@node('fetch') on fetch"``, and for a fault in one input it then names the input. The error's text
-            is these and the problem's message, joined by ``": "``. Other faults, such as an empty title or a node
-            id used twice, have no ``where``; their message names the node, or nothing.
     """
 
-    def __init__(self, problem: Problem, *where: str) -> None:
-        super().__init__([problem], ": ".join([*where, problem.msg]))
-        self.where = where
+    def __init__(self, problem: Problem, *place: str, version: int | None = None) -> None:
+        """Makes the error from its problem, with ``place`` in front of the problem's ``loc``.
 
-    def within(self, place: str) -> NodeDeclarationError:
-        """Returns this error with ``place`` added in front of ``where``.
-
-        A fault found in one input is raised first with the input's name. The code that checks the whole node then
-        adds the node in front, like ``@node('fetch') on fetch``.
+        Args:
+            problem: The fault, as its kind makes it.
+            place: Where it is, outermost first, when the code that finds it knows: a node's id, a field's name.
+            version: The node's version, given with the node's id. ``None`` while the fault is placed only in a
+                field, before the code that checks the whole node puts the node in front.
         """
-        return NodeDeclarationError(self.problems[0], place, *self.where)
+        located = problem.model_copy(update={"loc": (*place, *problem.loc)})
+        text = located.msg
+        if located.loc:
+            # a declaration's loc is a node's id, then maybe one of its fields, as a graph problem names a place
+            node, *field = located.loc
+            named = str(node) if version is None else f"{node} (version {version})"
+            text = f"{place_text((named,), *map(str, field))}: {located.msg}"
+        super().__init__([located], text)
+
+    def within(self, place: str, version: int | None = None) -> NodeDeclarationError:
+        """Returns this error with ``place`` in front of its problem's ``loc``.
+
+        A fault found in one input is raised first with the input's name, like ``("url",)``. The code that checks the
+        whole node then puts the node's id in front, with its version: ``("fetch", "url")``, written
+        ``fetch (version 1).url``.
+        """
+        return NodeDeclarationError(self.problems[0], place, version=version)
 
 
 class InvalidCallError(ConductorError, ValueError):

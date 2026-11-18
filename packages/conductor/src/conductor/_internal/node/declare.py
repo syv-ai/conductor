@@ -193,9 +193,9 @@ def node(
             if replaces is not None:
                 _raise_if_upgrade_does_not_fit(replaces, definition)
             return definition
-        # Each fault names the node and the function it is on.
+        # Each fault is placed at the node's id, with its version.
         except NodeDeclarationError as error:
-            raise error.within(f"@node({id!r}) on {target.__name__}") from None
+            raise error.within(id, number) from None
 
     return make
 
@@ -254,7 +254,7 @@ def subgraph(
             try:
                 _raise_if_upgrade_does_not_fit(replaces, definition)
             except NodeDeclarationError as error:
-                raise error.within(f"subgraph({id!r})") from None
+                raise error.within(id, number) from None
         return definition
 
     return make
@@ -285,41 +285,51 @@ def _version_number(
 
     Raises:
         NodeDeclarationError: The id isn't a valid node id, the title or description is empty, or ``replaces``,
-            ``upgrade`` and ``version`` don't fit together.
+            ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id, except for an id that isn't valid,
+            which can't name a place.
     """
     if not is_name(id):
         raise NodeDeclarationError(
             declaration_problems.invalid_node_id(declared_with=declared_with, id=id)
         )
-    if not title.strip() or not description.strip():
-        raise NodeDeclarationError(
-            declaration_problems.empty_title_or_description(
-                declared_with=declared_with,
-                id=id,
-                empty="title" if not title.strip() else "description",
-            )
-        )
-    if upgrade is not None and replaces is None:
-        raise NodeDeclarationError(
-            declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id)
-        )
-    if replaces is not None and replaces.id != id:
-        raise NodeDeclarationError(
-            declaration_problems.replaces_another_node(
-                declared_with=declared_with, id=id, replaces=repr(replaces)
-            )
-        )
+    # the version comes first, so each fault below names it
     if version is not None:
         number = version
     elif replaces is not None:
         number = replaces.version + 1
     else:
         number = 1
+    if not title.strip() or not description.strip():
+        raise NodeDeclarationError(
+            declaration_problems.empty_title_or_description(
+                declared_with=declared_with,
+                id=id,
+                empty="title" if not title.strip() else "description",
+            ),
+            id,
+            version=number,
+        )
+    if upgrade is not None and replaces is None:
+        raise NodeDeclarationError(
+            declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id),
+            id,
+            version=number,
+        )
+    if replaces is not None and replaces.id != id:
+        raise NodeDeclarationError(
+            declaration_problems.replaces_another_node(
+                declared_with=declared_with, id=id, replaces=repr(replaces)
+            ),
+            id,
+            version=number,
+        )
     if replaces is not None and number <= replaces.version:
         raise NodeDeclarationError(
             declaration_problems.version_not_after(
                 declared_with=declared_with, id=id, version=number, replaced=replaces.version
-            )
+            ),
+            id,
+            version=number,
         )
     return number
 
