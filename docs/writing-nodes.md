@@ -585,7 +585,7 @@ run = Run.from_json(stored, graph)  # later, with the same graph compiled again
 (waiting,) = run.waiting
 print([question.name for question in waiting.questions])  # ['approved', 'owner', 'note']
 
-run = run.with_answers(waiting, {"approved": True, "owner": "ida"}).resume()
+run = run.with_answers(waiting, {"approved": True, "owner": "ida"}).resume()  # keep the run it returns
 print(run.outputs)  # {'approved': True, 'note': None, 'owner': 'ida'}
 ```
 

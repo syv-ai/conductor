@@ -190,7 +190,7 @@ Days later, in another process, compile the same record, load the run and answer
 
 ```python
 run = Run.from_json(saved, Graph.compile(record, registry))
-run = run.with_answers(run.waiting[0], True).resume()
+run = run.with_answers(run.waiting[0], True).resume()  # keep the run it returns
 
 print(run.status)   # complete
 print(run.outputs)  # {'summary': '2 of 2 approved'}

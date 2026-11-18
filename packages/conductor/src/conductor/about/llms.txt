@@ -1005,7 +1005,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 ### Running
 
-**A run never changes.** Every method that changes a run returns a new `Run`, and the run it is called on is left as it was. Each `with_...` method returns the run with one change and calls no node: `with_answers`, `with_decline`, `with_inputs`, `with_forgotten` and `with_max_items`. `resume` and `again` return the run after their calls. So keep what they return: `run = run.with_answers(waiting, True).resume()`. Calling `run.resume()` alone leaves `run` as it was. A run's attributes can't be set (`dataclasses.FrozenInstanceError`), and `run.inputs` is a read-only mapping.
+**A run never changes.** Every method that changes a run returns a new `Run`, and the run it is called on is left as it was. Each `with_...` method returns the run with one change and calls no node: `with_answers`, `with_decline`, `with_inputs`, `with_forgotten` and `with_max_items`. `resume` and `again` return the run after their calls. So keep what they return: `run = run.with_answers(waiting, True).resume()`. A bare `run.resume()` calls the nodes and then loses the run it returns, with no error, and `run` is left as it was: write `run = run.resume()`. A run's attributes can't be set (`dataclasses.FrozenInstanceError`), and `run.inputs` is a read-only mapping.
 
 **Starting a run.** A graph's inputs are given as one mapping, by name: `graph.run({"text": "a b"})`. Every other argument is a setting of the call, by keyword.
 
