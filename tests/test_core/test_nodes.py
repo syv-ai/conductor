@@ -11,10 +11,11 @@ import json
 import logging
 import typing
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from dataclasses import FrozenInstanceError, dataclass
+from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -2456,6 +2457,146 @@ def test_a_default_or_a_choice_that_is_not_finite_is_refused_where_the_node_is_d
         "choices_invalid_not_a_value",
         "choices_invalid_not_a_value",
     ]
+
+
+@pytest.mark.parametrize(
+    ("hint", "default"),
+    [
+        (int, "3"),
+        (int, 5.0),
+        (bool, 1),
+        (float, Decimal("1.5")),
+        (datetime.date, datetime.datetime(2026, 1, 2)),
+    ],
+    ids=["text-for-int", "float-for-int", "int-for-bool", "decimal-for-float", "datetime-for-date"],
+)
+def test_a_default_is_read_strictly_as_its_json_so_one_a_graph_input_would_refuse_is_refused_at_node(
+    hint: Any, default: Any
+) -> None:
+    """A node's own default is read as a caller's graph input and a record's constant are, from its JSON form: a
+    graph record writes it and reads it back, so it reads the same from either."""
+
+    def f(x: Any = default) -> int:
+        return 1
+
+    f.__annotations__["x"] = hint
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(f)
+    assert raised.value.problems[0].type == "default_invalid"
+
+
+def test_a_default_given_as_its_json_is_read_by_its_type() -> None:
+    def f(day: datetime.date = "2026-01-02", n: float = 1) -> str:  # type: ignore[assignment]
+        return f"{day!r} {n!r}"
+
+    assert compiled_graph(declared(f)).run().outputs == {"result": "datetime.date(2026, 1, 2) 1.0"}
+
+
+class _Tagged(TypedDict):
+    tags: frozenset[str]
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        set[int],
+        frozenset[str],
+        set,
+        list[set[int]],
+        Series[frozenset[int]],
+        _Tagged,
+        Set[int],
+        int | set[str],
+    ],
+    ids=[
+        "set",
+        "frozenset",
+        "bare-set",
+        "in-a-list",
+        "in-a-series",
+        "in-a-typed-dict",
+        "abc-set",
+        "in-a-union",
+    ],
+)
+def test_a_set_anywhere_in_an_input_or_output_type_is_refused_at_node(hint: Any) -> None:
+    """A set has no order, so it has no JSON form that keeps it the same, and no default of a set type could be
+    read from one."""
+
+    def takes(x: Any) -> int:
+        return 1
+
+    def returns() -> Any:
+        return []
+
+    takes.__annotations__["x"] = hint
+    returns.__annotations__["return"] = hint
+    for wrong in (takes, returns):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == "type_not_supported_set"
+
+
+@host_type("tag-holder", title="Tag holder")
+class _TagHolder(BaseModel):
+    tags: set[str]
+
+
+def test_a_set_field_of_a_hosts_own_model_is_its_own_so_an_edge_may_read_it_and_a_mismatch_is_a_problem() -> (
+    None
+):
+    """The set rule doesn't walk into a host's class, so an edge that names its set field compiles: into a type
+    variable it runs, and into an input that doesn't fit it is ``type_mismatch``, never an exception."""
+
+    @node("hold", title="Hold", description="For a test.")
+    def hold() -> _TagHolder:
+        return _TagHolder(tags={"a"})
+
+    @node("same-tags", title="Same tags", description="For a test.")
+    def same_tags[V](value: V) -> V:
+        return value
+
+    @node("one-text", title="One text", description="For a test.")
+    def one_text(tags: str) -> str:
+        return tags
+
+    registry = registry_of(hold, same_tags, one_text)
+    bound = Graph.compile(
+        make_graph(hold, same_tags, edges=[("hold.result.tags", "same-tags.value")]), registry
+    )
+    assert bound.problems == [] and bound.run().outputs == {"result": {"a"}}
+    mismatched = Graph.compile(
+        make_graph(hold, one_text, edges=[("hold.result.tags", "one-text.tags")]), registry
+    )
+    assert [problem.type for problem in mismatched.problems] == ["type_mismatch"]
+
+
+_Bag = TypeVar("_Bag", bound=frozenset[int])
+
+
+def test_a_set_in_a_type_variables_bound_or_in_an_input_a_hook_adds_is_refused_as_at_node() -> None:
+    """A variable no edge fills in becomes its bound, and a hook's field is held to ``@node``'s rules."""
+
+    def bagged(x: _Bag) -> _Bag:
+        return x
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(bagged)
+    assert raised.value.problems[0].type == "type_not_supported_set"
+
+    def adds() -> dict[str, Any]:
+        return {"tags": set[str]}
+
+    def tagged(**added: Any) -> int:
+        return 1
+
+    (problem,) = compiled_graph(
+        node("tagged", title="Tagged", description="For a test.", compute_added_inputs=adds)(tagged)
+    ).problems
+    assert (problem.type, problem.ctx["error"]) == (
+        "compute_hook_returned_invalid",
+        "type_not_supported_set",
+    )
 
 
 @pytest.mark.parametrize(

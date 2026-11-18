@@ -1181,6 +1181,28 @@ def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuse
     ]
 
 
+@node("first-of-whole", title="First of whole", description="For a test.")
+def _first_of_whole(first: T, second: T = 5.0) -> T:  # type: ignore[assignment]
+    return first
+
+
+@node("whole-3", title="Whole 3", description="For a test.")
+def _whole_3() -> int:
+    return 3
+
+
+def test_a_declared_default_is_read_strictly_by_the_type_the_edges_bind():
+    """``5.0`` fits ``T`` alone, but once an edge binds ``T`` to ``int`` it is read as its JSON is, where ``5.0``
+    is no ``int``."""
+    graph = Graph.compile(
+        make_graph(_whole_3, _first_of_whole, edges=[("whole-3.result", "first-of-whole.first")]),
+        registry_of(_whole_3, _first_of_whole),
+    )
+    assert [(found.type, found.loc) for found in graph.problems] == [
+        ("invalid_value_bound_default", ("first-of-whole", "second")),
+    ]
+
+
 @node("same-or-blank", title="Same or blank", description="For a test.")
 def _same_or_blank(value: T = None) -> T:  # type: ignore[assignment]  # None fits T until an edge binds T
     return value
@@ -1691,12 +1713,6 @@ def test_a_set_inside_a_dataclass_given_is_refused_as_set_has_no_order():
         _given(Tagged(tags={"pear", "apple"}), Tagged)  # type: ignore[arg-type]
 
     assert refused.value.problems[0].ctx["errors"][0]["type"] == "set_has_no_order"
-
-
-def test_a_set_typed_input_takes_a_list_and_refuses_a_set():
-    assert _given([2, 1], set[int]) == {1, 2}
-    with pytest.raises(InvalidCallError):
-        _given({1, 2}, set[int])
 
 
 @pytest.mark.parametrize(

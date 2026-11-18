@@ -1195,6 +1195,30 @@ def type_not_supported(*, type: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
+def type_not_supported_set(*, type: str) -> str:
+    """An input's or output's type is a set, or holds one, like ``set[str]``, ``frozenset[int]`` or
+    ``list[set[str]]``.
+
+    A set has no order, so its items could come in a different order each time, and the same set would be written
+    as a different JSON text. Every value that enters a graph is read from its JSON form, a node's own default
+    included, and a set has none that keeps it the same.
+
+    To fix it, declare a ``list`` or a ``tuple`` instead, and make a set of it inside the node where you need one.
+
+    Args:
+        type: The set type, as its developer wrote it.
+
+    Example:
+        def distinct(words: set[str]) -> int:
+            return len(words)
+
+
+        declaration_refused(lambda: node("distinct", title="Distinct", description="Counts the distinct words.")(distinct))
+    """
+    return f"a set has no order, so {type} has no JSON form that keeps it the same. Declare a list or a tuple instead."
+
+
+@DECLARATION_PROBLEMS.problem
 def host_type_not_supported(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 

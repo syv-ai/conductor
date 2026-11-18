@@ -1,9 +1,9 @@
 """Reading a value that enters a graph, where JSON could have come instead.
 
-A caller's graph inputs and a person's answers may come from Python or over HTTP, and a graph record's constants
-and defaults are JSON, and all must read the same. So such a value is read strictly, the way its JSON text would be
-(``read_as_json``): ``True`` is a ``bool`` and ``"yes"`` is refused, ``3`` is an ``int`` and ``"3"`` is refused,
-and a ``date`` may be given as a ``date`` or as its ISO text. A saved run is read laxly, since conductor wrote it,
+A caller's graph inputs and a person's answers may come from Python or over HTTP, a graph record's constants
+and defaults are JSON, and a node's own default is written into a record, and all must read the same. So such a
+value is read strictly, the way its JSON text would be (``read_as_json``): ``True`` is a ``bool`` and ``"yes"`` is
+refused, ``3`` is an ``int`` and ``"3"`` is refused, and a ``date`` may be given as a ``date`` or as its ISO text. A saved run is read laxly, since conductor wrote it,
 and what reads strictly here reads the same there.
 
 Two things have no JSON form here. A set has no order (``set_has_no_order``), and a frame is a value only where

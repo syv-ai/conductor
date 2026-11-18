@@ -109,7 +109,8 @@ def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]
     """Yields ``hint`` and every hint inside it, as its author wrote them.
 
     It walks a union's members, a generic's arguments, ``Annotated``'s type, what a ``type X = ...`` alias stands
-    for, and a ``TypedDict``'s fields, a generic one's too. A host's own model or dataclass is its own, so its fields
+    for, a type variable's bound, which a variable no edge fills in becomes, and a ``TypedDict``'s fields, a generic
+    one's too. A host's own model or dataclass is its own, so its fields
     are not walked. ``list[Table[Row]] | None`` yields itself, ``list[Table[Row]]``, ``Table[Row]``, ``Row``, each of
     ``Row``'s field hints and ``None``.
 
@@ -124,6 +125,8 @@ def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]
     """
     yield hint
     parts: list[Any] = list(get_args(hint))
+    if isinstance(hint, TypeVar) and hint.__bound__ is not None:
+        parts.append(hint.__bound__)
     record = get_origin(hint) or hint
     if (is_alias(hint) or typing.is_typeddict(record)) and id(record) not in walked:
         walked |= {id(record)}

@@ -8,29 +8,33 @@ A type variable makes this happen twice. In ``first(one: T, other: T = 0)``, the
 its own. Once a graph wires ``one`` from an output of type ``str``, ``T`` is ``str``, and ``0`` no longer fits. So
 the default is checked again when the graph is compiled, and the graph gets an ``invalid_value`` problem.
 
-A default is checked as a Python value, so ``1`` for a ``float`` becomes ``1.0``. The defaults written in a graph
-record are JSON, and ``ConstantValidator`` in ``graph/`` checks those.
+A default is read strictly, as its JSON text would be (``read_as_json``), the way a caller's graph input and a
+graph record's constant are read. A default is written into a graph record and read back from it, so it must read
+the same from either. So ``"3"`` and ``5.0`` are refused for an ``int``, ``1`` for a ``bool`` and a ``datetime``
+for a ``date``, and ``1`` for a ``float`` becomes ``1.0``.
+
+A field's type may hold no set, at any depth: a set has no order, so it has no JSON form a default could be written
+in and read back by. ``list`` or ``tuple`` is declared instead.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from typing import Any, TypeVar, get_args, get_origin
 
 from pydantic import ValidationError
-from pydantic_core import PydanticSerializationError
+from pydantic_core import PydanticCustomError
 
-from conductor._internal.base import REQUIRED, SKIPPED, finite_json_text
+from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
     compile_problems,
-    conductor_error,
     declaration_problems,
 )
 from conductor._internal.table import Table, check_table_row
-from conductor._internal.types import Type, hint_parts
-from conductor._internal.validation import Validator
+from conductor._internal.types import Type, as_written, hint_parts
+from conductor._internal.validation import Validator, read_as_json
 
 from .type import Field
 
@@ -46,14 +50,18 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
         is_output: Whether the field is an output.
 
     Raises:
-        NodeDeclarationError: The hint is one ``Field`` refuses, a ``Table`` in it has a row type that names no
-            columns (``table_row_not_a_typed_dict``), or the type refuses the default, or the default can't be
-            written as JSON (``default_invalid``). It names the field.
+        NodeDeclarationError: The hint is one ``Field`` refuses, it holds a set (``type_not_supported_set``), a
+            ``Table`` in it has a row type that names no columns (``table_row_not_a_typed_dict``), or the type
+            refuses the default read as its JSON (``default_invalid``). It names the field.
     """
     try:
         for part in hint_parts(hint):
             if get_origin(part) is Table:
                 check_table_row(*get_args(part))
+            elif _is_a_set(part):
+                raise NodeDeclarationError(
+                    declaration_problems.type_not_supported_set(type=as_written(part))
+                )
     except NodeDeclarationError as error:
         raise error.within(name) from None
     whole = Field(name, hint, is_output=is_output).whole
@@ -194,31 +202,33 @@ class BoundDefaultValidator(Validator[Field, Field]):
             ) from None
 
 
+def _is_a_set(hint: Any) -> bool:
+    """Whether ``hint`` is a set type: ``set``, ``frozenset``, ``collections.abc.Set`` or a subclass of one, bare or
+    with its item type."""
+    origin = get_origin(hint) or hint
+    return isinstance(origin, type) and issubclass(origin, Set)
+
+
 def _read_default(whole: Type, default: Any) -> Any:
-    """Checks a default against a field's type, and returns it converted to that type.
+    """Reads a default by a field's type strictly, as its JSON text would be read, and returns what it reads.
 
     ``REQUIRED`` and ``SKIPPED`` aren't values, so they are returned as they are. Any other default, ``None``
-    included, must be a value of the type. It must also be one that can be written as JSON, since an editor shows
-    it and a saved graph stores it.
+    included, is read as a caller's graph input is (``read_as_json``): an editor shows it and a saved graph stores
+    it as JSON, and the graph reads it back from there.
 
     Args:
         whole: The type of the field's whole value. For a ``Series[int]``, that is the ``Series``, not ``int``.
-        default: The default to check.
+        default: The default to read.
 
     Raises:
-        ValidationError: The type refuses the default, the converted value can't be written as JSON
-            (``no_json_form``), or a number in it isn't finite (``finite_number``): a graph record would write it,
-            and no value that enters may hold one.
+        ValidationError: The type refuses the default, the default can't be written as JSON (``no_json_form``), or
+            a number in it isn't finite (``finite_number``).
     """
     if default is REQUIRED or default is SKIPPED:
         return default
-    read = whole.argument_validator.validate_python(default)
-    # a default is written into a graph record, which reads it as it reads any value that enters
     try:
-        finite_json_text(whole.serializer.to_python(read, mode="json"), whole.id)
-    except (PydanticSerializationError, UnicodeDecodeError):
-        no_json_form = conductor_error("no_json_form", "it can't be written as JSON")
+        return read_as_json(whole, whole.argument_validator, default)
+    except PydanticCustomError as refused:  # no JSON form, such as an object held in memory
         raise ValidationError.from_exception_data(
-            whole.id, [{"type": no_json_form, "loc": (), "input": default}]
+            whole.id, [{"type": refused, "loc": (), "input": default}]
         ) from None
-    return read

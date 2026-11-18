@@ -21,7 +21,8 @@ declarations are checked where the type is declared: ``Param`` checks its choice
 (``types/param.py``), and ``@host_type`` checks its arguments.
 
 What validators share besides ``Validator`` is in ``json.py``: the one strict reader of a value that enters a
-graph, a caller's input, a person's answer or a record's constant or default (``read_as_json``).
+graph, a caller's input, a person's answer, a record's constant or default, or a node's own default
+(``read_as_json``).
 """
 
 from .json import json_data, read_as_json, set_has_no_order

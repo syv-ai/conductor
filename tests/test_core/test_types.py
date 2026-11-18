@@ -255,8 +255,8 @@ def test_a_list_of_whole_numbers_can_be_wired_into_a_list_of_numbers_but_never_a
 
 @pytest.mark.parametrize(
     "takes",
-    [tuple[str, ...], set[str], int | list[str], list[str] | None],
-    ids=["tuple", "set", "a union with a list", "an optional list"],
+    [tuple[str, ...], int | list[str], list[str] | None],
+    ids=["tuple", "a union with a list", "an optional list"],
 )
 def test_a_list_into_an_input_that_takes_a_list_is_the_plain_mismatch_as_a_call_agrees(
     takes: Any,
