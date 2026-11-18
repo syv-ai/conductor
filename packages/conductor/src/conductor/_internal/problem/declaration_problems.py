@@ -125,7 +125,9 @@ def param_limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
     - ``pattern`` on texts.
 
     A table takes only ``min_length`` and ``max_length``, which count its rows. The same goes for a ``Param`` on a
-    field of a model that a node takes.
+    field of a model that a node takes. And pydantic has no rule for annotated-types' ``Timezone`` on any type: it
+    builds the type and never checks it. For a ``datetime`` with a timezone, take pydantic's ``AwareDatetime``, and
+    ``NaiveDatetime`` for one without.
 
     To fix it, use only limits pydantic knows for the type.
 

@@ -190,7 +190,7 @@ class Param:
         if unknown_limits and functions <= len(unknown_limits):
             raise NodeDeclarationError(
                 declaration_problems.param_limit_not_supported(
-                    unknown_limits=unknown_limits, type=_as_written(source)
+                    unknown_limits=unknown_limits, type=as_written(source)
                 )
             )
         if self.choices is None:
@@ -201,7 +201,7 @@ class Param:
         if literals and len(literals) + (type(None) in members) == len(members):
             raise NodeDeclarationError(
                 declaration_problems.choices_on_a_literal(
-                    type=_as_written(literal_classes(union_of(literals)))
+                    type=as_written(literal_classes(union_of(literals)))
                 )
             )
         if literals:
@@ -277,7 +277,7 @@ _SCHEMA_ENUM = "conductor_enum"
 _NO_PARAM = Param()
 
 
-def _as_written(hint: Any) -> str:
+def as_written(hint: Any) -> str:
     """Returns ``hint`` as its developer wrote it: ``str`` for a class, ``str | None`` for a union."""
     return hint.__name__ if isinstance(hint, type) else str(hint)
 

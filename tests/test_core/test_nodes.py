@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pytest
-from annotated_types import Ge, Interval, Len, MaxLen, MinLen
+from annotated_types import Ge, Interval, Len, MaxLen, MinLen, Timezone
 from conductor import (
     SKIPPED,
     Choice,
@@ -323,7 +323,7 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
 
 def test_an_annotated_types_limit_with_no_rule_for_its_type_is_refused_as_a_param_limit_is():
     """Pydantic builds ``Annotated[int, MaxLen(3)]`` and then refuses every value, so the graph would compile and
-    never run."""
+    never run. It builds a ``Timezone`` and never checks it, so a naive datetime would pass."""
 
     def on_number(x: Annotated[int, MaxLen(3)]) -> int:
         return x
@@ -334,7 +334,13 @@ def test_an_annotated_types_limit_with_no_rule_for_its_type_is_refused_as_a_para
     def on_text_or_none(x: Annotated[str, Interval(ge=0)] | None = None) -> str:
         return ""
 
-    for wrong in (on_number, on_items, on_text_or_none):
+    def on_a_timezone(x: Annotated[datetime.datetime, Timezone(...)]) -> str:
+        return ""
+
+    def on_a_listed_timezone(x: list[Annotated[datetime.datetime, Timezone("UTC")]]) -> str:
+        return ""
+
+    for wrong in (on_number, on_items, on_text_or_none, on_a_timezone, on_a_listed_timezone):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.problems[0].type == "param_limit_not_supported"

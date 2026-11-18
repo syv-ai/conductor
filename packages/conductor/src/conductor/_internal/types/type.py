@@ -34,6 +34,7 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
+from annotated_types import Timezone
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
@@ -67,7 +68,7 @@ from .hint import (
     union_of,
 )
 from .host_type import NAMES, OWN_IDS, declaration_of
-from .param import Param, split_hint
+from .param import Param, as_written, split_hint
 from .rules import with_rules
 
 #: Generic classes whose arguments are each read as a ``Type`` too, so conductor's rules reach their items.
@@ -494,6 +495,13 @@ class Type:
             raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
         if pydantic_fields:
             raise NodeDeclarationError(declaration_problems.pydantic_field_in_hint())
+        # pydantic builds a datetime with annotated-types' Timezone and never checks it, so it would hold nothing
+        if any(isinstance(other, Timezone) for other in others):
+            raise NodeDeclarationError(
+                declaration_problems.param_limit_not_supported(
+                    unknown_limits=["Timezone"], type=as_written(bare)
+                )
+            )
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
