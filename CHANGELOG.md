@@ -267,7 +267,10 @@ What changes in how you work, before the name-by-name tables:
   and the declaration code `not_for_a_graph` is gone.
 - **A node's title and description are not empty.** `@node`, `@registry.node`, `subgraph` and
   `registry.subgraph` raise `NodeDeclarationError` with the code `empty_title_or_description` for a
-  `title` or `description` that is empty or only spaces; the message names the node and which one.
+  `title` or `description` that is empty, only spaces or not text [provisional]; the message names the node and
+  which one. An id that isn't text is `invalid_node_id`, and a `version=` that isn't a whole number of 1 or more
+  (`0`, `-3`, `True`, `"2"`, `1.5`) is the new code `invalid_version` [provisional], where each was taken or
+  raised Python's own `AttributeError` or `TypeError`.
 - **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
   that node once per item, and everything after it; the node never sees the difference. A
   `Series[X]` input collects every item in one call, and a `Table[R]` input collects records into a

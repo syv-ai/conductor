@@ -31,7 +31,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import Field as DataclassField
 from inspect import Parameter
 from types import MappingProxyType
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import JsonValue
 
@@ -284,13 +284,23 @@ def _version_number(
         ``version`` if it is given. Otherwise one more than the version replaced, or 1 for a first version.
 
     Raises:
-        NodeDeclarationError: The id isn't a valid node id, the title or description is empty, or ``replaces``,
+        NodeDeclarationError: The id isn't a valid node id, the version isn't a whole number of 1 or more, the
+            title or description is empty or isn't text, or ``replaces``,
             ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id, except for an id that isn't valid,
             which can't name a place.
     """
-    if not is_name(id):
+    # These are a node author's arguments, which a type checker may not have seen, so their types are checked here.
+    if not isinstance(id, str) or not is_name(id):
         raise NodeDeclarationError(
             declaration_problems.invalid_node_id(declared_with=declared_with, id=id)
+        )
+    # True is an int to Python, and never a version
+    if version is not None and (type(version) is not int or version < 1):
+        raise NodeDeclarationError(
+            declaration_problems.invalid_version(
+                declared_with=declared_with, id=id, version=repr(version)
+            ),
+            id,
         )
     # the version comes first, so each fault below names it
     if version is not None:
@@ -299,16 +309,19 @@ def _version_number(
         number = replaces.version + 1
     else:
         number = 1
-    if not title.strip() or not description.strip():
-        raise NodeDeclarationError(
-            declaration_problems.empty_title_or_description(
-                declared_with=declared_with,
-                id=id,
-                empty="title" if not title.strip() else "description",
-            ),
-            id,
-            version=number,
-        )
+    named: tuple[tuple[Literal["title", "description"], str], ...] = (
+        ("title", title),
+        ("description", description),
+    )
+    for name, text in named:
+        if not isinstance(text, str) or not text.strip():
+            raise NodeDeclarationError(
+                declaration_problems.empty_title_or_description(
+                    declared_with=declared_with, id=id, empty=name
+                ),
+                id,
+                version=number,
+            )
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(
             declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id),

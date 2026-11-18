@@ -201,7 +201,48 @@ def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_
             "empty_title_or_description",
             ("x",),
         )
-        assert f"('x') has an empty {empty}" in str(raised.value)
+        assert f"('x') has no {empty}" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("title", "description", "not_text"),
+    [(5, "Does something.", "title"), ("Something", None, "description")],
+)
+def test_a_title_or_description_that_isnt_text_is_refused_as_an_empty_one_is(
+    title, description, not_text
+):
+    for declaration in (
+        lambda: node("x", title=title, description=description),
+        lambda: subgraph("x", title=title, description=description),
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declaration()
+        assert (raised.value.problems[0].type, raised.value.problems[0].ctx["empty"]) == (
+            "empty_title_or_description",
+            not_text,
+        )
+
+
+@pytest.mark.parametrize("version", [0, -3, True, "2", 1.5])
+def test_a_version_that_isnt_a_whole_number_of_one_or_more_is_refused_where_the_node_is_declared(
+    version,
+):
+    for declaration in (
+        lambda: node("x", title="X", description="For a test.", version=version),
+        lambda: subgraph("x", title="X", description="For a test.", version=version),
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declaration()
+        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
+            "invalid_version",
+            ("x",),
+        )
+
+
+def test_a_node_id_that_isnt_text_is_an_invalid_node_id():
+    with pytest.raises(NodeDeclarationError) as raised:
+        node(5, title="Five", description="For a test.")  # type: ignore[arg-type]
+    assert raised.value.problems[0].type == "invalid_node_id"
 
 
 def test_a_node_id_in_a_record_with_a_tilde_is_refused_by_the_record_validator():

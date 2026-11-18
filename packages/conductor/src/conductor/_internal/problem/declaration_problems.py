@@ -647,16 +647,16 @@ def duplicate_type_id(*, id: str, first: str, second: str) -> str:
 def empty_title_or_description(
     *, declared_with: str, id: str, empty: Literal["title", "description"]
 ) -> str:
-    """A node is declared with an empty title or description.
+    """A node is declared with a title or description that is empty, or that isn't text.
 
     The title and the description are what a person reads about the node in a palette.
 
-    To fix it, give the node both.
+    To fix it, give the node both, as text.
 
     Args:
         declared_with: ``@node`` or ``subgraph``.
         id: The node's id.
-        empty: Which of the two is empty.
+        empty: Which of the two is empty or isn't text.
 
     Example:
         def whisper(text: str) -> str:
@@ -665,7 +665,7 @@ def empty_title_or_description(
 
         declaration_refused(lambda: node("whisper", title="Whisper", description="")(whisper))
     """
-    return f"{declared_with}({id!r}) has an empty {empty}. Write what a person should read about the node in a palette."
+    return f"{declared_with}({id!r}) has no {empty}. Write what a person should read about the node in a palette, as text."
 
 
 @DECLARATION_PROBLEMS.problem
@@ -791,7 +791,7 @@ def input_without_type() -> str:
 
 @DECLARATION_PROBLEMS.problem
 def invalid_node_id(*, declared_with: str, id: str) -> str:
-    """A node is declared with an id that is empty, or that contains ``.``, ``/``, ``@`` or ``~``.
+    """A node is declared with an id that isn't text, is empty, or contains ``.``, ``/``, ``@`` or ``~``.
 
     Those characters are used to write sources (``a.result``), node paths (``loud/shout``) and waiting ids
     (``a@1~3fa2``). The same rule holds for a node's id in a graph record, and for the names a hook gives inputs and
@@ -815,6 +815,31 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
         f"{declared_with} got {id!r} as the node's id. An id can't be empty, and can't contain any of {separators}, "
         f"since those mean something in sources and waiting ids. Pick another, like {declared_with}('upper')."
     )
+
+
+@DECLARATION_PROBLEMS.problem
+def invalid_version(*, declared_with: str, id: str, version: str) -> str:
+    """A node is declared with a ``version=`` that isn't a whole number of 1 or more, such as ``0``, ``"2"`` or
+    ``True``.
+
+    A graph record names the version it uses by that number, and a version replaces a lower one.
+
+    To fix it, give a whole number of 1 or more, or leave ``version=`` out, which makes it 1, or one more than the
+    version ``replaces`` names.
+
+    Args:
+        declared_with: ``@node`` or ``subgraph``.
+        id: The node's id.
+        version: The version given, as Python writes it.
+
+    Example:
+        def numbered(text: str) -> str:
+            return text
+
+
+        declaration_refused(lambda: node("numbered", title="Numbered", description="Passes the text on as it is.", version=0)(numbered))
+    """
+    return f"{declared_with}({id!r}) got {version} as its version. A version is a whole number of 1 or more, such as version=2."
 
 
 @DECLARATION_PROBLEMS.problem
