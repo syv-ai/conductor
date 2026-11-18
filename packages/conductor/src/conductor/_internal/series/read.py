@@ -11,22 +11,10 @@ from typing import Any, get_args
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
-from pydantic_core import CoreSchema, PydanticCustomError, core_schema
+from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.problem import conductor_error
-
-
-def set_has_no_order() -> PydanticCustomError:
-    """Returns the error for a set given where a list is expected.
-
-    That is a ``Series``, or a value written into a graph record. A set's order changes from one process to the
-    next, so its items would come in a different order each time.
-    """
-    return conductor_error(
-        "set_has_no_order",
-        "a set has no order, so its items could come in a different order each time",
-    )
+from conductor._internal.validation import set_has_no_order
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:

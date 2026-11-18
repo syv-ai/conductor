@@ -324,7 +324,7 @@ A column that would read back changed is refused, naming the column and the type
 - a UInt64 past the largest Int64;
 - a time finer than a microsecond, and a millisecond time too far out for microseconds.
 
-Records given for a table, and a column whose JSON form is `json`, are read the way polars reads rows. It finds one type for each column and converts every cell to it. So `1` and `2.5` become floats, `True` and `2` become `1` and `2`, and `"x"` and `2` become text.
+Records given for a bare `Table`, and a column whose JSON form is `json`, are read the way polars reads rows. It finds one type for each column and converts every cell to it. So `1` and `2.5` become floats, `True` and `2` become `1` and `2`, and `"x"` and `2` become text.
 
 A column may have a `None` only where its type says `| None`. A table with a `None` in any other column is refused where it arrives, naming the column (`invalid_output`, `invalid_input`, `invalid_edge_value`).
 
@@ -371,7 +371,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 - A list (a JSON array, a Python list or tuple) is refused for an input that takes one value of a type that takes no list. It is `invalid_input_list_for_one_value` when given, and `invalid_value` as a constant.
 - An input whose own type takes a list (`list[str]`, `Series[...]`, `Table[...]`, `Any`) takes the list as one value.
 - An open `Series` input takes only a list. One value given there is `invalid_input`.
-- A set has no order, so it is never a list. A set given for a `Series` input is refused with `set_has_no_order` in the problem's `errors`. A `list[...]` or `Any` input takes a set as the value it is.
+- A set has no order, so it is never a list. A set given for an input or in an answer is refused ("Starting a run"), and so is one returned for a `Series`, with `set_has_no_order` in the problem's `errors`.
 - `make_graph` and an upgrade's rewrite refuse a constant with a set anywhere in it, with `set_has_no_order` too. A set has no JSON form, so a record with a set in it, handed to `Graph.compile`, is `invalid_record`.
 
 **A subgraph is one node.** Its inputs and outputs are the ones its graph declares, by their names there. So an author wires `emb.text`, and an edge from `emb.result`. No name has a dot.
@@ -613,7 +613,7 @@ A `Table` input collects records the same way.
 - A table fits a `Table[R]` input when it has every column `R` names, each of a type that fits. One it lacks is `type_mismatch_missing_column` (`column`, `column_type`, `has`).
 - A `Table[R]` input receives exactly the columns `R` names, whether the table was wired, given or collected.
 - A `Table[R]` output is cut to `R`'s columns too. A bare `Table` output keeps every column it returns.
-- A table written as the constant of a `Table` input, or given for one by a caller, is a frame or a list of records, and `[]` is a table of no rows. Each column `R` names is read by its own type (a date from its ISO text, a host type from its own text), and other columns are left out. A missing column, or a cell its type refuses, is `invalid_value` as a constant and `invalid_input` when given, with `ctx.column` naming it.
+- A table written as the constant of a `Table` input, or given for one by a caller, is a frame or a list of records, and `[]` is a table of no rows. Each column `R` names is read by its own type (a date from its ISO text, a host type from its own text), and other columns are left out. A caller's records are read strictly, as an answer's are, so `"1"` or `1.0` in an `int` column is refused. A missing column, or a cell its type refuses, is `invalid_value` as a constant and `invalid_input` when given, with `ctx.column` naming it.
 
 **Several edges into one input** must never both have a value, for a `Series` input as for any other.
 
@@ -686,7 +686,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - A type with choices, such as `Annotated[str, Param(choices=["low", "high"])]`, asks for one of them.
 - `str`, `int`, `float` and `date` ask for a value.
 - A frozen dataclass is a form of one question per field. A field's default is proposed. A branch, a field whose default is `SKIPPED`, proposes nothing, and left out of the answer it is skipped.
-- `Table[R]` is a table answered as records. It is read as a caller's table is, but each cell strictly from its JSON form: other columns are dropped, and a missing column is refused.
+- `Table[R]` is a table answered as records. It is read as a caller's table is, each cell strictly from its JSON form: other columns are dropped, and a missing column is refused.
 - `Series[X]` asks for several values. So `Series[Annotated[str, Param(choices=[...])]]` is a pick of several.
 - A hook's output types ask the same way.
 
@@ -721,7 +721,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - One question is answered with its value. Several (a node of several outputs) are answered with a mapping by output name.
 - In the mapping, a question left out gives what it says: its `default`, else a skipped branch when it is not `required`, else it is refused. So a question with a default may be left out, and so may one whose type takes `None` and that has no choices (its `default` is `null`).
 - At most one branch is answered. The others are skipped, even one with a `default`. An answer that leaves out every branch gives each its `default`, else skips it.
-- Each answer is read strictly from its JSON form: `true`, not `"yes"` or `1`; `3`, not `"3"`; a date as its ISO text. The whole answer is written as JSON first, so a dataclass or a model answers several questions as the mapping of its fields. It is checked against its question before anything runs.
+- Each answer is read strictly from its JSON form, by the rule a caller's input is read by ("Starting a run"): `true`, not `"yes"` or `1`; `3`, not `"3"`. A dataclass or a model answers several questions as the mapping of its fields, and a frame answers a table question as a caller's frame is read. It is checked against its question before anything runs.
 - Every fault is refused at once, and nothing is answered.
   - `invalid_answer` has `ctx.waiting_id`, `ctx.reason`, and `ctx.question` when it is about one question. It also covers one call answered twice in one `with_answers`.
   - `not_waiting` is for a call that is not waiting, with `ctx.waiting_id`, `ctx.status`, and `ctx.moved_to` when its question now waits on another call.
@@ -739,7 +739,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it. The `reason` is checked as its JSON text would be: text, or `None`. So `bytes` and a `str` enum member are taken as their text, and `1.5`, `3` and a `str` with a lone surrogate are refused as `invalid_decline_reason`, with `ctx.got` its class. The run is left as it was.
 - An id is read by the rules `run.with_answers` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
 
-**Queuing answers for later.** A host that queues answers or declines to give a run later, such as a server whose run is still running, keeps them as JSON. `Run.queued_as_json(answers, declines={waiting_id: reason})` returns `(answers, reasons)`: each answer as the JSON data `run.with_answers` reads it from (a `date` as its ISO text, a dataclass as a mapping of its fields, a `polars.DataFrame` as its columns), and each reason as the text `run.with_decline` keeps. `run.with_answers` and `run.with_decline` take every value through that same step, so what JSON can't write is refused with the same problem: `invalid_answer` for an answer, `invalid_decline_reason` for a reason, its `loc` the call the waiting id names. What depends on the question is checked when the run is given the data. It is provisional.
+**Queuing answers for later.** A host that queues answers or declines to give a run later, such as a server whose run is still running, keeps them as JSON. `Run.queued_as_json(answers, declines={waiting_id: reason})` returns `(answers, reasons)`: each answer as the JSON data `run.with_answers` reads it from (a `date` as its ISO text, a dataclass as a mapping of its fields, a `polars.DataFrame` as its columns, so a column a saved run can't keep is refused there, even one the question's table doesn't name), and each reason as the text `run.with_decline` keeps. `run.with_answers` and `run.with_decline` take every value through that same step, so what JSON can't write is refused with the same problem: `invalid_answer` for an answer, `invalid_decline_reason` for a reason, its `loc` the call the waiting id names. What depends on the question is checked when the run is given the data. It is provisional.
 
 ### Context
 
@@ -1012,6 +1012,11 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 - `graph.run(inputs={}, *, max_items=None, previous=None, context=None, timeout=None)` calls every node that is ready, from the start, until the run is complete, waits or ends early. It returns the `Run`. A pause or a failure is a `status`, not an exception.
 - `graph.with_inputs(inputs={}, *, max_items=None, previous=None)` is a `Run` with its inputs checked, not started. `previous=` reuses an earlier run's outcomes (see "Running again").
   - It raises `InvalidCallError` with every fault in the inputs at once: a name it doesn't offer (`unknown_graph_input`), a required one left out (`missing_input`), and a value its type can't read (`invalid_input`).
+  - Each value is read strictly, the way its JSON text would be, as a person's answer is ("Answering"). So a value given from Python, the same value sent over HTTP and the value a saved run reads back all read alike. `3` is an `int`, but `"3"` and `3.0` are refused; `True` is a `bool`, but `"yes"` and `1` are refused; a `datetime` is not a `date`. A date may be given as a `date` or as its ISO text, a model or a dataclass as itself or as a mapping of its fields, a host's class as itself (written by its own schema) or as its JSON, and `None` where the type takes it. It is provisional.
+  - What a type doesn't name is its JSON data, as a saved run reads it back. So an `Any` input, or an `Any` inside a list, a dict or a record, gets a tuple as a list, a decimal and `bytes` as text, a date as its ISO text, and a dataclass, a model or a host's object as the mapping its JSON is.
+  - A frame is read only where the value's own type is a table (`Table[R]`, or a union with one). There it is read as it is, strictly, as a node's return is, so it keeps only `R`'s columns and a column it doesn't name is never written. Anywhere else, `Any`, a list of tables and a `Series` of records included, a frame is `invalid_input` with `no_json_form` in `ctx.errors`: give its rows as a list of records. Only a node's return gives a `Series` of records as a frame.
+  - A value JSON can't write, such as an object held in memory, is `invalid_input` with `no_json_form` ("the value can't be written as JSON"): what a node needs from the host that isn't data goes in the run's context ("Context"). Only what a node returns, and what an edge carries, may have no JSON form until the run is saved.
+  - A set has no order, so a set anywhere in a value, a dataclass's or a model's field included, is `invalid_input` with `set_has_no_order` in `ctx.errors`: give a list. A set-typed input (`set[int]`) takes a list too, and the node gets a set.
   - A `max_items` that is not a whole number of at least 1 is `invalid_limit`; `True` and `2.5` are not whole numbers. It is checked first, and raised alone.
 
 **Going on.**

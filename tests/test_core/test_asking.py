@@ -1169,6 +1169,50 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
     assert run.with_answers("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
 
+def test_a_set_answered_for_a_series_is_refused_as_set_has_no_order():
+    @node("members", title="Members", description="For a test.", asks=True)
+    def members(team: str) -> Series[str]:
+        raise Ask(f"Who in {team}?")
+
+    _, run = _once(members, team="sales")
+
+    (problem,) = _refused(lambda: run.with_answers("q", {"ida", "bo"}))
+    assert problem.msg == (
+        "That isn't a valid answer: a set has no order, so its items could come in a different order each time."
+    )
+
+
+class _Priced(TypedDict):
+    amount: int
+
+
+def test_a_frame_answered_for_a_table_is_read_as_a_callers_frame_is_keeping_only_its_columns():
+    @node("priced", title="Priced", description="For a test.", asks=True)
+    def priced(team: str) -> Table[_Priced]:
+        raise Ask(f"Prices for {team}?")
+
+    _, run = _once(priced, team="sales")
+    frame = pl.DataFrame({"amount": [1], "when": [datetime.datetime(2026, 1, 1)]}).with_columns(
+        pl.col("when").dt.replace_time_zone("Europe/Copenhagen")
+    )
+
+    (outcome,) = run.with_answers("q", frame).resume().outputs.values()
+    assert (outcome.columns, outcome.rows()) == (["amount"], [(1,)])
+
+
+def test_an_answer_that_holds_itself_is_refused_as_invalid_answer():
+    @node("anything", title="Anything", description="For a test.", asks=True)
+    def anything(team: str) -> Any:
+        raise Ask(f"Anything for {team}?")
+
+    _, run = _once(anything, team="sales")
+    looped: list[Any] = []
+    looped.append(looped)
+
+    (problem,) = _refused(lambda: run.with_answers("q", looped))
+    assert problem.msg == "That isn't a valid answer: the value can't be written as JSON."
+
+
 def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
     @node("pick", title="Pick", description="For a test.", asks=True)
     def pick(ticket: str) -> dict[str, int]:

@@ -1008,12 +1008,12 @@ def test_saving_a_run_whose_node_has_outcomes_and_reusable_outcomes_names_the_ou
     assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "odd.result")
 
 
-def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
+def test_an_input_with_no_json_form_is_refused_where_it_is_given_so_every_run_can_be_saved():
     @node("take", title="Take", description="For a test.")
     def take(value: Any) -> str:
         return "ok"
 
-    run = Graph.compile(
+    graph = Graph.compile(
         GraphRecord.model_validate(
             {
                 "nodes": {"t": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}},
@@ -1021,13 +1021,17 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
             }
         ),
         registry_of(take),
-    ).run({"value": _Opaque()})
+    )
 
     with pytest.raises(InvalidCallError) as refused:
-        run.to_json()
+        graph.run({"value": _Opaque()})
 
     (problem,) = refused.value.problems
-    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "value")
+    assert (problem.type, problem.loc, problem.ctx["reason"]) == (
+        "invalid_input",
+        ("inputs", "value"),
+        "the value can't be written as JSON",
+    )
 
 
 def test_a_returned_table_column_json_cannot_write_is_refused_naming_the_column():

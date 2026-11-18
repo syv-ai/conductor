@@ -25,9 +25,13 @@ from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
-from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
-from conductor._internal.series import set_has_no_order
-from conductor._internal.validation import Validator
+from conductor._internal.problem import (
+    InvalidCallError,
+    call_problems,
+    compile_problems,
+    refusal_errors,
+)
+from conductor._internal.validation import Validator, holds_a_set, set_has_no_order
 
 from .graph import GraphRecord
 
@@ -164,14 +168,11 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
         written: dict[str, JsonValue] = {}
         problems = []
         for name, value in values.items():
-            if _holds_a_set(value):
+            if holds_a_set(value):
                 error = set_has_no_order()
                 problems.append(
                     compile_problems.invalid_value(
-                        self._node_id,
-                        name,
-                        reason=error.message(),
-                        errors=[{"type": error.type, "loc": [], "msg": error.message()}],
+                        self._node_id, name, reason=error.message(), errors=refusal_errors(error)
                     )
                 )
                 continue
@@ -185,12 +186,3 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
         if problems:
             raise InvalidCallError(problems)
         return written
-
-
-def _holds_a_set(value: Any) -> bool:
-    """Whether ``value`` is a set, or a list, tuple or dict with a set somewhere inside."""
-    if isinstance(value, (set, frozenset)):
-        return True
-    if isinstance(value, dict):
-        return any(map(_holds_a_set, value.values()))
-    return isinstance(value, (list, tuple)) and any(map(_holds_a_set, value))

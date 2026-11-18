@@ -1264,3 +1264,222 @@ def test_a_bound_default_that_is_a_table_missing_a_column_names_the_column():
         ("invalid_value_bound_default", ("first-line", "other"), "amount"),
         ("output_default_bound_invalid", ("kept-lines", "other"), "amount"),
     ]
+
+
+# -- what a caller gives --------------------------------------------------------------------------------------
+
+
+@host_type("Celsius", title="Celsius")
+@dataclass
+class Celsius:
+    degrees: float
+
+
+@host_type("Label", title="Label")
+class Label:
+    """A host's class with its own schema: read from its text, written as its text."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+        def read(value: Any) -> "Label":
+            if isinstance(value, Label):
+                return value
+            if isinstance(value, str):
+                return Label(value)
+            raise ValueError("not a label")
+
+        return core_schema.no_info_plain_validator_function(
+            read,
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda held: held.text),
+        )
+
+
+@host_type("Socket", title="Socket")
+class Socket:
+    """An object held in memory, which pydantic checks with isinstance and can't write as JSON."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+        return core_schema.is_instance_schema(cls)
+
+
+class Priced(TypedDict):
+    name: str
+    amount: int
+
+
+def _given(value: Any, input_type: Any) -> Any:
+    """Gives ``value`` to the one graph input of a graph of one node, ``t``, that takes ``input_type``, and
+    returns what the node received."""
+    received: list[Any] = []
+
+    def take(value: input_type) -> str:  # type: ignore[valid-type]
+        received.append(value)
+        return "ok"
+
+    definition = node("take", title="Take", description="For a test.")(take)
+    Graph.compile(make_graph(definition), registry_of(definition)).run({"value": value})
+    (taken,) = received
+    return taken
+
+
+@pytest.mark.parametrize(
+    ("given", "input_type"),
+    [
+        ("5", int),
+        (5.0, int),
+        ("5.5", float),
+        ("yes", bool),
+        (1, bool),
+        (["1"], list[int]),
+        ({"name": "a", "amount": "1"}, Priced),
+        ({"degrees": "1"}, Celsius),
+        (datetime.datetime(2026, 1, 2), datetime.date),
+        (1767312000, datetime.datetime),
+    ],
+    ids=[
+        "text-for-int",
+        "float-for-int",
+        "text-for-float",
+        "word-for-bool",
+        "number-for-bool",
+        "text-in-a-list",
+        "text-in-a-record",
+        "text-in-a-dataclass",
+        "datetime-for-date",
+        "number-for-datetime",
+    ],
+)
+def test_a_callers_value_is_read_strictly_as_its_json_so_a_lax_conversion_is_refused(
+    given: Any, input_type: Any
+):
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, input_type)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.loc) == ("invalid_input", ("inputs", "value"))
+
+
+@pytest.mark.parametrize(
+    ("given", "input_type", "received"),
+    [
+        (5, float, 5.0),
+        ("2026-01-02", datetime.date, datetime.date(2026, 1, 2)),
+        ("2026-01-02T03:04:00", datetime.datetime, datetime.datetime(2026, 1, 2, 3, 4)),
+        ({"degrees": 1}, Celsius, Celsius(1.0)),
+        ((1, 2), list[int], [1, 2]),
+        ({"a": datetime.date(2026, 1, 2)}, Any, {"a": "2026-01-02"}),
+        (None, str | None, None),
+    ],
+    ids=[
+        "int-for-float",
+        "iso-date",
+        "iso-datetime",
+        "dict-for-dataclass",
+        "tuple-for-list",
+        "any",
+        "none",
+    ],
+)
+def test_a_callers_value_is_read_as_its_json_would_be(given: Any, input_type: Any, received: Any):
+    assert _given(given, input_type) == received
+
+
+def test_a_host_class_given_as_itself_is_written_by_its_own_schema_and_read_back():
+    taken = _given(Label("urgent"), Label)
+
+    assert (type(taken), taken.text) == (Label, "urgent")
+
+
+@pytest.mark.parametrize("given", [Socket(), object()], ids=["host-object", "any-object"])
+def test_a_value_json_cannot_write_is_refused_where_it_is_given(given: Any):
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, Socket if isinstance(given, Socket) else Any)
+
+    (problem,) = refused.value.problems
+    assert problem.type == "invalid_input"
+
+
+@pytest.mark.parametrize("input_type", [list[str], Series[str], Any], ids=["list", "series", "any"])
+def test_a_set_given_is_refused_as_set_has_no_order(input_type: Any):
+    with pytest.raises(InvalidCallError) as refused:
+        _given({"a", "b"}, input_type)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
+        "invalid_input",
+        ["set_has_no_order"],
+    )
+
+
+@host_type("Tagged", title="Tagged")
+@dataclass
+class Tagged:
+    tags: list[str]
+
+
+def test_a_set_inside_a_dataclass_given_is_refused_as_set_has_no_order():
+    with pytest.raises(InvalidCallError) as refused:
+        _given(Tagged(tags={"pear", "apple"}), Tagged)  # type: ignore[arg-type]
+
+    assert refused.value.problems[0].ctx["errors"][0]["type"] == "set_has_no_order"
+
+
+def test_a_set_typed_input_takes_a_list_and_refuses_a_set():
+    assert _given([2, 1], set[int]) == {1, 2}
+    with pytest.raises(InvalidCallError):
+        _given({1, 2}, set[int])
+
+
+@pytest.mark.parametrize(
+    "given",
+    [pl.DataFrame({"a": [1]}), {"t": pl.DataFrame({"a": [1]})}, [pl.DataFrame({"a": [1]})]],
+    ids=["frame", "in-a-dict", "in-a-list"],
+)
+def test_a_frame_given_where_the_type_is_no_table_is_refused_wherever_it_sits(given: Any):
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, Any)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
+        "invalid_input",
+        ["no_json_form"],
+    )
+
+
+def test_a_frame_given_for_a_table_keeps_only_its_columns_so_one_a_saved_run_cant_keep_is_dropped():
+    frame = pl.DataFrame(
+        {
+            "name": ["a"],
+            "amount": pl.Series([1], dtype=pl.Int32),
+            "when": [datetime.datetime(2026, 1, 1)],
+        }
+    ).with_columns(pl.col("when").dt.replace_time_zone("Europe/Copenhagen"))
+
+    taken = _given(frame, Table[Priced])
+
+    assert (taken.schema, taken.rows()) == ({"name": pl.String, "amount": pl.Int64}, [("a", 1)])
+
+
+def test_a_wrong_container_given_names_what_was_wanted_in_pydantics_own_words():
+    with pytest.raises(InvalidCallError) as refused:
+        _given("a", Series[str])
+
+    assert refused.value.problems[0].ctx["reason"] == "Input should be a valid array"
+
+
+def test_a_value_that_holds_itself_is_refused_as_no_json_form():
+    looped: list[Any] = []
+    looped.append(looped)
+
+    with pytest.raises(InvalidCallError) as refused:
+        _given(looped, Any)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
+        "invalid_input",
+        ["no_json_form"],
+    )

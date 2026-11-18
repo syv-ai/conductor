@@ -15,7 +15,6 @@ Wired ``words`` to ``shout``, the text ``"hi there"`` calls ``shout`` twice. Thi
 a run stores a Series. The full rules are in the reference: ``python -m conductor.about one-or-many``.
 """
 
-from .read import set_has_no_order
 from .stored import Records, SeriesItems, StoredSeries
 from .type import Series, SeriesType
 
@@ -25,5 +24,4 @@ __all__ = [
     "SeriesItems",
     "SeriesType",
     "StoredSeries",
-    "set_has_no_order",
 ]

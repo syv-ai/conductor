@@ -9,8 +9,8 @@ one could ever pick ``1`` or ``2``. The ``Ask`` is refused with ``invalid_ask``.
 ``approve(line: str) -> bool`` is waiting. The answer ``True`` gives the outputs ``{"result": True}``. The answer
 ``"yes"`` is refused with ``invalid_answer``, since a yes or no is ``True`` or ``False``, not a word that means one.
 
-``AnswerAsJsonValidator`` runs first, on every answer: it turns the answer into the JSON data it is read from. A
-host that keeps an answer to give a run later keeps that data.
+``AnswerAsJsonValidator`` turns an answer into the JSON data it is read from. A host that keeps an answer to give a
+run later keeps that data, and a dataclass or a model given for several questions is read through it.
 
 ``DeclineValidator`` runs when a person declines with ``run.with_decline``. Its reason is text, or ``None`` for none, so
 ``reason=123`` is refused with ``invalid_decline_reason``.
@@ -41,7 +41,6 @@ from conductor._internal.problem import (
     conductor_error,
     run_problems,
 )
-from conductor._internal.table import frame_as_json
 from conductor._internal.types import (
     Choice,
     Type,
@@ -50,7 +49,7 @@ from conductor._internal.types import (
     read_choices,
 )
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator
+from conductor._internal.validation import Validator, json_data, read_as_json
 
 from .question import as_asked
 from .type import Ask
@@ -241,7 +240,9 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         Raises:
             InvalidCallError: See the class.
         """
-        answer = AnswerAsJsonValidator(loc=self._loc, waiting_id=self._waiting_id)(answer)
+        if len(self._outputs) > 1 and not isinstance(answer, Mapping):
+            # a dataclass or a model answers several questions as the mapping of its fields
+            answer = AnswerAsJsonValidator(loc=self._loc, waiting_id=self._waiting_id)(answer)
         read, faults = self._read(answer)
         if faults:
             raise InvalidCallError(
@@ -391,35 +392,24 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
         node returned.
 
     Raises:
-        PydanticCustomError: ``no_json_form`` if the value can't be written as JSON. ``not_its_type`` if the type
-            refuses it, with the type's reason as the message, quoting nothing of the value.
+        PydanticCustomError: As ``read_as_json`` raises it, for a value that can't be written as JSON. Else
+            ``not_its_type`` if the type refuses it, with the type's reason as the message, quoting nothing of the
+            value.
     """
     try:
-        return validate_as_json(value_type.output_validator, value, fallback=frame_as_json)
-    except PydanticSerializationError:
-        raise _no_json_form() from None
-    except PydanticCustomError as refused:  # a table with a column a saved run can't keep as it is
-        raise conductor_error("not_its_type", refused.message()) from None
+        return read_as_json(value_type, value_type.output_validator, value)
     except ValidationError as error:
         raise conductor_error("not_its_type", value_type.refusal(error)["reason"]) from None
-
-
-def _no_json_form() -> PydanticCustomError:
-    """The refusal of an answer that can't be written as JSON, such as a ``str`` with a lone surrogate."""
-    return conductor_error("no_json_form", "the value can't be written as JSON")
-
-
-#: Checks any value: what ``validate_as_json`` reads an answer with before it knows the question.
-_ANY = SchemaValidator(core_schema.any_schema())
 
 
 class AnswerAsJsonValidator(Validator[Any, Any]):
     """A validator that turns a person's answer into the JSON data it is read from.
 
-    An answer is read from its JSON form. So before an answer is checked against its questions, it is written as
-    JSON and read back: a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
-    fields, and a ``polars.DataFrame`` its columns. ``AnswerValidator`` reads what this returns, and a host that
-    keeps an answer to give a run later keeps what this returns, so a kept answer is read as the answer itself.
+    An answer is read from its JSON form. A host that keeps an answer to give a run later keeps what this returns
+    (``Run.queued_as_json``): a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
+    fields, and a ``polars.DataFrame`` its columns (``json_data``). So a kept answer reads as the answer itself,
+    but for a frame with a column a saved run can't keep, which is refused here even where the question's table
+    doesn't name it. ``AnswerValidator`` reads a dataclass or a model given for several questions through it too.
 
     Raises (when called):
         InvalidCallError: ``invalid_answer`` when the answer can't be written as JSON, such as a ``str`` with a lone
@@ -444,9 +434,9 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
             InvalidCallError: See the class.
         """
         try:
-            return validate_as_json(_ANY, answer, fallback=frame_as_json)
-        except (PydanticSerializationError, PydanticCustomError) as refused:
-            reason = _why_unwritable(refused)
+            return json_data(answer)
+        except PydanticCustomError as refused:
+            reason = refused.message()
         # A mapping is answered by question name, so the problem names each question whose value can't be written.
         named = (
             {key: why for key, value in answer.items() if (why := _unwritable(value)) is not None}
@@ -470,20 +460,12 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
 
 
 def _unwritable(value: Any) -> str | None:
-    """Why ``value`` can't be written as JSON, or ``None`` when it can."""
+    """Why ``value`` can't be written as JSON (``json_data``), or ``None`` when it can."""
     try:
-        validate_as_json(_ANY, value, fallback=frame_as_json)
-    except (PydanticSerializationError, PydanticCustomError) as refused:
-        return _why_unwritable(refused)
-    return None
-
-
-def _why_unwritable(refused: PydanticSerializationError | PydanticCustomError) -> str:
-    """The reason a problem gives for a value ``validate_as_json`` couldn't write: a refusal of the value's own
-    type, such as a table with a column a saved run can't keep as it is, says its own."""
-    if isinstance(refused, PydanticCustomError):
+        json_data(value)
+    except PydanticCustomError as refused:
         return refused.message()
-    return _no_json_form().message()
+    return None
 
 
 #: Checks a decline's reason: a ``str``, or ``None``.

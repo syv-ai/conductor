@@ -139,9 +139,9 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 def frame_as_json(value: Any) -> Any:
     """Converts a frame to JSON where no type says it is a table.
 
-    That happens for a frame inside an ``Any``, or in a person's answer given from Python. The columns are first
-    converted the way a run stores them (``as_saved``). Pydantic's ``to_json`` calls it as its ``fallback`` for a
-    value it can't write itself.
+    That happens for a frame in a person's answer a host queues for later (``Run.queued_as_json``), and in the
+    inputs a waiting call shows. The columns are first converted the way a run stores them (``as_saved``).
+    Pydantic's ``to_json`` calls it as its ``fallback`` for a value it can't write itself.
 
     Raises:
         TypeError: ``value`` is not a frame. Pydantic's ``to_json`` expects ``fallback`` to raise it for a value it

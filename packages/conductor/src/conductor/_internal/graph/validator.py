@@ -29,22 +29,36 @@ from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
 from pydantic import JsonValue, ValidationError
-from pydantic_core import ErrorDetails, SchemaValidator, core_schema
-from pydantic_core.core_schema import TypedDictField
+from pydantic_core import PydanticCustomError, SchemaValidator, core_schema
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
-from conductor._internal.problem import InvalidCallError, Problem, call_problems, compile_problems
+from conductor._internal.problem import (
+    InvalidCallError,
+    Problem,
+    call_problems,
+    compile_problems,
+    refusal_errors,
+)
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator
+from conductor._internal.validation import Validator, read_as_json
 
 
 class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     """The validator for the graph inputs a caller gives, by name.
 
-    It returns the value of every graph input. One is built per graph, and inside it one pydantic validator checks
-    all the inputs. An input with no default must be given, and nothing else may be. Each value is checked by its
-    input's type the way pydantic checks a Python value, so ``"3"`` for an ``int`` becomes ``3``.
+    It returns the value of every graph input. One is built per graph. An input with no default must be given, and
+    nothing else may be.
+
+    Each value is read by its input's type strictly, the way its JSON text would be, as a person's answer is
+    (``read_as_json``). So a value given from Python and the same value sent over HTTP read the same, and so does
+    the value a saved run reads back. ``3`` is an ``int``, but ``"3"`` and ``3.0`` are refused. ``True`` is a
+    ``bool``, but ``"yes"`` and ``1`` are refused. A ``date`` may be given as a ``date`` or as its ISO text, and a
+    record as its class or as a mapping of its fields. A value JSON can't write, such as an object held in memory,
+    is refused: what a node needs from the host that isn't data goes in the run's context. So is a set, which has
+    no order and so no one JSON text: give a list.
+
+    A frame is read as it is where the input's type is a table, and is refused anywhere else, as the reader says.
 
     Raises (when called):
         InvalidCallError: Lists every fault, in this order. First, each name the caller gave that the graph doesn't
@@ -61,17 +75,11 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
                 and is ``REQUIRED`` when there is none.
         """
         self._inputs = dict(inputs)
-        self._validator = SchemaValidator(
-            core_schema.typed_dict_schema(
-                {name: _input_schema(field) for name, field in inputs.items()},
-                extra_behavior="forbid",
-            )
-        )
 
     def __call__(self, given: Mapping[Any, Any]) -> dict[str, Any]:
         """Checks ``given`` and returns the value of every graph input, by name, in the graph's order.
 
-        Each value is the caller's, converted by the input's type, or else the input's default.
+        Each value is the caller's, read by the input's type, or else the input's default.
 
         Args:
             given: What the caller gave, each value under its input's name.
@@ -79,73 +87,50 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         Raises:
             InvalidCallError: See the class.
         """
-        try:
-            values: dict[str, Any] = self._validator.validate_python(given)
-        except ValidationError as error:
-            raise InvalidCallError(self._problems(given, error)) from None
+        problems = [
+            call_problems.unknown_graph_input(
+                "inputs", name, name=str(name), inputs=list(self._inputs)
+            )
+            for name in given
+            if name not in self._inputs
+        ]
+        values: dict[str, Any] = {}
+        for name, field in self._inputs.items():
+            if name in given:
+                try:
+                    values[name] = read_as_json(
+                        field.whole, field.whole.argument_validator, given[name]
+                    )
+                except PydanticCustomError as refused:
+                    problems.append(
+                        call_problems.invalid_input(
+                            "inputs",
+                            name,
+                            name=name,
+                            reason=refused.message(),
+                            errors=refusal_errors(refused),
+                        )
+                    )
+                except ValidationError as error:
+                    problems.append(_refused(field, given[name], error))
+            elif field.default is REQUIRED:
+                problems.append(call_problems.missing_input("inputs", name, name=name))
+            else:
+                values[name] = field.default  # the default itself, never a copy
+        if problems:
+            raise InvalidCallError(problems)
         return values
 
-    def _problems(self, given: Mapping[Any, Any], error: ValidationError) -> list[Problem]:
-        """Turns pydantic's ``error`` for ``given`` into problems.
 
-        Names the graph doesn't take come first, in the order given. Then come the faults of each input, in the
-        graph's order.
-        """
-        names: list[Problem] = []
-        first_faults: dict[str, ErrorDetails] = {}
-        for fault in error.errors():
-            key = fault["loc"][0]
-            if (
-                fault["type"] in ("extra_forbidden", "invalid_key") and len(fault["loc"]) == 1
-            ):  # a key inside a value, such as a record's, is a fault of that input
-                names.append(
-                    call_problems.unknown_graph_input(
-                        "inputs", key, name=str(key), inputs=list(self._inputs)
-                    )
-                )
-            else:
-                first_faults.setdefault(str(key), fault)
-        return names + [
-            self._input_problem(name, given, error, first_faults[name])
-            for name in self._inputs
-            if name in first_faults
-        ]
-
-    def _input_problem(
-        self, name: str, given: Mapping[Any, Any], error: ValidationError, first: ErrorDetails
-    ) -> Problem:
-        """Returns the problem of one graph input whose value is missing or refused by its type.
-
-        ``first`` is the first fault in pydantic's ``error`` that's about this input.
-        """
-        field = self._inputs[name]
-        key, *inside = first["loc"]
-        # the input itself is missing, not a field inside its value
-        if first["type"] == "missing" and not inside:
-            return call_problems.missing_input("inputs", name, name=name)
-        value = given[name]
-        if type(value) is list and not field.is_series and field.whole.refuses_as_a_list(value):
-            return call_problems.invalid_input_list_for_one_value(
-                "inputs", name, name=name, expected=field.whole.id, length=len(value)
-            )  # the one mistake whose fix is in the graph, not in the value
-        return call_problems.invalid_input(
-            "inputs", name, name=name, **field.whole.refusal(error, under=(key,))
-        )
-
-
-def _input_schema(field: Field) -> TypedDictField:
-    """Returns the schema of one graph input, inside the validator's schema.
-
-    The input is required unless it has a default, and its value is checked by its type.
-    """
-    schema = field.whole.argument_schema
-    required = field.default is REQUIRED
-    if not required:
-        default = field.default
-        schema = core_schema.with_default_schema(
-            schema, default_factory=lambda: default
-        )  # the default itself, never a copy
-    return core_schema.typed_dict_field(schema, required=required)
+def _refused(field: Field, value: Any, error: ValidationError) -> Problem:
+    """Returns the problem of a graph input whose value its type refuses."""
+    if type(value) is list and not field.is_series and field.whole.refuses_as_a_list(value):
+        return call_problems.invalid_input_list_for_one_value(
+            "inputs", field.name, name=field.name, expected=field.whole.id, length=len(value)
+        )  # the one mistake whose fix is in the graph, not in the value
+    return call_problems.invalid_input(
+        "inputs", field.name, name=field.name, **field.whole.refusal(error)
+    )
 
 
 class Limits(TypedDict, total=False):

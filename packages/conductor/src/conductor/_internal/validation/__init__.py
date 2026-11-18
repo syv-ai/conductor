@@ -19,8 +19,19 @@ A few values are checked elsewhere. A saved run is checked in ``run/json/``, whe
 it. A ``NodeError``'s ``ctx`` is checked by ``NodeError`` itself, where a node makes one. And a type's own
 declarations are checked where the type is declared: ``Param`` checks its choices against the type it limits
 (``types/param.py``), and ``@host_type`` checks its arguments.
+
+What validators share besides ``Validator`` is in ``json.py``: the one strict reader of a value given from Python
+where JSON could have come instead, a caller's input or a person's answer (``read_as_json``).
 """
 
+from .json import holds_a_set, json_data, no_json_form, read_as_json, set_has_no_order
 from .type import Validator
 
-__all__ = ["Validator"]
+__all__ = [
+    "Validator",
+    "holds_a_set",
+    "json_data",
+    "no_json_form",
+    "read_as_json",
+    "set_has_no_order",
+]

@@ -49,7 +49,7 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
-from pydantic_core import ErrorDetails, PydanticCustomError, PydanticKnownError
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError
 from pydantic_core.core_schema import ErrorType
 
 from conductor._internal.base import place_text
@@ -103,6 +103,15 @@ def is_conductor_error(fault: ErrorDetails) -> bool:
     return OWN_MESSAGE.items() <= fault.get("ctx", {}).items()
 
 
+def refusal_errors(refused: PydanticCustomError) -> list[dict[str, Any]]:
+    """Returns the ``ctx.errors`` of a problem made from one refusal conductor raised itself, such as
+    ``set_has_no_order``: one error, of the refusal's type, with its message and an empty ``loc``.
+
+    So a host reads such a refusal by its code, as it reads one a type made (``value_free_errors``).
+    """
+    return [{"type": refused.type, "loc": [], "msg": refused.message()}]
+
+
 def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     """Returns pydantic's errors with nothing of the refused value left in them.
 
@@ -135,8 +144,9 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
 def _message_holds_no_value(fault: ErrorDetails) -> bool:
     """Says whether one error's message was written by conductor, or by pydantic about the type, so it quotes no value.
 
-    A message is pydantic's only when pydantic writes that same text for the error's type and ``ctx``. The type alone
-    proves nothing, since a host's validator may raise ``PydanticCustomError("value_error", f"{value} is bad")``.
+    A message is pydantic's only when pydantic writes that same text for the error's type and ``ctx``, for a value
+    read from Python or from JSON. The type alone proves nothing, since a host's validator may raise
+    ``PydanticCustomError("value_error", f"{value} is bad")``.
 
     A host that puts its value in the ``ctx`` of one of pydantic's own errors on purpose, as
     ``PydanticKnownError("greater_than", {"gt": value})``, gets pydantic's own text back, value included. So does one
@@ -147,11 +157,19 @@ def _message_holds_no_value(fault: ErrorDetails) -> bool:
     ctx = fault.get("ctx", {})
     if _QUOTING_KEYS & ctx.keys():
         return False
+    known: InitErrorDetails = {"type": cast(ErrorType, fault["type"]), "loc": (), "input": None}
+    if ctx:
+        known["ctx"] = ctx
     try:
-        # the type is any text a validator gave; pydantic raises KeyError for one it doesn't know
-        known = PydanticKnownError(cast(ErrorType, fault["type"]), ctx or None)
-        return known.message() == fault["msg"]
-    # a type pydantic doesn't know (KeyError), or a ctx without the keys its message needs (TypeError)
+        # pydantic words some errors one way for a Python value and another for JSON: a list is an array there
+        return fault["msg"] in {
+            ValidationError.from_exception_data("", [known], input_type=read_from).errors()[0][
+                "msg"
+            ]
+            for read_from in ("python", "json")
+        }
+    # the type is any text a validator gave: one pydantic doesn't know (KeyError), or a ctx without the keys its
+    # message needs (TypeError)
     except (KeyError, TypeError):
         return False
 

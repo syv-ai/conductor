@@ -299,7 +299,9 @@ def invalid_input(
 ) -> str:
     """A call gives a graph input a value its type doesn't take.
 
-    ``ctx.reason`` and ``ctx.errors`` say what was refused, just as they do for ``invalid_value``.
+    Inputs are checked the way their JSON would be, as answers are, so a number is ``3``, not ``"3"``. A value JSON
+    can't write, or with a set in it, is refused too. ``ctx.reason`` and ``ctx.errors`` say what was refused, just as
+    they do for ``invalid_value``.
 
     To fix it, give a value of the input's type. ``graph.inputs[name].json_schema`` is the input's schema, with its
     limits.

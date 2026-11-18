@@ -398,8 +398,12 @@ where it's written.
 field's JSON schema. On a node's input, `Param` is the only spelling: pydantic's `Field(...)` in the hint is refused
 (`pydantic_field_in_hint`), so a limit is never written two ways.
 
-Values a program made (answers, choices, node outputs) are read strictly, and values a person or caller wrote
-(constants, defaults, graph inputs, edges) laxly. Either way a `bool` never counts as a number.
+A value given from Python where JSON could have come instead (a caller's graph inputs, a person's answers, the
+choices an `Ask` offers) is read strictly from its JSON form, so it reads as the same value sent over HTTP. A node's
+return is read strictly as the Python value it is. Values the graph record holds (constants, defaults) are read laxly
+today, so a default `"3"` for an `int` is `3` where a caller's `"3"` is refused. A value an edge carries is read
+laxly where the input asks more than its source's type promises. Either way a `bool` never
+counts as a number.
 
 Each type hint is read once into one object, and pydantic does all the validating. The one thing pydantic can't say is
 whether an output of one type may feed an input of another, so conductor walks the two types itself. Answering that
@@ -471,11 +475,11 @@ def times(n: Annotated[int, Param(ge=1)]) -> str:
 
 
 counted = Graph.compile(make_graph(times), registry)
-print(counted.run({"n": "3"}).outputs)  # {'result': 'xxx'}
+print(counted.run({"n": 3}).outputs)  # {'result': 'xxx'}
 try:
-    counted.run({"n": True})
+    counted.run({"n": "3"})
 except InvalidCallError as refused:
-    print([found.type for found in refused.problems])  # ['invalid_input']: a yes or no is not a number
+    print([found.type for found in refused.problems])  # ['invalid_input']: read as its JSON, "3" is text
 ```
 
 **Worth questioning:** a validator reports the first fault of a node's return, but every fault of a caller's inputs.
