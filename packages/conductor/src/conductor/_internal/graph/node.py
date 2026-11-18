@@ -178,7 +178,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
         The code is the function's own parsed source, not the functions it calls, so a new Python version keeps the
         hash. A function whose source can't be read, such as a lambda or one made by ``exec``, is hashed by its
-        bytecode instead (see ``code_text_of``).
+        bytecode instead (see ``read_code``).
 
         Args:
             outer_loops: The loops around the subgraph this node is in, named from the outer graph. Empty for a node

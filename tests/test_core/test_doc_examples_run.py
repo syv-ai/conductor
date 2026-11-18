@@ -16,6 +16,7 @@ import ast
 import asyncio
 import contextlib
 import inspect
+import linecache
 import re
 import sys
 from io import StringIO
@@ -62,7 +63,12 @@ def test_a_page_runs_and_prints_what_it_shows(
     module = type(sys)(name)
     module.__dict__["__shown"] = shown
     monkeypatch.setitem(sys.modules, name, module)
-    code = compile(_checked_source(source), name, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+    checked = _checked_source(source)
+    # The page's source can be read, as a file's can, so @node reads a function on it as it reads one in a file.
+    monkeypatch.setitem(
+        linecache.cache, name, (len(checked), None, checked.splitlines(keepends=True), name)
+    )
+    code = compile(checked, name, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
     with contextlib.redirect_stdout(StringIO()):
         ran = eval(code, module.__dict__)  # noqa: S307  the page's own code, as a reader runs it
         if inspect.iscoroutine(ran):

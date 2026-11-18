@@ -65,7 +65,7 @@ assert registry["greet"] is greet
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of records. A `Table` input wired to records collects them |
 | A branch | give each output the default `SKIPPED`, and return a value on at most one of them. Two independent ways to go are two nodes |
 | To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
-| A person's answer | `raise Ask(prompt)`, and `asks=True` on the `@node`. The answer becomes the node's outputs. See "Asking a person" below |
+| A person's answer | `raise Ask(prompt)`, and `asks=True` on the `@node`, or `@node` refuses the function. The answer becomes the node's outputs. See "Asking a person" below |
 | A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`. Name the class once with `NodeRegistry(context_type=AppContext)`, and pass the object as `run.resume(context=AppContext(...))` |
 | Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |

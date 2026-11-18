@@ -20,8 +20,8 @@ class Ask(BaseException):
     for a form with one question per field. The person's answer becomes the node's outputs, so the node isn't
     called again for it. Nothing that reads those outputs runs until then.
 
-    A node that may raise ``Ask`` says so with ``asks=True`` on its ``@node``. If it raises ``Ask`` without that,
-    the call fails with ``ask_not_declared``.
+    A node that may raise ``Ask`` says so with ``asks=True`` on its ``@node``. Without it, ``@node`` or the run
+    refuses the ``Ask`` (``python -m conductor.about asking-a-person``).
 
     Here are three nodes that ask. The first takes any text. The second lets the person pick one of two people,
     named on its return type. The third offers the members of a team that comes in on an input::

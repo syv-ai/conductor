@@ -15,6 +15,8 @@ The package has these parts:
 - ``declare.py`` has ``@node`` and ``subgraph()``, which make a node definition.
 - ``type.py`` has what they make, ``FunctionDefinition`` and ``SubgraphDefinition``, and ``Upgrade``, which moves a
   graph from one version of a node to the next.
+- ``source.py`` reads the function's source once: its code as text, for the code fingerprint, and whether it
+  raises ``Ask``.
 - ``policy.py`` has ``Policy``, how the engine calls a node, and ``Deprecation``, a notice that it is going away.
 - ``running_calls.py`` has ``RunningCalls``, which counts how many calls of a node are running at once.
 - ``describe.py`` has ``NodeDescription``, a node as an editor's palette shows it.

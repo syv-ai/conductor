@@ -29,6 +29,7 @@ from typing import Any, Literal
 from conductor._internal.base import SEPARATORS
 from conductor._internal.utils import comma_separated
 
+from .run_problems import ADD_ASKS
 from .type import ProblemCatalogue
 
 #: Every kind of problem a declaration can have.
@@ -70,6 +71,29 @@ def arriving_on_compute_added_inputs(*, parameter: str) -> str:
         f"the compute_added_inputs parameter {parameter!r} asks for the type arriving on an input, but added inputs are worked out "
         "before any edge is read. Read the arriving type in compute_outputs instead."
     )
+
+
+@DECLARATION_PROBLEMS.problem
+def ask_not_declared_in_source() -> str:
+    """A node's function raises ``Ask``, and its ``@node`` doesn't say ``asks=True``.
+
+    A node that may wait for a person says so where it is declared. That way a host knows, before a run, which graphs
+    can pause for a person. ``@node`` finds a ``raise Ask(...)`` in the function's own body, where its source can
+    be read: a file or a notebook cell, not ``python -c``. A ``raise`` counts even if it never runs, so a function
+    that catches its own ``Ask`` still says ``asks=True``. An ``Ask`` raised some other way, such as by a function
+    the node calls or defines inside it, is refused when the run meets it (``ask_not_declared``). The reference
+    has every case (``python -m conductor.about asking-a-person``).
+
+    To fix it, add ``asks=True`` to the ``@node``.
+
+    Example:
+        def confirm_silently(text: str) -> bool:
+            raise Ask("Sure?")
+
+
+        declaration_refused(lambda: node("confirm_silently", title="Confirm", description="Asks a person to confirm.")(confirm_silently))
+    """
+    return f"the function raises Ask, but its @node doesn't say it may. {ADD_ASKS}"
 
 
 @DECLARATION_PROBLEMS.problem

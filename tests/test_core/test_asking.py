@@ -14,6 +14,7 @@ node that needs the answer gets it through an edge from the node that asked.
 import datetime
 import json
 import re
+import sys
 import time
 from dataclasses import FrozenInstanceError, dataclass, fields
 from enum import Enum
@@ -2498,21 +2499,121 @@ def _no_calls() -> None:
 # -- a node that asks says so ------------------------------------------------------------------------
 
 
-def test_a_raise_of_ask_from_a_node_that_does_not_declare_asks_fails_the_run_naming_the_node():
-    @node("reason", title="Reason", description="For a test.")
+def test_a_node_whose_own_body_raises_ask_without_declaring_asks_is_refused_where_it_is_declared():
+    """``@node`` finds a ``raise`` of ``Ask`` in the function's body, under the name the function looks it up by.
+
+    The run refuses such a node too, so finding it at ``@node`` only moves the refusal to where the developer is.
+    """
+    from conductor import Ask as Question
+
+    # The module itself, bound to a name no import statement writes.
+    engine = sys.modules["conductor"]
+
+    class Why(Ask):
+        pass
+
     def reason(ticket: str) -> str:
         raise Ask(f"Why was {ticket} closed?")
+
+    def by_another_name(ticket: str) -> str:
+        raise Question("Why?")
+
+    def through_its_module(ticket: str) -> str:
+        raise engine.Ask("Why?")
+
+    def by_a_subclass(ticket: str) -> str:
+        raise Why("Why?")
+
+    for function in (reason, by_another_name, through_its_module, by_a_subclass):
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("reason", title="Reason", description="For a test.")(function)
+        assert raised.value.problems[0].type == "ask_not_declared_in_source", function.__name__
+        assert str(raised.value) == (
+            f"@node('reason') on {function.__name__}: the function raises Ask, but its @node doesn't say it may. "
+            "Add asks=True to its @node."
+        )
+        assert node("reason", title="Reason", description="For a test.", asks=True)(function).asks
+
+
+def test_a_function_defined_inside_a_node_is_not_read_so_a_valid_node_is_never_refused_for_it():
+    """A function inside has names of its own and may never be called, so what it raises is left to the run."""
+
+    def never_called(ticket: str) -> str:
+        def ask() -> str:
+            raise Ask("Why?")
+
+        return ticket
+
+    def with_its_own_ask(ticket: str) -> str:
+        def check() -> None:
+            Ask = ValueError  # noqa: N806  a local name that shadows conductor's Ask
+            if not ticket:
+                raise Ask("no ticket")
+
+        check()
+        return ticket
+
+    def called(ticket: str) -> str:
+        def ask() -> str:
+            raise Ask("Why?")
+
+        return ask()
+
+    for function in (never_called, with_its_own_ask):
+        definition = node("inside", title="Inside", description="For a test.")(function)
+        run = Graph.compile(make_graph(definition), registry_of(definition)).run({"ticket": "T-1"})
+        assert run.results["inside"]["result"] == "T-1", function.__name__
+    definition = node("inside", title="Inside", description="For a test.")(called)
+    run = Graph.compile(make_graph(definition), registry_of(definition)).run({"ticket": "T-1"})
+    assert (run.cause.type, run.cause.loc) == ("ask_not_declared", ("inside",))
+
+
+def test_a_node_whose_source_cannot_be_read_is_declared_and_its_ask_fails_the_run():
+    """A function made by ``exec`` with no file has no source, so only the run can see its ``Ask``."""
+    namespace: dict[str, Any] = {"Ask": Ask}
+    exec("def typed_in(ticket: str) -> str:\n    raise Ask('Why?')\n", namespace)  # noqa: S102
+    definition = node("typed_in", title="Typed in", description="For a test.")(
+        namespace["typed_in"]
+    )
+    run = Graph.compile(make_graph(definition), registry_of(definition)).run({"ticket": "T-1"})
+    assert (run.cause.type, run.cause.loc) == ("ask_not_declared", ("typed_in",))
+
+
+def test_a_node_that_catches_an_ask_and_raises_none_is_declared_and_runs():
+    """Only a ``raise`` of ``Ask`` counts. A node that names ``Ask`` in an ``except`` never asks."""
+
+    @node("catches", title="Catches", description="For a test.")
+    def catches(ticket: str) -> str:
+        try:
+            return _ask_why(ticket)
+        except Ask:
+            return "no reason"
+
+    run = Graph.compile(make_graph(catches), registry_of(catches)).run({"ticket": "T-1"})
+    assert run.results["catches"]["result"] == "no reason"
+
+
+def _ask_why(ticket: str) -> str:
+    raise Ask(f"Why was {ticket} closed?")
+
+
+def test_an_ask_raised_by_a_function_the_node_calls_fails_the_run_naming_the_node_with_the_fix_at_node():
+    """Only the node's own source is read, so an ``Ask`` from a function it calls is refused when it is raised."""
+
+    @node("reason", title="Reason", description="For a test.")
+    def reason(ticket: str) -> str:
+        return _ask_why(ticket)
 
     run = Graph.compile(make_graph(reason), registry_of(reason)).run({"ticket": "T-1"})
     assert run.status == "failed"
     assert (run.cause.type, run.cause.loc) == ("ask_not_declared", ("reason",))
-    assert "asks=True" in run.cause.msg
+    assert run.cause.msg.endswith("Add asks=True to its @node.")
 
 
 def test_an_undeclared_ask_on_a_thread_fails_the_same_way():
     @node("reason", title="Reason", description="For a test.", policy=Policy(concurrency=2))
     def reason(ticket: str) -> str:
-        raise Ask("Why?")
+        return _ask_why(ticket)
 
     run = Graph.compile(make_graph(reason), registry_of(reason)).run({"ticket": "T-1"})
     assert run.cause.type == "ask_not_declared"

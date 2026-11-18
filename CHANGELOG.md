@@ -37,12 +37,14 @@ What changes in how you work, before the name-by-name tables:
   text with every key seen. New public names: `InputEntry`, `Source`, `read_json`. New codes: `input_has_no_value`,
   `graph_input_used_two_ways`, `graph_output_not_found`, `graph_inputs_share_a_name`, `graph_outputs_share_a_name`,
   `invalid_place`.
-- **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
-  without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
-  pause. A subgraph's palette entry in `registry.describe()` has `asks` too, true when a node inside it asks, at
+- **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`. Without it,
+  `@node` refuses a function whose own body has a `raise Ask(...)`, `Ask` named as the module imports it, with a
+  `NodeDeclarationError` (`ask_not_declared_in_source`) [provisional], and any other `Ask`, such as one raised by
+  a function the node calls, fails the call as `ask_not_declared`. Both say to add `asks=True`. So
+  `describe().asks` tells a host which graphs can pause. A subgraph's palette entry in `registry.describe()` has `asks` too, true when a node inside it asks, at
   any depth. The answer is the node's outputs, and a node that needs it reads it from an edge: "approve, then
   pay" is an asking `approval(invoice) -> bool` wired into `pay(invoice, ok: bool)`, and a host that offers
-  the two as one palette entry makes them a `subgraph`. New code: `ask_not_declared`.
+  the two as one palette entry makes them a `subgraph`. New codes: `ask_not_declared`, `ask_not_declared_in_source`.
 - **A type means what it says, wherever it is read.** `Series[T]` and `Table[R]` are ordinary generic
   types: a table stands in a union, a `Series` and a record, and `Table[R]` read anywhere has exactly
   `R`'s columns. A node may have type variables (`def split[T](value: Table[T] | list[T]) -> Series[T]`),

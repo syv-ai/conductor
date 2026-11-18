@@ -23,12 +23,19 @@ RUN_PROBLEMS = ProblemCatalogue(
 )
 
 
+#: How to fix a node that asks a person without saying so. ``@node`` refuses a function that raises ``Ask`` with the
+#: same fix (``ask_not_declared_in_source``).
+ADD_ASKS = "Add asks=True to its @node."
+
+
 @RUN_PROBLEMS.problem
 def ask_not_declared(*loc: str | int) -> str:
     """A node raised ``Ask``, and its ``@node`` doesn't say ``asks=True``.
 
     A node that may wait for a person says so where it is declared. That way a host knows, before a run, which graphs
-    can pause for a person.
+    can pause for a person. ``@node`` already refuses a function whose own body has a ``raise Ask(...)``
+    (``ask_not_declared_in_source``). The run refuses every other ``Ask``, such as one raised by a function the node
+    calls or defines inside it.
 
     To fix it, add ``asks=True`` to the ``@node``.
 
@@ -36,14 +43,18 @@ def ask_not_declared(*loc: str | int) -> str:
         loc: The call that raised it.
 
     Example:
+        def ask_if_sure() -> bool:
+            raise Ask("Sure?")
+
+
         @registry.node("confirm_quietly", title="Confirm", description="Asks a person to confirm, without saying so.")
         def confirm_quietly(text: str) -> bool:
-            raise Ask("Sure?")
+            return ask_if_sure()
 
 
         why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run({"text": "a"}))
     """
-    return "The node asked a person, but its @node doesn't say it may. Add asks=True to its @node."
+    return f"The node asked a person, but its @node doesn't say it may. {ADD_ASKS}"
 
 
 @RUN_PROBLEMS.problem

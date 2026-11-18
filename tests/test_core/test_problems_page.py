@@ -8,6 +8,7 @@ each example on the page really makes the problem it sits under.
 from __future__ import annotations
 
 import ast
+import linecache
 import re
 import sys
 from ast import Call, Expr, Expression, Module, Name
@@ -100,13 +101,13 @@ def test_a_kinds_example_makes_its_problem_and_no_other(
     *body, last = ast.parse(example).body
     assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
     exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
-    exec(
-        compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"),
-        page.__dict__,
-    )  # noqa: S102
-    made = eval(
-        compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__
-    )  # noqa: S307
+    # The example's source can be read, as a file's or a notebook cell's can, so @node reads it as it reads theirs.
+    where = f"problems page: {kind.code}"
+    monkeypatch.setitem(
+        linecache.cache, where, (len(example), None, example.splitlines(keepends=True), where)
+    )
+    exec(compile(Module(body=body, type_ignores=[]), where, "exec"), page.__dict__)  # noqa: S102
+    made = eval(compile(Expression(last.value), where, "eval"), page.__dict__)  # noqa: S307
     made = made if isinstance(made, list) else [made]
     assert made and [problem for problem in made if not _is_of_kind(kind, problem)] == []
 

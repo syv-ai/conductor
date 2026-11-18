@@ -13,8 +13,8 @@ The parameters are the node's inputs. The return type gives its outputs. ``-> st
 frozen dataclass gives one output per field. ``Series[X]`` gives a list the graph can loop over, and ``Table[R]``
 one whole table.
 
-``@node`` checks the declaration when the module is imported. A parameter with no type, or a default its type
-refuses, raises ``NodeDeclarationError`` right there.
+``@node`` checks the declaration when the module is imported. A parameter with no type, a default its type
+refuses, or a ``raise Ask(...)`` in its body without ``asks=True`` raises ``NodeDeclarationError`` right there.
 
 ``subgraph()`` turns a graph record into a node instead, so a whole graph can be one step in another graph.
 
@@ -43,6 +43,7 @@ from conductor._internal.record import GraphRecord, RecordValidator
 from conductor._internal.types import Param, Type, fit
 
 from .policy import Deprecation, Policy
+from .source import read_code
 from .type import (
     FunctionDefinition,
     HookName,
@@ -51,7 +52,6 @@ from .type import (
     NodeFunction,
     SubgraphDefinition,
     Upgrade,
-    code_text_of,
     gone_inputs,
     gone_outputs,
 )
@@ -111,7 +111,8 @@ def node(
             outputs as a mapping by name.
         replaces: The older version this one replaces, a ``@node`` with the same id.
         upgrade: How a graph that uses the older version moves to this one.
-        asks: Whether the function may raise ``Ask`` to ask a person. Raising it without ``asks=True`` fails the
+        asks: Whether the function may raise ``Ask`` to ask a person. Without it, a ``raise Ask(...)`` in the
+            function's own body is refused here (``ask_not_declared_in_source``), and any other ``Ask`` fails its
             call (``ask_not_declared``).
 
     An input a hook reads takes only a constant, as if its ``Param`` said ``constant_only=True``. The hook reads it
@@ -129,6 +130,9 @@ def node(
             inputs, context, outputs, outputs_dataclass = _read_signature(
                 target, compute_outputs is not None
             )
+            code_text, raises_ask = read_code(target)
+            if not asks and raises_ask:
+                raise NodeDeclarationError(declaration_problems.ask_not_declared_in_source())
             takes_kwargs = any(
                 p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values()
             )
@@ -167,7 +171,7 @@ def node(
                 inputs=inputs,
                 outputs=outputs,
                 outputs_dataclass=outputs_dataclass,
-                code_text=code_text_of(target),
+                code_text=code_text,
                 context=context,
                 id=id,
                 version=number,

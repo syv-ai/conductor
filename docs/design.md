@@ -269,7 +269,7 @@ dataclass a small form. So fixed choices are on the type, and `Ask(choices=)` is
 as a team that changes from run to run. `AskBool` or a `type=` argument would declare the answer's type a second
 time.
 
-A node that may ask says `asks=True` on its `@node`, and raising `Ask` without it fails as `ask_not_declared`. In
+A node that may ask says `asks=True` on its `@node`. Without it, `@node` refuses a function whose own body has a `raise Ask(...)` (`ask_not_declared_in_source`), and the run fails any other `Ask`, such as one from a function the node calls (`ask_not_declared`). Reading the source finds the common mistake where the developer is, and the run's check stays the rule for what the source doesn't show. In
 `registry.describe()` each node says whether it `asks` (for a subgraph, whether any node inside does), so a host knows
 which nodes can pause. It's on the decorator because asking is something the function does, like raising, not
 something its value is. **Worth questioning:** the signature alone doesn't say everything the node does.
