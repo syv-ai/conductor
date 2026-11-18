@@ -10,11 +10,13 @@ import dataclasses
 import functools
 import operator
 import typing
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from types import UnionType
 from typing import Any, Literal, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, JsonValue
+
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 
 #: Classes that mean another hint when written as a hint, such as ``polars.DataFrame``, which means ``Table``.
 READ_AS: dict[type, Any] = {}
@@ -101,3 +103,39 @@ def substituted(hint: Any, bound: Mapping[TypeVar, Any]) -> Any:
     return (
         hint[tuple(substituted(variable, bound) for variable in variables)] if variables else hint
     )
+
+
+def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
+    """Yields ``hint`` and every hint inside it, as its author wrote them.
+
+    It walks a union's members, a generic's arguments, ``Annotated``'s type, what a ``type X = ...`` alias stands
+    for, and a ``TypedDict``'s fields, a generic one's too. A host's own model or dataclass is its own, so its fields
+    are not walked. ``list[Table[Row]] | None`` yields itself, ``list[Table[Row]]``, ``Table[Row]``, ``Row``, each of
+    ``Row``'s field hints and ``None``.
+
+    Args:
+        hint: The hint.
+        walked: The ``TypedDict``s and aliases already walked on the way down (by ``id``), so one that holds
+            itself ends.
+
+    Raises:
+        NodeDeclarationError: ``type_not_supported`` for a ``TypedDict`` field written as text that names nothing
+            Python can find.
+    """
+    yield hint
+    parts: list[Any] = list(get_args(hint))
+    record = get_origin(hint) or hint
+    if (is_alias(hint) or typing.is_typeddict(record)) and id(record) not in walked:
+        walked |= {id(record)}
+        if is_alias(hint):
+            parts.append(hint.__value__)
+        else:
+            try:
+                parts += typing.get_type_hints(record, include_extras=True).values()
+            # a field written as text that names nothing Python can find
+            except NameError:
+                raise NodeDeclarationError(
+                    declaration_problems.type_not_supported(type=record.__qualname__)
+                ) from None
+    for part in parts:
+        yield from hint_parts(part, walked)

@@ -15,7 +15,7 @@ record are JSON, and ``ConstantValidator`` in ``graph/`` checks those.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, get_args, get_origin
 
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
@@ -28,7 +28,8 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
 )
-from conductor._internal.types import Type
+from conductor._internal.table import Table, check_table_row
+from conductor._internal.types import Type, hint_parts
 from conductor._internal.validation import Validator
 
 from .type import Field
@@ -45,9 +46,16 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
         is_output: Whether the field is an output.
 
     Raises:
-        NodeDeclarationError: The hint is one ``Field`` refuses, or the type refuses the default, or the default
-            can't be written as JSON (``default_invalid``). It names the field.
+        NodeDeclarationError: The hint is one ``Field`` refuses, a ``Table`` in it has a row type that names no
+            columns (``table_row_not_a_typed_dict``), or the type refuses the default, or the default can't be
+            written as JSON (``default_invalid``). It names the field.
     """
+    try:
+        for part in hint_parts(hint):
+            if get_origin(part) is Table:
+                check_table_row(*get_args(part))
+    except NodeDeclarationError as error:
+        raise error.within(name) from None
     whole = Field(name, hint, is_output=is_output).whole
     try:
         return Field(name, hint, _read_default(whole, default), is_output=is_output)

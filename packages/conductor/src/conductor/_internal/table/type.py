@@ -8,7 +8,6 @@ rules where a table differs from other values.
 from __future__ import annotations
 
 import functools
-import typing
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, get_args
 
@@ -18,7 +17,7 @@ from pydantic_core import CoreSchema
 
 from conductor._internal.types import Type
 
-from .read import as_saved, column_missing, table_schema
+from .read import as_saved, column_missing, row_columns, table_schema
 from .write import (
     table_digest,
     written_table,
@@ -59,15 +58,6 @@ else:
 _TABLE_FORMS = ("frame", "records", "written", "columns")
 
 
-def is_bare_table_row(hint: Any) -> bool:
-    """Whether ``hint`` is the type of one row of a bare ``Table``: ``Any``, ``dict`` or ``dict[str, Any]``.
-
-    A frame fills each of these without a check: a row is a dict with a text key per column and a cell of any type.
-    A dict with one type of value, such as ``dict[str, int]``, isn't one, since a bare table checks no cell.
-    """
-    return hint is Any or hint is dict or hint == dict[str, Any]
-
-
 class TableType(Type, of=_Table, value_class=pl.DataFrame):
     """The ``Type`` of a ``Table[R]`` hint, with or without ``| None``.
 
@@ -82,7 +72,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
         """The type hint of each column, by name. A bare ``Table`` has none."""
-        return Type(self._row).fields
+        return row_columns(self._row, include_extras=False) or {}
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
@@ -91,7 +81,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         The id lists the columns, like ``Table[customer: str, amount: float]``, or is just ``Table`` for a bare
         table. The title is always ``Table``, and a table names no class.
         """
-        columns = typing.get_type_hints(self._row) if typing.is_typeddict(self._row) else {}
+        columns = row_columns(self._row, include_extras=False) or {}
         return (
             f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]"
             if columns

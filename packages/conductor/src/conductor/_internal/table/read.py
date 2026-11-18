@@ -17,7 +17,7 @@ import functools
 import typing
 from collections.abc import Callable, Iterable, Mapping
 from decimal import Decimal
-from typing import Any, NotRequired, get_args
+from typing import Any, NotRequired, TypeVar, get_args, get_origin
 
 import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
@@ -31,7 +31,7 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
 )
-from conductor._internal.types import SIZED, Type
+from conductor._internal.types import SIZED, Type, substituted
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
@@ -362,6 +362,58 @@ def _table_form(value: Any) -> str | None:
     return None
 
 
+def is_bare_table_row(hint: Any) -> bool:
+    """Whether ``hint`` is the type of one row of a bare ``Table``: ``Any``, ``dict`` or ``dict[str, Any]``.
+
+    A frame fills each of these without a check: a row is a dict with a text key per column and a cell of any type.
+    A dict with one type of value, such as ``dict[str, int]``, isn't one, since a bare table checks no cell.
+    """
+    return hint is Any or hint is dict or hint == dict[str, Any]
+
+
+def row_columns(row: Any, *, include_extras: bool = True) -> dict[str, Any] | None:
+    """Returns the hint of each column a table's row type names, or ``None`` for a row that names none.
+
+    A ``TypedDict`` names its fields. A generic one, like ``Row[int]``, names its fields with its type arguments
+    filled in. Any other row, a bare one included, names no columns.
+
+    Args:
+        row: The row type ``R`` of ``Table[R]``.
+        include_extras: Whether each hint keeps its ``Annotated`` metadata.
+    """
+    record = get_origin(row) or row
+    if not typing.is_typeddict(record):
+        return None
+    hints = typing.get_type_hints(record, include_extras=include_extras)
+    bound = dict(zip(getattr(record, "__parameters__", ()), get_args(row), strict=False))
+    return {name: substituted(hint, bound) for name, hint in hints.items()}
+
+
+def check_table_row(row: Any) -> None:
+    """Refuses ``row``, the row type ``R`` of a ``Table[R]`` a node declares, if it names no columns.
+
+    A ``TypedDict`` names a table's columns, a generic one's too, and ``Any``, ``dict`` and ``dict[str, Any]`` are a
+    bare table's row (``is_bare_table_row``). Any other row type, such as a dataclass or ``int``, names none, so the
+    table would keep every column it was given and check none of them. A type variable is filled in by a graph, so
+    it is let through. A graph that fills in ``T`` in ``Table[T] | list[T]`` with ``str`` is no declaration, so its
+    ``Table[str]`` is read as a bare table.
+
+    Raises:
+        NodeDeclarationError: ``table_row_not_a_typed_dict``.
+    """
+    if (
+        isinstance(row, TypeVar)
+        or is_bare_table_row(row)
+        or typing.is_typeddict(get_origin(row) or row)
+    ):
+        return
+    raise NodeDeclarationError(
+        declaration_problems.table_row_not_a_typed_dict(
+            row=row.__qualname__ if isinstance(row, type) else str(row)
+        )
+    )
+
+
 def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     """Returns the pydantic schema of ``Table[R]``.
 
@@ -377,18 +429,20 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         NodeDeclarationError: ``row_field_optional`` if the row type lets a row leave a column out.
     """
     row = (get_args(source) or (Any,))[0]
-    declared = typing.is_typeddict(row)
-    hints = typing.get_type_hints(row, include_extras=True) if declared else {}
+    record = get_origin(row) or row
+    found = row_columns(row)
+    declared = found is not None
+    hints = found or {}
     # A NotRequired field, or total=False, is a column some rows could leave out. A NotRequired written as a
     # string annotation shows up only in the resolved hints.
     left_out = [
         name
         for name, hint in hints.items()
-        if name in row.__optional_keys__ or typing.get_origin(hint) is NotRequired
+        if name in record.__optional_keys__ or typing.get_origin(hint) is NotRequired
     ]
     if left_out:
         raise NodeDeclarationError(
-            declaration_problems.row_field_optional(row=row.__qualname__, field=left_out[0])
+            declaration_problems.row_field_optional(row=record.__qualname__, field=left_out[0])
         )
     columns = {name: Type(hint) for name, hint in hints.items()}
     cells = {name: handler.generate_schema(column.carried) for name, column in columns.items()}

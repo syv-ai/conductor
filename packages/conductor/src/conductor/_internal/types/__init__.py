@@ -19,7 +19,7 @@ from .choice import (
     read_choices,
 )
 from .fit import fit
-from .hint import a_number, union_members, union_of
+from .hint import a_number, hint_parts, substituted, union_members, union_of
 from .host_type import NAMES, host_type
 from .param import SIZED, Param, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
@@ -39,11 +39,13 @@ __all__ = [
     "choices_in_message",
     "field_of",
     "fit",
+    "hint_parts",
     "host_type",
     "merged_param",
     "pick_texts",
     "read_choices",
     "split_hint",
+    "substituted",
     "union_members",
     "union_of",
 ]

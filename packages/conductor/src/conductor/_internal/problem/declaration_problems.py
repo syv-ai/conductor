@@ -1097,6 +1097,37 @@ def type_declaration_not_writable(*, id: str, cls: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
+def table_row_not_a_typed_dict(*, row: str) -> str:
+    """A ``Table``'s row type is neither a ``TypedDict`` nor a type any row fills, such as a dataclass or ``int``.
+
+    A ``TypedDict`` names a table's columns, and a table read for it keeps only those. Any other row type names none,
+    so the table would keep every column it was given and check none of them. A bare ``Table`` takes any columns,
+    and is written ``Table``, ``Table[Any]`` or ``Table[dict[str, Any]]``. A type variable, as in ``Table[T]``,
+    is filled in by a graph.
+
+    To fix it, write the row as a ``TypedDict`` with one field per column, or take a bare ``Table``.
+
+    Args:
+        row: The row type, as its developer wrote it.
+
+    Example:
+        @host_type("spot", title="Spot")
+        @dataclass(frozen=True)
+        class Spot:
+            x: float
+            y: float
+
+
+        def spots(text: str) -> Table[Spot]:
+            return pl.DataFrame({"x": [0.0], "y": [0.0]})
+
+
+        declaration_refused(lambda: node("spots", title="Spots", description="Reads the spots in a text.")(spots))
+    """
+    return f"a table's row type names its columns as a TypedDict, and {row} isn't one. Write the row as a TypedDict, or take a bare Table."
+
+
+@DECLARATION_PROBLEMS.problem
 def row_field_optional(*, row: str, field: str) -> str:
     """The row type of a ``Table``, or of a ``Series`` of records, lets a field be left out.
 

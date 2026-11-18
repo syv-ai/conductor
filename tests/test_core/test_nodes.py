@@ -392,6 +392,80 @@ def test_metadata_on_a_series_is_for_its_items():
         graph.run({"xs": [1, -1]})
 
 
+def test_a_table_row_that_names_no_columns_is_refused_where_the_node_is_declared():
+    """A table read for a dataclass row would keep every column it was given, as a bare table does."""
+
+    @dataclass(frozen=True)
+    class Spot:
+        x: float
+
+    class Point(TypedDict):
+        x: float
+
+    class Holder(TypedDict):
+        spots: Table[int]
+
+    def on_dataclass(points: Table[Spot]) -> int:
+        return 0
+
+    def on_number_in_a_list() -> list[Table[int]]:
+        return []
+
+    def on_a_dict_of_one_type(points: Table[dict[str, int]] | None = None) -> int:
+        return 0
+
+    def in_a_record(holder: Holder) -> int:
+        return 0
+
+    type Spots = Table[Spot]
+
+    def through_an_alias(spots: Spots) -> int:
+        return 0
+
+    for wrong in (
+        on_dataclass,
+        on_number_in_a_list,
+        on_a_dict_of_one_type,
+        in_a_record,
+        through_an_alias,
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == "table_row_not_a_typed_dict", wrong
+
+    @node("keep-point", title="Keep point", description="For a test.")
+    def keep_point(points: Table[Point], anything: Table[dict[str, Any]]) -> Table[Point]:
+        return pl.DataFrame({"x": [1.0], "y": [2.0]})
+
+    run = compiled_graph(keep_point).run({"points": [{"x": 1.0}], "anything": [{"y": 1}]})
+    assert run.outputs["result"].columns == ["x"]
+
+
+def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in():
+    class Cell[T](TypedDict):
+        value: T
+
+    @node("keep-cells", title="Keep cells", description="For a test.")
+    def keep_cells(cells: Table[Cell[int]]) -> Table[Cell[int]]:
+        return pl.DataFrame({"value": [1], "extra": ["x"]})
+
+    graph = compiled_graph(keep_cells)
+    assert graph.inputs["cells"].type == "Table[value: int]"
+    assert graph.run({"cells": [{"value": 1}]}).outputs["result"].columns == ["value"]
+
+
+def test_a_record_field_written_as_text_that_names_nothing_is_a_declaration_problem():
+    class Unknown(TypedDict):
+        x: "Missing"  # type: ignore[name-defined]  # noqa: F821
+
+    def reads(row: Unknown) -> int:
+        return 0
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(reads)
+    assert raised.value.problems[0].type == "type_not_supported"
+
+
 def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
     def summary(labels: Series[str]) -> dict[str, int]:
         return {label: labels.count(label) for label in labels}

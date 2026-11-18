@@ -17,12 +17,14 @@ It always reaches the node as a frame with exactly the columns ``R`` names. The 
 ``python -m conductor.about types``.
 """
 
-from .type import Table, TableType, frame_as_json, frame_to_hash, is_bare_table_row
+from .read import check_table_row, is_bare_table_row
+from .type import Table, TableType, frame_as_json, frame_to_hash
 from .write import written_columns
 
 __all__ = [
     "Table",
     "TableType",
+    "check_table_row",
     "frame_as_json",
     "frame_to_hash",
     "is_bare_table_row",
