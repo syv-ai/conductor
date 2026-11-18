@@ -75,7 +75,7 @@ What changes in how you work, before the name-by-name tables:
   `ctx.widget` the widget's class and the field's name in front of the message (it raised pydantic's
   `PydanticSerializationError`, which named no field).
 - **An input added by `compute_added_inputs` is held to what `@node` holds a parameter to.** The default `SKIPPED`
-  on it is the hook's failure, `compute_hook_failed` with `ctx.error` `default_skipped_on_input` (it was accepted, and the
+  on it is the hook's failure, `compute_hook_returned_invalid` with `ctx.error` `default_skipped_on_input` (it was accepted, and the
   sentinel reached the function). A parameter whose default is `SKIPPED` raises `NodeDeclarationError` with
   `default_skipped_on_input`: `SKIPPED` is only ever the value of a skipped output.
 - **Breaking: a branch is an output whose default is `SKIPPED`, and a call gives a value to at most one branch of
@@ -232,7 +232,7 @@ What changes in how you work, before the name-by-name tables:
   `unheld`; `type_not_carried` is `type_not_supported`, and `host_type_not_supported` for a class under `@host_type`;
   `not_offered` is `unknown_graph_input`; `not_a_place` is `invalid_place`; a `NodeError` without a code of its
   own is `node_error`, where it was `failed` (a run's status `failed` stays); the `ctx.whole` of
-  `type_mismatch_whole_table_or_list` and `unknown_output_field_of_whole_table_or_list` is `ctx.kind`; and `compute_hook_failed`'s `ctx.error` `added_input_taken` is `added_input_exists`.
+  `type_mismatch_whole_table_or_list` and `unknown_output_field_of_whole_table_or_list` is `ctx.kind`; and `compute_hook_failed`'s `ctx.error` `added_input_taken` is `compute_hook_returned_invalid`'s `added_input_exists`.
 - **A refused call lists its problems in `problems`.** `InvalidCallError.problems` is every `Problem` the call
   was refused for, as `graph.problems` is for a graph, and `read_json` raises it too.
 - **`type_not_named` gives a declaration to paste.** For a class with no `@host_type`, the message suggests an id and a title made from the class's name, `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`, where it wrote `@host_type("...", title="...")`; `ctx` gains `suggested_id` and `suggested_title`. An id that would be one of conductor's own gets `-type` after it.
@@ -383,7 +383,7 @@ What changes in how you work, before the name-by-name tables:
 - **A hint that is no type at all is `type_not_supported`.** `def f() -> 5` or `-> [int]` raised a bare `TypeError`
   at `@node`, and a `compute_outputs` hook that returned `{"out": 5}`, a list, a dict or a set made `Graph.compile`
   raise one. Now `@node` raises
-  `NodeDeclarationError` with `type_not_supported`, and the hook is `compute_hook_failed` with `ctx.error`
+  `NodeDeclarationError` with `type_not_supported`, and the hook is `compute_hook_returned_invalid` with `ctx.error`
   `type_not_supported`, as a hook's undeclared class is with `type_not_named`.
 - **`conductor.testing` exports `REGISTRY_CHECK_PROBLEMS`**, the catalogue of `check_registry`'s codes, beside
   `check_registry`. The reference says what it, `PROBLEMS` and `DECLARATION_PROBLEMS` each hold, and its translation
@@ -479,7 +479,7 @@ What changes in how you work, before the name-by-name tables:
 - **A default a generic node declares is read by the type its edges bind.** `first(one: T, other: T = 0)` wired from a `str` gives the graph the problem `invalid_value_bound_default` at `("first", "other")`; `Graph.compile` raised `NodeDeclarationError` for it. A default of `None` is read the same way, so `first(one: T, other: T = None)` wired from a `str` has the same problem, and so has a generic dataclass of outputs whose field defaults to `None`. An input an edge or a constant gives its value never uses its default, so its default is not read.
 - **A whole table or list wired where one value is taken says to make a series.** `type_mismatch_whole_table_or_list` and `unknown_output_field_of_whole_table_or_list` say it, as `invalid_input_list_for_one_value` does for a list given to an input of one value: put a node between that returns the rows or items as a `Series`.
 - **A row type's fields are all required.** A `Table[R]` or a `Series[R]` of records whose `R` has a `NotRequired` field, or is declared `total=False`, is refused when the node is declared (`row_field_optional`, a new declaration code); a node returning such a `Series` failed its run with pydantic's own schema error. Declare the field `X | None`.
-- **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`, and one that gives a field a name a graph cannot have is `compute_hook_failed` at that name with `error: not_a_name`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
+- **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_returned_invalid` with `error: not_a_mapping`, and one that gives a field a name a graph cannot have is `compute_hook_returned_invalid` at that name with `error: not_a_name`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
 - **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. A node's `CallCount` counts its skipped calls in `skipped`: a call downstream of a skipped branch, or one whose every output is `SKIPPED`; a node with no output that returns `SKIPPED` is not counted. A node was skipped when `finished > 0` and `skipped` equals `finished`.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early. The run saved in the row is its last checkpoint, which reads back as its outcomes say: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
 - **A person can decline a question, and that ends the run for good** (provisional). `run.with_decline(waiting,
@@ -652,6 +652,15 @@ What changes in how you work, before the name-by-name tables:
   choices, but it can't carry titles, so the docs write none for choices, and never one beside `Param(choices=)`
   that repeats its values. `named_value_invalid_enum`'s message says to "take the values' type, such as str, with
   Param(choices=[...])", where it said to take a `Literal` titled with `Param(choices=)`.
+- **A kind of problem writes its message one way (provisional).** Two codes that each covered two mistakes are
+  split. A hook that returns something compiling can't use is the new compile code `compute_hook_returned_invalid`
+  (`ctx` `reason`, `error`: `not_a_mapping`, `not_a_name`, `added_input_exists` or the declaration's code), and
+  `compute_hook_failed` is only a hook's `NodeError`, whose message is the hook's own, with no fix added. A graph
+  output that names a node the record doesn't have is the new compile code `graph_output_names_missing_node` (`ctx`
+  `output`, `source`, `missing`), as an edge's is `edge_names_missing_node`; `graph_output_not_found` is only an
+  output its node doesn't have. `unknown_node` writes one message, "The registry has no node 'read'. Add it to the
+  registry, or use one the registry has: upper, count." (`none` on an empty registry), where it wrote "Its nodes are
+  ..." or, on an empty registry, "It has no nodes at all."
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

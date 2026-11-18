@@ -846,9 +846,9 @@ def test_a_graph_output_naming_a_node_or_an_output_the_record_lacks_is_the_graph
 
     assert [(p.type, p.loc, p.ctx) for p in graph.problems] == [
         (
-            "graph_output_not_found",
+            "graph_output_names_missing_node",
             (),
-            {"output": "gone", "source": "nobody.result", "outputs": []},
+            {"output": "gone", "source": "nobody.result", "missing": "nobody"},
         ),
         (
             "graph_output_not_found",

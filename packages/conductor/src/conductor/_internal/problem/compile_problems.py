@@ -62,30 +62,25 @@ def branches_from_different_loops(node_id: str, input: str, /, *, series: list[s
 def compute_hook_failed(
     *loc: str | int, reason: str, error: str, error_ctx: dict[str, Any] | None = None
 ) -> str:
-    """A node's ``compute_...`` hook raised a ``NodeError``, or returned something compiling can't use.
+    """A node's ``compute_...`` hook raised a ``NodeError``.
 
-    A ``NodeError`` keeps its message, since the hook's developer wrote it for people. ``ctx.error`` is its
-    ``code`` and ``ctx.error_ctx`` its ``ctx``. A hook that raises any other exception is ``compute_hook_raised``.
+    A ``NodeError`` keeps its message, since the hook's developer wrote it for people, with its own fix.
+    ``ctx.error`` is its ``code`` and ``ctx.error_ctx`` its ``ctx``. A hook that raises any other exception is
+    ``compute_hook_raised``, and one that returns something compiling can't use is ``compute_hook_returned_invalid``.
 
-    A hook can also return a name a field can't have. Then the problem is at that name, and ``ctx.error`` is
-    ``not_a_name``. A name must not be empty, and must not contain ``.``, ``/``, ``@`` or ``~``, since those are used to
-    write sources, node paths and waiting ids.
-
-    To fix it, change the constant the hook reads, or fix the hook. In the example, the hook of ``pick_some`` raises
-    a ``NodeError`` for an empty text.
+    To fix it, do what the message says, or fix the hook. In the example, the hook of ``pick_some`` raises a
+    ``NodeError`` for an empty text.
 
     Args:
-        loc: The node. If the hook gave a field a name it can't have, that name comes next.
-        reason: The ``NodeError``'s message, or why compiling can't use what the hook returned.
-        error: The ``code`` of the hook's ``NodeError``. If the hook returned something compiling can't use, it says
-            why: ``not_a_mapping``, ``not_a_name``, ``added_input_exists``, or the code of a type conductor doesn't
-            support.
-        error_ctx: The ``ctx`` of the hook's ``NodeError``, if it has one.
+        loc: The node.
+        reason: The ``NodeError``'s message.
+        error: The ``NodeError``'s ``code``.
+        error_ctx: The ``NodeError``'s ``ctx``, if it has one.
 
     Example:
         def some_names(names: str) -> dict[str, type]:
             if not names:
-                raise NodeError("No output is named", code="no_names")
+                raise NodeError("No output is named. Give the node a name.", code="no_names")
             return {name: str for name in names.split(",")}
 
 
@@ -98,9 +93,45 @@ def compute_hook_failed(
             "pick": {"node": "pick_some", "inputs": {"names": {"constant": ""}}}
         }})
     """
-    # A reason that ends in a period is a NodeError's whole message, with its own fix.
-    if reason.endswith("."):
-        return f"The node couldn't work out its inputs and outputs: {reason}"
+    return f"The node couldn't work out its inputs and outputs: {reason}"
+
+
+@COMPILE_PROBLEMS.problem
+def compute_hook_returned_invalid(*loc: str | int, reason: str, error: str) -> str:
+    """A node's ``compute_...`` hook returned something compiling can't use.
+
+    ``ctx.error`` says what:
+
+    - ``not_a_mapping``: the hook didn't return a mapping of each field's name to its type.
+    - ``not_a_name``: the hook gave a field a name it can't have. Then the problem is at that name. A name must not be
+      empty, and must not contain ``.``, ``/``, ``@`` or ``~``, since those are used to write sources, node paths and
+      waiting ids.
+    - ``added_input_exists``: ``compute_added_inputs`` added an input the node already declares.
+    - the code ``@node`` would refuse the field with, such as ``default_invalid`` or ``type_not_named``.
+
+    To fix it, change the constant the hook reads, or fix the hook. In the example, the hook of ``name_each`` builds
+    an output's name from the text, and ``a.b`` holds a ``.``.
+
+    Args:
+        loc: The node. If the hook gave a field a name it can't have, that name comes next.
+        reason: Why compiling can't use what the hook returned.
+        error: What is wrong with it: ``not_a_mapping``, ``not_a_name``, ``added_input_exists``, or the code ``@node``
+            would refuse the field with.
+
+    Example:
+        def named_by_text(names: str) -> dict[str, type]:
+            return {name: str for name in names.split(",")}
+
+
+        @registry.node("name_each", title="Name each", description="Returns one output per name.", compute_outputs=named_by_text)
+        def name_each(names: str) -> dict[str, str]:
+            return {name: name for name in names.split(",")}
+
+
+        problems({"nodes": {
+            "each": {"node": "name_each", "inputs": {"names": {"constant": "a.b"}}}
+        }})
+    """
     return f"The node couldn't work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired into it."
 
 
@@ -238,25 +269,46 @@ def cycle(*loc: str | int) -> str:
 
 @COMPILE_PROBLEMS.problem
 def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> str:
-    """A graph output names a node the record doesn't have, or an output its node doesn't have.
+    """A graph output names an output its node doesn't have.
 
     The problem belongs to the graph, not to a node. So its ``loc`` is empty, and ``ctx.output`` names the graph output.
+    A graph output that names a node the record doesn't have is ``graph_output_names_missing_node``.
 
-    To fix it, name an output of a node the graph has.
+    To fix it, name one of the outputs in ``ctx.outputs``.
 
     Args:
         output: The graph output's name.
         source: The output it names, as ``node.output``.
-        outputs: The outputs its node has, each as ``node.output``. Empty if the record has no such node.
+        outputs: The outputs its node has, each as ``node.output``.
 
     Example:
         problems({"nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "u", "output": "shout"}}})
     """
-    if outputs:
-        return f"The graph output '{output}' reads '{source}', but that node has no such output. It has {comma_separated(outputs)}."
-    return f"The graph output '{output}' reads '{source}', but the graph has no such node. Name an output of a node in the graph."
+    return f"The graph output '{output}' reads '{source}', but that node has no such output. It has {comma_separated(outputs)}."
+
+
+@COMPILE_PROBLEMS.problem
+def graph_output_names_missing_node(*, output: str, source: str, missing: str) -> str:
+    """A graph output names a node the graph record doesn't have.
+
+    The problem belongs to the graph, not to a node. So its ``loc`` is empty, and ``ctx.output`` names the graph output.
+    It is the graph output's ``edge_names_missing_node``.
+
+    To fix it, name an output of a node the graph has, or remove the graph output.
+
+    Args:
+        output: The graph output's name.
+        source: The output it names, as ``node.output``.
+        missing: The id of the node that isn't in the graph record.
+
+    Example:
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
+        }, "outputs": {"result": {"node": "gone", "output": "result"}}})
+    """
+    return f"The graph output '{output}' reads '{source}', but '{missing}' isn't a node in the graph. Name an output of a node in the graph, or remove the graph output."
 
 
 @COMPILE_PROBLEMS.problem
@@ -864,16 +916,15 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
     Args:
         loc: The node.
         node: The id of the node definition it names.
-        choices: The ids of the registry's node definitions.
+        choices: The ids of the registry's node definitions. Empty for a registry with no nodes, which the message
+            writes as none.
 
     Example:
         problems({"nodes": {
             "m": {"node": "send-mail"}
         }})
     """
-    if not choices:
-        return f"The registry has no node '{node}'. It has no nodes at all."
-    return f"The registry has no node '{node}'. Its nodes are {comma_separated(choices)}."
+    return f"The registry has no node '{node}'. Add it to the registry, or use one the registry has: {comma_separated(choices)}."
 
 
 @COMPILE_PROBLEMS.problem

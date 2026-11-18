@@ -24,9 +24,10 @@ from pytest import MonkeyPatch
 _ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
 _TEMPLATE = (_PACKAGE / "about" / "problems.md").read_text()
-#: The kinds whose message has no fix of its own. A node's failure uses the node's own words. An outside failure
-#: has nothing a person can act on. And an answer's ``reason`` is pydantic's account of what is wrong with it.
-_NO_FIX = {"node_error", "external_failed", "invalid_answer"}
+#: The kinds whose message has no fix of its own. A node's failure, and a hook's ``NodeError``, use the developer's own
+#: words. An outside failure has nothing a person can act on. And an answer's ``reason`` is pydantic's account of what
+#: is wrong with it.
+_NO_FIX = {"node_error", "compute_hook_failed", "external_failed", "invalid_answer"}
 #: The kinds whose message is the one the node gave its ``NodeError``. So an example's message isn't the kind's own.
 _MESSAGE_IS_THE_NODES = {"node_error"}
 

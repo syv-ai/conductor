@@ -312,7 +312,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
     with ``DeclaredOutputValidator``.
 
     Raises (when called):
-        InvalidCallError: ``compute_hook_failed`` problems. There is one at each name that isn't a valid name
+        InvalidCallError: ``compute_hook_returned_invalid`` problems. There is one at each name that isn't a valid name
             (``error`` ``not_a_name``). If the hook returned no mapping, there is one at the node (``not_a_mapping``).
             If ``@node`` would refuse a field, its ``error`` is the declaration's code, like ``default_invalid``, and
             its message names the field but quotes none of the declaration's text, which can quote the default.
@@ -347,13 +347,13 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 )
                 raise InvalidCallError(
                     [
-                        compile_problems.compute_hook_failed(
+                        compile_problems.compute_hook_returned_invalid(
                             self._node_id, reason=reason, error="not_a_mapping"
                         )
                     ]
                 ) from None
             raise InvalidCallError(
-                compile_problems.compute_hook_failed(
+                compile_problems.compute_hook_returned_invalid(
                     self._node_id,
                     str(fault["loc"][0]),
                     reason=f"its {self._hook} hook returned a name a field can't have ({fault['msg']})",
@@ -374,7 +374,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 )
                 raise InvalidCallError(
                     [
-                        compile_problems.compute_hook_failed(
+                        compile_problems.compute_hook_returned_invalid(
                             self._node_id, reason=reason, error=error.problems[0].type
                         )
                     ]

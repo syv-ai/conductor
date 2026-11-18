@@ -232,8 +232,9 @@ def branch_outputs(names: str, value: type) -> dict:   # all the outputs; value:
 - A table arriving is `Table[R]` or a bare `Table`. So `typing.get_args(table)` is its record type `R`, or empty.
 - If an input the hook reads gets no value, the hook is not called, and the node's own problem says why.
 - A hook returns `{name: type hint}`, read like a signature. For a field with a default it returns `{name: (type hint, default)}`, as pydantic's `create_model` takes one.
-- Each field it returns is held to the same rules `@node` holds a parameter to (an input) or a returned field to (an output). So an added input with the default `SKIPPED` is the hook's failure. A field `@node` would refuse is `compute_hook_failed` with the declaration's code in `ctx.error`: `type_not_named` for a class with no `@host_type`, and `type_not_supported` for a type pydantic can't check or a value that is no type at all, like `5`, `[int]` or `"str"`.
-- A hook that raises is never an exception. It is the problem `compute_hook_failed` on the node: a `NodeError` keeps its code in `ctx.error` and its message, and any other exception is `compute_hook_raised`, with its class name in `ctx.error` and its text in the `conductor` log. So is a field it gives a name a graph can't have: the problem is at that name, with `ctx.error` `not_a_name`.
+- Each field it returns is held to the same rules `@node` holds a parameter to (an input) or a returned field to (an output). So an added input with the default `SKIPPED` is the hook's failure. A field `@node` would refuse is `compute_hook_returned_invalid` with the declaration's code in `ctx.error`: `type_not_named` for a class with no `@host_type`, and `type_not_supported` for a type pydantic can't check or a value that is no type at all, like `5`, `[int]` or `"str"`.
+- A hook that raises is never an exception. A `NodeError` is the problem `compute_hook_failed` on the node, which keeps its code in `ctx.error` and its message, with no fix added, since its developer wrote one. Any other exception is `compute_hook_raised`, with its class name in `ctx.error` and its text in the `conductor` log.
+- A hook that returns something compiling can't use is `compute_hook_returned_invalid`, and `ctx.error` says what: `not_a_mapping`, `not_a_name` for a field it gives a name a graph can't have (the problem is then at that name), `added_input_exists`, or the declaration's code.
 - A hook that raises `NodeError` gives the problem its message, its `code` as `ctx.error`, and its own `ctx` whole as `ctx.error_ctx`.
 - `graph.describe()` shows each node's fields as its hooks made them.
 
@@ -354,7 +355,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 - An edge is a source on the input it leads into: `{"node": "a", "output": "result"}`. Add `"field": "email"` to read one field of the record that output gives.
   - Several sources of one input must come from different branches of one node (see "Several edges into one input"). A source listed twice is refused (`invalid_record`).
   - A source naming a node the graph doesn't have is `edge_names_missing_node`.
-  - A graph output naming a node the graph doesn't have, or an output its node doesn't have, is `graph_output_not_found`, with `loc` `()` and `ctx` `output`, `source` and `outputs`.
+  - A graph output naming a node the graph doesn't have is `graph_output_names_missing_node`, with `loc` `()` and `ctx` `output`, `source` and `missing`. One naming an output its node doesn't have is `graph_output_not_found`, with `loc` `()` and `ctx` `output`, `source` and `outputs`.
 - `{"constant": v}` is the input's value on every call of every run. The graph doesn't offer that input to a caller.
 - `{"graph_input": name}` is the caller's value, under that name. `{"graph_input": name, "default": v}` adds a value for when the caller gives none.
   - The default is the record's. `{"graph_input": name}` with no `default` is required, whatever the input's own default.
@@ -526,10 +527,10 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 
 - `unknown_node` and `unknown_version`.
 - `unknown_input`: an entry names an input the node lacks.
-- `unknown_output`: an edge or a graph output names an output, or a field of a record output, that the node doesn't give.
+- `unknown_output`: an edge names an output, or a field of a record output, that the node doesn't give. For a graph output it is `graph_output_not_found`.
 - `type_mismatch`: an edge between types that don't meet.
 - `invalid_value`: a constant or default its type refuses. `invalid_value_bound_default` is an input's declared default that doesn't fit the type an edge gives a type variable, and `output_default_bound_invalid` an output's.
-- `compute_hook_failed`: see "Field Hooks". `context_does_not_fit`: see "Context".
+- `compute_hook_failed`, `compute_hook_raised` and `compute_hook_returned_invalid`: see "Field Hooks". `context_does_not_fit`: see "Context".
 - `input_has_no_value` and `graph_input_used_two_ways`.
 - `cycle`.
 - `subgraph_contains_itself`, on the node that closes the circle.

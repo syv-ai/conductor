@@ -188,9 +188,10 @@ class Compiler:
         The field is the node output's, under the graph output's name, with no default. So a graph output read from
         a branch is never a branch of a subgraph node that uses this graph: a branch is a function node's output.
 
-        A graph output that doesn't name a node and an output that exist gets the problem
-        ``graph_output_not_found``, which isn't on any node. One whose node didn't compile is left out with no
-        problem of its own, since that node already has a problem saying why.
+        A graph output that names a node the record doesn't have gets the problem ``graph_output_names_missing_node``,
+        and one that names an output its node doesn't have gets ``graph_output_not_found``. Neither is on any node.
+        One whose node didn't compile is left out with no problem of its own, since that node already has a problem
+        saying why.
         """
         fields: dict[str, Field] = {}
         for name, source in sorted(self.record.outputs.items()):
@@ -202,14 +203,19 @@ class Compiler:
                 continue
             if node is None and source.node in self.record.nodes:
                 continue  # the node didn't compile, and has a problem saying why
-            found = (
-                [place_text((source.node,), output) for output in node.outputs]
-                if node is not None
-                else []
-            )
+            named = place_text((source.node,), source.output)
+            if node is None:
+                self.problems.append(
+                    compile_problems.graph_output_names_missing_node(
+                        output=name, source=named, missing=source.node
+                    )
+                )
+                continue
             self.problems.append(
                 compile_problems.graph_output_not_found(
-                    output=name, source=place_text((source.node,), source.output), outputs=found
+                    output=name,
+                    source=named,
+                    outputs=[place_text((source.node,), output) for output in node.outputs],
                 )
             )
         return fields
@@ -336,7 +342,7 @@ class Compiler:
             )
             if taken:
                 self.problems.append(
-                    compile_problems.compute_hook_failed(
+                    compile_problems.compute_hook_returned_invalid(
                         node_id,
                         reason=f"it adds {taken[0]!r}, which the node already declares",
                         error="added_input_exists",

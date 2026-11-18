@@ -66,10 +66,14 @@ from .problems import REGISTRY_CHECK_PROBLEMS
 #: What ``_made_up`` returns for a field it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")
 
-#: The codes of a ``compute_...`` hook that failed: it raised a ``NodeError`` or returned what compiling can't use,
-#: or it raised any other exception.
+#: The codes of a ``compute_...`` hook that failed: it raised a ``NodeError``, raised any other exception, or returned
+#: what compiling can't use.
 _HOOK_FAILED = frozenset(
-    {compile_problems.compute_hook_failed.code, compile_problems.compute_hook_raised.code}
+    {
+        compile_problems.compute_hook_failed.code,
+        compile_problems.compute_hook_raised.code,
+        compile_problems.compute_hook_returned_invalid.code,
+    }
 )
 
 

@@ -987,7 +987,7 @@ def test_an_added_input_whose_default_is_skipped_is_the_hooks_failure_and_the_fu
 
     [problem] = compiled_graph(adds).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
-        "compute_hook_failed",
+        "compute_hook_returned_invalid",
         ("adds",),
         "default_skipped_on_input",
     )
@@ -1260,7 +1260,7 @@ def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_pro
                 node("h", title="H", description="For a test.", compute_outputs=giving(hint))(h),
                 outputs={"result": "h.result"},
             )
-        ) == ["compute_hook_failed"], hint
+        ) == ["compute_hook_returned_invalid"], hint
 
 
 def _computing(hook: Any) -> Any:
@@ -1281,7 +1281,7 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
 ):
     [problem] = _computing(lambda: returned).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
-        "compute_hook_failed",
+        "compute_hook_returned_invalid",
         ("h",),
         "not_a_mapping",
     )
@@ -1357,7 +1357,7 @@ def test_a_return_that_does_not_fit_the_outputs_says_so_whatever_is_wrong_with_i
 
 def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
     assert [(p.type, p.loc, p.ctx["error"]) for p in _computing(lambda: {1: int}).problems] == [
-        ("compute_hook_failed", ("h", "1"), "not_a_name")
+        ("compute_hook_returned_invalid", ("h", "1"), "not_a_name")
     ]
 
 
@@ -1365,7 +1365,7 @@ def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
 def test_a_hook_whose_field_name_is_no_text_or_int_is_the_hooks_failure_not_a_raise(key: Any):
     [problem] = _computing(lambda: {"ok": int, key: int}).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
-        "compute_hook_failed",
+        "compute_hook_returned_invalid",
         ("h", str(key)),
         "not_a_name",
     )
@@ -1421,12 +1421,15 @@ def test_a_hooks_own_exception_text_goes_to_the_log_and_never_into_its_problem(c
 
 
 def test_a_field_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its_default():
-    """A default ``@node`` would refuse makes ``compute_hook_failed`` with the declaration's code.
+    """A default ``@node`` would refuse makes ``compute_hook_returned_invalid`` with the declaration's code.
 
     The declaration's own message quotes the default, a value, so the problem names only the field.
     """
     [problem] = _computing(lambda: {"count": (int, "secret-default")}).problems
-    assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "default_invalid")
+    assert (problem.type, problem.ctx["error"]) == (
+        "compute_hook_returned_invalid",
+        "default_invalid",
+    )
     assert "secret-default" not in problem.model_dump_json() and "'count'" in problem.msg
 
 
@@ -1436,12 +1439,15 @@ def test_a_field_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its
     ids=["an-int", "a-str", "an-instance", "a-list", "a-dict", "a-set"],
 )
 def test_a_hook_that_gives_a_field_no_type_at_all_fails_with_the_declarations_code(not_a_type: Any):
-    """A hook's value that is no type, like ``5`` or ``[int]``, is ``compute_hook_failed`` with ``type_not_supported``.
+    """A hook's value that is no type, like ``5`` or ``[int]``, is ``compute_hook_returned_invalid`` with ``type_not_supported``.
 
     It is the code ``@node`` gives the same value in a signature, and compiling reports it rather than raising.
     """
     [problem] = _computing(lambda: {"count": not_a_type}).problems
-    assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "type_not_supported")
+    assert (problem.type, problem.ctx["error"]) == (
+        "compute_hook_returned_invalid",
+        "type_not_supported",
+    )
 
 
 @pytest.mark.parametrize(

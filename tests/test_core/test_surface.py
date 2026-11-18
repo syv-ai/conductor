@@ -822,7 +822,7 @@ def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
     ).problems[0]
     assert (empty.ctx["choices"], empty.msg) == (
         [],
-        "The registry has no node 'read'. It has no nodes at all.",
+        "The registry has no node 'read'. Add it to the registry, or use one the registry has: none.",
     )
 
 
