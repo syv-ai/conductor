@@ -694,6 +694,17 @@ def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_
     assert answered.results["q"] == Run.from_json(answered.to_json(), run.graph).results["q"]
 
 
+def test_a_dataclass_answers_a_node_with_branches_and_a_branch_not_chosen_is_left_out():
+    """A dataclass can't leave a field out, so a branch not chosen is ``SKIPPED`` in it, which has no JSON form."""
+    _, run = _waiting_outcomes(route)
+    answered = run.with_answers(
+        {"q@0": Routed(note="fine"), "q@1": Routed(note="late", escalate="boss")}
+    ).resume()
+
+    assert answered.results["q"] == {"note": ["fine", "late"], "escalate": [None, "boss"]}
+    assert Run.queued_as_json({"q@0": Routed(note="fine")}) == ({"q@0": {"note": "fine"}}, {})
+
+
 @dataclass(frozen=True)
 class Triage:
     note: str

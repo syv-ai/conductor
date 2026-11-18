@@ -22,6 +22,7 @@ answer stands in for that value.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 from collections.abc import Mapping
 from typing import Any, cast
@@ -403,12 +404,29 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
         raise conductor_error("not_its_type", value_type.refusal(error)["reason"]) from None
 
 
+def _branches_left_out(answer: Any) -> Any:
+    """Returns a dataclass answer as the mapping of its fields, with each field that is ``SKIPPED`` left out.
+
+    A dataclass of outputs can't leave a field out, so a branch not chosen is ``SKIPPED`` in it, the default it
+    declares. That is a branch left out of a mapping, and the answer is read as that mapping. ``SKIPPED`` has no JSON
+    form, so the dataclass itself would be refused. Any other answer is returned as it is.
+    """
+    if not dataclasses.is_dataclass(answer) or isinstance(answer, type):
+        return answer
+    return {
+        field.name: value
+        for field in dataclasses.fields(answer)
+        if (value := getattr(answer, field.name)) is not SKIPPED
+    }
+
+
 class AnswerAsJsonValidator(Validator[Any, Any]):
     """A validator that turns a person's answer into the JSON data it is read from.
 
     An answer is read from its JSON form. A host that keeps an answer to give a run later keeps what this returns
     (``Run.queued_as_json``): a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
-    fields, and a ``polars.DataFrame`` its columns (``json_data``). So a kept answer reads as the answer itself,
+    fields, a dataclass's field that is ``SKIPPED`` left out as a branch not chosen, and a ``polars.DataFrame`` its
+    columns (``json_data``). So a kept answer reads as the answer itself,
     but for a frame with a column a saved run can't keep, which is refused here even where the question's table
     doesn't name it. ``AnswerValidator`` reads a dataclass or a model given for several questions through it too.
 
@@ -434,6 +452,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
         Raises:
             InvalidCallError: See the class.
         """
+        answer = _branches_left_out(answer)
         try:
             return json_data(answer)
         except PydanticCustomError as refused:
