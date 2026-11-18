@@ -1324,6 +1324,13 @@ class Dial(BaseModel):
     label: str
 
 
+@host_type("Meter", title="Meter")
+class Meter(BaseModel):
+    """A host's model whose own config writes ``inf`` as ``null``, pydantic's default, into an optional field."""
+
+    level: float | None = None
+
+
 @host_type("Strict", title="Strict")
 class Strict:
     """A host's class whose own check raises a ``TypeError`` for what it can't read, as ``float(None)`` does."""
@@ -1468,6 +1475,9 @@ class Levels(TypedDict):
         ({"level": math.inf}, Levels),
         (Gauge(math.inf, "a"), Gauge),
         ({"level": math.nan, "label": "a"}, Dial),
+        (Dial(level=math.inf, label="a"), Dial),
+        (Meter(level=math.inf), Meter),
+        ({"dial": Dial(level=-math.inf, label="a")}, Any),
         ((math.inf, "a"), tuple[float, str]),
         ([{"level": math.nan}], Table[Levels]),
     ],
@@ -1481,6 +1491,9 @@ class Levels(TypedDict):
         "typed-dict",
         "host-dataclass",
         "host-model",
+        "host-model-itself",
+        "host-model-optional-field",
+        "host-model-in-any",
         "tuple",
         "table-records",
     ],

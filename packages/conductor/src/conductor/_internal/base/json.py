@@ -8,10 +8,9 @@ result as the same value sent over HTTP.
 
 from __future__ import annotations
 
-import functools
 import json
 from collections.abc import Callable
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import JsonValue, TypeAdapter
 from pydantic_core import (
@@ -20,6 +19,7 @@ from pydantic_core import (
     SchemaValidator,
     from_json,
     to_json,
+    to_jsonable_python,
 )
 
 #: How conductor writes ``inf``, ``-inf`` and ``nan`` in JSON, which has no number for them. They are written as
@@ -37,7 +37,8 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
     ``{"day": "2026-01-02", "sizes": [1, "Infinity"]}``.
 
     Pydantic's ``to_jsonable_python`` would leave ``inf`` as a float, which JSON has no number for. So this writes
-    the JSON text and reads it back, and ``inf`` comes out as the text ``"Infinity"`` (``NON_FINITE_FLOATS``).
+    the JSON text and reads it back, and ``inf`` comes out as the text ``"Infinity"`` (``NON_FINITE_FLOATS``), in a
+    field of a host's own model too (``json_text``).
 
     Args:
         value: The value to convert.
@@ -47,7 +48,7 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
         PydanticSerializationError: A value can't be written as JSON and there is no ``fallback``, or ``fallback``
             raised.
     """
-    plain: JsonValue = from_json(to_json(value, inf_nan_mode=NON_FINITE_FLOATS, fallback=fallback))
+    plain: JsonValue = from_json(_written(value, NON_FINITE_FLOATS, fallback))
     return plain
 
 
@@ -115,23 +116,29 @@ def json_text(value: Any, fallback: Callable[[Any], Any] | None = None) -> str:
             instead.
         PydanticCustomError: ``fallback`` refused the value.
     """
-    refused: list[PydanticCustomError] = []
+    return _written(value, "constants", fallback).decode()
 
-    def written(part: Any, write: Callable[[Any], Any]) -> Any:
-        try:
-            return write(part)
-        # Keep the refusal: to_json would turn it into a PydanticSerializationError.
-        except PydanticCustomError as refusal:
-            refused.append(refusal)
-            raise
 
+def _written(
+    value: Any, non_finite: Literal["constants", "strings"], fallback: Callable[[Any], Any] | None
+) -> bytes:
+    """Writes ``value`` as JSON text, with ``inf`` and ``nan`` written as ``non_finite`` says, wherever they are.
+
+    A pydantic model writes its own floats by its own config, whatever ``to_json`` is told, and its config writes
+    ``inf`` as ``null`` by default. So a host's model with ``x=inf`` would be written as
+    ``{"x": null}``, and a ``float | None`` field would read back as ``None``. The value is turned into Python's
+    JSON values first (``to_jsonable_python``), which keep a float as it is, each model by its own serializer, and
+    then written as text by one rule.
+
+    What can't be written is refused as ``to_json`` refuses it, with ``PydanticSerializationError``: a cycle, bytes
+    that aren't text, or a value ``fallback`` raises ``TypeError`` for. A ``PydanticCustomError`` that ``fallback``
+    raises to refuse a value is raised unchanged.
+    """
     try:
-        return to_json(
-            value,
-            inf_nan_mode="constants",
-            fallback=None if fallback is None else functools.partial(written, write=fallback),
-        ).decode()
-    except PydanticSerializationError:
-        if refused:
-            raise refused[0] from None
+        data = to_jsonable_python(value, fallback=fallback)
+    except (PydanticCustomError, PydanticSerializationError):
         raise
+    # what to_json raises as PydanticSerializationError, to_jsonable_python raises as it is
+    except (TypeError, ValueError) as error:
+        raise PydanticSerializationError(str(error)) from None
+    return to_json(data, inf_nan_mode=non_finite)

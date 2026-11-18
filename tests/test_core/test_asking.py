@@ -1859,6 +1859,27 @@ def test_a_waiting_call_keeps_the_table_and_series_it_received_through_a_save():
     assert Run.from_json(run.to_json(), graph).waiting == run.waiting
 
 
+def test_a_waiting_call_shows_a_float_that_is_not_finite_in_a_host_model_as_its_text():
+    """A pydantic model writes its own floats by its own config, which writes ``inf`` as ``null`` unless told
+    otherwise. Conductor writes it as ``"Infinity"`` all the same, as it writes any other float."""
+    from pydantic import BaseModel
+
+    @host_type("reading", title="Reading")
+    class Reading(BaseModel):
+        level: float | None
+
+    @node("measure", title="Measure", description="For a test.")
+    def measure() -> Reading:
+        return Reading(level=float("inf"))
+
+    @node("confirm", title="Confirm", description="For a test.", asks=True)
+    def confirm(reading: Reading) -> bool:
+        raise Ask("Right?")
+
+    graph = Graph.compile(make_graph(measure, confirm), registry_of(measure, confirm))
+    assert graph.run().waiting[0].inputs == {"reading": {"level": "Infinity"}}
+
+
 def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_their_keys_in_another_order():
     @node("check", title="Check", description="For a test.", asks=True)
     def check(data: dict[str, int]) -> bool:
