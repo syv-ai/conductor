@@ -1753,15 +1753,13 @@ def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
     assert described.widget == {"type": "dropdown"}
 
 
-def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_other_type():
+def test_a_fields_choices_on_its_plain_type_title_its_values_and_limit_what_it_takes():
     from conductor import Ask, InvalidCallError, NodeRegistry, make_graph
 
     titled = (Choice("low", "Lav"), Choice("high", "Høj"))
 
     @node("priority", title="Priority", description="For a test.")
-    def priority(
-        level: Annotated[Literal["low", "high"], Param(choices=titled, widget=Dropdown())],
-    ) -> str:
+    def priority(level: Annotated[str, Param(choices=titled, widget=Dropdown())]) -> str:
         return level
 
     @node("size", title="Size", description="For a test.")
@@ -1769,7 +1767,7 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
         return name
 
     @node("rate", title="Rate", description="For a test.", asks=True)
-    def rate(text: str) -> Annotated[Literal["low", "high"], Param(choices=titled)]:
+    def rate(text: str) -> Annotated[str, Param(choices=titled)]:
         raise Ask("How urgent?")
 
     assert priority.describe().inputs[0].choices == (Choice("low", "Lav"), Choice("high", "Høj"))
@@ -1782,37 +1780,110 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     asked = Graph.compile(make_graph(rate), registry).run({"text": "x"}).waiting[0].questions[0]
     assert asked.choices == (Choice("low", "Lav"), Choice("high", "Høj"))
     for wrong, code in (
-        ((Choice("low", "Lav"),), "choices_invalid_on_a_literal"),
         (("low", "low", "high"), "choices_invalid"),
         ((1, 2), "choices_invalid_not_a_value"),
     ):
         with pytest.raises(NodeDeclarationError) as raised:
 
             @node("bad", title="Bad", description="For a test.")
-            def bad(level: Annotated[Literal["low", "high"], Param(choices=wrong)]) -> str:
+            def bad(level: Annotated[str, Param(choices=wrong)]) -> str:
                 return level
 
         assert raised.value.problems[0].type == code
         assert ". Give " in str(raised.value)
 
 
-def test_the_choices_of_a_literal_are_its_values_by_their_text_and_none_is_never_one() -> None:
+@pytest.mark.parametrize(
+    ("hint", "plain"),
+    [
+        (Literal["low", "high"], "str"),
+        (Literal["low", None], "str | None"),
+        (Literal["low"] | None, "str"),
+        (Literal["low"] | Literal[1], "str | int"),
+    ],
+)
+def test_choices_on_a_literal_are_refused_and_the_message_writes_its_plain_type_in_its_place(
+    hint: Any, plain: str
+) -> None:
+    """A ``Literal``'s values are its choices, so choices on it would write each value twice."""
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("bad", title="Bad", description="For a test.")
+        def bad(level: Annotated[hint, Param(choices=[Choice("low", "Lav")])]) -> str:  # type: ignore[valid-type]
+            return str(level)
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "choices_on_a_literal",
+        ("bad", "level"),
+        {"type": plain},
+    )
+    assert f"Write {plain} in place of the Literal and keep the Param(choices=[...])" in str(
+        raised.value
+    )
+
+
+def test_choices_on_a_literal_inside_a_series_name_the_items_plain_type() -> None:
+    """The plain type goes where the ``Literal`` is, so the field stays a ``Series``."""
+    from conductor import Series
+
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("bad", title="Bad", description="For a test.")
+        def bad(levels: Annotated[Series[Literal["low"]], Param(choices=["low"])]) -> str:
+            return ""
+
+    assert raised.value.problems[0].ctx == {"type": "str"}
+
+
+@pytest.mark.parametrize("hint", [Literal["auto"] | int, Literal["auto"] | str | None])
+def test_choices_on_a_literal_beside_another_type_are_refused_and_told_to_go(hint: Any) -> None:
+    """Choices there would limit the field to them, so the other type would take nothing more.
+
+    Writing the plain type in the ``Literal``'s place would do the same, so the message says only to remove them,
+    and the field without them takes ``"auto"`` and any value of the other type.
+    """
     from conductor import make_graph
 
     with pytest.raises(NodeDeclarationError) as raised:
 
         @node("bad", title="Bad", description="For a test.")
-        def bad(level: Annotated[Literal["low", "high"] | str, Param(choices=["low", "x"])]) -> str:
-            return level
+        def bad(count: Annotated[hint, Param(choices=[Choice("auto", "Automatic")])]) -> str:  # type: ignore[valid-type]
+            return str(count)
 
-    assert raised.value.problems[0].type == "choices_invalid_on_a_literal"
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "choices_on_a_literal_beside_another_type",
+        ("bad", "count"),
+        {},
+    )
+    assert str(raised.value).endswith("Remove the Param(choices=).")
+
+    @node("open", title="Open", description="For a test.")
+    def open_count(count: Literal["auto"] | int) -> str:
+        return str(count)
+
+    graph = Graph.compile(make_graph(open_count), registry_of(open_count))
+    assert [graph.run({"count": value}).outputs for value in ("auto", 5)] == [
+        {"result": "auto"},
+        {"result": "5"},
+    ]
+
+
+def test_the_choices_of_a_literal_are_its_values_and_none_is_one_only_when_it_lists_it() -> None:
+    from conductor import make_graph
+
     registry = NodeRegistry()
-    for hint, node_id in ((Literal["low", None], "spelt-in"), (Literal["low"] | None, "beside")):
+    for hint, node_id, choices in (
+        (Literal["low", None], "spelt-in", ("low", None)),
+        (Literal["low"] | None, "beside", ("low",)),
+    ):
 
         @node(node_id, title="Level", description="For a test.")
-        def level(given: Annotated[hint, Param(choices=["low"])]) -> str:  # type: ignore[valid-type]
+        def level(given: hint) -> str:  # type: ignore[valid-type]
             return str(given)
 
+        assert tuple(choice.id for choice in level.describe().inputs[0].choices) == choices
         registry.add(level)
         graph = Graph.compile(make_graph(level), registry)
         assert [graph.run({"given": value}).outputs for value in ("low", None)] == [
@@ -2275,3 +2346,20 @@ def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records
         "rows": {"columns": [{"name": "n", "type": "int", "values": [3]}]},
         "when": "2026-01-03",
     }
+
+
+def test_a_reason_a_host_check_gave_is_quoted_with_one_period() -> None:
+    """The text that replaces a host validator's message has no final period, so a message quoting it reads right."""
+    from pydantic import AfterValidator
+
+    def refuse(value: str) -> str:
+        raise ValueError(f"no {value}")
+
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("bad", title="Bad", description="For a test.")
+        def bad(pick: Annotated[str, AfterValidator(refuse), Param(choices=["x"])]) -> str:
+            return pick
+
+    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
+    assert "did not pass its type's own check. Give each choice" in str(raised.value)

@@ -176,7 +176,7 @@ print([field.widget for field in translate.describe().inputs])  # [{'type': 'tex
 print(translate.describe().inputs[1].choices)  # (Choice(id='da', title='Danish'), Choice(id='en', title='English'))
 ```
 
-Each choice is a value, or a `Choice` to give it a title. `Choice("en", "English")` is `Choice(id="en", title="English")`: the value the input gets, then what a person reads. Without titles, write `Param(choices=["da", "en"])`. A `Literal` works too: `language: Literal["da", "en"]` gives the same choices, and the same `enum` in the input's JSON schema. But a `Literal` can't carry titles, so these pages write choices with `Param(choices=)`, each value once.
+Each choice is a value, or a `Choice` to give it a title. `Choice("en", "English")` is `Choice(id="en", title="English")`: the value the input gets, then what a person reads. Without titles, write `Param(choices=["da", "en"])`. A `Literal` works too: `language: Literal["da", "en"]` gives the same choices, untitled, and the same `enum` in the input's JSON schema. A `Literal` takes no `Param(choices=)`, since that would write each value twice, so titled choices always go on the plain type.
 
 `describe()` gives each widget as the JSON the editor gets. What each widget is for, and its settings, is in `python -m conductor.about conductor-widgets`.
 

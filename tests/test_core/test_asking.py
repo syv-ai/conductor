@@ -2163,9 +2163,7 @@ def test_an_ask_that_offers_some_of_a_types_titled_choices_by_id_keeps_their_tit
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign(
         ticket: str,
-    ) -> Annotated[
-        Literal["ida", "bo"], Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])
-    ]:
+    ) -> Annotated[str, Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])]:
         raise Ask(f"Who takes {ticket}?", choices=["bo"])
 
     _, run = _once(assign, ticket="T-1")

@@ -59,7 +59,9 @@ from .type import Problem
 
 _logger = logging.getLogger("conductor")
 
-_VALIDATOR_PREFIX = "The value did not pass its type's own check."
+#: The message that replaces one that might quote the value. Like pydantic's own, it has no final period, since a
+#: problem's message quotes it as its reason.
+_VALIDATOR_PREFIX = "The value did not pass its type's own check"
 
 #: The ``ctx`` keys by which some of pydantic's own messages quote the value or an exception's text: ``error`` (a
 #: validator's exception in ``value_error``, a parser's in ``uuid_parsing`` or ``date_parsing``), ``tag`` (a union's

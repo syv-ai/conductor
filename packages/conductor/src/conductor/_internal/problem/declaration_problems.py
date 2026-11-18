@@ -180,17 +180,19 @@ def choices_invalid() -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
-    """A ``Param`` gives choices for a ``Literal``, and they don't give each of its values one title.
+def choices_on_a_literal(*, type: str) -> str:
+    """A ``Param`` gives choices for a ``Literal``.
 
-    On a ``Literal``, the choices are there to give its values titles. So there must be one choice for each value.
+    A ``Literal``'s values are its choices already. Choices on it would write each value a second time, and the two
+    lists would have to agree.
 
-    To fix it, take the values' plain type with the titled choices, like
-    ``Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]`` for ``Literal["s", "m"]``. Each
-    value is then written once. Or give one choice for each of the ``Literal``'s values.
+    To fix it, write the values' plain type in place of the ``Literal`` and keep the ``Param``, so each value is
+    written once: ``Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]``, or
+    ``Annotated[str, Param(choices=["s", "m"])]`` without titles. In a ``Series`` or a list, the ``Literal`` is the
+    item, and the plain type takes its place there.
 
     Args:
-        values: The values of the ``Literal``.
+        type: The plain type of the ``Literal``'s values, such as ``str``, written in place of the ``Literal``.
 
     Example:
         from typing import Literal
@@ -198,13 +200,44 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
         from conductor import Choice
 
 
-        def size(pick: Annotated[Literal["s", "m"], Param(choices=[Choice("s", "Small")])]) -> str:
+        def size(pick: Annotated[Literal["s", "m"], Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]) -> str:
             return pick
 
 
         declaration_refused(lambda: node("size", title="Size", description="Hands back the chosen size.")(size))
     """
-    return f"on a Literal, the choices give its values titles. Give exactly one choice for each of {comma_separated(values)}."
+    return (
+        f"a Literal's values are its choices already, so it takes no Param(choices=). Write {type} in place of the"
+        " Literal and keep the Param(choices=[...]), each choice a value or a Choice(value, title)."
+    )
+
+
+@DECLARATION_PROBLEMS.problem
+def choices_on_a_literal_beside_another_type() -> str:
+    """A ``Param`` gives choices for a union of a ``Literal`` with another type, such as ``Literal["auto"] | int``.
+
+    Such a field has no choices: it takes the ``Literal``'s values and any value of the other type. Choices on it
+    would limit it to the choices, so the other type would take nothing more, and a ``Literal``'s values can't be
+    given titles any other way.
+
+    To fix it, remove the ``Param(choices=)``. The field then takes what its type says, untitled.
+
+    Example:
+        from typing import Literal
+
+        from conductor import Choice
+
+
+        def auto_or_count(count: Annotated[Literal["auto"] | int, Param(choices=[Choice("auto", "Automatic")])]) -> str:
+            return str(count)
+
+
+        declaration_refused(lambda: node("auto_or_count", title="Auto or count", description="Hands back the count.")(auto_or_count))
+    """
+    return (
+        "a Literal beside another type takes no Param(choices=), since choices would limit the field to them. Remove"
+        " the Param(choices=)."
+    )
 
 
 @DECLARATION_PROBLEMS.problem
