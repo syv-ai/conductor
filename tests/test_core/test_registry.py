@@ -808,18 +808,6 @@ def test_a_subgraph_given_json_text_reads_it_as_a_graph_record_and_refuses_an_un
     ).graph == GraphRecord.model_validate({"nodes": {"a": {"node": "x"}}})
 
 
-def test_an_infinite_default_writes_as_text():
-    import json
-
-    from conductor import node
-
-    @node("far", title="Far", description="For a test.")
-    def far(limit: float = float("inf")) -> float:
-        return limit
-
-    assert json.loads(far.describe().model_dump_json())["inputs"][0]["default"] == "Infinity"
-
-
 def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_definition():
     from conductor import make_graph, node
 

@@ -13,7 +13,6 @@ isn't one of the choices. A message names the choices with ``choices_in_message`
 
 from __future__ import annotations
 
-import functools
 from collections.abc import Callable, Iterable, Sequence
 from enum import Enum
 from typing import Any
@@ -21,7 +20,11 @@ from typing import Any
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError, SchemaValidator
 
-from conductor._internal.base import ConductorModel, canonical_json, validate_as_json
+from conductor._internal.base import (
+    ConductorModel,
+    canonical_json,
+    finite_json_text,
+)
 from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
@@ -145,11 +148,18 @@ def declared_choices(
         reader: The validator of the type the choices are values of.
         write: Converts a value ``reader`` gave back to JSON.
 
+    A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
+
     Raises:
         NodeDeclarationError: ``choices_invalid``, or ``choices_invalid_no_json_form`` or ``choices_invalid_not_a_value`` when one fits.
     """
+
+    def read(value: Any) -> Any:
+        # a choice is given as an answer is, from its JSON form, so one that isn't finite could never be picked
+        return reader.validate_json(finite_json_text(value, "choice"), strict=True)
+
     try:
-        return read_choices(given, functools.partial(validate_as_json, reader), write)
+        return read_choices(given, read, write)
     except PydanticCustomError as refused:
         match refused.type:
             case "no_json_form":

@@ -24,10 +24,9 @@ from pydantic_core import (
     PydanticCustomError,
     PydanticSerializationError,
     SchemaValidator,
-    from_json,
 )
 
-from conductor._internal.base import json_text, validate_as_json
+from conductor._internal.base import finite_json_text, validate_as_json
 from conductor._internal.problem import NodeDeclarationError, conductor_error
 from conductor._internal.table import TableType, frame_as_json
 from conductor._internal.types import Type
@@ -67,18 +66,16 @@ def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> An
         isinstance(Type(option), TableType) for option in value_type.options
     ):
         if (column := _column_not_finite(value)) is not None:
-            raise _not_finite(value_type, (column,), value)
+            raise ValidationError.from_exception_data(
+                value_type.id, [{"type": "finite_number", "loc": (column,), "input": value}]
+            )
         return _checked(value_type, value, lambda: validator.validate_python(value, strict=True))
     if holds_a_set(value):
         raise set_has_no_order()
     try:
-        text = json_text(value, fallback=_written)
+        text = finite_json_text(value, value_type.id, fallback=_written)
     except PydanticSerializationError:
         raise no_json_form() from None
-    try:
-        from_json(text, allow_inf_nan=False)
-    except ValueError:  # the parser says only where in the text, so the refusal is the value's
-        raise _not_finite(value_type, (), value) from None
     return _checked(value_type, value, lambda: validator.validate_json(text, strict=True))
 
 
@@ -105,16 +102,6 @@ def _column_not_finite(frame: pl.DataFrame) -> str | None:
     floats = frame.select(pl.col(pl.Float32, pl.Float64))
     held = floats.select((~pl.all().is_finite()).any())
     return next((column for column in held.columns if held[column].item()), None)
-
-
-def _not_finite(value_type: Type, loc: tuple[str, ...], value: Any) -> ValidationError:
-    """Pydantic's own refusal of a number that isn't finite, ``finite_number``, as its float check raises it.
-
-    A value that enters a graph may hold none, though what a node computes may.
-    """
-    return ValidationError.from_exception_data(
-        value_type.id, [{"type": "finite_number", "loc": loc, "input": value}]
-    )
 
 
 def json_data(value: Any) -> Any:

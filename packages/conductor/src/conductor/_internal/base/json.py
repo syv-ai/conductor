@@ -12,7 +12,7 @@ import json
 from collections.abc import Callable
 from typing import Any, Final, Literal
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
     PydanticCustomError,
     PydanticSerializationError,
@@ -117,6 +117,36 @@ def json_text(value: Any, fallback: Callable[[Any], Any] | None = None) -> str:
         PydanticCustomError: ``fallback`` refused the value.
     """
     return _written(value, "constants", fallback).decode()
+
+
+def finite_json_text(value: Any, title: str, fallback: Callable[[Any], Any] | None = None) -> str:
+    """Writes a Python value as its JSON text (``json_text``), refusing a number in it that isn't finite.
+
+    This is the one rule that a number entering a graph is finite: a caller's input, an answer, a record's constant
+    or default, a node's own default and a choice. ``json_text`` writes ``inf`` and ``nan`` as the bare words
+    ``Infinity`` and ``NaN``, and pydantic's own parser refuses them with ``allow_inf_nan=False``, at any depth, so a
+    value of any type, ``Any`` and a host's model included, is held to it. Their texts, ``"Infinity"`` and
+    ``"NaN"``, are text, which it takes. What a node computes may hold them.
+
+    Args:
+        value: The value to write.
+        title: The title of the refusal, such as the type's id.
+        fallback: As ``json_text`` takes it.
+
+    Raises:
+        ValidationError: Pydantic's own ``finite_number``, as its float check raises it. The parser says only where
+            in the text, so its ``loc`` is the value's own.
+        PydanticSerializationError: As ``json_text`` raises it.
+        PydanticCustomError: ``fallback`` refused the value.
+    """
+    text = json_text(value, fallback)
+    try:
+        from_json(text, allow_inf_nan=False)
+    except ValueError:
+        raise ValidationError.from_exception_data(
+            title, [{"type": "finite_number", "loc": (), "input": value}]
+        ) from None
+    return text
 
 
 def _written(

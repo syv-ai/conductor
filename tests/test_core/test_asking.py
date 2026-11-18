@@ -2233,20 +2233,6 @@ def test_an_ask_narrowing_a_type_whose_check_converts_shows_its_question():
     assert raised.value.problems[0].type == "invalid_answer"
 
 
-def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():
-    """JSON Schema would read ``inf``'s ``"Infinity"`` as text, which a number refuses, so there is no ``enum``.
-
-    A schema may say less than the run checks, but never list a value the run refuses.
-    """
-
-    @node("cap", title="Cap", description="For a test.", asks=True)
-    def cap(ticket: str) -> Annotated[float, Param(choices=[1.0, float("inf")])]:
-        raise Ask(f"Cap {ticket}")
-
-    _, run = _once(cap, ticket="T-1")
-    assert run.waiting[0].questions[0].json_schema == {"type": "number"}
-
-
 def test_an_ask_that_offers_some_of_a_types_titled_choices_by_id_keeps_their_titles():
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign(

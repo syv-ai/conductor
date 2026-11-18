@@ -2429,17 +2429,33 @@ def test_a_literal_of_plain_values_whose_json_differs_is_declared_and_reads_back
     assert (read, type(read)) == (value, type(value))
 
 
-def test_choices_that_are_not_finite_floats_are_told_apart_by_their_json_form_and_never_given() -> (
-    None
-):
-    @node("cap", title="Cap", description="For a test.")
-    def cap(limit: Annotated[float, Param(choices=[float("inf"), float("nan")])]) -> str:
+def test_a_default_or_a_choice_that_is_not_finite_is_refused_where_the_node_is_declared() -> None:
+    """A graph record would write such a default, and a choice is given from its JSON form, as an answer is: no one
+    could give either, since a number that enters is finite."""
+
+    def capped(limit: float = float("inf")) -> str:
         return str(limit)
 
-    assert [c.id for c in cap.describe().inputs[0].choices or ()] == ["Infinity", "NaN"]
-    with pytest.raises(InvalidCallError) as refused:
-        compiled_graph(cap).run({"limit": float("nan")})
-    assert refused.value.problems[0].ctx["errors"][0]["type"] == "finite_number"
+    def capped_in_a_list(limits: list[float] = [1.0, float("nan")]) -> str:  # noqa: B006
+        return str(limits)
+
+    def picked(limit: Annotated[float, Param(choices=[1.0, float("inf")])]) -> str:
+        return str(limit)
+
+    def picked_on_output() -> Annotated[float, Param(choices=[float("nan")])]:
+        return 1.0
+
+    refused = []
+    for wrong in (capped, capped_in_a_list, picked, picked_on_output):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        refused.append(raised.value.problems[0].type)
+    assert refused == [
+        "default_invalid",
+        "default_invalid",
+        "choices_invalid_not_a_value",
+        "choices_invalid_not_a_value",
+    ]
 
 
 @pytest.mark.parametrize(

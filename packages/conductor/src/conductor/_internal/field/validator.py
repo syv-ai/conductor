@@ -20,7 +20,7 @@ from typing import Any, TypeVar, get_args, get_origin
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.base import REQUIRED, SKIPPED
+from conductor._internal.base import REQUIRED, SKIPPED, finite_json_text
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
@@ -206,14 +206,16 @@ def _read_default(whole: Type, default: Any) -> Any:
         default: The default to check.
 
     Raises:
-        ValidationError: The type refuses the default, or the converted value can't be written as JSON
-            (``no_json_form``).
+        ValidationError: The type refuses the default, the converted value can't be written as JSON
+            (``no_json_form``), or a number in it isn't finite (``finite_number``): a graph record would write it,
+            and no value that enters may hold one.
     """
     if default is REQUIRED or default is SKIPPED:
         return default
     read = whole.argument_validator.validate_python(default)
+    # a default is written into a graph record, which reads it as it reads any value that enters
     try:
-        whole.to_json(read)
+        finite_json_text(whole.serializer.to_python(read, mode="json"), whole.id)
     except (PydanticSerializationError, UnicodeDecodeError):
         no_json_form = conductor_error("no_json_form", "it can't be written as JSON")
         raise ValidationError.from_exception_data(
