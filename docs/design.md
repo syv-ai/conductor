@@ -138,11 +138,11 @@ A compiled graph keeps its own copy of its definitions, so a later change to the
 
 There's one way in. A host never builds a `Graph` or a `Run` itself: `Graph.compile` makes a graph, and a graph
 makes its runs. `graph.with_inputs` gives a run that hasn't started, and `graph.run` is that plus `resume()`. On a
-run, `with_inputs` and `again` do the same with some inputs changed. `answer` returns another run and runs nothing.
+run, `with_inputs` and `again` do the same with some inputs changed. `with_answers` returns another run and runs nothing.
 
 Running again reuses by content. A call reuses an earlier output when it gets exactly the arguments a call of the
 same node got before, under the same version and code. A node that may ask a person reuses its earlier outcomes in
-item order instead, so inserting an item keeps everyone's answer. The rules, with `forget` and
+item order instead, so inserting an item keeps everyone's answer. The rules, with `with_forgotten` and
 `with_inputs(previous=)`, are in `python -m conductor.about running-again`.
 
 Errors are data. There's one `Problem` record everywhere, with stable codes in `PROBLEMS.codes` for a host to
@@ -301,7 +301,7 @@ def tone(text: str) -> Annotated[str, Param(choices=["formal", "casual"])]:
 
 
 asked = Graph.compile(make_graph(tone), registry).run({"text": "hello"})
-print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'result': 'casual'}
+print(asked.with_answers(asked.waiting[0], "casual").resume().outputs)  # {'result': 'casual'}
 ```
 
 **Worth questioning:** `Ask` derives from `BaseException`. Otherwise a node's `except Exception` would swallow the

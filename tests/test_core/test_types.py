@@ -78,7 +78,7 @@ def test_an_answer_to_a_series_of_dates_is_read_from_its_json() -> None:
         raise Ask("Which days?")
 
     run = _run(days)
-    assert run.answer("q", ["2026-01-01"]).resume().outputs == {
+    assert run.with_answers("q", ["2026-01-01"]).resume().outputs == {
         "result": [datetime.date(2026, 1, 1)]
     }
 

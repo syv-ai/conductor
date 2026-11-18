@@ -240,7 +240,7 @@ def _jsonb(text: str) -> str:
 def _finished(run: Any) -> Any:
     while run.status == "waiting":
         for call in run.waiting:
-            run = run.answer(call, "bee")
+            run = run.with_answers(call, "bee")
         run = run.resume()
     return run
 
@@ -747,7 +747,7 @@ def _went_on(run: Any) -> list[tuple[Any, ...]]:
     Each item is a node's place, how many outcomes it has and how many of them were reused.
     """
     for call in run.waiting:
-        run = run.answer(call, "bee")
+        run = run.with_answers(call, "bee")
 
     async def streamed() -> list[Any]:
         return [event async for event in run.stream()]

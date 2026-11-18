@@ -235,7 +235,7 @@ def answered(run: Any, yes: set[str]) -> Any:
 
     An invoice whose number is in ``yes`` is approved. Every other one is rejected.
     """
-    return run.answer(
+    return run.with_answers(
         {waiting.id: waiting.inputs["number"] in yes for waiting in run.waiting}
     ).resume()
 
@@ -269,8 +269,8 @@ def test_scenario_1_per_invoice_approval():
     assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [
         ("approve", (1,), "Approve A2 for 900.0?")
     ]
-    assert run.answer(run.waiting[0], True).resume().outputs == {"result": 1300.0}
-    assert run.answer(run.waiting[0], False).resume().outputs == {"result": 400.0}
+    assert run.with_answers(run.waiting[0], True).resume().outputs == {"result": 1300.0}
+    assert run.with_answers(run.waiting[0], False).resume().outputs == {"result": 400.0}
 
 
 # -- 2 and 5. CSV, a model call per record, a summary; edit one record and run again: 4 nodes ---------------
@@ -637,9 +637,9 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     )  # invoice 1 of document 0, invoice 1 of document 2
 
     saved = run.to_json()
-    resumed = Run.from_json(saved, graph).answer(second.id, False).resume()
+    resumed = Run.from_json(saved, graph).with_answers(second.id, False).resume()
     assert resumed.status == "waiting" and [w.loc[1:] for w in resumed.waiting] == [(0, 1)]
-    done = Run.from_json(resumed.to_json(), graph).answer(first.id, True).resume()
+    done = Run.from_json(resumed.to_json(), graph).with_answers(first.id, True).resume()
     assert done.outputs == {
         "result": [[True, True], [], [True, False, True]]
     }  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf

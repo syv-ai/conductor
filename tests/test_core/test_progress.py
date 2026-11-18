@@ -105,7 +105,7 @@ def test_the_total_is_a_floor_then_exact_with_the_waiting_calls_counted() -> Non
         finished=0, waiting=3, skipped=0, none_input=0, known=3, total=3
     )
     assert (run.progress.finished, run.progress.waiting, run.progress.total) == (3, 3, 6)
-    answered = run.answer(run.waiting[0], True).resume()
+    answered = run.with_answers(run.waiting[0], True).resume()
     assert answered.progress.nodes["approve"] == CallCount(
         finished=1, waiting=2, skipped=0, none_input=0, known=3, total=3
     )

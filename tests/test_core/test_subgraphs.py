@@ -990,7 +990,7 @@ spec.loader.exec_module(nodes)
 graph = nodes.inside_a_loop("asking-inner")
 run = Run.from_json(open({path!r}).read(), graph)
 ids = [w.id for w in run.waiting]
-half = run.answer(ids[0], "first").resume()
+half = run.with_answers(ids[0], "first").resume()
 open({path!r}, "w").write(half.to_json())
 print(json.dumps({{"status": half.status, "ids": ids, "left": [w.id for w in half.waiting], "calls": dict(nodes.CALLS)}}))
 """
@@ -1025,7 +1025,7 @@ def test_a_waiting_subgraph_inside_a_loop_is_half_answered_in_another_process_an
         "left": ids[1:],
         "calls": {},
     }  # the other process calls nothing again
-    done = Run.from_json(path.read_text(), graph).answer(ids[1], "second").resume()
+    done = Run.from_json(path.read_text(), graph).with_answers(ids[1], "second").resume()
     assert done.status == "complete" and done.results["e"]["result"] == ["first", "second"]
     assert CALLS == {}
     assert (
@@ -1043,7 +1043,7 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     run = graph.run({"text": "ab cd"})
     first, second = (w.id for w in run.waiting)
     with pytest.raises(InvalidCallError) as refused:
-        run.answer(
+        run.with_answers(
             {"e@5/q": "x", "e@1/q~00000000": "y", "e@0/up": "z", "e@x/q": "w", "e@1/q@x": "v"}
         )
     assert [(p.type, p.loc) for p in refused.value.problems] == [
@@ -1055,11 +1055,14 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     ]
     assert refused.value.problems[1].ctx["current"] == second
     with pytest.raises(InvalidCallError) as twice:
-        run.answer({first: "a", "e@0/q": "b"})
+        run.with_answers({first: "a", "e@0/q": "b"})
     assert [(p.type, p.loc) for p in twice.value.problems] == [("invalid_answer", ("e", 0, "q"))]
-    assert run.answer("e@1/q", "by place").resume().results["e"]["result"] == [None, "by place"]
+    assert run.with_answers("e@1/q", "by place").resume().results["e"]["result"] == [
+        None,
+        "by place",
+    ]
     with pytest.raises(InvalidCallError) as misplaced:
-        run.answer("e/q@1", "an index after the node outside whose loop it is")
+        run.with_answers("e/q@1", "an index after the node outside whose loop it is")
     assert [(p.type, p.loc) for p in misplaced.value.problems] == [("not_waiting", ("e", "q", 1))]
 
 
@@ -1068,7 +1071,7 @@ def test_an_item_index_in_a_waiting_id_counts_only_as_the_run_writes_it(index: s
     """A waiting id whose index Python's ``int`` reads, but that the run would write otherwise, names no item."""
     run = inside_a_loop("asking-inner").run({"text": "ab cd"})
     with pytest.raises(InvalidCallError) as refused:
-        run.answer(f"e@{index}/q", "x")
+        run.with_answers(f"e@{index}/q", "x")
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", ("e",))]
 
 
@@ -1089,7 +1092,7 @@ def test_a_waiting_id_is_read_only_up_to_a_node_id_that_is_not_a_name(
     """A node id is a name, so a waiting id is read up to the first one that isn't, as up to a wrong index."""
     run = inside_a_loop("asking-inner").run({"text": "ab cd"})
     with pytest.raises(InvalidCallError) as refused:
-        run.answer(waiting_id, "x")
+        run.with_answers(waiting_id, "x")
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", loc)]
 
 
@@ -1248,7 +1251,7 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
         ("e", "q")
     }  # the event names the node, and its waiting call the call
     assert isinstance(events[-1], RunEnd) and events[-1].status == "waiting"
-    answered = events[-1].run.answer({w.id: "yes" for w in waiting})
+    answered = events[-1].run.with_answers({w.id: "yes" for w in waiting})
     later = stream(answered)
     assert not [
         e for e in later if isinstance(e, NodeStart)
@@ -1270,11 +1273,11 @@ def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():
         and run.waiting[1].loc == ("e", 1, "in", "q")
     )
     with pytest.raises(InvalidCallError) as refused:
-        run.answer("e@1/in/q~00000000", "x")
+        run.with_answers("e@1/in/q~00000000", "x")
     assert refused.value.problems[0].loc == ("e", 1, "in", "q")
     done = (
-        Run.from_json(run.answer({ids[1]: "two"}).resume().to_json(), graph)
-        .answer(ids[0], "one")
+        Run.from_json(run.with_answers({ids[1]: "two"}).resume().to_json(), graph)
+        .with_answers(ids[0], "one")
         .resume()
     )
     assert (
@@ -1330,7 +1333,9 @@ def test_an_inner_node_whose_policy_forbids_reuse_is_called_again_by_again():
 def test_two_documents_with_the_same_line_each_keep_their_own_answer_inside_a_subgraph():
     graph = inside_a_loop("lines-inner", "sentences")  # a question per word of each document
     run = graph.run({"text": "a b;a c"})
-    run = run.answer({w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in run.waiting}).resume()
+    run = run.with_answers(
+        {w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in run.waiting}
+    ).resume()
     assert run.status == "complete" and run.results["e"]["result"] == [
         ["doc0:a", "doc0:b"],
         ["doc1:a", "doc1:c"],
@@ -1339,12 +1344,12 @@ def test_two_documents_with_the_same_line_each_keep_their_own_answer_inside_a_su
     assert [w.loc[:2] for w in changed.waiting] == [
         ("e", 0)
     ] * 3  # document 0 changed, so its lines are asked again, as in one graph
-    assert changed.answer({w.id: "new" for w in changed.waiting}).resume().results["e"][
+    assert changed.with_answers({w.id: "new" for w in changed.waiting}).resume().results["e"][
         "result"
     ] == [["new", "new", "new"], ["doc1:a", "doc1:c"]]
     inserted = run.again({"text": "x;a b;a c"})
     assert [(w.loc, w.inputs["text"]) for w in inserted.waiting] == [(("e", 0, "q", 0), "x")]
-    assert inserted.answer(inserted.waiting[0], "x").resume().results["e"]["result"] == [
+    assert inserted.with_answers(inserted.waiting[0], "x").resume().results["e"]["result"] == [
         ["x"],
         ["doc0:a", "doc0:b"],
         ["doc1:a", "doc1:c"],
@@ -1355,7 +1360,7 @@ def test_two_documents_with_the_same_line_each_keep_their_own_answer_inside_a_su
         ["doc0:a", "doc0:b"],
     ]
     flat_run = in_one_graph("lines-inner", "sentences").run({"text": "a b;a c"})
-    flat_run = flat_run.answer(
+    flat_run = flat_run.with_answers(
         {w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in flat_run.waiting}
     ).resume()
     assert flat_run.again({"text": "a c;a b"}).results["q"]["result"] == [
@@ -1367,7 +1372,7 @@ def test_two_documents_with_the_same_line_each_keep_their_own_answer_inside_a_su
 def test_identical_items_reuse_their_answers_in_item_order_whichever_thread_finishes_first():
     graph = inside_a_loop("staggered-inner")
     run = graph.run({"text": "ab ab ab"})
-    run = run.answer({w.id: f"answer {w.loc[1]}" for w in run.waiting}).resume()
+    run = run.with_answers({w.id: f"answer {w.loc[1]}" for w in run.waiting}).resume()
     assert run.results["e"]["result"] == ["answer 0", "answer 1", "answer 2"]
     CALLS.clear()
     again = Run.from_json(
@@ -1384,14 +1389,14 @@ def test_identical_items_reuse_their_answers_in_item_order_whichever_thread_fini
 def test_reuse_reaches_a_subgraph_inside_a_subgraph_and_forget_forgets_every_inner_outcome():
     graph = inside_a_loop("wrapping")
     run = graph.run({"text": "ab cd"})
-    done = run.answer({w.id: w.inputs["text"].lower() for w in run.waiting}).resume()
+    done = run.with_answers({w.id: w.inputs["text"].lower() for w in run.waiting}).resume()
     assert done.outputs == {"result": ["ab", "cd"]}
     CALLS.clear()
     longer = done.again({"text": "ab cd ef"})
     assert longer.status == "waiting" and CALLS == {"words": 1, "upper": 1, "ask": 1}
     assert [w.id.partition("~")[0] for w in longer.waiting] == ["e@2/in/q"]
     CALLS.clear()
-    forgotten = done.forget("e").resume()
+    forgotten = done.with_forgotten("e").resume()
     assert forgotten.status == "waiting" and CALLS == {"upper": 2, "ask": 2}
 
 
@@ -1463,7 +1468,7 @@ def test_a_subgraph_reads_the_same_saved_and_read_back_whenever_it_waits_and_aft
     assert run.status == "waiting" and reads_the_same_saved_and_read_back(run)
     while run.status == "waiting":
         first, *rest = run.waiting
-        one = run.answer(
+        one = run.with_answers(
             first, "yes"
         )  # one answer, not resumed: what it completes reads the same saved and read back
         assert reads_the_same_saved_and_read_back(one) and what_a_host_reads(
@@ -1471,7 +1476,7 @@ def test_a_subgraph_reads_the_same_saved_and_read_back_whenever_it_waits_and_aft
         ) == what_a_host_reads(
             Run.from_json(run.to_json(), run.graph)
         )  # and the run it was given to is unchanged
-        answered = one.answer({waiting_call.id: "yes" for waiting_call in rest})
+        answered = one.with_answers({waiting_call.id: "yes" for waiting_call in rest})
         assert reads_the_same_saved_and_read_back(answered)
         run = answered.resume()
         assert reads_the_same_saved_and_read_back(run)
@@ -1483,8 +1488,10 @@ def test_an_answer_inside_a_subgraph_shows_in_its_results_before_resume_as_in_on
         compile_graph({"e": "asking-inner"}).run({"text": "a"}),
         compile_graph({"up": "upper", "q": "ask"}, [("up.result", "q.text")]).run({"text": "a"}),
     )
-    assert in_subgraph.answer(in_subgraph.waiting[0], "yes").results == {"e": {"result": "yes"}}
-    assert one_graph.answer(one_graph.waiting[0], "yes").results == {
+    assert in_subgraph.with_answers(in_subgraph.waiting[0], "yes").results == {
+        "e": {"result": "yes"}
+    }
+    assert one_graph.with_answers(one_graph.waiting[0], "yes").results == {
         "up": {"result": "A"},
         "q": {"result": "yes"},
     }
@@ -1573,15 +1580,15 @@ def test_answers_given_at_once_to_subgraphs_side_by_side_inside_another_complete
     )
     assert not graph.problems, graph.problems
     run = graph.run(dict.fromkeys(graph.inputs, "ab cd"))
-    answered = run.answer({waiting_call.id: "yes" for waiting_call in run.waiting})
+    answered = run.with_answers({waiting_call.id: "yes" for waiting_call in run.waiting})
     assert reads_the_same_saved_and_read_back(answered)
     assert all(
         value == (["yes", "yes"] if per_item else "yes") for value in answered.results["e"].values()
     )
     # all but the first: no subgraph around it completes
-    some = run.answer({waiting_call.id: "yes" for waiting_call in run.waiting[1:]})
+    some = run.with_answers({waiting_call.id: "yes" for waiting_call in run.waiting[1:]})
     assert reads_the_same_saved_and_read_back(some) and reads_the_same_saved_and_read_back(
-        some.answer(run.waiting[0], "yes")
+        some.with_answers(run.waiting[0], "yes")
     )
 
 
@@ -1658,7 +1665,7 @@ def test_a_loop_moved_from_around_a_subgraph_node_to_inside_its_graph_calls_the_
 
 def test_three_hundred_answers_given_at_once_inside_one_subgraph_complete_it():
     run = compile_graph({"e": "lines-inner"}).run({"text": " ".join(f"w{i}" for i in range(300))})
-    answered = run.answer({waiting_call.id: "yes" for waiting_call in run.waiting})
+    answered = run.with_answers({waiting_call.id: "yes" for waiting_call in run.waiting})
     assert answered.results["e"] == {
         "result": ["yes"] * 300
     } and reads_the_same_saved_and_read_back(answered)
@@ -1716,7 +1723,7 @@ def test_a_subgraph_with_no_output_completes_when_its_inner_nodes_do_and_not_bef
     first = stream(graph.with_inputs({"text": "x"}))
     assert (waiting.status, _said_of(first, "e"), CALLS["note"]) == ("waiting", [], 0)
     for run in (waiting, Run.from_json(waiting.to_json(), graph)):
-        said = _said_of(stream(run.answer(run.waiting[0].id, "y")), "e")
+        said = _said_of(stream(run.with_answers(run.waiting[0].id, "y")), "e")
         assert said == [
             ("node_start", ("e",)),
             ("node_start", ("e", "n")),

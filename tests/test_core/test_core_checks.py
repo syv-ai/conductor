@@ -181,7 +181,7 @@ def test_answer_stays_with_its_item_on_again():
     )
     run, _ = calls(lambda: graph.run({"text": CSV}))
     for waiting_call in run.waiting:
-        run = run.answer(waiting_call, "yes")
+        run = run.with_answers(waiting_call, "yes")
     run, _ = calls(run.resume)
     edited = CSV.replace("Ida,ida@a.dk,100", "Ida,ida@a.dk,200").replace(
         "Al,al@c.dk,7000", "Al,al@c.dk,8000"
@@ -191,7 +191,7 @@ def test_answer_stays_with_its_item_on_again():
     assert called == ["approve Ida", "approve Al"], called
     assert again.status == "waiting" and [w.inputs["name"] for w in again.waiting] == ["Al"]
     try:
-        again.answer(again.waiting[0], "maybe")
+        again.with_answers(again.waiting[0], "maybe")
         raise AssertionError
     except InvalidCallError as error:
         assert error.problems[0].type == "invalid_answer"
@@ -653,14 +653,14 @@ def test_ask_forms_and_several():
         and by["t@0"].questions[0].is_series
     )
     run = Run.from_json(run.to_json(), graph)
-    run = run.answer("r@0", {"approved": False, "note": "late"}).answer(
+    run = run.with_answers("r@0", {"approved": False, "note": "late"}).with_answers(
         "r@1", {"approved": True, "note": ""}
     )
     run = (
-        run.answer("t@0", ["red", "blue"])
-        .answer("t@1", [])
-        .answer("p@0", True)
-        .answer("p@1", False)
+        run.with_answers("t@0", ["red", "blue"])
+        .with_answers("t@1", [])
+        .with_answers("p@0", True)
+        .with_answers("p@1", False)
         .resume()
     )
     assert run.status == "complete", run.status
@@ -709,7 +709,7 @@ def test_pause_on_a_nested_item():
         None,
         "c",
     ]
-    run = Run.from_json(run.to_json(), graph).answer("c@0@1", "B").resume()
+    run = Run.from_json(run.to_json(), graph).with_answers("c@0@1", "B").resume()
     assert run.results["j"]["result"] == ["a+B", "c"]
 
 
@@ -736,11 +736,11 @@ def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
         reg,
     )
     run, _ = calls(lambda: graph.run({"text": CSV}))
-    run, _ = calls(run.answer("g@1", "bo@b.dk").resume)
+    run, _ = calls(run.with_answers("g@1", "bo@b.dk").resume)
     paused, called = calls(lambda: run.again({"text": CSV.replace("Bo,", "Bob,")}))
     assert [place(w) for w in paused.waiting] == ["g@1"] and called == []
     resumed, called = calls(
-        lambda: Run.from_json(paused.to_json(), graph).answer("g@1", "bo@b.dk").resume()
+        lambda: Run.from_json(paused.to_json(), graph).with_answers("g@1", "bo@b.dk").resume()
     )
     # the mail to Bo's address was sent on the first run, and isn't sent again
     assert resumed.status == "complete" and called == [], called

@@ -170,7 +170,7 @@ def test_a_float_that_is_not_finite_reads_back_as_a_float_and_the_downstream_nod
 
         read_back = Run.from_json(saved, graph)
         value = read_back.results["m"]["result"]
-        done = read_back.answer("c", "yes").resume()
+        done = read_back.with_answers("c", "yes").resume()
 
         assert isinstance(value, float) and (
             math.isnan(value) if text == "nan" else value == float(text)
@@ -353,7 +353,7 @@ def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text
     read_back = _round_trip(graph.run({"k": 1}))
 
     assert read_back.results["up"]["result"] == ["NaN", "NaN", 1.5]
-    assert read_back.forget("down").resume().outputs["result"] == ["str", "str", "float"]
+    assert read_back.with_forgotten("down").resume().outputs["result"] == ["str", "str", "float"]
 
 
 @host_type("point", title="Point")
@@ -435,7 +435,7 @@ def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_s
 
     read_back = Run.from_json(paused.to_json(), graph)
     after = read_back.results["e"]["result"]
-    read_back.answer("c", "yes").resume()
+    read_back.with_answers("c", "yes").resume()
 
     assert after.to_dict(as_series=False) == before.to_dict(as_series=False) == _EVERYTHING
     assert after.schema == before.schema
@@ -796,7 +796,7 @@ def test_a_table_answer_is_refused_where_a_returned_table_is(answer: pl.DataFram
     (waiting,) = run.waiting
 
     with pytest.raises(InvalidCallError) as refused:
-        run.answer(waiting.id, answer)
+        run.with_answers(waiting.id, answer)
 
     (problem,) = refused.value.problems
     assert problem.type == "invalid_answer" and fault in problem.msg
@@ -809,7 +809,9 @@ def test_a_table_answer_is_kept_as_a_returned_table_is():
 
     run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run({"text": "x"})
     (waiting,) = run.waiting
-    answered = run.answer(waiting.id, pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)})).resume()
+    answered = run.with_answers(
+        waiting.id, pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)})
+    ).resume()
 
     assert (
         answered.results["ask-table"]["result"].schema
@@ -1508,7 +1510,7 @@ def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_
     first = graph.run({"text": "ccc,a,bb"})
     ids = [w.id for w in first.waiting]  # what a host stores when the run waits
     answers = {call_id: f"yes {i}" for i, call_id in enumerate(ids)}
-    straight = first.answer(answers).resume()
+    straight = first.with_answers(answers).resume()
     assert straight.results["o"]["result"] == "zeta,alpha,mid|yes 0,yes 1,yes 2"
 
     stored = Graph.compile(
@@ -1517,7 +1519,7 @@ def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_
     assert stored.fingerprint == graph.fingerprint
     read_back = Run.from_json(reorder(first.to_json()), stored)
     assert [w.id for w in read_back.waiting] == ids
-    resumed = read_back.answer(answers).resume()
+    resumed = read_back.with_answers(answers).resume()
     assert (
         resumed.results["o"] == straight.results["o"]
         and resumed.results["q"] == straight.results["q"]

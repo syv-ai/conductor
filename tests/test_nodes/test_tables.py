@@ -286,7 +286,7 @@ def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back
     assert again.equals(table) and again.schema == table.schema
     assert read_back.results["series-split"]["result"] == run.results["series-split"]["result"]
     assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
-    assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
+    assert read_back.with_forgotten("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
 
 
 def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused():

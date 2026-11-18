@@ -899,7 +899,7 @@ def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_
     )
     waiting = graph.run({"text": "a b"})
     assert waiting.results["q"]["result"] == [None, None]
-    one = waiting.answer(waiting.waiting[0].id, "yes").resume()
+    one = waiting.with_answers(waiting.waiting[0].id, "yes").resume()
     assert one.status == "waiting"
     assert (
         one.results["q"]["result"]

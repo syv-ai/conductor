@@ -1606,7 +1606,7 @@ def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_re
         registry_of(mark, confirm, box),
     )
     first = graph.run({"a": "1", "b": "2"})
-    first = first.answer(first.waiting[0], True).resume()
+    first = first.with_answers(first.waiting[0], True).resume()
     before = dict(calls)
 
     again = first.again({"a": "changed"})

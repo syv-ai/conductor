@@ -667,7 +667,7 @@ def approve(invoice: str) -> bool:
 
 approving = Graph.compile(make_graph(approve, constants={"approve.invoice": "INV-1"}), registry)
 paused = approving.run()                                 # paused.status == "waiting"
-answered = paused.answer(paused.waiting[0], True)        # raises here if wrong; no node runs
+answered = paused.with_answers(paused.waiting[0], True)        # raises here if wrong; no node runs
 finished = answered.resume()
 again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 ```
@@ -713,32 +713,32 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)`, `Literal` or enum. Its `json_schema`'s `enum` lists their ids (see `FieldDescription`). A bare id an `Ask` gives keeps the title the output's type gives it.
 - A question's `default` comes from the `Ask`, else from the output's own.
 - `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a skipped branch.
-- A node of one output is answered with its value, so its one question is `required`, a branch too. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.answer(id, {})` is refused as `invalid_answer`.
+- A node of one output is answered with its value, so its one question is `required`, a branch too. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.with_answers(id, {})` is refused as `invalid_answer`.
 
-**Answering.** `run.answer(waiting, value)` answers one waiting call, and `run.answer({waiting_id: value, ...})` answers several in one call. It returns a new run, and nothing runs until `resume()`.
+**Answering.** `run.with_answers(waiting, value)` answers one waiting call, and `run.with_answers({waiting_id: value, ...})` answers several in one call. It returns a new run, and nothing runs until `resume()`.
 
 - One question is answered with its value. Several (a node of several outputs) are answered with a mapping by output name.
 - In the mapping, a question left out gives what it says: its `default`, else a skipped branch when it is not `required`, else it is refused. So a question with a default may be left out, and so may one whose type takes `None` and that has no choices (its `default` is `null`).
 - At most one branch is answered. The others are skipped, even one with a `default`. An answer that leaves out every branch gives each its `default`, else skips it.
 - Each answer is read strictly from its JSON form: `true`, not `"yes"` or `1`; `3`, not `"3"`; a date as its ISO text. The whole answer is written as JSON first, so a dataclass or a model answers several questions as the mapping of its fields. It is checked against its question before anything runs.
 - Every fault is refused at once, and nothing is answered.
-  - `invalid_answer` has `ctx.waiting_id`, `ctx.reason`, and `ctx.question` when it is about one question. It also covers one call answered twice in one `answer`.
+  - `invalid_answer` has `ctx.waiting_id`, `ctx.reason`, and `ctx.question` when it is about one question. It also covers one call answered twice in one `with_answers`.
   - `not_waiting` is for a call that is not waiting, with `ctx.waiting_id`, `ctx.status`, and `ctx.moved_to` when its question now waits on another call.
   - `answer_stale` is for an id whose place waits with another fingerprint: the call there got other inputs, as when `run.again` moved another item there, or the node's code changed. `ctx.current` is the id waiting there now, and `ctx.moved_to` is there when the old question now waits on another call. An id whose place waits on nothing is `not_waiting`.
 - An id without its `~` part names the call alone, and answers whatever question waits there.
-- A host that keeps a waiting id outside the run, such as in a link in an email, keeps the id without its `~` part, or reads the id from `run.waiting` again when the person comes back. A whole id goes out of date when its call's inputs change, and when its node's code does, as after a deploy, even when the question reads the same. `run.answer` then refuses it as `answer_stale`.
+- A host that keeps a waiting id outside the run, such as in a link in an email, keeps the id without its `~` part, or reads the id from `run.waiting` again when the person comes back. A whole id goes out of date when its call's inputs change, and when its node's code does, as after a deploy, even when the question reads the same. `run.with_answers` then refuses it as `answer_stale`.
 - An empty mapping answers no call, so it changes nothing: a run that was `cancelled` or `timed_out` stays so.
 - A node that asked is not called again for that item.
 
-**Declining.** `run.decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.answer` does, an entry of `run.waiting` or its id, and returns a new run. A decline is not an answer: a person said no, so it ends the run for good. To reject one item and let the run go on, answer it.
+**Declining.** `run.with_decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.with_answers` does, an entry of `run.waiting` or its id, and returns a new run. A decline is not an answer: a person said no, so it ends the run for good. To reject one item and let the run go on, answer it.
 
 - The run is `declined`, with `answer_declined` as its `cause`, even when a `resume()` had already ended it `failed` or `stopped`. Every call made before keeps its outcome, so `run.results` shows what ran.
-- Nothing waits any more: the declined question and every other one are dropped. So `run.answer` and `run.decline` refuse every id as `not_waiting`, with `ctx.status` `declined`, as on a `complete` run. `resume()` and `stream()` call no node, and the run stays `declined`. A saved run reads back the same.
+- Nothing waits any more: the declined question and every other one are dropped. So `run.with_answers` and `run.with_decline` refuse every id as `not_waiting`, with `ctx.status` `declined`, as on a `complete` run. `resume()` and `stream()` call no node, and the run stays `declined`. A saved run reads back the same.
 - To ask again, start a new run: `run.again()` or `run.with_inputs()` reuses what this run ran, and calls the declined node again, so it asks again, under the same id while its inputs and code are the same.
 - `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it. The `reason` is checked as its JSON text would be: text, or `None`. So `bytes` and a `str` enum member are taken as their text, and `1.5`, `3` and a `str` with a lone surrogate are refused as `invalid_decline_reason`, with `ctx.got` its class. The run is left as it was.
-- An id is read by the rules `run.answer` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
+- An id is read by the rules `run.with_answers` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
 
-**Queuing answers for later.** A host that queues answers or declines to give a run later, such as a server whose run is still running, keeps them as JSON. `Run.queued_as_json(answers, declines={waiting_id: reason})` returns `(answers, reasons)`: each answer as the JSON data `run.answer` reads it from (a `date` as its ISO text, a dataclass as a mapping of its fields, a `polars.DataFrame` as its columns), and each reason as the text `run.decline` keeps. `run.answer` and `run.decline` take every value through that same step, so what JSON can't write is refused with the same problem: `invalid_answer` for an answer, `invalid_decline_reason` for a reason, its `loc` the call the waiting id names. What depends on the question is checked when the run is given the data. It is provisional.
+**Queuing answers for later.** A host that queues answers or declines to give a run later, such as a server whose run is still running, keeps them as JSON. `Run.queued_as_json(answers, declines={waiting_id: reason})` returns `(answers, reasons)`: each answer as the JSON data `run.with_answers` reads it from (a `date` as its ISO text, a dataclass as a mapping of its fields, a `polars.DataFrame` as its columns), and each reason as the text `run.with_decline` keeps. `run.with_answers` and `run.with_decline` take every value through that same step, so what JSON can't write is refused with the same problem: `invalid_answer` for an answer, `invalid_decline_reason` for a reason, its `loc` the call the waiting id names. What depends on the question is checked when the run is given the data. It is provisional.
 
 ### Context
 
@@ -808,7 +808,7 @@ second = first.again({"text": "ida@a.dk\nbo@b.dk\neva@c.dk"})   # one contact ad
 
 **What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own source as Python parses it, without its name, decorators, comments or docstrings, as a saved run records it, so a new Python version keeps the key; a function whose source `inspect.getsource` can't read is hashed by its bytecode instead, such as one made by `exec` with no file, one typed into `python -c` or a REPL that keeps no source, or one from a package installed without its `.py` files; so is a lambda, whose source is its whole line, and a function whose lines at its place aren't Python, hold no `def`, or whose first `def` has another name than the one its code was compiled with, as when `exec` compiles a text under a real file's name; `@node` works the code out when it declares the function), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key. So `again` with another context reuses the outcome made with the first, and `sign` ("Context") gives back Ida's name to Bo. A node whose result depends on the context takes that value as an input instead, or says `Policy(reuse_when_inputs_match=False)` ("Never reuse" below).
 
-**What the code leaves out.** The code in the key is the function's own source, and nothing it reads from outside it: a module constant such as a prompt template or a rate, a helper it calls, a method of a type it uses, a data file it opens. So when only one of those changes, a run made from a previous one reuses the old outcomes, in the same process and after a deploy alike. To call the node again, make the run with `forget` ("Forgetting" below), or declare a new version of the node with `replaces=` and move the graph to it with `registry.upgrade`, since a graph record runs the version it names ("Versions and Policies"). A node whose result depends on something outside its inputs on every call says `Policy(reuse_when_inputs_match=False)` ("Never reuse" below).
+**What the code leaves out.** The code in the key is the function's own source, and nothing it reads from outside it: a module constant such as a prompt template or a rate, a helper it calls, a method of a type it uses, a data file it opens. So when only one of those changes, a run made from a previous one reuses the old outcomes, in the same process and after a deploy alike. To call the node again, make the run with `with_forgotten` ("Forgetting" below), or declare a new version of the node with `replaces=` and move the graph to it with `registry.upgrade`, since a graph record runs the version it names ("Versions and Policies"). A node whose result depends on something outside its inputs on every call says `Policy(reuse_when_inputs_match=False)` ("Never reuse" below).
 
 **Which outcome a call reuses.**
 
@@ -825,9 +825,9 @@ second = first.again({"text": "ida@a.dk\nbo@b.dk\neva@c.dk"})   # one contact ad
 
 **Outcomes carried on.** `again` passes on the reusable outcomes the run before it had and didn't use, while their node still has a question waiting. So an answer survives an edit and its revert. Each keeps the call it came from, so the call with the same item indexes still reuses it first. Once the node is complete, the unused ones are dropped. So an edit that is undone in the next run calls the node again for the items the edit took out.
 
-**Forgetting.** `run.forget("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
+**Forgetting.** `run.with_forgotten("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
 
-**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `forget`) calls it for every item. The policy is checked when that run is made, and again when a saved run is read: `Run.from_json` drops the outcomes a saved run could still reuse for a node whose current `Policy` says `reuse_when_inputs_match=False`, so the rule holds however the run was made.
+**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `with_forgotten`) calls it for every item. The policy is checked when that run is made, and again when a saved run is read: `Run.from_json` drops the outcomes a saved run could still reuse for a node whose current `Policy` says `reuse_when_inputs_match=False`, so the rule holds however the run was made.
 
 `node_complete.reused` says how many calls were reused.
 
@@ -1004,7 +1004,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 ### Running
 
-**A run never changes.** `answer`, `decline`, `resume`, `again`, `with_inputs`, `forget` and `with_max_items` each return a new `Run`, and the run they are called on is left as it was. So keep what they return: `run = run.answer(waiting, True).resume()`. Calling `run.resume()` alone leaves `run` as it was. A run's attributes can't be set (`dataclasses.FrozenInstanceError`), and `run.inputs` is a read-only mapping.
+**A run never changes.** Every method that changes a run returns a new `Run`, and the run it is called on is left as it was. Each `with_...` method returns the run with one change and calls no node: `with_answers`, `with_decline`, `with_inputs`, `with_forgotten` and `with_max_items`. `resume` and `again` return the run after their calls. So keep what they return: `run = run.with_answers(waiting, True).resume()`. Calling `run.resume()` alone leaves `run` as it was. A run's attributes can't be set (`dataclasses.FrozenInstanceError`), and `run.inputs` is a read-only mapping.
 
 **Starting a run.** A graph's inputs are given as one mapping, by name: `graph.run({"text": "a b"})`. Every other argument is a setting of the call, by keyword.
 
@@ -1018,9 +1018,9 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 - `run.resume(*, context=None, timeout=None, only_costs_nothing=False)` goes on from where the run stopped, the same way.
 - `run.stream(...)` takes the same arguments, plus `cancel=`, `hand_back=` and `checkpoint_every=`. It does the same, and yields its events.
 - `run.with_max_items(n)` is the same run under another item limit, not started. A run `stopped` at its item limit goes on with `run.with_max_items(100).resume()`. `run.with_max_items(None)` removes the limit; `max_items=None` on `run.with_inputs` and `run.again` keeps the run's own.
-- `run.answer(waiting, value)` or `run.answer({waiting_id: value})` answers waiting calls (see "Asking a person").
+- `run.with_answers(waiting, value)` or `run.with_answers({waiting_id: value})` answers waiting calls (see "Asking a person").
 - `run.with_inputs(inputs={}, *, max_items=None)` is a run that reuses this one's outcomes, to resume or stream.
-- `run.forget(*node_ids)` is a run of the same inputs that calls these nodes again and reuses the rest, to resume or stream.
+- `run.with_forgotten(*node_ids)` is a run of the same inputs that calls these nodes again and reuses the rest, to resume or stream.
 - `run.again(...)` is `run.with_inputs(...)` resumed. It takes `context=` and `timeout=` too.
 
 **Saving.**
@@ -1065,7 +1065,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 1. `running`, in a copy made while it went on: a checkpoint, or a run handed back.
 2. `complete`, once every call has an outcome and none waits.
-3. How the last `resume()` ended early: `failed`, `stopped`, `cancelled` or `timed_out`, or `declined`, when `run.decline` ended it. The problem that ended it is `run.cause`, which is `None` on any other status.
+3. How the last `resume()` ended early: `failed`, `stopped`, `cancelled` or `timed_out`, or `declined`, when `run.with_decline` ended it. The problem that ended it is `run.cause`, which is `None` on any other status.
 4. `waiting`, when a call waits for a person.
 5. `ready`, when a call is left to make.
 
@@ -1271,21 +1271,21 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 
 ### Answers and declines
 
-How the worker gives a run the answers and declines sent to it, through the routes or the methods `answer`, `decline` and `resume` of a `conductor_providers.fastapi.Worker`. A decline is `run.decline`: a run that takes one ends `declined` with `answer_declined`, for good. Nothing resumes it: a resume is `run_not_resumable` (a 409), and an answer or a decline is conductor's `not_waiting` (a 422).
+How the worker gives a run the answers and declines sent to it, through the routes or the methods `answer`, `decline` and `resume` of a `conductor_providers.fastapi.Worker`. A decline is `run.with_decline`: a run that takes one ends `declined` with `answer_declined`, for good. Nothing resumes it: a resume is `run_not_resumable` (a 409), and an answer or a decline is conductor's `not_waiting` (a 422).
 
 **On a running run.** Answers and declines are queued in the row's state, one entry per reply, each to one waiting id, as JSON data. The call answers with the run `running`.
 
-- An answer or a reason JSON can't write is refused at once, with the `invalid_answer` or `invalid_decline_reason` that `run.answer` or `run.decline` gives it (a 422), running or not.
-- When the resume call ends, the run is given the queue in the order it came, with `run.answer` and `run.decline`. So of two replies to one question, the first is taken, and the second is conductor's `not_waiting`. A run that takes a decline ends `declined` and isn't resumed, and every reply after the decline is `not_waiting`. Until then, the calls the resume call makes go on.
+- An answer or a reason JSON can't write is refused at once, with the `invalid_answer` or `invalid_decline_reason` that `run.with_answers` or `run.with_decline` gives it (a 422), running or not.
+- When the resume call ends, the run is given the queue in the order it came, with `run.with_answers` and `run.with_decline`. So of two replies to one question, the first is taken, and the second is conductor's `not_waiting`. A run that takes a decline ends `declined` and isn't resumed, and every reply after the decline is `not_waiting`. Until then, the calls the resume call makes go on.
 - A reply the run refuses goes to `refused`, by waiting id, with its problems, and the run goes on as it would have. One it takes clears what `refused` had for its question. So `refused` says what became of the last reply to each question.
 - When a resume call raises outside any node, the run as its row has it, its last checkpoint, is given the queue then and there, in the same way. A run that takes a decline ends `declined`; else it is `failed`. An answer to a question the run asked after its last checkpoint finds nothing waiting there, so it is `not_waiting` in `refused`, and that question waits again on the next resume. When the row's run can't be loaded, each queued reply is refused with the call's cause instead. So a row that isn't running never holds a queue.
 - A takeover of a running run whose worker died, and a run handed back, resume the run with its queue kept, and give it the queue when the resume call ends.
 
 **On a run that isn't running.** Its queue is always empty, so each reply acts on the run as its row has it, at once.
 
-- This call's answers go to `run.answer` on the run as its row has it, whatever its status. Every answer it refuses is a 422, with nothing written; answers JSON can't write are checked first, and when any is refused, only those are listed. The run is then resumed.
-- This call's decline goes to `run.decline` on the run as its row has it. The run is written `declined`, `answer_declined`, with its `run_end` in the same write and no resume call, so the call needs no serving worker. A decline the run refuses (`not_waiting`, `answer_stale`) is a 422 with nothing written.
-- An answer to a complete or a declined run is conductor's `not_waiting` (a 422). No answers at all change nothing, as `run.answer({})` doesn't, so nothing is written.
+- This call's answers go to `run.with_answers` on the run as its row has it, whatever its status. Every answer it refuses is a 422, with nothing written; answers JSON can't write are checked first, and when any is refused, only those are listed. The run is then resumed.
+- This call's decline goes to `run.with_decline` on the run as its row has it. The run is written `declined`, `answer_declined`, with its `run_end` in the same write and no resume call, so the call needs no serving worker. A decline the run refuses (`not_waiting`, `answer_stale`) is a 422 with nothing written.
+- An answer to a complete or a declined run is conductor's `not_waiting` (a 422). No answers at all change nothing, as `run.with_answers({})` doesn't, so nothing is written.
 
 **Two calls at once.** A reply whose write loses to another call's goes by the run as it is then: it is queued if the run now runs, and refused as `not_waiting` if the other call answered the question and the run finished.
 

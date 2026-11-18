@@ -38,7 +38,7 @@ class Policy:
     ``retry_on=(Exception,)``.
 
     ``reuse_when_inputs_match=False`` is for a node that reads the outside world, not only its inputs. A run made
-    from a previous one (``run.again``, ``run.with_inputs``, ``graph.with_inputs(previous=)`` or ``run.forget``)
+    from a previous one (``run.again``, ``run.with_inputs``, ``graph.with_inputs(previous=)`` or ``run.with_forgotten``)
     then calls it again for every item. ``costs_nothing=True`` is for a cheap node that touches nothing outside the
     run, like one that splits a table. ``run.resume(only_costs_nothing=True)`` calls only such nodes, so a host can
     see how many calls the costly nodes will make before any of them runs.

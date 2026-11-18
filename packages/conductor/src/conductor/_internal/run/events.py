@@ -222,7 +222,7 @@ class NodeWaiting(_NodeEvent):
 
     It comes as soon as the call's outcome is written. The calls downstream of the waiting call wait for the answer
     too. Every other call is still made. The node that asked gets no ``NodeComplete`` in this stream, and the stream
-    ends with ``RunEnd(status="waiting")``. Once someone answers with ``run.answer(...)``, the next stream has the
+    ends with ``RunEnd(status="waiting")``. Once someone answers with ``run.with_answers(...)``, the next stream has the
     node's ``NodeComplete``.
 
     Say a node ``approve`` asks about each line. The call for the second line gets
@@ -230,7 +230,7 @@ class NodeWaiting(_NodeEvent):
     node, and ``waiting.loc`` says which call it is.
 
     Attributes:
-        waiting: The question, and which call asked it. Its ``id`` is what ``run.answer`` takes.
+        waiting: The question, and which call asked it. Its ``id`` is what ``run.with_answers`` takes.
     """
 
     type: Literal["node_waiting"] = "node_waiting"

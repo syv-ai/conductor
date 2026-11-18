@@ -180,7 +180,7 @@ def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
         registry_of(square),
     ).run()
     with pytest.raises(InvalidCallError) as refused:
-        waiting.answer(waiting.waiting[0].id, {"side": 2})
+        waiting.with_answers(waiting.waiting[0].id, {"side": 2})
 
     assert [(p.type, p.ctx["reason"]) for p in refused.value.problems] == [
         ("invalid_answer", "its type's own check returned a dict, not a Square")

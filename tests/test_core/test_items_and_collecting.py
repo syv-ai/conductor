@@ -600,7 +600,7 @@ def test_a_skipped_input_skips_the_node_at_once_while_its_other_input_waits_for_
     assert json.loads(run.to_json())["outcomes"]["p"]["states"] == [
         "skipped"
     ]  # skipped in this resume() call, before anyone answers
-    done = run.answer(run.waiting[0], "yes").resume()
+    done = run.with_answers(run.waiting[0], "yes").resume()
     assert (
         done.status == "complete"
         and done.results["p"]["result"] is None
@@ -2719,7 +2719,7 @@ def test_questions_listed_per_document_are_asked_of_each_document_and_each_answe
     assert [w.prompt for w in run.waiting] == ["x: a", "x: b", "x: c", "y: a", "y: b", "y: c"]
     assert [w.loc[1:] for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     saved = Run.from_json(run.to_json(), compiled)
-    done = saved.answer({w.id: w.loc[1:] == (1, 2) for w in saved.waiting}).resume()
+    done = saved.with_answers({w.id: w.loc[1:] == (1, 2) for w in saved.waiting}).resume()
     assert done.results["q"]["result"] == [[False, False, False], [False, False, True]]
 
 
@@ -3605,7 +3605,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
 
     saved = Run.from_json(paused.to_json(), compiled)
     assert [w.id for w in saved.waiting] == [w.id for w in paused.waiting]
-    done = saved.answer(
+    done = saved.with_answers(
         {w.id: "no" if w.prompt == "approve a2?" else "yes" for w in saved.waiting}
     ).resume()
     assert done.status == "complete" and done.results["a"]["result"] == [["yes", "no"], ["yes"]]
@@ -3618,7 +3618,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
         ((1, 0), "approve new1?"),
         ((1, 1), "approve new2?"),
     ]
-    finished = again.answer({w.id: "yes" for w in again.waiting}).resume()
+    finished = again.with_answers({w.id: "yes" for w in again.waiting}).resume()
     assert finished.results["a"]["result"] == [["yes", "no"], ["yes", "yes"], ["yes"]]
     assert finished.outputs == {"result": [1, 2, 1]}
 
@@ -3650,5 +3650,5 @@ def test_a_collecting_node_over_no_items_waits_for_a_value_its_loop_reads_from_o
     assert compiled.problems == []
     paused = compiled.run({"text": ""})
     assert paused.status == "waiting" and CALLED == []
-    done = paused.answer(paused.waiting[0], "!").resume()
+    done = paused.with_answers(paused.waiting[0], "!").resume()
     assert done.status == "complete" and done.results["n"]["result"] == 0 and CALLED == ["count 0"]

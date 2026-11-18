@@ -11,7 +11,7 @@ was cancelled (``cancelled``), or the timeout passed (``timed_out``). The next `
 copy of the run made while a resume is still going is ``running``. That copy only exists in memory, and a saved run
 never says ``running``.
 
-``run.decline`` stores how it left the run in the same place: ``declined``. A person said no, so the run has ended
+``run.with_decline`` stores how it left the run in the same place: ``declined``. A person said no, so the run has ended
 for good. Nothing more is called, and nothing waits.
 
 An answer changes some of how a resume ended. A failed call or a series over the limit is still there after an
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 #: The status of a run, as ``run.status`` gives it. ``ready``, ``waiting`` and ``complete`` come from its outcomes.
 #: ``running`` is a copy made while a ``resume()`` is still going. ``declined`` is a run a person ended with
-#: ``run.decline``. The other four say how the last ``resume()`` ended the run early.
+#: ``run.with_decline``. The other four say how the last ``resume()`` ended the run early.
 RunStatus = Literal[
     "ready",
     "running",
@@ -53,7 +53,7 @@ class EndedEarly(ConductorModel):
     """How a run ended before it was complete, and why.
 
     A ``resume()`` ends a run early as ``failed``, ``stopped``, ``cancelled`` or ``timed_out``, and the next
-    ``resume()`` goes on from where it stopped. ``run.decline`` ends it as ``declined``, and that is final.
+    ``resume()`` goes on from where it stopped. ``run.with_decline`` ends it as ``declined``, and that is final.
 
     Attributes:
         status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
@@ -67,7 +67,7 @@ class EndedEarly(ConductorModel):
 
 
 #: How the last ``resume()`` left a run. ``"running"`` for a copy made while it was still going, such as a
-#: checkpoint or the run a stream hands back. An ``EndedEarly`` when it ended early, or when ``run.decline`` ended
+#: checkpoint or the run a stream hands back. An ``EndedEarly`` when it ended early, or when ``run.with_decline`` ended
 #: it. ``None`` when it made every call that was ready.
 LastResume = EndedEarly | Literal["running"] | None
 

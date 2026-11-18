@@ -87,7 +87,7 @@ class QueuedAnswer(BaseModel):
         kind: ``"answer"``, which tells it from a ``QueuedDecline`` in the row's JSON. A key it doesn't have, such
             as a ``reason``, is refused, so a row written wrong fails when it is read.
         waiting_id: The question it answers, as the run's ``waiting`` lists it.
-        answer: The answer, as the JSON data ``run.answer`` reads it from.
+        answer: The answer, as the JSON data ``run.with_answers`` reads it from.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -106,7 +106,7 @@ class QueuedDecline(BaseModel):
         kind: ``"decline"``, which tells it from a ``QueuedAnswer`` in the row's JSON. A key it doesn't have, such
             as an ``answer``, is refused, so a row written wrong fails when it is read.
         waiting_id: The question it declines, as the run's ``waiting`` lists it.
-        reason: Why the person declined, as ``run.decline`` keeps it; ``None`` for no reason given.
+        reason: Why the person declined, as ``run.with_decline`` keeps it; ``None`` for no reason given.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -172,8 +172,8 @@ class RunState(BaseModel):
         will be given. That also refuses what JSON can't write, as the run would.
 
         Args:
-            answers: Answers by waiting id, as ``run.answer`` takes them.
-            declines: Reasons by waiting id, as ``run.decline`` takes them.
+            answers: Answers by waiting id, as ``run.with_answers`` takes them.
+            declines: Reasons by waiting id, as ``run.with_decline`` takes them.
 
         Raises:
             InvalidCallError: An answer can't be written as JSON (``invalid_answer``), or a reason can't
@@ -279,9 +279,9 @@ class RunState(BaseModel):
         for reply in self.queued:
             try:
                 given = (
-                    given.decline(reply.waiting_id, reason=reply.reason)
+                    given.with_decline(reply.waiting_id, reason=reply.reason)
                     if isinstance(reply, QueuedDecline)
-                    else given.answer(reply.waiting_id, reply.answer)
+                    else given.with_answers(reply.waiting_id, reply.answer)
                 )
             except InvalidCallError as error:
                 refused[reply.waiting_id] = error.problems

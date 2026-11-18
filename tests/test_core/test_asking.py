@@ -7,7 +7,7 @@ as choices to pick from or a proposed default.
 A host sees each call that waits as a ``Waiting``. Its ``questions`` are one per output of the node. For example,
 ``approve(line: str) -> bool`` raising ``Ask("Approve b?")`` asks one question, ``result``, a yes or no.
 
-``run.answer`` checks an answer against those questions. It reports every fault at once, and it calls no node. A
+``run.with_answers`` checks an answer against those questions. It reports every fault at once, and it calls no node. A
 node that needs the answer gets it through an edge from the node that asked.
 """
 
@@ -141,7 +141,7 @@ def test_a_text_return_with_a_bare_ask_is_a_free_text_question():
         question.default,
         question.required,
     ) == ("Why was T-1 closed?", "str", None, MISSING, True)
-    assert run.answer(waiting, "a duplicate").resume().outputs == {"result": "a duplicate"}
+    assert run.with_answers(waiting, "a duplicate").resume().outputs == {"result": "a duplicate"}
 
 
 def test_how_a_question_looks_is_its_types_so_a_hook_can_give_each_output_a_widget():
@@ -177,9 +177,10 @@ def test_a_lone_branch_is_asked_as_required_as_its_answer_must_give_it():
     [question] = run.waiting[0].questions
     assert (question.name, question.required) == ("way", True)
     assert (
-        _refused(lambda: run.answer("q", None))[0].ctx["reason"] == "Input should be a valid string"
+        _refused(lambda: run.with_answers("q", None))[0].ctx["reason"]
+        == "Input should be a valid string"
     )
-    assert run.answer("q", "left").resume().results["q"] == {"way": "left"}
+    assert run.with_answers("q", "left").resume().results["q"] == {"way": "left"}
 
 
 def test_a_node_that_returns_nothing_is_answered_with_none_to_go_on():
@@ -189,7 +190,7 @@ def test_a_node_that_returns_nothing_is_answered_with_none_to_go_on():
 
     _, run = _once(ack, text="x")
     assert run.waiting[0].questions == []
-    assert run.answer("q", None).resume().status == "complete"
+    assert run.with_answers("q", None).resume().status == "complete"
 
 
 def test_an_ask_that_sets_nothing_saves_only_its_prompt():
@@ -215,13 +216,13 @@ def test_a_bool_is_a_yes_or_no_and_a_word_for_it_is_refused():
         {"type": "boolean"},
         True,
     )
-    (fault,) = _refused(lambda: run.answer(waiting, "maybe"))
+    (fault,) = _refused(lambda: run.with_answers(waiting, "maybe"))
     assert (fault.type, fault.loc, fault.ctx["waiting_id"]) == (
         "invalid_answer",
         ("q",),
         waiting.id,
     )
-    assert run.answer(waiting, True).resume().outputs == {"result": True}
+    assert run.with_answers(waiting, True).resume().outputs == {"result": True}
 
 
 def test_a_literal_offers_its_values_and_an_answer_outside_them_is_refused():
@@ -232,8 +233,8 @@ def test_a_literal_offers_its_values_and_an_answer_outside_them_is_refused():
     _, run = _once(urgency, name="x")
     (question,) = run.waiting[0].questions
     assert question.choices == (Choice("low", "low"), Choice("high", "high"))
-    assert _refused(lambda: run.answer("q", "urgent"))[0].type == "invalid_answer"
-    assert run.answer("q", "high").resume().outputs == {"result": "high"}
+    assert _refused(lambda: run.with_answers("q", "urgent"))[0].type == "invalid_answer"
+    assert run.with_answers("q", "high").resume().outputs == {"result": "high"}
 
 
 @dataclass(frozen=True)
@@ -259,11 +260,11 @@ def test_a_branch_typed_as_a_literal_offers_its_values_and_left_out_is_skipped()
     _, run = _once(close, ticket="T-1")
     (question,) = [q for q in run.waiting[0].questions if q.name == "escalate_to"]
     assert (question.choices, question.required) == (described["escalate_to"].choices, False)
-    (fault,) = _refused(lambda: run.answer("q", {"reason": "done", "escalate_to": "zed"}))
+    (fault,) = _refused(lambda: run.with_answers("q", {"reason": "done", "escalate_to": "zed"}))
     assert fault.type == "invalid_answer"
-    taken = run.answer("q", {"reason": "done", "escalate_to": "ida"}).resume()
+    taken = run.with_answers("q", {"reason": "done", "escalate_to": "ida"}).resume()
     assert taken.outputs["escalate_to"] == "ida"
-    skipped = run.answer("q", {"reason": "done"}).resume()
+    skipped = run.with_answers("q", {"reason": "done"}).resume()
     assert (skipped.status, skipped.outputs["escalate_to"]) == ("complete", None)
 
 
@@ -274,9 +275,9 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
 
     _, run = _once(assign, ticket="T-1")
     assert run.waiting[0].questions[0].choices == (Choice("ida", "Ida B."), Choice("bo", "bo"))
-    (fault,) = _refused(lambda: run.answer("q", "carl"))
+    (fault,) = _refused(lambda: run.with_answers("q", "carl"))
     assert fault.msg == 'That isn\'t a valid answer: the value is not "ida" or "bo".'
-    assert run.answer("q", "bo").resume().outputs == {"result": "bo"}
+    assert run.with_answers("q", "bo").resume().outputs == {"result": "bo"}
 
 
 def test_a_refused_answer_names_the_choices_and_counts_those_past_five_as_a_type_mismatch_does():
@@ -285,7 +286,7 @@ def test_a_refused_answer_names_the_choices_and_counts_those_past_five_as_a_type
         raise Ask(f"Where does {ticket} sit?", choices=[f"s{number}" for number in range(9)])
 
     _, run = _once(seat, ticket="T-1")
-    (fault,) = _refused(lambda: run.answer("q", "s9"))
+    (fault,) = _refused(lambda: run.with_answers("q", "s9"))
     assert fault.msg == (
         'That isn\'t a valid answer: the value is not "s0", "s1", "s2", "s3", "s4" or 4 more.'
     )
@@ -303,9 +304,9 @@ def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_flo
 
     _, run = _once(rate, ticket="T-1")
     # A browser sends 1.0 in JSON as 1.
-    assert run.answer("q", 1).resume().outputs == {"result": 1.0}
+    assert run.with_answers("q", 1).resume().outputs == {"result": 1.0}
     assert (
-        _refused(lambda: run.answer("q", 2))[0].msg
+        _refused(lambda: run.with_answers("q", 2))[0].msg
         == "That isn't a valid answer: the value is not 1.0 or 2.5."
     )
 
@@ -363,11 +364,11 @@ def test_a_series_whose_items_take_none_is_answered_with_none_beside_its_picks()
         raise Ask(f"Tag {text}", choices=["a", "b"])
 
     _, run = _once(tags, text="x")
-    assert run.answer("q", ["a", None, "b", None]).resume().outputs == {
+    assert run.with_answers("q", ["a", None, "b", None]).resume().outputs == {
         "result": ["a", None, "b", None]
     }
     assert (
-        _refused(lambda: run.answer("q", ["a", None, "a"]))[0].msg
+        _refused(lambda: run.with_answers("q", ["a", None, "a"]))[0].msg
         == "That isn't a valid answer: a choice is picked twice."
     )
 
@@ -379,7 +380,7 @@ def test_a_choice_that_is_not_a_finite_float_is_picked_by_its_json_text():
 
     _, run = _once(cap, ticket="T-1")
     assert run.waiting[0].questions[0].choices == (Choice(1.5, "1.5"), Choice("Infinity", "inf"))
-    assert run.answer("q", float("inf")).resume().outputs == {"result": float("inf")}
+    assert run.with_answers("q", float("inf")).resume().outputs == {"result": float("inf")}
 
 
 def test_a_series_that_takes_none_is_answered_none_beside_its_choices():
@@ -388,8 +389,8 @@ def test_a_series_that_takes_none_is_answered_none_beside_its_choices():
         raise Ask(f"Tag {text}", choices=["a", "b"])
 
     _, run = _once(tags, text="x")
-    assert run.answer("q", None).resume().outputs == {"result": None}
-    assert run.answer("q", ["a"]).resume().outputs == {"result": ["a"]}
+    assert run.with_answers("q", None).resume().outputs == {"result": None}
+    assert run.with_answers("q", ["a"]).resume().outputs == {"result": ["a"]}
 
 
 def test_an_ask_proposing_none_for_a_series_that_takes_none_waits_with_that_default():
@@ -426,7 +427,7 @@ def test_a_hosts_own_choice_keeps_its_fields_in_the_question():
 
     _, run = _once(assign, ticket="T-1")
     assert run.waiting[0].questions[0].choices == (Person("ida", "Ida B.", team="sales"),)
-    assert run.answer("q", "ida").resume().outputs == {"result": "ida"}
+    assert run.with_answers("q", "ida").resume().outputs == {"result": "ida"}
 
 
 def test_a_hosts_own_choice_keeps_its_fields_in_a_description_and_a_saved_question_read_back():
@@ -447,7 +448,7 @@ def test_a_hosts_own_choice_keeps_its_fields_in_a_description_and_a_saved_questi
     assert [choice.model_dump() for choice in loaded.waiting[0].questions[0].choices] == [
         {"id": "ida", "title": "Ida B.", "team": "sales"}
     ]
-    assert loaded.answer("q", "ida").resume().outputs == {"result": "ida"}
+    assert loaded.with_answers("q", "ida").resume().outputs == {"result": "ida"}
 
 
 def test_a_choice_is_read_by_the_type_it_is_a_value_of_so_1_on_a_float_is_1_0():
@@ -526,7 +527,7 @@ def test_the_choices_an_ask_offers_a_series_are_each_read_as_one_item():
 
     _, run = _once(numbers)
     assert run.waiting[0].questions[0].choices == (Choice(1.0, "1"), Choice(2.0, "Two"))
-    assert run.answer("q", [2, 1]).resume().outputs == {"result": [2.0, 1.0]}
+    assert run.with_answers("q", [2, 1]).resume().outputs == {"result": [2.0, 1.0]}
     assert (
         _once(lists)[1].cause.ctx["reason"]
         == "the choices for 'result' are wrong (Input should be a valid number)"
@@ -559,11 +560,11 @@ def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type
     )
     run = graph.run()
     assert run.waiting[0].questions[0].json_schema == {"format": "date", "type": "string"}
-    done = Run.from_json(run.answer("q", "2026-11-10").to_json(), graph).resume()
+    done = Run.from_json(run.with_answers("q", "2026-11-10").to_json(), graph).resume()
     assert done.results["q"]["result"] == datetime.date(2026, 11, 10) and done.outputs == {
         "result": 2
     }
-    assert _refused(lambda: run.answer("q", "next tuesday"))[0].type == "invalid_answer"
+    assert _refused(lambda: run.with_answers("q", "next tuesday"))[0].type == "invalid_answer"
 
 
 def test_a_lone_output_is_titled_by_its_own_param_never_by_the_node():
@@ -587,7 +588,7 @@ def test_a_question_whose_type_takes_none_may_be_answered_with_none():
 
     _, run = _once(note, name="x")
     assert run.waiting[0].questions[0].required is True
-    assert run.answer("q", None).resume().outputs == {"result": None}
+    assert run.with_answers("q", None).resume().outputs == {"result": None}
 
 
 @dataclass(frozen=True)
@@ -619,7 +620,7 @@ def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
 
 def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_and_refuses_one_with_neither():
     graph, run = _waiting_outcomes(review)
-    answered = run.answer(
+    answered = run.with_answers(
         {
             "q@0": {"approved": True},
             "q@1": {"approved": False, "amount": 5, "note": "late", "due": "2027-01-01"},
@@ -631,14 +632,14 @@ def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_a
         "note": [None, "late"],
         "due": [datetime.date(2026, 12, 1), datetime.date(2027, 1, 1)],
     }
-    faults = _refused(lambda: run.answer("q@0", {"amount": "lots", "colour": "red"}))
+    faults = _refused(lambda: run.with_answers("q@0", {"amount": "lots", "colour": "red"}))
     assert [(f.ctx.get("question"), f.msg) for f in faults] == [
         ("colour", "That isn't a valid answer: there is no question 'colour'."),
         ("approved", "That isn't a valid answer: 'approved' has no answer."),
         ("amount", "That isn't a valid answer: 'amount': Input should be a valid number."),
     ]
     assert (
-        _refused(lambda: run.answer("q@0", True))[0].msg
+        _refused(lambda: run.with_answers("q@0", True))[0].msg
         == "That isn't a valid answer: the answer isn't a mapping of approved, amount, note, due, one value per question."
     )
 
@@ -665,7 +666,7 @@ def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_
     assert "default" not in escalate.model_dump(mode="json")
     run.to_json()
 
-    answered = run.answer(
+    answered = run.with_answers(
         {"q@0": {"note": "fine"}, "q@1": {"note": "late", "escalate": "boss"}}
     ).resume()
 
@@ -701,7 +702,9 @@ def test_default_in_json_is_what_leaving_the_question_out_gives_and_null_is_only
         "drop": (False, "no default"),
     }
     assert Waiting.model_validate_json(run.waiting[0].model_dump_json()) == run.waiting[0]
-    answered = run.answer(run.waiting[0], {"note": "n", "escalate": "e", "keep": "k"}).resume()
+    answered = run.with_answers(
+        run.waiting[0], {"note": "n", "escalate": "e", "keep": "k"}
+    ).resume()
     assert answered.results["q"] == {
         "note": "n",
         "comment": None,
@@ -759,8 +762,8 @@ def test_an_ask_may_propose_a_default_for_one_branch_which_another_answered_bran
         MISSING,
         False,
     )
-    assert run.answer("q", {}).resume().results["q"] == {"keep": "a", "drop": None}
-    assert run.answer("q", {"drop": "b"}).resume().results["q"] == {"keep": None, "drop": "b"}
+    assert run.with_answers("q", {}).resume().results["q"] == {"keep": "a", "drop": None}
+    assert run.with_answers("q", {"drop": "b"}).resume().results["q"] == {"keep": None, "drop": "b"}
 
 
 @dataclass(frozen=True)
@@ -828,16 +831,16 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_checked_agai
         False,
     )
 
-    assert run.answer("q", {"note": "fine"}).resume().outputs == {
+    assert run.with_answers("q", {"note": "fine"}).resume().outputs == {
         "note": "fine",
         "escalate": "team",
     }  # The Ask's default, not None.
-    assert run.answer("q", {"note": "fine", "escalate": "boss"}).resume().outputs == {
+    assert run.with_answers("q", {"note": "fine", "escalate": "boss"}).resume().outputs == {
         "note": "fine",
         "escalate": "boss",
     }
     assert [
-        f.msg for f in _refused(lambda: run.answer("q", {"note": "fine", "escalate": "ceo"}))
+        f.msg for f in _refused(lambda: run.with_answers("q", {"note": "fine", "escalate": "ceo"}))
     ] == [
         'That isn\'t a valid answer: \'escalate\': the value is not "boss" or "team".',
     ]
@@ -913,7 +916,7 @@ def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json
     }  # A table in the JSON form conductor writes.
     answered = Run.from_json(
         Run.from_json(run.to_json(), graph)
-        .answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}])
+        .with_answers("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}])
         .to_json(),
         graph,
     )
@@ -923,7 +926,7 @@ def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json
 def test_a_table_default_survives_saving_and_answers_like_any_value():
     graph = _lines_graph()
     run = Run.from_json(graph.run().to_json(), graph)
-    assert run.answer("q", run.waiting[0].questions[0].default).resume().outputs == {
+    assert run.with_answers("q", run.waiting[0].questions[0].default).resume().outputs == {
         "result": ["A"]
     }
 
@@ -931,24 +934,24 @@ def test_a_table_default_survives_saving_and_answers_like_any_value():
 def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refused():
     graph = _lines_graph()
     run = graph.run()
-    done = run.answer("q", []).resume()
+    done = run.with_answers("q", []).resume()
     assert (
         done.status == "complete"
         and done.results["q"]["result"].columns == ["sku", "qty"]
         and done.results["e"]["result"] == []
     )
-    assert [f.msg for f in _refused(lambda: run.answer("q", [{"sku": "B"}]))] == [
+    assert [f.msg for f in _refused(lambda: run.with_answers("q", [{"sku": "B"}]))] == [
         "That isn't a valid answer: the column 'qty' is missing, and the row type needs it.",
     ]
-    assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "two"}]))[0].msg.startswith(
+    assert _refused(lambda: run.with_answers("q", [{"sku": "B", "qty": "two"}]))[0].msg.startswith(
         "That isn't a valid answer: column 'qty':"
     )
     # Read strictly, like an answer of one value, so "2" is not an int.
-    assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "2"}]))[0].msg.startswith(
+    assert _refused(lambda: run.with_answers("q", [{"sku": "B", "qty": "2"}]))[0].msg.startswith(
         "That isn't a valid answer: column 'qty':"
     )
     assert (
-        _refused(lambda: run.answer("q", "B,2"))[0].msg
+        _refused(lambda: run.with_answers("q", "B,2"))[0].msg
         == "That isn't a valid answer: a table must be a frame, or a list of records with one object per row."
     )
 
@@ -956,13 +959,13 @@ def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refuse
 def test_a_table_answer_is_read_as_a_callers_records_are_with_its_cells_read_strictly():
     graph = _lines_graph()
     run = graph.run()
-    extra = run.answer("q", [{"sku": "B", "qty": 2, "colour": "red"}]).resume()
+    extra = run.with_answers("q", [{"sku": "B", "qty": 2, "colour": "red"}]).resume()
     assert extra.results["q"]["result"].columns == ["sku", "qty"] and extra.outputs == {
         "result": ["BB"]
     }
-    assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}]))[
-        0
-    ].msg == ("That isn't a valid answer: column 'qty': a yes or no is not a number.")
+    assert _refused(
+        lambda: run.with_answers("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}])
+    )[0].msg == ("That isn't a valid answer: column 'qty': a yes or no is not a number.")
 
 
 def test_a_hooks_outputs_are_asked_by_their_types():
@@ -987,7 +990,7 @@ def test_a_hooks_outputs_are_asked_by_their_types():
         ("signed", {"type": "boolean"}),
         ("paid", {"type": "boolean"}),
     ]
-    assert run.answer("q", {"signed": True, "paid": False}).resume().outputs == {
+    assert run.with_answers("q", {"signed": True, "paid": False}).resume().outputs == {
         "signed": True,
         "paid": False,
     }
@@ -1025,17 +1028,17 @@ def test_answering_one_branch_skips_the_other_and_answering_none_skips_both():
         ("keep", False, MISSING),
         ("drop", False, MISSING),
     ]
-    done = run.answer("q", {"keep": "a"}).resume()
+    done = run.with_answers("q", {"keep": "a"}).resume()
     assert (
         done.status == "complete"
         and done.results["k"]["result"] == "A"
         and done.results["d"]["result"] is None
     )
     assert (
-        _refused(lambda: run.answer("q", {"keep": "a", "drop": "a"}))[0].msg
+        _refused(lambda: run.with_answers("q", {"keep": "a", "drop": "a"}))[0].msg
         == "That isn't a valid answer: keep, drop default to SKIPPED, so they are branches, and at most one of them can be answered."
     )
-    neither = run.answer("q", {}).resume()
+    neither = run.with_answers("q", {}).resume()
     assert neither.status == "complete" and neither.results["k"] == neither.results["d"] == {
         "result": None
     }
@@ -1076,13 +1079,15 @@ def test_two_ways_to_go_are_two_nodes_and_an_answer_to_each_is_checked_on_its_ow
     ).run()
 
     problems = _refused(
-        lambda: run.answer({"r": {"keep": "a", "drop": "b"}, "s": {"left": "a", "right": "b"}})
+        lambda: run.with_answers(
+            {"r": {"keep": "a", "drop": "b"}, "s": {"left": "a", "right": "b"}}
+        )
     )
     assert sorted(problem.ctx["reason"] for problem in problems) == [
         "keep, drop default to SKIPPED, so they are branches, and at most one of them can be answered",
         "left, right default to SKIPPED, so they are branches, and at most one of them can be answered",
     ]
-    done = run.answer({"r": {"keep": "a"}, "s": {"left": "b"}}).resume()
+    done = run.with_answers({"r": {"keep": "a"}, "s": {"left": "b"}}).resume()
     assert done.outputs == {"keep": "a", "left": "b"}
 
 
@@ -1125,12 +1130,12 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
         ["red"],
         ["red", "green", "blue"],
     )
-    faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
+    faults = _refused(lambda: run.with_answers({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == [
         "That isn't a valid answer: a choice is picked twice.",
         "That isn't a valid answer: Input should be 'red', 'green' or 'blue'.",
     ]
-    answered = Run.from_json(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json(), graph)
+    answered = Run.from_json(run.with_answers({"q@0": ["red", "blue"], "q@1": []}).to_json(), graph)
     assert answered.results["u"]["result"] == [
         [None, None],
         [],
@@ -1158,10 +1163,10 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
         ["Ida B.", "Bo K.", "Carl"],
     )
     assert (
-        _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg
+        _refused(lambda: run.with_answers("q", ["ida", "eve"]))[0].msg
         == 'That isn\'t a valid answer: the value is not "ida", "bo" or "carl".'
     )
-    assert run.answer("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
+    assert run.with_answers("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
 
 def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
@@ -1174,19 +1179,19 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
         raise Ask("Which?", choices=[[1, 2], [3]])
 
     _, one = _once(pick, ticket="t")
-    assert one.answer("q", {"b": 2, "a": 1}).resume().outputs == {"result": {"b": 2, "a": 1}}
+    assert one.with_answers("q", {"b": 2, "a": 1}).resume().outputs == {"result": {"b": 2, "a": 1}}
     assert (
-        _refused(lambda: one.answer("q", {"c": 4}))[0].msg
+        _refused(lambda: one.with_answers("q", {"c": 4}))[0].msg
         == 'That isn\'t a valid answer: the value is not {"a":1,"b":2} or {"c":3}.'
     )
     _, several = _once(picks, ticket="t")
-    assert several.answer("q", [[3], [1, 2]]).resume().outputs == {"result": [[3], [1, 2]]}
+    assert several.with_answers("q", [[3], [1, 2]]).resume().outputs == {"result": [[3], [1, 2]]}
     assert (
-        _refused(lambda: several.answer("q", [[3], [3]]))[0].msg
+        _refused(lambda: several.with_answers("q", [[3], [3]]))[0].msg
         == "That isn't a valid answer: a choice is picked twice."
     )
     assert (
-        _refused(lambda: several.answer("q", [[3], [3], [4]]))[0].msg
+        _refused(lambda: several.with_answers("q", [[3], [3], [4]]))[0].msg
         == "That isn't a valid answer: the value is not [1,2] or [3]."
     )
 
@@ -1207,7 +1212,7 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         registry_of(colours, upper),
     )
-    answered = graph.run().answer("q", [])
+    answered = graph.run().with_answers("q", [])
     assert answered.results["u"]["result"] == []
     assert answered.resume().outputs == {"result": []}
 
@@ -1366,10 +1371,10 @@ def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_tak
     _, run = _once(pick)
     assert [q.required for q in run.waiting[0].questions] == [True, False]
     assert (
-        _refused(lambda: run.answer("q", {}))[0].msg
+        _refused(lambda: run.with_answers("q", {}))[0].msg
         == "That isn't a valid answer: 'who' has no answer."
     )
-    assert run.answer("q", {"who": "a"}).resume().outputs == {"who": "a", "note": None}
+    assert run.with_answers("q", {"who": "a"}).resume().outputs == {"who": "a", "note": None}
 
 
 @pytest.mark.parametrize(
@@ -1386,10 +1391,10 @@ def test_an_answer_is_read_strictly_from_its_json_form(returns, wrong, right):
         node("strict", title="Asks", description="For a test.", asks=True)(_returning(returns))
     )
     for value in wrong:
-        assert [f.type for f in _refused(lambda value=value: run.answer("q", value))] == [
+        assert [f.type for f in _refused(lambda value=value: run.with_answers("q", value))] == [
             "invalid_answer"
         ], value
-    assert run.answer("q", right).resume().status == "complete"
+    assert run.with_answers("q", right).resume().status == "complete"
 
 
 def _returning(returns: Any) -> Any:
@@ -1431,7 +1436,7 @@ def test_answer_runs_nothing_and_leaves_the_run_it_was_given_as_it_was():
     gate, called = _counted()
     _, run = _waiting_outcomes(gate, text="a,b1,b2")
     before, calls = run.to_json(), list(called)
-    answered = run.answer("q@1", "B1")
+    answered = run.with_answers("q@1", "B1")
     assert (
         called == calls
         and run.to_json() == before
@@ -1444,11 +1449,11 @@ def test_a_run_cant_be_changed_and_a_run_made_from_it_doesnt_share_its_inputs():
     """A ``Run`` is a value: its attributes can't be set, and its ``inputs`` can't be changed in place.
 
     The methods that move a run on return a new one, and a run that could still be changed would make that rule
-    leaky. Setting ``max_items`` would skip the check ``with_max_items`` makes. The run ``answer`` returns would share
-    its inputs with the run it was made from, so changing one would change both.
+    leaky. Setting ``max_items`` would skip the check ``with_max_items`` makes. The run ``with_answers`` returns would
+    share its inputs with the run it was made from, so changing one would change both.
     """
     run = _approve_then_pay().run({"text": "A:100,B:900"})
-    answered = run.answer(run.waiting[0], True)
+    answered = run.with_answers(run.waiting[0], True)
     with pytest.raises(FrozenInstanceError):
         run.max_items = -3  # type: ignore[misc]
     with pytest.raises(TypeError):
@@ -1459,10 +1464,10 @@ def test_a_run_cant_be_changed_and_a_run_made_from_it_doesnt_share_its_inputs():
 def test_a_run_whose_every_question_is_answered_is_complete_when_nothing_is_left_to_call():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="a,b1,b2")
-    half = run.answer("q@1", "B1")
+    half = run.with_answers("q@1", "B1")
     assert (half.status, half.cause) == ("waiting", None)
     assert [p.ctx["status"] for p in _refused(lambda: half.outputs)] == ["waiting"]
-    answered = half.answer("q@2", "B2")
+    answered = half.with_answers("q@2", "B2")
     assert (answered.status, answered.waiting, answered.outputs) == (
         "complete",
         [],
@@ -1472,7 +1477,7 @@ def test_a_run_whose_every_question_is_answered_is_complete_when_nothing_is_left
 
 def test_a_run_whose_every_question_is_answered_is_ready_while_a_node_has_calls_to_make():
     run = _approve_then_pay().run({"text": "A:100,B:900"})
-    answered = run.answer(run.waiting[0], True)
+    answered = run.with_answers(run.waiting[0], True)
     assert (answered.status, answered.waiting) == ("ready", [])
     assert [p.ctx["status"] for p in _refused(lambda: answered.outputs)] == ["ready"]
     assert answered.resume().outputs == {"result": "paid A; paid B"}
@@ -1498,7 +1503,7 @@ def test_a_run_that_timed_out_and_is_answered_is_ready_as_its_outcomes_say_also_
     graph, _ = _waiting_outcomes(_ask_or_wait_or_fail(), text="ask,slow,slow")
     timed_out = graph.with_inputs().resume(timeout=0.03)
     assert (timed_out.status, timed_out.cause.type) == ("timed_out", "run_timed_out")
-    answered = timed_out.answer(timed_out.waiting[0], "A")
+    answered = timed_out.with_answers(timed_out.waiting[0], "A")
     assert (answered.status, answered.cause, answered.waiting) == ("ready", None, [])
     assert Run.from_json(answered.to_json(), graph).status == "ready"
     assert answered.resume().outputs == {"result": ["A", "slow", "slow"]}
@@ -1509,7 +1514,7 @@ def test_an_empty_answer_changes_nothing_so_a_run_that_timed_out_stays_timed_out
     timed_out = graph.with_inputs().resume(timeout=0.03)
     assert timed_out.status == "timed_out"
 
-    answered = timed_out.answer({})
+    answered = timed_out.with_answers({})
 
     assert (answered.status, answered.cause) == ("timed_out", timed_out.cause)
     assert answered.to_json() == timed_out.to_json()
@@ -1517,7 +1522,7 @@ def test_an_empty_answer_changes_nothing_so_a_run_that_timed_out_stays_timed_out
 
 def test_a_failed_call_keeps_the_run_failed_after_an_answer_to_another_call():
     graph, run = _waiting_outcomes(_ask_or_wait_or_fail(), text="ask,boom")
-    answered = run.answer(run.waiting[0], "A")
+    answered = run.with_answers(run.waiting[0], "A")
     assert (run.status, answered.status, answered.cause) == ("failed", "failed", run.cause)
     assert Run.from_json(answered.to_json(), graph).cause == run.cause
 
@@ -1525,7 +1530,7 @@ def test_a_failed_call_keeps_the_run_failed_after_an_answer_to_another_call():
 def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answered():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="a,b1,b2")
-    faults = _refused(lambda: run.answer({"q@1": 1, "q@0": "A", "nope@3": "x", "q@2": "B2"}))
+    faults = _refused(lambda: run.with_answers({"q@1": 1, "q@0": "A", "nope@3": "x", "q@2": "B2"}))
     assert [(f.type, f.loc, f.ctx["waiting_id"]) for f in faults] == [
         ("invalid_answer", ("q", 1), "q@1"),
         ("not_waiting", ("q", 0), "q@0"),
@@ -1537,7 +1542,7 @@ def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answer
 def test_answering_with_ids_that_are_no_waiting_id_is_refused_as_problems():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
-    faults = _refused(lambda: run.answer({"0": "B1", "q@x": "B", "q": "B", "q@0@1": "B"}))
+    faults = _refused(lambda: run.with_answers({"0": "B1", "q@x": "B", "q": "B", "q@0@1": "B"}))
     assert [(f.type, f.loc) for f in faults] == [
         ("not_waiting", ("0",)),
         ("not_waiting", ("q",)),
@@ -1553,10 +1558,10 @@ def test_a_waiting_id_has_one_spelling_and_any_other_names_nothing():
     # "١" is an Arabic digit, and 5000 digits are more than Python converts to an int.
     too_long = "q@" + "1" * 5000
     other_spellings = ["q@01", "q@+1", "q@ 1", "q@-0", "q@0~", f"/{first}", "q@١", too_long]
-    faults = _refused(lambda: run.answer(dict.fromkeys(other_spellings, "B")))
+    faults = _refused(lambda: run.with_answers(dict.fromkeys(other_spellings, "B")))
     assert [f.type for f in faults] == ["not_waiting"] * len(other_spellings)
     assert (
-        run.answer({"q@1": "B", first: "A"}).waiting == []
+        run.with_answers({"q@1": "B", first: "A"}).waiting == []
     )  # An id is found with or without its fingerprint.
 
 
@@ -1564,20 +1569,20 @@ def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
     assert (
-        run.answer(run.waiting[0], "1").answer("q@1", "2").to_json()
-        == run.answer({"q@0": "1", "q@1": "2"}).to_json()
+        run.with_answers(run.waiting[0], "1").with_answers("q@1", "2").to_json()
+        == run.with_answers({"q@0": "1", "q@1": "2"}).to_json()
     )
     with pytest.raises(TypeError):
-        run.answer("q@0")  # type: ignore[call-overload]
+        run.with_answers("q@0")  # type: ignore[call-overload]
     with pytest.raises(TypeError):
-        run.answer({"q@0": "1"}, "2")  # type: ignore[call-overload]
+        run.with_answers({"q@0": "1"}, "2")  # type: ignore[call-overload]
 
 
 def test_an_answer_is_given_once():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b")
-    answered = run.answer("q@0", "B")
-    assert [f.type for f in _refused(lambda: answered.answer("q@0", "B"))] == ["not_waiting"]
+    answered = run.with_answers("q@0", "B")
+    assert [f.type for f in _refused(lambda: answered.with_answers("q@0", "B"))] == ["not_waiting"]
 
 
 def test_a_value_no_question_can_read_is_refused_as_a_problem_never_an_exception_of_its_own():
@@ -1587,14 +1592,14 @@ def test_a_value_no_question_can_read_is_refused_as_a_problem_never_an_exception
         {"approved": object()},
         {"approved": True, "amount": float("nan"), "due": object()},
     ):
-        assert {f.type for f in _refused(lambda value=value: run.answer("q@0", value))} == {
+        assert {f.type for f in _refused(lambda value=value: run.with_answers("q@0", value))} == {
             "invalid_answer"
         }
     graph = _lines_graph()
     for value in ([object()], [{"sku": object(), "qty": 1}], pl.DataFrame({"sku": [1]})):
-        assert [f.type for f in _refused(lambda value=value: graph.run().answer("q", value))] == [
-            "invalid_answer"
-        ]
+        assert [
+            f.type for f in _refused(lambda value=value: graph.run().with_answers("q", value))
+        ] == ["invalid_answer"]
 
 
 def test_after_an_answer_resume_calls_only_what_waited_on_it_and_an_item_left_unanswered_waits_on():
@@ -1620,7 +1625,7 @@ def test_after_an_answer_resume_calls_only_what_waited_on_it_and_an_item_left_un
     )
     run = graph.run()
     called.clear()
-    resumed = Run.from_json(run.answer("q@1", "yes").to_json(), graph).resume()
+    resumed = Run.from_json(run.with_answers("q@1", "yes").to_json(), graph).resume()
     assert (
         called == []
         and resumed.status == "waiting"
@@ -1659,7 +1664,7 @@ def test_a_node_that_reads_the_world_is_not_called_again_when_a_run_goes_on_from
         ),
         registry_of(now, ask),
     )
-    graph.run().answer("q", "y").resume()
+    graph.run().with_answers("q", "y").resume()
     assert read == ["x"]
 
 
@@ -1690,7 +1695,11 @@ def test_an_item_skipped_above_never_asks_and_the_others_complete_when_answered(
     )
     run = graph.run()
     assert called == ["b1", "b2"] and [place(w) for w in run.waiting] == ["q@1", "q@2"]
-    assert run.answer({"q@1": "1", "q@2": "2"}).resume().results["q"]["result"] == [None, "1", "2"]
+    assert run.with_answers({"q@1": "1", "q@2": "2"}).resume().results["q"]["result"] == [
+        None,
+        "1",
+        "2",
+    ]
 
 
 def test_waiting_calls_are_listed_in_node_then_item_order_whatever_order_they_asked_in():
@@ -1801,7 +1810,7 @@ def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_
     saved["inputs"]["data"] = {"b": 2, "a": 1}
     loaded = Run.from_json(json.dumps(saved), graph)
     assert [w.id for w in loaded.waiting] == [w.id for w in run.waiting]
-    assert loaded.answer(run.waiting[0].id, True).resume().outputs == {"result": True}
+    assert loaded.with_answers(run.waiting[0].id, True).resume().outputs == {"result": True}
 
 
 def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
@@ -1823,7 +1832,7 @@ def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
     )
     run = Run.from_json(graph.run({"text": "a,b"}).to_json(), graph)
     assert [place(w) for w in run.waiting] == ["q@1"]
-    assert Run.from_json(run.answer("q@1", "B").to_json(), graph).resume().outputs == {
+    assert Run.from_json(run.with_answers("q@1", "B").to_json(), graph).resume().outputs == {
         "result": ["a", "B"]
     }
 
@@ -1850,7 +1859,7 @@ def test_an_answer_names_its_item_by_index_so_one_for_an_item_that_no_longer_wai
     assert [place(w) for w in run.waiting] == ["q@0"] and [place(w) for w in moved.waiting] == [
         "q@1"
     ]
-    assert [f.type for f in _refused(lambda: moved.answer("q@0", "B1"))] == ["not_waiting"]
+    assert [f.type for f in _refused(lambda: moved.with_answers("q@0", "B1"))] == ["not_waiting"]
 
 
 def test_a_saved_waiting_call_the_graph_has_no_call_for_is_refused_on_load():
@@ -2024,7 +2033,7 @@ def test_an_enum_is_described_asked_and_answered_by_its_values():
     (output,) = shade.describe().outputs
     graph, run = _once(shade, ticket="T-1")
     (question,) = run.waiting[0].questions
-    answered = run.answer(run.waiting[0], "red")
+    answered = run.with_answers(run.waiting[0], "red")
     answered.resume()
 
     assert [(choice.id, choice.title) for choice in output.choices] == [
@@ -2101,7 +2110,7 @@ def test_an_answer_to_an_enum_is_read_as_the_enum_reads_it():
         raise Ask(f"Weigh {ticket}?")
 
     _, run = _once(weigh, ticket="T-1")
-    answered = run.answer(run.waiting[0], 1)
+    answered = run.with_answers(run.waiting[0], 1)
     answered.resume()
 
     assert answered.outputs == {"result": _Weight.ONE}
@@ -2124,7 +2133,7 @@ def test_an_ask_narrowing_a_type_whose_check_converts_shows_its_question():
 
     assert [(choice.id, choice.title) for choice in question.choices] == [("x!", "x")]
     with pytest.raises(InvalidCallError) as raised:
-        run.answer(run.waiting[0], "x!")
+        run.with_answers(run.waiting[0], "x!")
     assert raised.value.problems[0].type == "invalid_answer"
 
 
@@ -2166,7 +2175,7 @@ def test_an_ask_that_offers_some_of_a_types_titled_choices_by_id_keeps_their_tit
 def test_one_item_answered_twice_in_one_call_is_refused_and_nothing_is_answered():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
-    faults = _refused(lambda: run.answer({"q@0": "one", run.waiting[0].id: "two"}))
+    faults = _refused(lambda: run.with_answers({"q@0": "one", run.waiting[0].id: "two"}))
     assert [(f.type, f.loc) for f in faults] == [("invalid_answer", ("q", 0))]
     assert [place(w) for w in run.waiting] == ["q@0", "q@1"]
 
@@ -2177,10 +2186,10 @@ def test_an_id_whose_item_index_is_not_a_number_answers_nothing_not_even_a_node_
         raise Ask("ok?")
 
     run = Graph.compile(make_graph(once), registry_of(once)).run({"text": "x"})
-    assert [(f.type, f.loc) for f in _refused(lambda: run.answer("once@banana", "y"))] == [
+    assert [(f.type, f.loc) for f in _refused(lambda: run.with_answers("once@banana", "y"))] == [
         ("not_waiting", ("once",))
     ]
-    assert run.answer("once", "y").outputs == {
+    assert run.with_answers("once", "y").outputs == {
         "result": "y"
     }  # Answered, and there is no call left to make.
 
@@ -2200,7 +2209,7 @@ async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_
         "q@1",
     ]
 
-    answered = cancelled.answer("q@0", "B1")
+    answered = cancelled.with_answers("q@0", "B1")
     assert (answered.status, answered.cause) == (
         "waiting",
         None,
@@ -2245,7 +2254,7 @@ def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_cal
     assert [
         (w.id.partition("~")[0], w.loc, [q.name for q in w.questions]) for w in run.waiting
     ] == [("both/q", ("both", "q"), ["result"]), ("both/q2", ("both", "q2"), ["result"])]
-    done = run.answer({w.id: "yes" for w in run.waiting}).resume()
+    done = run.with_answers({w.id: "yes" for w in run.waiting}).resume()
     assert done.outputs == {"first": "yes", "second": "yes"}
 
 
@@ -2312,10 +2321,10 @@ def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_field_names
         ("e", "z1"): ["a", "b"],
         ("e", "z2"): ["a", "b"],
     }
-    assert run.answer(answers).resume().results == {
+    assert run.with_answers(answers).resume().results == {
         "e": {"z1_a": "A", "z1_b": 5, "z2_a": "A", "z2_b": 5}
     }
-    (wrong,) = _refused(lambda: run.answer({run.waiting[0].id: {"a": 3}}))
+    (wrong,) = _refused(lambda: run.with_answers({run.waiting[0].id: {"a": 3}}))
     assert (wrong.type, wrong.loc, wrong.ctx["question"]) == ("invalid_answer", ("e", "z1"), "a")
 
 
@@ -2325,7 +2334,7 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_the_runs_status():
         return text
 
     run = Graph.compile(make_graph(plain), registry_of(plain)).run({"text": "a"})
-    (problem,) = _refused(lambda: run.answer("plain", "b"))
+    (problem,) = _refused(lambda: run.with_answers("plain", "b"))
     assert (problem.type, problem.ctx["status"]) == (
         "not_waiting",
         "complete",
@@ -2420,7 +2429,7 @@ def test_a_declared_choice_is_answered_by_the_id_its_question_shows() -> None:
         (waiting,) = run.waiting
         shown = waiting.questions[0].choices
         assert shown is not None
-        assert run.answer(waiting, shown[0].id).resume().outputs == {"result": read}
+        assert run.with_answers(waiting, shown[0].id).resume().outputs == {"result": read}
 
 
 def test_an_ask_pickled_as_another_process_raises_it_still_proposes_no_default() -> None:
@@ -2673,7 +2682,7 @@ def test_approval_then_pay_waits_only_when_approval_asks():
 def test_an_answer_resumes_pay_with_ok_and_asks_nothing_again():
     run = _approve_then_pay().run({"text": "A:100,B:900"})
     calls_made.clear()
-    done = run.answer(run.waiting[0], False).resume()
+    done = run.with_answers(run.waiting[0], False).resume()
     assert done.outputs == {"result": "paid A; held B"}
     assert calls_made == [("pay", "B", False)]
 
@@ -2681,7 +2690,7 @@ def test_an_answer_resumes_pay_with_ok_and_asks_nothing_again():
 def test_an_answer_saved_before_resume_and_read_back_in_another_process_resumes_pay_with_it():
     graph = _approve_then_pay()
     run = Run.from_json(graph.run({"text": "B:900"}).to_json(), graph)
-    answered = Run.from_json(run.answer(run.waiting[0], True).to_json(), graph)
+    answered = Run.from_json(run.with_answers(run.waiting[0], True).to_json(), graph)
     assert answered.waiting == []
     calls_made.clear()
     assert answered.resume().outputs == {"result": "paid B"}
@@ -2702,7 +2711,7 @@ def test_pay_failing_after_the_answer_is_retried_and_resumed_and_nothing_is_aske
 
     graph = _approve_then_pay(flaky_pay)
     run = graph.run({"text": "B:900"})
-    failed = run.answer(run.waiting[0], True).resume()
+    failed = run.with_answers(run.waiting[0], True).resume()
     assert failed.status == "failed" and attempts == [True, True]
     calls_made.clear()
     assert Run.from_json(failed.to_json(), graph).resume().outputs == {"result": "paid B"}
@@ -2715,7 +2724,7 @@ def test_pay_failing_after_the_answer_is_retried_and_resumed_and_nothing_is_aske
 def test_a_declined_question_ends_the_run_declined_with_the_reason_in_ctx_and_keeps_what_ran():
     run = _approve_then_pay().run({"text": "A:100,B:900"})
     calls_made.clear()
-    declined = run.decline(run.waiting[0], reason="Over budget")
+    declined = run.with_decline(run.waiting[0], reason="Over budget")
     assert (declined.status, declined.waiting) == ("declined", [])
     assert (declined.cause.type, declined.cause.loc, declined.cause.ctx) == (
         "answer_declined",
@@ -2732,7 +2741,7 @@ def test_a_declined_question_ends_the_run_declined_with_the_reason_in_ctx_and_ke
 
 async def test_a_declined_run_calls_no_node_on_resume_or_stream_and_stays_declined():
     run = _approve_then_pay().run({"text": "B:900"})
-    declined = run.decline(run.waiting[0].id)
+    declined = run.with_decline(run.waiting[0].id)
     assert declined.cause.ctx.get("reason") is None
     calls_made.clear()
     resumed = declined.resume()
@@ -2745,19 +2754,21 @@ async def test_a_declined_run_calls_no_node_on_resume_or_stream_and_stays_declin
 
 def test_again_after_a_decline_starts_a_new_run_that_reuses_what_ran_and_asks_again():
     run = _approve_then_pay().run({"text": "A:100,B:900"})
-    declined = run.decline(run.waiting[0])
+    declined = run.with_decline(run.waiting[0])
     calls_made.clear()
     again = declined.again()
     assert (again.status, [w.id for w in again.waiting]) == ("waiting", [run.waiting[0].id])
     # Only the declined question is asked again: what ran for A is reused.
     assert calls_made == [("approval", "B")]
-    assert again.answer(again.waiting[0], True).resume().outputs == {"result": "paid A; paid B"}
+    assert again.with_answers(again.waiting[0], True).resume().outputs == {
+        "result": "paid A; paid B"
+    }
 
 
 def test_a_declined_run_saved_and_read_back_is_declined_with_the_same_cause_and_calls_nothing():
     graph = _approve_then_pay()
     run = graph.run({"text": "B:900"})
-    declined = run.decline(run.waiting[0], reason="Over budget")
+    declined = run.with_decline(run.waiting[0], reason="Over budget")
     read = Run.from_json(declined.to_json(), graph)
     assert (read.status, read.cause, read.waiting) == ("declined", declined.cause, [])
     calls_made.clear()
@@ -2767,10 +2778,10 @@ def test_a_declined_run_saved_and_read_back_is_declined_with_the_same_cause_and_
 def test_a_decline_ends_the_other_questions_too_so_an_answer_or_a_decline_to_them_is_not_waiting():
     run = _approve_then_pay().run({"text": "A:900,B:900"})
     first, second = run.waiting
-    declined = run.decline(first)
+    declined = run.with_decline(first)
     assert declined.waiting == []
-    (answered,) = _refused(lambda: declined.answer(second, True))
-    (again,) = _refused(lambda: declined.decline(second))
+    (answered,) = _refused(lambda: declined.with_answers(second, True))
+    (again,) = _refused(lambda: declined.with_decline(second))
     assert [(p.type, p.ctx["status"]) for p in (answered, again)] == [
         ("not_waiting", "declined"),
         ("not_waiting", "declined"),
@@ -2781,16 +2792,16 @@ def test_a_decline_names_its_call_by_the_rules_an_answer_does():
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900"})
     (waiting,) = run.waiting
-    declined = run.decline(waiting)
-    (twice,) = _refused(lambda: declined.decline(waiting))
-    (nothing,) = _refused(lambda: run.decline("pay@0"))
+    declined = run.with_decline(waiting)
+    (twice,) = _refused(lambda: declined.with_decline(waiting))
+    (nothing,) = _refused(lambda: run.with_decline("pay@0"))
     assert (twice.type, twice.ctx["status"], nothing.type) == (
         "not_waiting",
         "declined",
         "not_waiting",
     )
     moved = graph.with_inputs({"text": "A:950"}, previous=run).resume()
-    (stale,) = _refused(lambda: moved.decline(waiting))
+    (stale,) = _refused(lambda: moved.with_decline(waiting))
     assert (stale.type, stale.ctx["current"]) == ("answer_stale", moved.waiting[0].id)
 
 
@@ -2802,7 +2813,7 @@ def test_a_decline_whose_reason_isnt_text_is_refused_and_the_run_is_left_as_it_w
     run = _approve_then_pay().run({"text": "A:900"})
     (waiting,) = run.waiting
     for reason in (123, object(), "\ud800"):
-        (problem,) = _refused(lambda reason=reason: run.decline(waiting, reason=reason))
+        (problem,) = _refused(lambda reason=reason: run.with_decline(waiting, reason=reason))
         assert (problem.type, problem.loc, problem.ctx) == (
             "invalid_decline_reason",
             ("approval", 0),
@@ -2835,15 +2846,15 @@ def test_answers_and_declines_queued_for_later_are_refused_as_the_run_refuses_th
         b"\xff",
     ):
         queued = _refused(lambda answer=answer: Run.queued_as_json({waiting.id: answer}))
-        assert queued == _refused(lambda answer=answer: run.answer(waiting, answer)), answer
+        assert queued == _refused(lambda answer=answer: run.with_answers(waiting, answer)), answer
     # A mapping is answered by question name, so each question whose value JSON can't write is named.
-    (named,) = _refused(lambda: run.answer(waiting, {"name": "\ud800", "count": 1}))
+    (named,) = _refused(lambda: run.with_answers(waiting, {"name": "\ud800", "count": 1}))
     assert (named.ctx["question"], named.ctx["reason"]) == (
         "name",
         "'name': the value can't be written as JSON",
     )
     queued = _refused(lambda: Run.queued_as_json(declines={waiting.id: "\ud800"}))
-    assert queued == _refused(lambda: run.decline(waiting, reason="\ud800"))
+    assert queued == _refused(lambda: run.with_decline(waiting, reason="\ud800"))
     # An id that names no call is refused at the call it names, as not_waiting would name it.
     (problem,) = _refused(lambda: Run.queued_as_json({"approval@x/pay": object()}))
     assert (problem.type, problem.loc) == ("invalid_answer", ("approval",))
@@ -2855,7 +2866,8 @@ def test_an_answer_queued_for_later_is_read_by_the_run_as_the_answer_itself():
     for answer in (_Pair(name="bolt", count=3), {"name": "bolt", "count": 3}, {"name": 3}):
         queued = Run.queued_as_json({waiting.id: answer})[0][waiting.id]
         direct, later = (
-            _outcome(lambda value=value: run.answer(waiting, value)) for value in (answer, queued)
+            _outcome(lambda value=value: run.with_answers(waiting, value))
+            for value in (answer, queued)
         )
         assert direct == later, answer
     answers, reasons = Run.queued_as_json(
@@ -2885,12 +2897,12 @@ def test_with_inputs_reuses_the_answer_and_asks_only_for_the_invoice_that_change
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900,B:900"})
     old_a, old_b = (waiting.id for waiting in run.waiting)
-    run = run.answer({old_a: True, old_b: False}).resume()
+    run = run.with_answers({old_a: True, old_b: False}).resume()
     calls_made.clear()
     again = graph.with_inputs({"text": "A:900,B:950"}, previous=run).resume()
     assert [waiting.prompt for waiting in again.waiting] == ["Pay B?"]
     assert calls_made == [("approval", "B")]  # pay for A is reused, its arguments unchanged.
-    (problem,) = _refused(lambda: again.answer(old_b, True))
+    (problem,) = _refused(lambda: again.with_answers(old_b, True))
     assert problem.type == "answer_stale"
 
 
@@ -2914,7 +2926,7 @@ def test_an_answer_after_the_nodes_code_changed_is_answer_stale_and_its_message_
     after_graph = Graph.compile(make_graph(vet_after), registry_of(vet_after))
     loaded = Run.from_json(before.to_json(), after_graph)
     assert [waiting.prompt for waiting in loaded.waiting] == ["Ok big?"]
-    (problem,) = _refused(lambda: loaded.answer(before.waiting[0].id, True))
+    (problem,) = _refused(lambda: loaded.with_answers(before.waiting[0].id, True))
     assert (problem.type, problem.ctx["current"]) == ("answer_stale", loaded.waiting[0].id)
     assert problem.msg == (
         f"The call {before.waiting[0].id!r} names now waits under {loaded.waiting[0].id!r}, since its inputs or "
@@ -2926,7 +2938,7 @@ def test_two_identical_invoices_answered_differently_keep_their_answers_when_one
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900,A:900"})
     first, second = run.waiting
-    run = run.answer({first.id: True, second.id: False}).resume()
+    run = run.with_answers({first.id: True, second.id: False}).resume()
     assert run.outputs == {"result": "paid A; held A"}
     calls_made.clear()
     again = graph.with_inputs({"text": "C:100,A:900,A:900"}, previous=run).resume()
@@ -2938,7 +2950,9 @@ def test_a_saved_run_keeps_two_identical_invoices_answered_differently_apart():
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900,A:900"})
     first, second = run.waiting
-    saved = Run.from_json(run.answer({first.id: True, second.id: False}).resume().to_json(), graph)
+    saved = Run.from_json(
+        run.with_answers({first.id: True, second.id: False}).resume().to_json(), graph
+    )
     again = graph.with_inputs({"text": "C:100,A:900,A:900"}, previous=saved).resume()
     assert again.outputs == {"result": "paid C; paid A; held A"}
 
@@ -2946,7 +2960,7 @@ def test_a_saved_run_keeps_two_identical_invoices_answered_differently_apart():
 def test_an_answer_given_and_not_yet_resumed_is_reused_by_a_run_of_changed_inputs():
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900"})
-    answered = run.answer(run.waiting[0], True)
+    answered = run.with_answers(run.waiting[0], True)
     moved = graph.with_inputs({"text": "A:900,B:100"}, previous=answered).resume()
     assert moved.outputs == {"result": "paid A; paid B"}
 
@@ -2976,7 +2990,7 @@ def test_approval_and_pay_as_a_subgraph_is_one_node_that_waits_where_approval_as
     run = graph.run({"text": "A:100,B:900"})
     (waiting,) = run.waiting
     assert waiting.loc == ("approve_and_pay", 1, "approval") and waiting.prompt == "Pay B?"
-    assert run.answer(waiting, True).resume().outputs == {"result": "paid A; paid B"}
+    assert run.with_answers(waiting, True).resume().outputs == {"result": "paid A; paid B"}
 
 
 def test_results_show_one_none_per_item_of_a_branch_inside_a_loop_while_a_question_outside_waits():
@@ -3025,5 +3039,5 @@ def test_results_show_one_none_per_item_of_a_branch_inside_a_loop_while_a_questi
         "pick": {"yes": [None, None], "no": [None, None]},
         "loud": {"result": [None, None]},
     }
-    answered = waiting.answer(waiting.waiting[0], "!").resume()
+    answered = waiting.with_answers(waiting.waiting[0], "!").resume()
     assert answered.results["loud"] == {"result": ["A!", None]}

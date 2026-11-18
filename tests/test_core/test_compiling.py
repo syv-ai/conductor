@@ -2648,7 +2648,7 @@ def test_a_bool_is_refused_for_a_hosts_number_type_that_accepts_int():
         Graph.compile(make_graph(half), registry).run({"value": True})
     waiting = Graph.compile(make_graph(ask_number), registry).run()
     with pytest.raises(InvalidCallError):
-        waiting.answer(waiting.waiting[0], True)
+        waiting.with_answers(waiting.waiting[0], True)
 
 
 def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector() -> None:

@@ -257,8 +257,8 @@ class Worker(Generic[M, X]):
         """Answer what waits in a run, by waiting id.
 
         A running run queues the answers until its resume call ends. A run that isn't running takes them as
-        ``run.answer`` does, whatever its status, and is resumed. A ``declined`` run waits on nothing, so it refuses
-        every answer as ``not_waiting``. No answers at all change nothing. The queue's rules are in
+        ``run.with_answers`` does, whatever its status, and is resumed. A ``declined`` run waits on nothing, so it
+        refuses every answer as ``not_waiting``. No answers at all change nothing. The queue's rules are in
         ``python -m conductor.about answers-and-declines``.
 
         Args:
@@ -287,7 +287,7 @@ class Worker(Generic[M, X]):
         reason: str | None = None,
         allows: Callable[[M], bool],
     ) -> RunView:
-        """Decline to answer a question that waits in a run, so the run ends for good, as ``run.decline`` ends it.
+        """Decline to answer a question that waits in a run, so the run ends for good, as ``run.with_decline`` ends it.
 
         A run that takes the decline is ``declined``, with ``answer_declined``: nothing more is called, and a later
         answer, decline or resume is refused. A running run queues the decline as it queues an answer, and takes it
@@ -319,7 +319,7 @@ class Worker(Generic[M, X]):
             run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
 
             def given() -> tuple[RunState, str, RunOutcome]:
-                ended = run.decline(waiting_id, reason=reason)
+                ended = run.with_decline(waiting_id, reason=reason)
                 return state.declined(ended), ended.to_json(), RunOutcome.of(ended)
 
             ended, saved, outcome = await asyncio.to_thread(given)
@@ -695,7 +695,7 @@ class Worker(Generic[M, X]):
         """One try at giving a run this call's answers, or its higher ceiling: ``answer`` and ``resume`` both come
         here.
 
-        A running run queues the answers. Otherwise they go to ``run.answer``, and the run is claimed and resumed.
+        A running run queues the answers. Otherwise they go to ``run.with_answers``, and the run is claimed and resumed.
         A row that isn't running holds no queue. The rules are in ``python -m conductor.about answers-and-declines``.
 
         Args:
@@ -720,7 +720,7 @@ class Worker(Generic[M, X]):
             run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
 
             def given() -> str:
-                answered = run.answer(answers)
+                answered = run.with_answers(answers)
                 return (
                     answered if max_items is None else answered.with_max_items(max_items)
                 ).to_json()

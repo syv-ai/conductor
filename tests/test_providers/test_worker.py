@@ -465,7 +465,7 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     for gate in gates.values():
         gate.set()
     run = Graph.compile(graph, registry).run({"csv": "a,b", "text": "x", "question": "y"})
-    answered = run.answer({run.waiting[0].id: True})
+    answered = run.with_answers({run.waiting[0].id: True})
     calls.clear()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -1176,8 +1176,8 @@ async def test_a_decline_ends_every_question_so_a_decline_of_another_is_not_wait
 
 
 async def test_one_call_that_answers_one_waiting_call_twice_is_refused_on_a_stopped_run() -> None:
-    """``run.answer`` refuses a mapping that answers one call by its id and by its node id, and nothing is answered;
-    the worker gives a stopped run's answers to ``run.answer`` as they came."""
+    """``run.with_answers`` refuses a mapping that answers one call by its id and by its node id, and nothing is
+    answered; the worker gives a stopped run's answers to ``run.with_answers`` as they came."""
     registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -3061,7 +3061,7 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
     for gate in gates.values():
         gate.set()
     run = Graph.compile(graph, registry).run({"csv": "a,b", "text": "x", "question": "y"})
-    checkpoint = run.answer({run.waiting[0].id: True})
+    checkpoint = run.with_answers({run.waiting[0].id: True})
     calls.clear()
     store = MemoryStore()
     one, other = _worker(store, registry), _worker(store, registry)

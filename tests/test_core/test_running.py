@@ -2166,7 +2166,7 @@ def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_t
 
     reading = read_back.results["m"]["result"]
     assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)
-    assert read_back.answer("c", "yes").resume().outputs == {"result": "-inf..inf yes"}
+    assert read_back.with_answers("c", "yes").resume().outputs == {"result": "-inf..inf yes"}
 
 
 class Contact(TypedDict):
@@ -2283,7 +2283,7 @@ def test_node_start_comes_first_for_a_node_whose_items_are_reused_from_the_previ
 
     graph = Graph.compile(make_graph(read, approve), registry_of(read, approve))
     paused = graph.run({"text": "ida,bo"})
-    answered = paused.answer(paused.waiting[0], True).resume()
+    answered = paused.with_answers(paused.waiting[0], True).resume()
 
     events = _events(answered.with_inputs({"text": "ida,bo,eva"}))
     about_approve = [e.type for e in events if getattr(e, "loc", None) == ("approve",)]

@@ -7,7 +7,7 @@ pydantic's ``ValidationError``. Here is who meets what, and when:
     who                       what                                        when
     a node's developer        NodeDeclarationError (raised)               the module that declares the node is imported
     a graph's author          a Problem in graph.problems (not raised)    the graph is compiled
-    a caller                  InvalidCallError (raised)                   graph.run, run.answer, ... is given a wrong value
+    a caller                  InvalidCallError (raised)                   graph.run, run.resume, ... is given a wrong value
     whoever reads a run       a Problem as run.cause                      a run ended early
 
 Only two of these are raised. A graph with problems is data, so an editor can show the problems while the graph is
@@ -224,8 +224,9 @@ class InvalidCallError(ConductorError, ValueError):
     ``ValueError``.
 
     Most calls a host makes can raise it: ``graph.run``, ``graph.with_inputs``, ``run.resume``, ``run.stream``,
-    ``run.answer``, ``run.with_inputs``, ``run.again``, ``run.forget``, ``run.outputs``, ``Run.from_json``,
-    ``Graph.compile`` (for JSON that isn't a graph record), ``read_json``, ``registry.upgrade`` and ``make_graph``.
+    ``run.with_answers``, ``run.with_inputs``, ``run.again``, ``run.with_forgotten``, ``run.outputs``,
+    ``Run.from_json``, ``Graph.compile`` (for JSON that isn't a graph record), ``read_json``, ``registry.upgrade``
+    and ``make_graph``.
 
     Every validator raises it when it refuses a value from outside. A value that came from a graph or a run, not
     from a caller, isn't raised. Compiling puts its problems in ``graph.problems``, and a run keeps the problem as

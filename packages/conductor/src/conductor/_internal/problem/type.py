@@ -55,7 +55,7 @@ class Problem(ConductorModel):
     a refused call              the argument the call got wrong: ``("inputs", name)`` for a graph input,
                                 ``("saved_run",)`` for a saved run, ``("record", *steps)`` for JSON given as a
                                 graph record and the steps to the fault in it, or the node and item indexes of
-                                the call an answer (``run.answer``) is for
+                                the call an answer (``run.with_answers``) is for
     ==========================  ==============================================================================
 
     The input or output named in a graph problem's ``loc`` may not exist. An edge to an output the node doesn't have

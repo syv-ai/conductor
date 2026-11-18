@@ -1,8 +1,8 @@
 """The problems a refused call raises, in its ``InvalidCallError``.
 
-This is the "Refused calls" section of the problems page. A call such as ``graph.run`` or ``run.answer`` checks what
-it is given before it does anything. If something is wrong, it raises ``InvalidCallError`` with these problems, and
-nothing changes.
+This is the "Refused calls" section of the problems page. A call such as ``graph.run`` or ``run.with_answers`` checks
+what it is given before it does anything. If something is wrong, it raises ``InvalidCallError`` with these problems,
+and nothing changes.
 
 Code that reports one imports this module and calls the kind, like
 ``call_problems.missing_input("inputs", name, name=name)``.
@@ -21,10 +21,10 @@ from .type import ProblemCatalogue
 CALL_PROBLEMS = ProblemCatalogue(
     "Refused calls",
     "A call raises these as `InvalidCallError` when it is given something it can't act on. That is `graph.run`, "
-    "`run.answer`, `Run.from_json`, `make_graph` and the like, and `error.problems` lists them. `loc` says what in the "
-    'call is wrong. It can be an argument (`("timeout",)`), a name inside one (`("inputs", "text")`), the steps to the '
-    'fault in a graph record or a saved run (`("record", "nodes", "u", "node")`), or the node the problem is about, '
-    'with the parameter that is wrong (`("approve",)`, `("who", "ctx")`).',
+    "`run.with_answers`, `Run.from_json`, `make_graph` and the like, and `error.problems` lists them. `loc` says what "
+    'in the call is wrong. It can be an argument (`("timeout",)`), a name inside one (`("inputs", "text")`), the '
+    'steps to the fault in a graph record or a saved run (`("record", "nodes", "u", "node")`), or the node the '
+    'problem is about, with the parameter that is wrong (`("approve",)`, `("who", "ctx")`).',
 )
 
 
@@ -32,7 +32,7 @@ CALL_PROBLEMS = ProblemCatalogue(
 def answer_stale(
     *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
 ) -> str:
-    """An answer, or a decline with ``run.decline``, gives a waiting id that is out of date.
+    """An answer, or a decline with ``run.with_decline``, gives a waiting id that is out of date.
 
     A waiting id ends in a fingerprint of the call's inputs and of the node's code. So the call waits under a new id
     when a run made by ``run.again`` or ``run.with_inputs`` gives it other inputs, and when the node's code changed
@@ -51,7 +51,7 @@ def answer_stale(
     Example:
         asked = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         asked_again = asked.again({"amount": 5500})
-        refused(lambda: asked_again.answer(asked.waiting[0].id, True))
+        refused(lambda: asked_again.with_answers(asked.waiting[0].id, True))
     """
     return (
         f"The call {waiting_id!r} names now waits under {current!r}, since its inputs or its node's code changed "
@@ -224,14 +224,14 @@ def invalid_answer(
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
-        refused(lambda: waiting.answer(waiting.waiting[0].id, "yes"))
+        refused(lambda: waiting.with_answers(waiting.waiting[0].id, "yes"))
     """
     return f"That isn't a valid answer: {reason.rstrip('.')}."
 
 
 @CALL_PROBLEMS.problem
 def invalid_decline_reason(*loc: str | int, waiting_id: str, got: str) -> str:
-    """The reason given to ``run.decline`` isn't text that JSON can write.
+    """The reason given to ``run.with_decline`` isn't text that JSON can write.
 
     The reason goes in the ``ctx`` of the run's ``answer_declined`` problem, for a host to show, and a saved run
     writes it as JSON. So it is a ``str`` JSON can write, or ``None`` for no reason. A ``str`` with a lone surrogate
@@ -241,12 +241,12 @@ def invalid_decline_reason(*loc: str | int, waiting_id: str, got: str) -> str:
 
     Args:
         loc: The node and the item indexes of the call that was declined.
-        waiting_id: The waiting id given to ``run.decline``.
+        waiting_id: The waiting id given to ``run.with_decline``.
         got: The class of the reason given.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
-        refused(lambda: waiting.decline(waiting.waiting[0], reason=123))  # type: ignore[arg-type]
+        refused(lambda: waiting.with_decline(waiting.waiting[0], reason=123))  # type: ignore[arg-type]
     """
     return (
         f"The reason for declining must be text that can be written as JSON, and this {got} can't be. Give a str,"
@@ -432,7 +432,7 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
 
     Example:
         done = Graph.compile(make_graph(upper), registry).run({"text": "a"})
-        refused(lambda: done.forget("lower"))
+        refused(lambda: done.with_forgotten("lower"))
     """
     return f"'{node_id}' isn't a node of this graph. Its nodes are {comma_separated(nodes)}."
 
@@ -595,7 +595,7 @@ def unknown_graph_input(*loc: str | int, name: str, inputs: list[str]) -> str:
 
 @CALL_PROBLEMS.problem
 def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | None = None) -> str:
-    """An answer, or a decline with ``run.decline``, is for a waiting id that no call of the run is waiting under.
+    """An answer, or a decline with ``run.with_decline``, is for a waiting id that no call of the run is waiting under.
 
     To fix it, use one of the ids in ``run.waiting``.
 
@@ -609,7 +609,7 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
-        refused(lambda: waiting.answer("upper", True))
+        refused(lambda: waiting.with_answers("upper", True))
     """
     return f"The id {waiting_id!r} waits on nothing. The run is {status}. run.waiting lists the questions that are waiting."
 

@@ -56,7 +56,7 @@ def test_a_queued_answer_the_run_takes_makes_it_running_again_with_the_answered_
     state, changes = _ended_with(RunState.started().with_queued({waiting_id: True}), run)
 
     assert (state.status, state.refused, state.queued) == ("running", {}, [])
-    assert changes["run"] == run.answer(waiting_id, True).to_json()
+    assert changes["run"] == run.with_answers(waiting_id, True).to_json()
 
 
 def test_of_two_answers_to_one_question_the_first_is_taken_and_the_second_refused_as_not_waiting() -> (
@@ -71,7 +71,7 @@ def test_of_two_answers_to_one_question_the_first_is_taken_and_the_second_refuse
     assert [(problem.type, problem.ctx["status"]) for problem in state.refused[waiting_id]] == [
         ("not_waiting", "ready")
     ]
-    assert changes["run"] == run.answer(waiting_id, True).to_json()
+    assert changes["run"] == run.with_answers(waiting_id, True).to_json()
 
 
 def test_a_wrong_answer_then_a_right_one_leaves_nothing_refused() -> None:
@@ -112,7 +112,7 @@ def test_a_failed_resume_call_gives_the_run_its_queue_then_and_there_and_clears_
         False,
         [],
     )
-    assert given is not None and given.to_json() == run.answer(waiting_id, True).to_json()
+    assert given is not None and given.to_json() == run.with_answers(waiting_id, True).to_json()
     assert (declined.status, declined.cause.type, declined.queued) == (
         "declined",
         "answer_declined",
@@ -153,7 +153,7 @@ def test_a_queued_decline_the_run_takes_ends_it_declined_and_writes_the_declined
 
     state, changes = _ended_with(RunState.started().with_queued(declines={waiting_id: "No"}), run)
 
-    declined = run.decline(waiting_id, reason="No")
+    declined = run.with_decline(waiting_id, reason="No")
     assert (state.status, state.cause, state.queued) == ("declined", declined.cause, [])
     assert changes == {"run": declined.to_json(), "outcome": RunOutcome.of(declined)}
     assert changes["outcome"].waiting == []
@@ -297,7 +297,7 @@ def test_a_run_that_completes_with_a_cancel_asked_ends_cancelled_with_every_outc
     None
 ):
     run, waiting_id = _waiting()
-    complete = run.answer(waiting_id, True).resume()
+    complete = run.with_answers(waiting_id, True).resume()
 
     state, changes = _ended_with(RunState.started().asked_to_stop(), complete)
 

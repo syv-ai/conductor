@@ -746,7 +746,7 @@ def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edi
         registry_of(_each, approve),
     )
     run = graph.run({"items": ["ida", "bo"]})
-    run = run.answer("a@0", True).answer("a@1", False).resume()
+    run = run.with_answers("a@0", True).with_answers("a@1", False).resume()
 
     moved = run.again({"items": ["eva", "ida", "bo"]})
     edited = run.again({"items": ["ida", "bob"]})
@@ -1263,15 +1263,15 @@ def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
     )
     run = (
         graph.run({"items": ["ida", "bo"]})
-        .answer("a@0", "ida@a.dk")
-        .answer("a@1", "bo@a.dk")
+        .with_answers("a@0", "ida@a.dk")
+        .with_answers("a@1", "bo@a.dk")
         .resume()
     )
     sent.clear()
 
     again = run.again({"items": ["ida", "bo", "al"]})
     assert [place(w) for w in again.waiting] == ["a@2"]
-    done = again.answer("a@2", "al@a.dk").resume()
+    done = again.with_answers("a@2", "al@a.dk").resume()
 
     assert sent == ["al@a.dk"] and done.results["m"]["result"] == [
         "sent ida@a.dk",
@@ -1517,7 +1517,7 @@ def _answered(names: list[str], answers: list[bool]) -> Any:
         registry_of(_each, approve),
     )
     run = graph.run({"items": names})
-    return run.answer(
+    return run.with_answers(
         {w.id: answer for w, answer in zip(run.waiting, answers, strict=True)}
     ).resume()
 
@@ -1611,7 +1611,7 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
     )
     run = graph.run({"items": ["d1", "d2"]})
     answers = dict(zip([w.id for w in run.waiting], [True, False, False, True], strict=True))
-    done = run.answer(answers).resume()
+    done = run.with_answers(answers).resume()
 
     swapped = done.again({"items": ["d2", "d1"]})
 
@@ -1711,7 +1711,7 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
         registry_of(_each, approve, mail),
     )
     first = graph.run({"items": ["ida", "bo"]})
-    a = first.answer({w.id: f"{w.inputs['name']}@a.dk" for w in first.waiting}).resume()
+    a = first.with_answers({w.id: f"{w.inputs['name']}@a.dk" for w in first.waiting}).resume()
     b = a.again({"items": ["ida", "bob"]})
     assert [w.inputs["name"] for w in b.waiting] == ["bob"]
     sent.clear()
@@ -1839,7 +1839,7 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
     moved = first.again({"items": ["ida", "al", "bo"]})
 
     with pytest.raises(InvalidCallError) as refused:
-        moved.answer(bo.id, True)  # bo's id names a@1, where al's question waits
+        moved.with_answers(bo.id, True)  # bo's id names a@1, where al's question waits
     (problem,) = refused.value.problems
     current = moved.waiting[1].id
     moved_to = moved.waiting[2].id  # bo's question waits at a@2
@@ -1848,7 +1848,7 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
         ("a", 1),
         {"waiting_id": bo.id, "current": current, "moved_to": moved_to},
     )
-    assert moved.answer("a@1", True).results["a"]["result"] == [
+    assert moved.with_answers("a@1", True).results["a"]["result"] == [
         None,
         True,
         None,
@@ -1882,7 +1882,7 @@ def test_an_answer_meant_for_one_page_is_never_taken_by_another_page_with_the_sa
     swapped = first.again({"items": ["a,x", "a,y"]})
 
     with pytest.raises(InvalidCallError) as refused:
-        swapped.answer(meant.id, True)
+        swapped.with_answers(meant.id, True)
     (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["moved_to"]) == (
         "answer_stale",
@@ -1913,7 +1913,7 @@ def test_an_answer_stays_with_its_item_when_the_node_reads_the_item_only_through
         registry_of(_each, size, approve),
     )
     first = graph.run({"items": ["ab", "cd"]})
-    answered = first.answer(next(w.id for w in first.waiting if w.loc == ("a", 0)), True)
+    answered = first.with_answers(next(w.id for w in first.waiting if w.loc == ("a", 0)), True)
 
     swapped = answered.again({"items": ["cd", "ab"]})
 
@@ -1955,7 +1955,7 @@ def test_a_call_that_asks_inside_a_loop_over_items_json_cant_write_waits_with_an
 
     assert run.status == "waiting"
     assert [w.id for w in run.waiting] == ["a@0@0", "a@1@0"]
-    assert run.answer("a@0@0", True).waiting[0].id == "a@1@0"
+    assert run.with_answers("a@0@0", True).waiting[0].id == "a@1@0"
 
 
 def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_id():
@@ -2376,7 +2376,7 @@ def test_a_node_redeclared_with_the_same_code_to_no_longer_ask_is_called_again_a
     may_ask = node("approve", title="Approve", description="For a test.", asks=True)(approve)
     never_asks = node("approve", title="Approve", description="For a test.")(approve)
     first = graph_of(may_ask).run({"items": ["bo", "bo"]})
-    answered = first.answer(
+    answered = first.with_answers(
         {w.id: answer for w, answer in zip(first.waiting, [True, False], strict=True)}
     ).resume()
     asking["on"] = False
@@ -2479,7 +2479,7 @@ def test_identical_items_finishing_out_of_order_after_forget_both_reuse_the_prev
     first = graph.run({"text": "p,q"})
     calls.clear()
 
-    again = first.forget("a", "c").resume()
+    again = first.with_forgotten("a", "c").resume()
 
     assert (
         again.status == "complete"
@@ -2516,16 +2516,16 @@ def test_forget_runs_a_node_again_though_nothing_changed_and_a_reader_that_recei
     run = graph.run({"items": ["a", "b"]})
     calls.clear()
 
-    again = run.forget("f").resume()
+    again = run.with_forgotten("f").resume()
 
     assert calls == ["fetch a", "fetch b"] and again.results == run.results
-    assert run.forget().resume().results == run.results and calls == ["fetch a", "fetch b"]
+    assert run.with_forgotten().resume().results == run.results and calls == ["fetch a", "fetch b"]
 
 
 def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks():
     graph, calls = _counted()
     run = graph.run({"items": ["a"]})
-    forgotten = run.forget("f")
+    forgotten = run.with_forgotten("f")
     calls.clear()
 
     assert forgotten.status == "ready" and forgotten.results["f"] == {"result": None}
@@ -2533,7 +2533,7 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
         "fetch a"
     ]
     with pytest.raises(InvalidCallError) as refused:
-        run.forget("nope")
+        run.with_forgotten("nope")
     assert [(p.type, p.loc) for p in refused.value.problems] == [("node_not_in_graph", ("nope",))]
 
 
@@ -2545,7 +2545,7 @@ def test_a_forgotten_nodes_table_is_not_written_in_the_saved_run():
     graph = Graph.compile(_record({"s": split}), registry_of(split))
     run = graph.run({"text": "a,b"})
 
-    written = json.loads(run.forget("s").to_json())
+    written = json.loads(run.with_forgotten("s").to_json())
 
     assert "s" not in written["outcomes"] and "s" not in written.get("reusable", {})
 
@@ -2637,7 +2637,7 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
         registry_of(_each, fetch, approve),
     )
     first = graph.run({"items": ["bo-0", "bo-1"]})
-    answered = first.answer({w.id: w.loc[1:] == (0,) for w in first.waiting}).resume()
+    answered = first.with_answers({w.id: w.loc[1:] == (0,) for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [True, False]
 
     for _ in range(3):
@@ -2733,18 +2733,18 @@ def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person
         registry_of(_each, pre, approve),
     )
     first = graph.run({"items": ["x", "x"]})
-    named = first.answer({w.id: "bo" for w in first.waiting}).resume()
-    answered = named.answer({w.id: place(w) == "a@0" for w in named.waiting}).resume()
+    named = first.with_answers({w.id: "bo" for w in first.waiting}).resume()
+    answered = named.with_answers({w.id: place(w) == "a@0" for w in named.waiting}).resume()
 
-    again = answered.forget("p").resume()
-    second_told = again.answer(again.waiting[1], "bo").resume()
+    again = answered.with_forgotten("p").resume()
+    second_told = again.with_answers(again.waiting[1], "bo").resume()
     assert (
         second_told.status == "waiting"
         and [place(w) for w in second_told.waiting] == ["p@0"]
         and second_told.results["a"]["result"] == [None, None]
     )
 
-    told = second_told.answer(second_told.waiting[0], name).resume()
+    told = second_told.with_answers(second_told.waiting[0], name).resume()
     assert told.results["a"]["result"] == results and [place(w) for w in told.waiting] == asked
 
 
@@ -2787,7 +2787,7 @@ def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_
         registry_of(_each, split, approve),
     )
     first = graph.run({"items": ["p", "p"]})
-    answered = first.answer({w.id: place(w) == "a@0@0" for w in first.waiting}).resume()
+    answered = first.with_answers({w.id: place(w) == "a@0@0" for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [[True], [False]]
 
     for _ in range(3):
@@ -2836,7 +2836,7 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
         registry_of(split, ask_a, ask_b),
     )
     first = graph.run({"text": "x y z"})
-    second = first.answer({"a@1": "Y", "a@2": "Z"}).resume()
+    second = first.with_answers({"a@1": "Y", "a@2": "Z"}).resume()
     waiting = [w.id for w in second.waiting]
     assert [w.split("~")[0] for w in waiting] == ["a@0", "b@1", "b@2"]
     calls.clear()
@@ -2844,7 +2844,7 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
     again = second.again()
 
     assert [w.id for w in again.waiting] == waiting and calls == []
-    assert again.answer({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [
+    assert again.with_answers({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [
         None,
         "y",
         "z",

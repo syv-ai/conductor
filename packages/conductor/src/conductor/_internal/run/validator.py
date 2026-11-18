@@ -2,8 +2,8 @@
 forget.
 
 ``EdgeValidator`` checks a value an edge brings to an input when the graph's types can't vouch for it.
-``WaitingIdValidator`` reads the id a host names a waiting call by in ``run.answer`` and ``run.decline``.
-``ForgetValidator`` checks the node ids a host gives ``run.forget``.
+``WaitingIdValidator`` reads the id a host names a waiting call by in ``run.with_answers`` and ``run.with_decline``.
+``ForgetValidator`` checks the node ids a host gives ``run.with_forgotten``.
 
 When a graph is compiled, each edge is checked: the output's type must fit the input's type. Often that's enough
 to know every value will be fine. Sometimes it isn't, and then the value is checked at run time, before the call.
@@ -137,7 +137,7 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
 
 
 class WaitingIdValidator(Validator[str, tuple[Loc, NodePath, ItemIndexes, str | None]]):
-    """A validator for the id a host names a waiting call by, in ``run.answer`` and ``run.decline``.
+    """A validator for the id a host names a waiting call by, in ``run.with_answers`` and ``run.with_decline``.
 
     It undoes ``write_waiting_id``: ``"review@0/approve@1~3fa2c0d1"`` gives the loc
     ``("review", 0, "approve", 1)``, the node path ``("review", "approve")``, the item indexes ``(0, 1)`` and the
@@ -177,7 +177,7 @@ class WaitingIdValidator(Validator[str, tuple[Loc, NodePath, ItemIndexes, str | 
 
 
 class ForgetValidator(Validator[tuple[str, ...], tuple[str, ...]]):
-    """A validator for the node ids a host gives ``run.forget``.
+    """A validator for the node ids a host gives ``run.with_forgotten``.
 
     Each must be the id of a node of the graph itself. A node inside a subgraph is forgotten with its subgraph node,
     so ``"loud"`` is taken and ``"loud/shout"`` is refused.

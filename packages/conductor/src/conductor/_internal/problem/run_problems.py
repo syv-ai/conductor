@@ -59,7 +59,7 @@ def ask_not_declared(*loc: str | int) -> str:
 
 @RUN_PROBLEMS.problem
 def answer_declined(*loc: str | int, reason: str | None = None) -> str:
-    """A person declined to answer a node's question, with ``run.decline``, and so ended the run for good.
+    """A person declined to answer a node's question, with ``run.with_decline``, and so ended the run for good.
 
     The run is ``declined``. Every call made before the decline keeps its outcome, so the run's results show what
     ran. No call is made any more, and nothing waits.
@@ -68,12 +68,12 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
 
     Args:
         loc: The call that asked.
-        reason: The reason the host gave to ``run.decline``. It is left out when the host gave none. The message
+        reason: The reason the host gave to ``run.with_decline``. It is left out when the host gave none. The message
             doesn't quote it.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
-        why_it_stopped(waiting.decline(waiting.waiting[0], reason="Over budget"))
+        why_it_stopped(waiting.with_decline(waiting.waiting[0], reason="Over budget"))
     """
     return (
         "A person declined to answer, so the run ended here. The calls made before keep their results. "

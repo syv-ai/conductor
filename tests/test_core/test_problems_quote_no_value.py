@@ -245,7 +245,7 @@ def _answer(hint: Any, good: Any, bad: Any) -> list[Problem]:
         ),
         registry_of(definition),
     ).run({"text": "a"})
-    return _refused(lambda: run.answer(run.waiting[0], bad))
+    return _refused(lambda: run.with_answers(run.waiting[0], bad))
 
 
 def _saved_output(hint: Any, good: Any, bad: Any) -> list[Problem]:

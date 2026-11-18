@@ -1,7 +1,7 @@
 """``Waiting``, a call that is waiting for a person to answer, as a host is shown it.
 
 When a node raises ``Ask``, its call stops and waits. The host lists those calls with ``run.waiting``, shows each
-one to a person, and sends the answer back with ``run.answer(id, value)``. This module builds what the host is
+one to a person, and sends the answer back with ``run.with_answers(id, value)``. This module builds what the host is
 shown. ``base/place.py`` writes the ``id`` that ties an answer to its call, and ``WaitingIdValidator`` reads it.
 
 Say ``approve(line: str) -> bool`` raises ``Ask("approve b?")`` for the second line. ``run.waiting`` then lists::
@@ -34,7 +34,7 @@ class Waiting(ConductorModel):
     one question per output, and is answered with a mapping by question name.
 
     Attributes:
-        id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
+        id: What ``run.with_answers`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
             index of each item the call is for, then ``~`` and the start of the call's fingerprint. That is the
             fingerprint reuse matches calls by: a hash of the node's code fingerprint
             (``BlueprintFunctionNode.code_fingerprint`` says what that covers), the call's inputs and its item in

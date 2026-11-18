@@ -13,7 +13,7 @@ yes or no::
         raise Ask(f"Approve {invoice}?")
 
 ``asks=True`` tells conductor up front that the node may stop for a person. A host sees each call that waits as a
-``Waiting``, and gives the answer with ``run.answer``.
+``Waiting``, and gives the answer with ``run.with_answers``.
 
 Conductor checks both ends. It checks the ``Ask`` when the node raises it, and the answer when the person gives it.
 The full rules are in the reference: ``python -m conductor.about asking-a-person``.

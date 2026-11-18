@@ -585,7 +585,7 @@ run = Run.from_json(stored, graph)  # later, with the same graph compiled again
 (waiting,) = run.waiting
 print([question.name for question in waiting.questions])  # ['approved', 'owner', 'note']
 
-run = run.answer(waiting, {"approved": True, "owner": "ida"}).resume()
+run = run.with_answers(waiting, {"approved": True, "owner": "ida"}).resume()
 print(run.outputs)  # {'approved': True, 'note': None, 'owner': 'ida'}
 ```
 
@@ -621,7 +621,7 @@ print(graph.run({"bill": {"number": "B-1", "amount": 100}}).outputs)  # {'result
 
 run = graph.run({"bill": {"number": "B-2", "amount": 900}})
 print([(question.name, question.type) for question in run.waiting[0].questions])  # [('result', 'bool')]
-print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
+print(run.with_answers(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
 ```
 
 `inputs={"bill": [...]}` gives both nodes one graph input, `bill`. `pay` is called once, with `ok` a real `bool`, so `pay(bill, ok=True)` is its unit test.

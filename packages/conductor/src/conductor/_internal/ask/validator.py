@@ -12,7 +12,7 @@ one could ever pick ``1`` or ``2``. The ``Ask`` is refused with ``invalid_ask``.
 ``AnswerAsJsonValidator`` runs first, on every answer: it turns the answer into the JSON data it is read from. A
 host that keeps an answer to give a run later keeps that data.
 
-``DeclineValidator`` runs when a person declines with ``run.decline``. Its reason is text, or ``None`` for none, so
+``DeclineValidator`` runs when a person declines with ``run.with_decline``. Its reason is text, or ``None`` for none, so
 ``reason=123`` is refused with ``invalid_decline_reason``.
 
 An answer is read strictly, the way its JSON text would be read. That way an answer given from Python and the same
@@ -493,8 +493,9 @@ _REASON = SchemaValidator(core_schema.nullable_schema(core_schema.str_schema()))
 class DeclineValidator(Validator[Any, str | None]):
     """A validator for the reason a person gives when they decline to answer a node that raised ``Ask``.
 
-    The reason is text, or ``None`` for none. ``run.decline`` puts it in the ``ctx`` of the run's ``answer_declined``
-    problem, which a saved run writes as JSON, so it is checked as its JSON text would be, as an answer is.
+    The reason is text, or ``None`` for none. ``run.with_decline`` puts it in the ``ctx`` of the run's
+    ``answer_declined`` problem, which a saved run writes as JSON, so it is checked as its JSON text would be, as an
+    answer is.
     ``"Over budget"`` is taken. ``123`` is refused, and so is a ``str`` JSON can't write, such as a lone surrogate.
 
     Raises (when called):

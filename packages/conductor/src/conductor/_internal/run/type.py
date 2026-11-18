@@ -88,9 +88,10 @@ class NoneInputCall(ConductorModel):
 class Run[C]:
     """One run of a graph: its inputs and the outcome of every call so far.
 
-    A run you hold never changes. ``answer``, ``decline``, ``resume``, ``with_inputs``, ``forget``, ``again`` and
-    ``with_max_items`` each return a new ``Run`` and leave this one as it was, so keep what they return:
-    ``run = run.answer(waiting, True).resume()``. Its attributes can't be set, and ``inputs`` can't be changed.
+    A run you hold never changes. Each ``with_...`` method (``with_answers``, ``with_decline``, ``with_inputs``,
+    ``with_forgotten``, ``with_max_items``) returns a new ``Run`` with that change and calls no node; ``resume`` and
+    ``again`` return a new ``Run`` after their calls. Each leaves this one as it was, so keep what they return:
+    ``run = run.with_answers(waiting, True).resume()``. Its attributes can't be set, and ``inputs`` can't be changed.
     ``to_json`` saves all of it.
 
     A run is made by ``graph.with_inputs(...)``, ``graph.run(...)`` or ``Run.from_json(saved, graph)``. Each checks
@@ -140,7 +141,7 @@ class Run[C]:
 
         ``ready`` means a call is left to make, ``waiting`` that a call waits for a person, and ``complete`` that
         every call has an outcome. A run that a ``resume()`` ended early says how: ``failed``, ``stopped``,
-        ``cancelled`` or ``timed_out``. A run a person ended with ``decline`` is ``declined``. A copy made while a
+        ``cancelled`` or ``timed_out``. A run a person ended with ``with_decline`` is ``declined``. A copy made while a
         ``resume()`` is still going is ``running``. ``state.py`` has the whole rule.
         """
         return status_of(self)[0]
@@ -365,20 +366,20 @@ class Run[C]:
         return run
 
     @overload
-    def answer(self, waiting: Waiting | str, value: Any, /) -> Run[C]: ...
+    def with_answers(self, waiting: Waiting | str, value: Any, /) -> Run[C]: ...
 
     @overload
-    def answer(self, answers: Mapping[str, Any], /) -> Run[C]: ...
+    def with_answers(self, answers: Mapping[str, Any], /) -> Run[C]: ...
 
-    def answer(self, waiting: Waiting | str | Mapping[str, Any], /, *value: Any) -> Run[C]:
-        """Gives waiting calls their answers. Nothing runs until the next ``resume``.
+    def with_answers(self, waiting: Waiting | str | Mapping[str, Any], /, *value: Any) -> Run[C]:
+        """Returns a new run with these answers given to the calls waiting for them. No node is called.
 
-        ``run.answer(waiting, value)`` answers one call, and ``run.answer({waiting_id: value, ...})`` answers several.
-        Each answer is checked against the questions its call asked (``AnswerValidator`` has the rules). An answer
-        becomes the call's outputs, and the call's outcome becomes ``Done``. The next ``resume`` then calls the nodes
-        that read those outputs. A run that ended early, even a cancelled one, takes answers the same way. A
-        ``declined`` run waits on nothing, so every answer to it is ``not_waiting``. An empty mapping answers no
-        call, so it changes nothing: the run is returned as it is.
+        ``run.with_answers(waiting, value)`` answers one call, and ``run.with_answers({waiting_id: value, ...})``
+        answers several. Each answer is checked against the questions its call asked (``AnswerValidator`` has the
+        rules). An answer becomes the call's outputs, and the call's outcome becomes ``Done``. The next ``resume``
+        then calls the nodes that read those outputs. A run that ended early, even a cancelled one, takes answers the
+        same way. A ``declined`` run waits on nothing, so every answer to it is ``not_waiting``. An empty mapping
+        answers no call, so it changes nothing: the run is returned as it is.
 
         Args:
             waiting: The call to answer, as ``run.waiting`` lists it or by its id. Or a mapping of answers by waiting
@@ -387,13 +388,13 @@ class Run[C]:
 
         Returns:
             A new run with the answers in it. The run you called it on is left as it was, so keep this one:
-            ``run = run.answer(waiting, True)``.
+            ``run = run.with_answers(waiting, True)``.
 
         Raises:
             TypeError: A call is named without its answer, or a mapping is given with one.
             InvalidCallError: Every fault at once, and the run is left as it was. ``invalid_answer`` for a call
-                answered twice in one ``answer``, or an answer its question refuses. ``not_waiting`` for an id that
-                names no waiting call. ``answer_stale`` for an id whose call now asks another question, with
+                answered twice in one ``with_answers``, or an answer its question refuses. ``not_waiting`` for an id
+                that names no waiting call. ``answer_stale`` for an id whose call now asks another question, with
                 ``ctx.moved_to`` when that question now waits on another call.
         """
         match waiting, value:
@@ -403,7 +404,7 @@ class Run[C]:
                 given = waiting
             case _:
                 raise TypeError(
-                    "run.answer takes a waiting call and its answer, or a mapping of waiting ids to answers"
+                    "run.with_answers takes a waiting call and its answer, or a mapping of waiting ids to answers"
                 )
         problems: list[Problem] = []
         answered: dict[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = {}
@@ -451,15 +452,15 @@ class Run[C]:
             run._outcomes[node.node_path][item_indexes] = now
         return run
 
-    def decline(self, waiting: Waiting | str, /, *, reason: str | None = None) -> Run[C]:
-        """Declines to answer a waiting call, and so ends the run for good.
+    def with_decline(self, waiting: Waiting | str, /, *, reason: str | None = None) -> Run[C]:
+        """Returns a new run in which a person declined to answer a waiting call, and so ended the run for good.
 
         The run is ``declined``, with ``answer_declined`` as its ``cause``. Every call made before keeps its
         outcome, so ``run.results`` still shows what ran. But no call is made any more: nothing waits, ``resume``
-        and ``stream`` call no node, and a later ``answer`` or ``decline`` is refused as ``not_waiting``, as on a
-        complete run. To try again, start a new run with ``again`` or ``with_inputs``, which reuses what this one
-        ran and asks again. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
-        ``run.decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``declined``, and its
+        and ``stream`` call no node, and a later ``with_answers`` or ``with_decline`` is refused as ``not_waiting``,
+        as on a complete run. To try again, start a new run with ``again`` or ``with_inputs``, which reuses what this
+        one ran and asks again. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
+        ``run.with_decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``declined``, and its
         ``cause.ctx["reason"]`` is ``"Over budget"``.
 
         Args:
@@ -472,7 +473,7 @@ class Run[C]:
 
         Raises:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
-                whose call now asks another question, as ``answer`` refuses them. ``invalid_decline_reason``
+                whose call now asks another question, as ``with_answers`` refuses them. ``invalid_decline_reason``
                 for a reason that isn't text JSON can write, or ``None``. It is checked as its JSON text
                 would be, so ``bytes`` and a ``str`` enum member are taken as their text, and ``1.5`` and a ``str``
                 with a lone surrogate are refused. The run is left as it was.
@@ -504,16 +505,16 @@ class Run[C]:
         """Turns the answers and declines a host queues for a run into the JSON data the run will be given.
 
         A server can't give a running run an answer or a decline, so it queues them as JSON until the run stops.
-        Each answer becomes the JSON data ``run.answer`` reads it from, and each reason the text ``run.decline``
-        keeps. What JSON can't write is refused now, with the very problem ``run.answer`` or ``run.decline`` gives
-        it, since those two take each value through the same step. What depends on the question, such as an
-        answer of the wrong type, is checked when the run is given the data.
+        Each answer becomes the JSON data ``run.with_answers`` reads it from, and each reason the text
+        ``run.with_decline`` keeps. What JSON can't write is refused now, with the very problem ``run.with_answers``
+        or ``run.with_decline`` gives it, since those two take each value through the same step. What depends on the
+        question, such as an answer of the wrong type, is checked when the run is given the data.
 
         It is provisional: the name and shape may change before 2.0.
 
         Args:
-            answers: Answers by waiting id, as ``run.answer`` takes them.
-            declines: Reasons by waiting id, as ``run.decline`` takes them.
+            answers: Answers by waiting id, as ``run.with_answers`` takes them.
+            declines: Reasons by waiting id, as ``run.with_decline`` takes them.
 
         Returns:
             The answers and the reasons by waiting id, as the run is to be given them. For example
@@ -550,7 +551,7 @@ class Run[C]:
     ) -> tuple[BlueprintFunctionNode, ItemIndexes, Loc, Unanswered]:
         """Finds the call that ``waiting_id`` names, still waiting on the question the id was written for.
 
-        ``answer`` and ``decline`` name a call this way.
+        ``with_answers`` and ``with_decline`` name a call this way.
 
         Args:
             waiting_id: The id, as a host gave it.
@@ -641,7 +642,7 @@ class Run[C]:
             previous=self,
         )
 
-    def forget(self, *node_ids: str) -> Run[C]:
+    def with_forgotten(self, *node_ids: str) -> Run[C]:
         """Returns a run of the same inputs that has forgotten these nodes' outcomes, ready to ``resume`` or ``stream``.
 
         Only the forgotten nodes are called again. Everything else is reused as ``with_inputs`` reuses it, so a node

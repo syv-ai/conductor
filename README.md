@@ -190,17 +190,17 @@ Days later, in another process, compile the same record, load the run and answer
 
 ```python
 run = Run.from_json(saved, Graph.compile(record, registry))
-run = run.answer(run.waiting[0], True).resume()
+run = run.with_answers(run.waiting[0], True).resume()
 
 print(run.status)   # complete
 print(run.outputs)  # {'summary': '2 of 2 approved'}
 ```
 
-A run never changes in place. `answer` and `resume` each return a new run, so keep what they return, as `run = ...` does here. A bare `run.answer(...)` leaves `run` waiting.
+A run never changes in place. `with_answers` and `resume` each return a new run, so keep what they return, as `run = ...` does here. A bare `run.with_answers(...)` leaves `run` waiting.
 
 The answer is checked before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` carries on from where the run stopped, and no node is called twice for the same invoice.
 
-To stop without an answer, `run.decline(waiting, reason=...)` ends the run for good: it is `declined`, nothing more is called, and what ran stays in its results, such as Ida's approval. To ask again, start a new run with `run.again()`. To turn one invoice down and let the run go on, answer it `False` (`python -m conductor.about asking-a-person`).
+To stop without an answer, `run.with_decline(waiting, reason=...)` ends the run for good: it is `declined`, nothing more is called, and what ran stays in its results, such as Ida's approval. To ask again, start a new run with `run.again()`. To turn one invoice down and let the run go on, answer it `False` (`python -m conductor.about asking-a-person`).
 
 ## Run it again with a change
 
@@ -215,10 +215,10 @@ for waiting in run.waiting:
 # Approve Bo, 5500 kr.?
 ```
 
-A call that gets the same arguments as last time isn't made again. Ida's invoice didn't change, so her result is reused, and only Bo is asked again. Adding an invoice works the same way: only the new one is asked. The code that counts is the node's own function: a template or a helper it reads from outside isn't part of it, so after changing one, call the node again with `run.forget("approve")` (`python -m conductor.about running-again`).
+A call that gets the same arguments as last time isn't made again. Ida's invoice didn't change, so her result is reused, and only Bo is asked again. Adding an invoice works the same way: only the new one is asked. The code that counts is the node's own function: a template or a helper it reads from outside isn't part of it, so after changing one, call the node again with `run.with_forgotten("approve")` (`python -m conductor.about running-again`).
 
 ```python
-run = run.answer(run.waiting[0], True).again({"csv": edited + "Eva,7000\n"})
+run = run.with_answers(run.waiting[0], True).again({"csv": edited + "Eva,7000\n"})
 
 for waiting in run.waiting:
     print(waiting.prompt)

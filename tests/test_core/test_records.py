@@ -146,7 +146,7 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
     read_back = Run.from_json(run.to_json(), graph)
     assert read_back.to_json() == run.to_json() and read_back.results == run.results
     RECEIVED.clear()
-    assert read_back.forget("one").resume().outputs == run.outputs and RECEIVED == [
+    assert read_back.with_forgotten("one").resume().outputs == run.outputs and RECEIVED == [
         {"name": "ida", "email": "ida@x.dk"},
         {"name": "bo", "email": None},
     ]
@@ -471,7 +471,7 @@ def test_a_table_returned_as_the_records_of_another_output_is_written_under_both
     assert again.equals(table) and again.schema == table.schema
     assert read_back.results["records"]["result"] == run.results["records"]["result"]
     assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
-    assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
+    assert read_back.with_forgotten("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
 
 
 def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused() -> None:

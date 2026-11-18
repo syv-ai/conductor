@@ -333,7 +333,7 @@ def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = Run.from_json(run.to_json(), graph)
     assert saved.graph is graph and saved.graph.describe().nodes["q"].per_item_of == "s.result"
-    done = saved.answer({w.id: w.loc[1:] == (1,) for w in saved.waiting}).resume()
+    done = saved.with_answers({w.id: w.loc[1:] == (1,) for w in saved.waiting}).resume()
     assert done.outputs == {"result": [False, True]}
 
 
