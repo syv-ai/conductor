@@ -35,7 +35,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Dropdown, Textarea
-from pydantic import AfterValidator, ValidationError
+from pydantic import AfterValidator, ValidationError, constr
 from pydantic_core import core_schema
 
 from tests.test_core.nodes import registry_of
@@ -1210,6 +1210,12 @@ def test_two_inputs_of_one_graph_input_with_one_limit_written_by_annotated_types
     graph = _one_graph_input_feeding(Annotated[int, Ge(0)], Annotated[int, Param(ge=0)])
     assert graph.problems == []
     assert graph.run({"x": 3}).outputs == {"a": 3, "b": 3}
+
+
+def test_two_inputs_of_one_graph_input_with_one_length_written_by_constr_and_by_param_agree():
+    """``constr(min_length=1)`` writes a ``StringConstraints``, whose length is ``Param(min_length=1)``."""
+    graph = _one_graph_input_feeding(constr(min_length=1), Annotated[str, Param(min_length=1)])
+    assert graph.problems == []
 
 
 @pytest.mark.parametrize("given_on", ["a.n", "b.n"])

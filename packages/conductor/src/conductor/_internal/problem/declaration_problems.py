@@ -116,18 +116,21 @@ def param_limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
     """A ``Param``, or an annotated-types limit such as ``MaxLen(3)``, sets a limit that pydantic has no rule for on
     the input's type.
 
-    Pydantic would build the type, then refuse every value it is given. An annotated-types limit is read as the
-    ``Param`` limit of the same name (``Ge(0)`` as ``ge=0``, ``Len(1, 3)`` as ``min_length=1, max_length=3``), so
-    the rule is the same for both. pydantic knows these limits:
+    Pydantic would build the type, then fail on every value it is given, or take ``True`` as a number. An
+    annotated-types limit is read as the ``Param`` limit of the same name (``Ge(0)`` as ``ge=0``, ``Len(1, 3)`` as
+    ``min_length=1, max_length=3``, ``StringConstraints(min_length=1, pattern="x")`` and ``constr(...)`` as
+    ``min_length=1, pattern="x"``), so the rule is the same for both. The rest of a ``StringConstraints``, such as
+    ``to_lower``, is held to it too.
 
-    - ``ge``, ``gt``, ``le``, ``lt`` and ``multiple_of`` on numbers (``Decimal`` too), dates, times and durations,
-    - ``min_length`` and ``max_length`` on texts, bytes, lists, tuples, sets and dicts,
-    - ``pattern`` on texts.
-
-    A table takes only ``min_length`` and ``max_length``, which count its rows. The same goes for a ``Param`` on a
-    field of a model that a node takes. And pydantic has no rule for annotated-types' ``Timezone`` on any type: it
-    builds the type and never checks it. For a ``datetime`` with a timezone, take pydantic's ``AwareDatetime``, and
-    ``NaiveDatetime`` for one without.
+    A type takes a limit where pydantic has a rule for it: ``ge`` on a number, a date or a duration, ``min_length``
+    on a text, a list or a table, ``pattern`` on a text. A host's own type takes it when its schema converts a value
+    with a function of its own, since only the host knows whether its values compare. Any other type takes none: a
+    ``bool``, a union of two types, ``Any``, a ``Literal``, an enum or a model. A validator beside the limit doesn't
+    change that, and a ``PlainValidator`` replaces the check the limit is in, so a limit beside it is refused. The
+    same goes for a ``Param`` on a field of a model that a node takes. A host's type takes a limit only when its own
+    schema is a function, which pydantic's comparison then wraps: one whose schema is a ``json_or_python_schema``,
+    a ``lax_or_strict_schema`` or a ``chain_schema`` is refused, and one that converts text to text takes a number
+    limit that only the host can know is meaningful.
 
     To fix it, use only limits pydantic knows for the type.
 
@@ -980,6 +983,103 @@ def pydantic_field_in_hint() -> str:
         "the hint uses pydantic's Field(...). An input or output takes its title, description and limits from Param, "
         "so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]."
     )
+
+
+@DECLARATION_PROBLEMS.problem
+def timezone_in_hint() -> str:
+    """An input's or output's hint has annotated-types' ``Timezone`` in it, such as
+    ``Annotated[datetime, Timezone(...)]``.
+
+    Pydantic builds the type and never checks it, so a datetime without a timezone would pass.
+
+    To fix it, take pydantic's ``AwareDatetime`` for a datetime with a timezone, and ``NaiveDatetime`` for one
+    without.
+
+    Example:
+        from datetime import datetime
+
+        from annotated_types import Timezone
+
+
+        def meeting(starts: Annotated[datetime, Timezone(...)]) -> datetime:
+            return starts
+
+
+        declaration_refused(lambda: node("meeting", title="Meeting", description="Passes a time on.")(meeting))
+    """
+    return "pydantic never checks a Timezone. Take pydantic's AwareDatetime, or NaiveDatetime for no timezone."
+
+
+@DECLARATION_PROBLEMS.problem
+def unit_in_hint() -> str:
+    """An input's or output's hint has annotated-types' ``Unit`` in it, such as ``Annotated[float, Unit("m")]``.
+
+    A unit is a label, not a rule: pydantic ignores it, so it checks nothing, and a person is never shown it.
+
+    To fix it, put the unit in the field's title or description, like ``Param(title="Distance (m)")``.
+
+    Example:
+        from annotated_types import Unit
+
+
+        def distance(metres: Annotated[float, Unit("m")]) -> float:
+            return metres
+
+
+        declaration_refused(lambda: node("distance", title="Distance", description="Passes a distance on.")(distance))
+    """
+    return "pydantic ignores a Unit, so it checks nothing and no one sees it. Put the unit in the field's title instead."
+
+
+@DECLARATION_PROBLEMS.problem
+def predicate_alias_in_hint(*, predicate: str) -> str:
+    """An input's or output's hint has one of annotated-types' named predicates written as metadata, such as
+    ``Annotated[str, LowerCase]``.
+
+    ``LowerCase``, ``IsDigit`` and the others are aliases of a whole type, written with the type in brackets. Written
+    as metadata, pydantic ignores them, so every value would pass.
+
+    To fix it, write the alias as the type, like ``LowerCase[str]``.
+
+    Args:
+        predicate: The check inside the alias, such as ``Predicate(str.islower)``.
+
+    Example:
+        from annotated_types import LowerCase
+
+
+        def initials(text: Annotated[str, LowerCase]) -> str:
+            return text
+
+
+        declaration_refused(lambda: node("initials", title="Initials", description="Passes the text on.")(initials))
+    """
+    return f"{predicate} is written as metadata, where pydantic ignores it. Write the alias with its type, like LowerCase[str]."
+
+
+@DECLARATION_PROBLEMS.problem
+def predicate_refuses_every_number(*, predicate: str) -> str:
+    """An input's hint asks for a number that isn't finite: ``IsNan``, ``IsInfinite`` or ``IsNotFinite``.
+
+    A number given to a graph from outside is finite, so an input can never be given a value that passes. An output
+    may declare one, since a run's own values may be ``inf`` or ``nan``.
+
+    To fix it, remove the predicate from the input, and take ``float | None`` where ``None`` stands for no number.
+
+    Args:
+        predicate: The check, such as ``Predicate(math.isnan)``.
+
+    Example:
+        from annotated_types import IsNan
+
+
+        def odd_ratio(ratio: IsNan[float]) -> float:
+            return ratio
+
+
+        declaration_refused(lambda: node("odd_ratio", title="Odd ratio", description="Passes a ratio on.")(odd_ratio))
+    """
+    return f"{predicate} asks for a number that isn't finite, and an input can never be given one. Remove it."
 
 
 @DECLARATION_PROBLEMS.problem

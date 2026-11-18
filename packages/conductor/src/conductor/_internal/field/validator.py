@@ -19,9 +19,11 @@ in and read back by. ``list`` or ``tuple`` is declared instead.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Set
 from typing import Any, TypeVar, get_args, get_origin
 
+from annotated_types import Not, Predicate
 from pydantic import ValidationError
 from pydantic_core import PydanticCustomError
 
@@ -38,6 +40,16 @@ from conductor._internal.validation import Validator, read_as_json
 
 from .type import Field
 
+#: annotated-types' named predicates that ask for a number that isn't finite: ``IsNan``, ``IsInfinite`` and
+#: ``IsNotFinite``, which may also be written ``Not(math.isfinite)``. A number given to a graph from outside is finite, so no input passes them; a run's own values
+#: may be ``inf`` or ``nan``, so an output may declare them.
+_NOT_FINITE = (
+    Predicate(math.isnan),
+    Predicate(math.isinf),
+    Predicate(Not(math.isfinite)),
+    Not(math.isfinite),
+)
+
 
 def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> Field:
     """Builds the field a node declares, with its default checked against its type.
@@ -51,7 +63,8 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
 
     Raises:
         NodeDeclarationError: The hint is one ``Field`` refuses, it holds a set (``type_not_supported_set``), a
-            ``Table`` in it has a row type that names no columns (``table_row_not_a_typed_dict``), or the type
+            ``Table`` in it has a row type that names no columns (``table_row_not_a_typed_dict``), an input asks for
+            a number that isn't finite (``predicate_refuses_every_number``), or the type
             refuses the default read as its JSON (``default_invalid``). It names the field.
     """
     try:
@@ -61,6 +74,10 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
             elif _is_a_set(part):
                 raise NodeDeclarationError(
                     declaration_problems.type_not_supported_set(type=as_written(part))
+                )
+            elif not is_output and any(part == never for never in _NOT_FINITE):
+                raise NodeDeclarationError(
+                    declaration_problems.predicate_refuses_every_number(predicate=repr(part))
                 )
     except NodeDeclarationError as error:
         raise error.within(name) from None

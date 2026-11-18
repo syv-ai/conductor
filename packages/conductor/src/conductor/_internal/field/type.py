@@ -236,8 +236,8 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
             raise NodeDeclarationError(
                 declaration_problems.widget_without_json_form(widget=type(param.widget).__name__)
             ) from None
-    kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
-    metadata = (*others, *([Param(**kept)] if kept else []))
+    choices = [] if param.choices is None else [Param(choices=param.choices)]
+    metadata = (*others, *param.limits, *choices)
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)
     if not of_items:
         return param, one, one

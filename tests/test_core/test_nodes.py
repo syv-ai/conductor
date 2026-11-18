@@ -9,17 +9,35 @@ import dataclasses
 import datetime
 import json
 import logging
+import math
 import typing
 import warnings
 from collections.abc import Mapping, Set
 from dataclasses import FrozenInstanceError, dataclass
 from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
+from fractions import Fraction
 from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 import polars as pl
 import pytest
-from annotated_types import Ge, Interval, Len, MaxLen, MinLen, Timezone
+from annotated_types import (
+    Ge,
+    Interval,
+    IsDigit,
+    IsFinite,
+    IsInfinite,
+    IsNan,
+    IsNotFinite,
+    Le,
+    Len,
+    LowerCase,
+    MaxLen,
+    MinLen,
+    Not,
+    Timezone,
+    Unit,
+)
 from conductor import (
     SKIPPED,
     Choice,
@@ -46,8 +64,21 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, ValidationError
+from pydantic import (
+    AfterValidator,
+    AnyUrl,
+    BaseModel,
+    ByteSize,
+    ConfigDict,
+    Field,
+    Json,
+    JsonValue,
+    PlainValidator,
+    StringConstraints,
+    ValidationError,
+)
 from pydantic.errors import PydanticInvalidForJsonSchema
+from pydantic_core import core_schema
 
 
 def registry_of(*definitions):
@@ -341,10 +372,14 @@ def test_an_annotated_types_limit_with_no_rule_for_its_type_is_refused_as_a_para
     def on_a_listed_timezone(x: list[Annotated[datetime.datetime, Timezone("UTC")]]) -> str:
         return ""
 
-    for wrong in (on_number, on_items, on_text_or_none, on_a_timezone, on_a_listed_timezone):
+    for wrong in (on_number, on_items, on_text_or_none):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.problems[0].type == "param_limit_not_supported"
+    for wrong in (on_a_timezone, on_a_listed_timezone):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == "timezone_in_hint"
 
 
 def test_a_length_limit_on_a_table_counts_its_rows_written_with_param_or_annotated_types():
@@ -366,6 +401,193 @@ def test_a_length_limit_on_a_table_counts_its_rows_written_with_param_or_annotat
         with pytest.raises(InvalidCallError) as refused:
             graph.run(given)
         assert refused.value.problems[0].ctx["errors"][0]["type"] == code
+
+
+def test_a_param_hands_pydantic_its_limits_as_annotated_types_objects_and_the_objects_written_directly_read_the_same():
+    """``Param(ge=0)`` is handed to pydantic as ``Ge(0)``, so the two spellings are one type."""
+    param = Param(le=8, ge=0, pattern="^a")
+    assert (param.ge, param.limits) == (0, (Ge(0), Le(8), StringConstraints(pattern="^a")))
+
+    def by_keyword(
+        x: Annotated[int, Param(ge=0, le=8)], y: Annotated[str, Param(pattern="^a")]
+    ) -> int:
+        return x
+
+    def by_object(
+        x: Annotated[int, Interval(ge=0, le=8)], y: Annotated[str, StringConstraints(pattern="^a")]
+    ) -> int:
+        return x
+
+    def schemas(definition):
+        return [field.json_schema for field in definition.describe().inputs]
+
+    assert schemas(declared(by_object)) == schemas(declared(by_keyword))
+    assert schemas(declared(by_keyword)) == [
+        {"type": "integer", "minimum": 0, "maximum": 8},
+        {"type": "string", "pattern": "^a"},
+    ]
+
+
+def test_a_limit_its_type_does_not_take_is_refused_beside_a_validator_too():
+    """A validator wraps the type's schema in a function, and a limit beside it was let through, so every value
+    failed at run time."""
+
+    def text_at_least(x: Annotated[str, AfterValidator(str.strip), Param(ge=0)]) -> str:
+        return x
+
+    def number_of_length(x: Annotated[int, AfterValidator(abs), Param(max_length=3)]) -> int:
+        return x
+
+    def number_matching(x: Annotated[int, StringConstraints(pattern="^1")]) -> int:
+        return x
+
+    def text_replaced(x: Annotated[str, PlainValidator(str), Param(ge=0)]) -> str:
+        return x
+
+    def number_stripped(
+        x: Annotated[int, StringConstraints(pattern="^1", strip_whitespace=True)],
+    ) -> int:
+        return x
+
+    for wrong in (text_at_least, number_of_length, number_matching, text_replaced, number_stripped):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == "param_limit_not_supported"
+
+
+@host_type("Money", title="Money")
+class Money:
+    """Cents read from text, compared as a number."""
+
+    def __init__(self, cents: int) -> None:
+        self.cents = cents
+
+    def __ge__(self, other: int) -> bool:
+        return self.cents >= other
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        return core_schema.no_info_after_validator_function(
+            lambda text: cls(int(text)), core_schema.str_schema()
+        )
+
+
+host_type("Fraction", title="Fraction")(Fraction)
+host_type("Url", title="Url")(AnyUrl)
+host_type("ByteSize", title="Byte size")(ByteSize)
+
+
+def test_a_limit_pydantic_checks_is_taken_on_a_host_type_and_on_pydantics_own_types():
+    """A limit is taken where the schema pydantic built shows it: as its own rule (``Json[int]``, a fraction, an
+    address) or as its comparison over a host's own function (``Money``, ``ByteSize``)."""
+
+    def limited(
+        money: Annotated[Money, Param(ge=0)],
+        number: Annotated[Json[int], Param(ge=0)],
+        part: Annotated[Fraction, Param(ge=0)],
+        address: Annotated[AnyUrl, Param(max_length=20)],
+        size: Annotated[ByteSize, Param(ge=1)],
+    ) -> int:
+        return 0
+
+    graph = compiled_graph(declared(limited))
+    right = {"money": "5", "number": "1", "part": "1/2", "address": "http://a.b", "size": "1KB"}
+    assert graph.run(right).outputs == {"result": 0}
+    for name, wrong in (
+        ("money", "-5"),
+        ("number", "-1"),
+        ("part", "-1/2"),
+        ("address", "http://" + "a" * 40 + ".com"),
+        ("size", 0),
+    ):
+        with pytest.raises(InvalidCallError) as refused:
+            graph.run(right | {name: wrong})
+        assert refused.value.problems[0].loc == ("inputs", name)
+
+
+def test_annotated_types_metadata_pydantic_ignores_or_no_value_passes_is_refused():
+    """``Unit`` and a named predicate written as metadata are ignored by pydantic, and no number that enters a graph
+    is ``nan`` or infinite."""
+
+    def in_metres(x: Annotated[float, Unit("m")]) -> float:
+        return x
+
+    def lower_text(x: Annotated[str, LowerCase]) -> str:
+        return x
+
+    def lower_items(x: list[Annotated[str, IsDigit]]) -> int:
+        return 0
+
+    for wrong, code in (
+        (in_metres, "unit_in_hint"),
+        (lower_text, "predicate_alias_in_hint"),
+        (lower_items, "predicate_alias_in_hint"),
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == code
+    for never in (
+        IsNan[float],
+        list[IsInfinite[float]],
+        IsNotFinite[float],
+        Annotated[float, Not(math.isfinite)],
+    ):
+
+        def no_number(x: never) -> float:  # type: ignore[valid-type]
+            return 0.0
+
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(no_number)
+        assert raised.value.problems[0].type == "predicate_refuses_every_number"
+
+
+def test_an_output_may_declare_a_number_that_is_not_finite_since_a_runs_own_values_may_be_one():
+    @node("not-a-number", title="Not a number", description="For a test.")
+    def not_a_number() -> IsNan[float]:
+        return math.nan
+
+    assert math.isnan(compiled_graph(not_a_number).run().outputs["result"])
+
+
+def test_a_predicate_is_pydantics_and_checks_each_value():
+    @node("lower-only", title="Lower only", description="For a test.")
+    def lower_only(x: LowerCase[str], y: IsFinite[float]) -> str:
+        return x
+
+    graph = compiled_graph(lower_only)
+    assert graph.run({"x": "ab", "y": 1.0}).outputs == {"result": "ab"}
+    with pytest.raises(InvalidCallError):
+        graph.run({"x": "AB", "y": 1.0})
+
+
+def test_a_length_in_a_string_constraints_is_a_param_length_so_the_last_one_written_wins():
+    """``constr(...)`` writes a ``StringConstraints``; its length was kept apart from a ``Param``'s, and pydantic
+    enforced whichever it was handed last."""
+
+    def constrained_then_param(
+        x: Annotated[str, StringConstraints(min_length=1), Param(min_length=3)],
+    ) -> str:
+        return x
+
+    def param_then_constrained(
+        x: Annotated[str, Param(min_length=3), StringConstraints(min_length=1)],
+    ) -> str:
+        return x
+
+    assert field_of(declared(constrained_then_param), "x").json_schema["minLength"] == 3
+    assert field_of(declared(param_then_constrained), "x").json_schema["minLength"] == 1
+    assert compiled_graph(declared(param_then_constrained)).run({"x": "ab"}).outputs == {
+        "result": "ab"
+    }
+    with pytest.raises(InvalidCallError):
+        compiled_graph(declared(constrained_then_param)).run({"x": "ab"})
+
+
+def test_two_limits_of_one_name_keep_the_last():
+    def loosened(x: Annotated[int, Param(ge=5), Ge(0)]) -> int:
+        return x
+
+    assert compiled_graph(declared(loosened)).run({"x": 3}).outputs == {"result": 3}
 
 
 def test_a_limit_on_one_member_of_a_union_limits_that_member_only():

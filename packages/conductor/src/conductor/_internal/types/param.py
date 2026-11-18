@@ -20,8 +20,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from annotated_types import Ge, GroupedMetadata, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
-from pydantic import Field as PydanticField
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue, StringConstraints
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import (
     CoreSchema,
@@ -37,23 +36,25 @@ from conductor.widgets import Widget
 from .choice import check_one_of, declared_choices, pick_texts
 from .hint import READ_AS, literal_classes, union_members, union_of
 
-#: The limits ``Param`` takes, named as pydantic's ``Field`` names them.
-_LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "pattern")
-
-#: annotated-types' own limits, each the same as the ``Param`` limit its one attribute is named for, so
-#: ``Annotated[int, Ge(0)]`` is ``Annotated[int, Param(ge=0)]``.
-_ANNOTATED_LIMITS = {
-    Gt: "gt",
-    Ge: "ge",
-    Lt: "lt",
-    Le: "le",
-    MultipleOf: "multiple_of",
-    MinLen: "min_length",
-    MaxLen: "max_length",
+#: The limits ``Param`` takes: by the keyword that writes each, the class pydantic is handed it as, whose attribute
+#: of that name is its value. ``Param(ge=0)`` is handed over as ``Ge(ge=0)``, and ``Param(pattern="x")`` as
+#: pydantic's own ``StringConstraints(pattern="x")``, since annotated-types has no pattern.
+LIMITS: dict[str, type[Any]] = {
+    "ge": Ge,
+    "gt": Gt,
+    "le": Le,
+    "lt": Lt,
+    "multiple_of": MultipleOf,
+    "min_length": MinLen,
+    "max_length": MaxLen,
+    "pattern": StringConstraints,
 }
 
-#: The key of a core schema's metadata that says its values are sized, so ``min_length`` and ``max_length`` count
-#: them with ``len()``: a table's schema sets it, and a table's length is its rows.
+#: The keyword of each class in ``LIMITS``.
+_KEYWORDS = {kind: keyword for keyword, kind in LIMITS.items()}
+
+#: The key of a core schema's metadata that says its values are sized, so they take ``min_length`` and
+#: ``max_length``, which count them with ``len()``: a table's schema sets it, and a table's length is its rows.
 SIZED = "conductor_sized"
 
 #: What a bound like ``ge`` may be: a number, a date, a time or a duration.
@@ -69,8 +70,9 @@ class Param:
         times: Annotated[int, Param(title="Times", ge=0)] = 1
 
     The limits and choices apply wherever pydantic checks the type, whether on a node's field or in a host's own
-    model. On a node's input or output, ``Param`` is the only way to write them. Pydantic's ``Field(...)`` is
-    refused there (``pydantic_field_in_hint``).
+    model. On a node's input or output, pydantic's ``Field(...)`` is refused (``pydantic_field_in_hint``). An
+    annotated-types limit written in the hint, like ``Ge(0)``, ``Interval(ge=0, le=8)`` or ``Len(1, 3)``, is read as
+    the same ``Param``.
 
     Attributes:
         title: What a person sees for the field. ``None`` if not given, and nothing is guessed from the name.
@@ -83,10 +85,10 @@ class Param:
             given, and ``Type.choices`` checks them. They go on a plain type, like ``str``: a ``Literal``'s values
             are its choices already, so ``Param(choices=)`` on one is refused (``choices_on_a_literal``). A
             ``Dropdown`` shows them.
-        ge: The smallest value allowed. ``gt``, ``le`` and ``lt`` are the other bounds, and ``multiple_of`` is a
-            step. Each works on a number, a date, a time or a duration.
+        ge: The smallest value allowed. ``gt``, ``le`` and ``lt`` are the other bounds. Each works on a number, a
+            date, a time or a duration. ``multiple_of`` is a step, on a number or a duration.
         min_length: The fewest characters, items or keys allowed, and ``max_length`` the most. Each works on text,
-            bytes or a collection.
+            bytes or a collection, and on a table counts its rows.
         pattern: A regular expression the text must match.
     """
 
@@ -99,7 +101,7 @@ class Param:
     gt: _Bound | None = None
     le: _Bound | None = None
     lt: _Bound | None = None
-    multiple_of: float | None = None
+    multiple_of: float | datetime.timedelta | None = None
     min_length: int | None = None
     max_length: int | None = None
     pattern: str | None = None
@@ -139,9 +141,16 @@ class Param:
         )
 
     @functools.cached_property
-    def limits(self) -> dict[str, Any]:
-        """The limits that are set, by name, ready to pass to ``pydantic.Field``."""
-        return {key: value for key in _LIMITS if (value := getattr(self, key)) is not None}
+    def limits(self) -> tuple[Any, ...]:
+        """The limits that are set, as the objects pydantic is handed: ``(Ge(ge=0), MaxLen(max_length=8))``.
+
+        Each is an annotated-types limit, and a pattern pydantic's ``StringConstraints``.
+        """
+        return tuple(
+            kind(**{keyword: value})
+            for keyword, kind in LIMITS.items()
+            if (value := getattr(self, keyword)) is not None
+        )
 
     def __get_pydantic_core_schema__(
         self, source: Any, handler: GetCoreSchemaHandler
@@ -163,33 +172,12 @@ class Param:
                 ``choices_invalid`` or one of the ``choices_invalid_...`` codes if the choices aren't each a value of
                 ``source``, given once.
         """
-        limited_hint: Any = (
-            Annotated[source, PydanticField(**self.limits)] if self.limits else source
-        )
-        limited = handler(limited_hint)
-        # When pydantic has no rule for a limit on a type, it wraps the type's schema in one function per such
-        # limit, and that function compares each value directly. On a type like ``str`` that fails for every value.
-        # So each limit with no rule shows up as a missing key plus one function layer. Any further function layer
-        # is a host's own schema. Only the host knows whether its values support the comparison, so the limit is
-        # let through.
-        held, functions, layer = set[str](), 0, limited
-        while True:
-            held |= layer.keys()
-            functions += layer["type"].startswith("function")
-            if "schema" not in layer:
-                break
-            layer = layer["schema"]  # type: ignore[typeddict-item]  # a wrapping schema keeps the inner one here
-        unknown_limits = sorted(self.limits.keys() - held)
-        # A type whose schema says its values are sized, as a table's does, takes a length limit too: pydantic's
-        # own check of it, one function layer, counts len() of the value, a table's rows.
-        if layer.get("metadata", {}).get(SIZED):
-            lengths = [limit for limit in unknown_limits if limit in ("min_length", "max_length")]
-            unknown_limits = [limit for limit in unknown_limits if limit not in lengths]
-            functions -= len(lengths)
-        if unknown_limits and functions <= len(unknown_limits):
+        limited = handler(Annotated[(source, *self.limits)] if self.limits else source)
+        names = [_KEYWORDS[type(limit)] for limit in self.limits]
+        if unknown := not_taken(limited, names):
             raise NodeDeclarationError(
                 declaration_problems.param_limit_not_supported(
-                    unknown_limits=unknown_limits, type=as_written(source)
+                    unknown_limits=unknown, type=as_written(source)
                 )
             )
         if self.choices is None:
@@ -211,7 +199,7 @@ class Param:
         from .type import Type
 
         # the choices are read by the type's own argument check, limits included, as an answer is
-        value_type = Type(Annotated[source, Param(**self.limits)]) if self.limits else Type(source)
+        value_type = Type(Annotated[(source, *self.limits)] if self.limits else source)
 
         def as_json(value: Any) -> JsonValue:
             """Returns ``value`` as plain JSON data.
@@ -314,26 +302,93 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     for member in members:
         option, param, kept = split_hint(member)
         # a limit belongs to the member it is written on: Annotated[int, Ge(0)] | str limits only the int
-        limits = param.limits
-        params.append(dataclasses.replace(param, **dict.fromkeys(limits)))
-        on_member = (*kept, *([Param(**limits)] if limits else []))
+        params.append(dataclasses.replace(param, **dict.fromkeys(LIMITS)))
+        on_member = (*kept, *param.limits)
         options.append(Annotated[(option, *on_member)] if on_member else option)
     return union_of(options), merged_param(*params), ()
 
 
 def _limits_as_params(metadata: Iterable[Any]) -> Iterator[Any]:
-    """Yields ``metadata`` with each annotated-types limit in it as a ``Param`` of that one limit, in its place.
+    """Yields ``metadata`` with each limit in it as a ``Param`` of its limits, in its place.
 
-    A group of them, like ``Len(1, 3)`` or ``Interval(ge=0, lt=5)``, is taken apart into its limits first. Any other
-    metadata is yielded as it is.
+    An annotated-types limit, like ``Ge(0)``, is a ``Param`` of that one limit, and a group of them, like
+    ``Len(1, 3)`` or ``Interval(ge=0, lt=5)``, is taken apart into its limits first. A ``StringConstraints``, which
+    ``constr(...)`` writes, gives a ``Param`` of its lengths and pattern, and a ``StringConstraints`` of the rest,
+    such as ``to_lower``, which is pydantic's. So ``constr(min_length=1)`` is ``Param(min_length=1)``, and of two
+    lengths the last one written wins wherever each is written. Any other metadata is yielded as it is.
     """
     for one in metadata:
-        if isinstance(one, GroupedMetadata):
+        if isinstance(one, StringConstraints):
+            given = {
+                f.name: value
+                for f in dataclasses.fields(one)
+                if (value := getattr(one, f.name)) is not None
+            }
+            limits = {
+                name: given.pop(name)
+                for name in ("min_length", "max_length", "pattern")
+                if name in given
+            }
+            yield from ([Param(**limits)] if limits else [])
+            yield from ([StringConstraints(**given)] if given else [])
+        elif (keyword := _KEYWORDS.get(type(one))) is not None:
+            yield Param(**{keyword: getattr(one, keyword)})
+        elif isinstance(one, GroupedMetadata):
             yield from _limits_as_params(one)
-        elif (name := _ANNOTATED_LIMITS.get(type(one))) is not None:
-            yield Param(**{name: getattr(one, name)})
         else:
             yield one
+
+
+def not_taken(limited: CoreSchema, names: Iterable[str]) -> list[str]:
+    """Returns the limits, of ``names``, that the type pydantic built in ``limited`` doesn't take.
+
+    The schema pydantic built says which limits it took. Where it has a rule for a limit on a kind of value, it sets
+    the limit on that value's schema as a key: ``{"type": "int", "ge": 0}``. Where it has none, it wraps the schema
+    in a function that compares each value with the limit. That comparison is taken over a host's own function,
+    since only the host knows whether its values compare, and over a schema that says its values are sized, as a
+    table's does, for a length. Over one of pydantic's own kinds, such as ``str`` or ``bool``, it would fail on every
+    value or take ``True`` as a number, so the limit is not taken. A limit that is nowhere in the schema, as when a
+    ``PlainValidator`` replaced the schema it was put on, is not taken either.
+
+    Args:
+        limited: The schema pydantic built for a type with these limits.
+        names: The limits, by the ``Param`` keyword of each.
+
+    Returns:
+        The limits not taken, sorted.
+    """
+    wanted, taken, layer = set(names), set[str](), limited
+    while True:
+        taken |= wanted & layer.keys()
+        if (compared := _compared_limit(layer)) is not None:
+            inner = layer["schema"]  # type: ignore[typeddict-item]  # a function after keeps the one it wraps here
+            while _compared_limit(inner) is not None:
+                inner = inner["schema"]
+            metadata = inner.get("metadata", {})
+            sized = compared in ("min_length", "max_length") and metadata.get(SIZED)
+            if inner["type"].startswith("function") or sized:
+                taken.add(compared)
+        if "schema" not in layer:
+            return sorted(wanted - taken)
+        layer = layer["schema"]  # type: ignore[typeddict-item]  # a wrapping schema keeps the inner one here
+
+
+def _compared_limit(schema: CoreSchema) -> str | None:
+    """Returns the limit ``schema`` compares each value with, when it is pydantic's comparison for a limit.
+
+    Pydantic writes that comparison as a function after the schema it wraps: a ``functools.partial`` of its own
+    validator, given the limit by name (``ge=0``), with the limit kept for the JSON schema in its metadata
+    (``pydantic_js_updates``). ``None`` for any other schema.
+    """
+    function = schema.get("function", {}).get("function")
+    if (
+        schema["type"] == "function-after"
+        and isinstance(function, functools.partial)
+        and len(function.keywords) == 1
+        and "pydantic_js_updates" in schema.get("metadata", {})
+    ):
+        return str(next(iter(function.keywords)))
+    return None
 
 
 def merged_param(*params: Param) -> Param:

@@ -34,8 +34,8 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
-from annotated_types import Timezone
-from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from annotated_types import Predicate, Timezone, Unit
+from pydantic import ConfigDict, JsonValue, StringConstraints, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic_core import (
@@ -68,7 +68,7 @@ from .hint import (
     union_of,
 )
 from .host_type import NAMES, OWN_IDS, declaration_of
-from .param import Param, as_written, split_hint
+from .param import LIMITS, Param, as_written, not_taken, split_hint
 from .rules import with_rules
 
 #: Generic classes whose arguments are each read as a ``Type`` too, so conductor's rules reach their items.
@@ -115,6 +115,9 @@ def _written_metadata(metadata: Any) -> str:
     """
     if isinstance(metadata, (FunctionType, MethodType)):
         return qualified_name(metadata)
+    # written as the pieces pydantic takes it apart into, so constr(to_lower=True) reads as it always has
+    if isinstance(metadata, StringConstraints):
+        return ", ".join(repr(piece) for piece in metadata)
     if dataclasses.is_dataclass(metadata):
         written = ", ".join(
             f"{f.name}={_written_metadata(getattr(metadata, f.name))}"
@@ -378,7 +381,11 @@ class Type:
         This is the text that goes into the hash that decides whether a call can be reused.
         """
         bare, param, others = self._parts
-        held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
+        held = [
+            f"{limit}={value!r}"
+            for limit in sorted(LIMITS)
+            if (value := getattr(param, limit)) is not None
+        ]
         if param.choices is not None:
             held.append(
                 f"choices={[choice.id for choice in read_choices(param.choices, functools.partial(validate_as_json, self.argument_validator), self.to_json)]!r}"
@@ -495,13 +502,7 @@ class Type:
             raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
         if pydantic_fields:
             raise NodeDeclarationError(declaration_problems.pydantic_field_in_hint())
-        # pydantic builds a datetime with annotated-types' Timezone and never checks it, so it would hold nothing
-        if any(isinstance(other, Timezone) for other in others):
-            raise NodeDeclarationError(
-                declaration_problems.param_limit_not_supported(
-                    unknown_limits=["Timezone"], type=as_written(bare)
-                )
-            )
+        _check_annotated_types(bare, others)
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
@@ -532,6 +533,19 @@ class Type:
             raise NodeDeclarationError(
                 declaration_problems.type_not_supported(type=self.id)
             ) from None
+        # a StringConstraints that sets more than a pattern is pydantic's, and held to its type as a Param's limits are
+        for constraints in (other for other in others if isinstance(other, StringConstraints)):
+            given = [
+                f.name
+                for f in dataclasses.fields(constraints)
+                if getattr(constraints, f.name) is not None
+            ]
+            if unknown := not_taken(adapter.core_schema, given):
+                raise NodeDeclarationError(
+                    declaration_problems.param_limit_not_supported(
+                        unknown_limits=unknown, type=as_written(bare)
+                    )
+                )
         return read, adapter
 
     @property
@@ -612,7 +626,7 @@ class Type:
             )
             for choice in choices
         ]
-        return Type(Annotated[(classes.hint, Param(**param.limits, choices=values))])
+        return Type(Annotated[(classes.hint, *param.limits, Param(choices=values))])
 
     @property
     def item(self) -> Type | None:
@@ -785,6 +799,36 @@ class Type:
         ``kind`` and ``msg`` as they are.
         """
         return kind, msg
+
+
+def _check_annotated_types(bare: Any, others: tuple[Any, ...]) -> None:
+    """Checks the annotated-types metadata in a hint that pydantic would ignore.
+
+    Pydantic enforces annotated-types' limits, a ``Predicate`` and ``Not``. It builds ``Timezone`` and ``Unit``, and
+    a named predicate such as ``LowerCase`` written as metadata, and checks nothing.
+
+    Args:
+        bare: The hint's type, without its metadata.
+        others: The hint's metadata that isn't a ``Param``.
+
+    Raises:
+        NodeDeclarationError: ``timezone_in_hint`` for a ``Timezone``, ``unit_in_hint`` for a ``Unit`` and
+            ``predicate_alias_in_hint`` for a named predicate written as metadata.
+    """
+    for other in others:
+        if isinstance(other, Timezone):
+            raise NodeDeclarationError(declaration_problems.timezone_in_hint())
+        if isinstance(other, Unit):
+            raise NodeDeclarationError(declaration_problems.unit_in_hint())
+        predicates = (
+            [m for m in get_args(other)[1:] if isinstance(m, Predicate)]
+            if get_origin(other) is Annotated
+            else []
+        )
+        if predicates:
+            raise NodeDeclarationError(
+                declaration_problems.predicate_alias_in_hint(predicate=repr(predicates[0]))
+            )
 
 
 def _check_is_type(hint: Any) -> None:
