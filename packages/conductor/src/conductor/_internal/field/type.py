@@ -197,8 +197,9 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     The types keep only what limits a value: its limits, its choices and any other metadata. A title or a widget is
     left out of them, so two fields that differ only in what a person reads get the same type.
 
-    On a ``Series``, the limits and choices are for its items. ``Annotated[Series[int], Param(ge=0)]`` and
-    ``Series[Annotated[int, Param(ge=0)]]`` both say each item is at least 0.
+    On a ``Series``, everything in its ``Annotated`` is for its items: limits, choices and any other metadata, such as
+    a validator. ``Annotated[Series[int], Param(ge=0)]`` and ``Series[Annotated[int, Param(ge=0)]]`` both say each
+    item is at least 0.
 
     Raises:
         NodeDeclarationError: ``nested_series`` for a ``Series`` of ``Series``. ``widget_outside_param`` for a
@@ -212,8 +213,9 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     written, of_items = bare, Type(bare).item is not None
     if of_items:  # read the item's own hint, with its type variables not yet filled in
         (items,) = (option for option in union_members(written) if option is not type(None))
-        bare, of_item, others = split_hint((get_args(items) or (Any,))[0])
-        beside_param = (*beside_param, *others)
+        bare, of_item, of_item_others = split_hint((get_args(items) or (Any,))[0])
+        # the field's own metadata is for its items too, and comes last, so it wins as pydantic's last one does
+        others = beside_param = (*of_item_others, *others)
         if Type(bare).item is not None:
             raise NodeDeclarationError(declaration_problems.nested_series())
         param = merged_param(of_item, param)  # the field's own Param wins over its item's

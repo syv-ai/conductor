@@ -15,10 +15,12 @@ import dataclasses
 import datetime
 import functools
 import json
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
+from annotated_types import Ge, GroupedMetadata, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
 from pydantic import Field as PydanticField
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue
 from pydantic.json_schema import JsonSchemaValue
@@ -38,6 +40,22 @@ from .hint import READ_AS, literal_classes, union_members, union_of
 
 #: The limits ``Param`` takes, named as pydantic's ``Field`` names them.
 _LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "pattern")
+
+#: annotated-types' own limits, each the same as the ``Param`` limit its one attribute is named for, so
+#: ``Annotated[int, Ge(0)]`` is ``Annotated[int, Param(ge=0)]``.
+_ANNOTATED_LIMITS = {
+    Gt: "gt",
+    Ge: "ge",
+    Lt: "lt",
+    Le: "le",
+    MultipleOf: "multiple_of",
+    MinLen: "min_length",
+    MaxLen: "max_length",
+}
+
+#: The key of a core schema's metadata that says its values are sized, so ``min_length`` and ``max_length`` count
+#: them with ``len()``: a table's schema sets it, and a table's length is its rows.
+SIZED = "conductor_sized"
 
 #: What a bound like ``ge`` may be: a number, a date, a time or a duration.
 _Bound = float | Decimal | datetime.date | datetime.time | datetime.timedelta
@@ -163,6 +181,12 @@ class Param:
                 break
             layer = layer["schema"]  # type: ignore[typeddict-item]  # a wrapping schema keeps the inner one here
         unknown_limits = sorted(self.limits.keys() - held)
+        # A type whose schema says its values are sized, as a table's does, takes a length limit too: pydantic's
+        # own check of it, one function layer, counts len() of the value, a table's rows.
+        if layer.get("metadata", {}).get(SIZED):
+            lengths = [limit for limit in unknown_limits if limit in ("min_length", "max_length")]
+            unknown_limits = [limit for limit in unknown_limits if limit not in lengths]
+            functions -= len(lengths)
         if unknown_limits and functions <= len(unknown_limits):
             raise NodeDeclarationError(
                 declaration_problems.param_limit_not_supported(
@@ -265,8 +289,13 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     ``Param``s are merged into one (``merged_param``). A ``polars.DataFrame`` written as a hint is read as
     ``Table``.
 
+    An annotated-types limit, like ``Ge(0)`` or ``Len(1, 3)``, is read as the ``Param`` limit of the same name, so
+    ``Annotated[int, Ge(0)]`` and ``Annotated[int, Param(ge=0)]`` are one type, and a limit that doesn't fit its
+    type is refused the same way (``param_limit_not_supported``).
+
     A ``Param`` is lifted from a union's member onto the whole, since the field has one title and one set of
-    choices. Any other metadata stays on its member, where it checks only that member's values: in
+    choices, but for its limits, which stay on the member they are written on, as pydantic reads them:
+    ``Annotated[int, Ge(0)] | str`` limits only the ``int``. Any other metadata stays on its member, where it checks only that member's values: in
     ``Annotated[str, AfterValidator(f)] | None`` the validator never sees ``None``, and in JsonValue's union each
     member keeps the ``Tag`` its ``Discriminator`` picks it by.
 
@@ -281,7 +310,8 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     if len(members) == 1:
         if get_origin(hint) is not Annotated:
             return (READ_AS.get(hint, hint) if type(hint) is type else hint), _NO_PARAM, ()
-        inner, *metadata = get_args(hint)
+        inner, *given = get_args(hint)
+        metadata = list(_limits_as_params(given))
         bare, inner_param, inner_others = split_hint(inner)
         params = [m for m in metadata if isinstance(m, Param)]
         own = [m for m in metadata if not isinstance(m, Param)]
@@ -289,9 +319,27 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     options, params = [], list[Param]()
     for member in members:
         option, param, kept = split_hint(member)
-        params.append(param)
-        options.append(Annotated[(option, *kept)] if kept else option)
+        # a limit belongs to the member it is written on: Annotated[int, Ge(0)] | str limits only the int
+        limits = param.limits
+        params.append(dataclasses.replace(param, **dict.fromkeys(limits)))
+        on_member = (*kept, *([Param(**limits)] if limits else []))
+        options.append(Annotated[(option, *on_member)] if on_member else option)
     return union_of(options), merged_param(*params), ()
+
+
+def _limits_as_params(metadata: Iterable[Any]) -> Iterator[Any]:
+    """Yields ``metadata`` with each annotated-types limit in it as a ``Param`` of that one limit, in its place.
+
+    A group of them, like ``Len(1, 3)`` or ``Interval(ge=0, lt=5)``, is taken apart into its limits first. Any other
+    metadata is yielded as it is.
+    """
+    for one in metadata:
+        if isinstance(one, GroupedMetadata):
+            yield from _limits_as_params(one)
+        elif (name := _ANNOTATED_LIMITS.get(type(one))) is not None:
+            yield Param(**{name: getattr(one, name)})
+        else:
+            yield one
 
 
 def merged_param(*params: Param) -> Param:

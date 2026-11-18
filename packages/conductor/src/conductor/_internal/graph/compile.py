@@ -668,9 +668,8 @@ class Compiler:
         - Where the record gives both a default, it's the same default.
 
         If they don't agree, the graph gets ``graph_input_used_two_ways``, and the second input gets no value.
-        ``int`` and ``Annotated[int, Param()]`` agree. ``int`` and ``Annotated[int, Param(title="Count")]`` don't.
-        Nor do ``Annotated[int, Ge(0)]`` and ``Annotated[int, Param(ge=0)]``. That's one rule written two ways, and
-        both take the same values, but they're read as two types.
+        ``int`` and ``Annotated[int, Param()]`` agree, and so do ``Annotated[int, Ge(0)]`` and
+        ``Annotated[int, Param(ge=0)]``. ``int`` and ``Annotated[int, Param(title="Count")]`` don't.
 
         The graph input is the first input's field. A later input replaces it only if it brings the record's
         default and the first didn't. The input's own declared default plays no part: a graph input that the record

@@ -643,7 +643,14 @@ def test_the_quick_start_runs_inside_a_running_loop_as_in_a_notebook():
 
 #: What each package may import besides the standard library. ``pydantic_core`` comes with pydantic.
 IMPORTS = {
-    "conductor": {"conductor", "pydantic", "pydantic_core", "polars", "typing_extensions"},
+    "conductor": {
+        "conductor",
+        "annotated_types",
+        "pydantic",
+        "pydantic_core",
+        "polars",
+        "typing_extensions",
+    },
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "polars", "regex"},
     "conductor-providers": {
         "conductor_providers",
@@ -660,6 +667,7 @@ IMPORTS = {
 #: test noticing.
 DISTRIBUTIONS = {
     "conductor": {
+        "annotated-types",
         "pydantic",
         "polars",
         "typing-extensions",

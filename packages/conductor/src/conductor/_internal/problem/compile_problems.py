@@ -884,8 +884,8 @@ def graph_input_used_two_ways(node_id: str, input: str, /, *, graph_input: str) 
     things:
 
     - The type, as written in its hint, with its limits, choices and validators. ``int`` and
-      ``Annotated[int, Param()]`` agree. But one rule written two ways, such as ``annotated_types.Ge(0)`` and
-      ``Param(ge=0)``, counts as two types, even though both take the same values.
+      ``Annotated[int, Param()]`` agree, and so do ``Annotated[int, annotated_types.Ge(0)]`` and
+      ``Annotated[int, Param(ge=0)]``.
     - How a host shows it: the same title, description and widget.
     - The default. A graph input's default comes from the record, and may be written on any of the inputs. Where it is
       written twice, it must be the same. An input's own default plays no part.

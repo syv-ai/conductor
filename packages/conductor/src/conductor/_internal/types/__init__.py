@@ -21,12 +21,13 @@ from .choice import (
 from .fit import fit
 from .hint import a_number, union_members, union_of
 from .host_type import NAMES, host_type
-from .param import Param, merged_param, split_hint
+from .param import SIZED, Param, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
 from .type import Type, TypeRefusal
 
 __all__ = [
     "NAMES",
+    "SIZED",
     "Choice",
     "NoSuchFieldError",
     "Param",

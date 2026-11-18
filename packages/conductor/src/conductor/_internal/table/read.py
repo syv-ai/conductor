@@ -31,7 +31,7 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
 )
-from conductor._internal.types import Type
+from conductor._internal.types import SIZED, Type
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
@@ -496,12 +496,13 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     )
     kept = core_schema.no_info_after_validator_function(as_saved, any_form)
     # The same schema for JSON and for Python. It is deliberately not a function schema at the top: that way, a
-    # limit pydantic has no rule for on a table, like ``Param(min_length=1)``, is reported when the node is declared.
+    # limit pydantic has no rule for on a table, like ``Param(ge=1)``, is reported when the node is declared. It says
+    # its values are sized (SIZED), so a length limit, like ``Param(min_length=1)``, counts the table's rows.
     return core_schema.json_or_python_schema(
         json_schema=kept,
         python_schema=kept,
         serialization=core_schema.plain_serializer_function_ser_schema(
             written_table, when_used="json"
         ),
-        metadata={"pydantic_js_functions": [json_schema]},
+        metadata={"pydantic_js_functions": [json_schema], SIZED: True},
     )

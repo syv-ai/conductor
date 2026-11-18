@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pytest
-from annotated_types import Ge
+from annotated_types import Ge, Interval, Len, MaxLen, MinLen
 from conductor import (
     SKIPPED,
     Choice,
@@ -45,7 +45,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema
 
 
@@ -265,7 +265,7 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
     def on_text(x: Annotated[str, Param(ge=1)]) -> str:
         return x
 
-    def on_table(x: Annotated[Table, Param(min_length=1)]) -> int:
+    def on_table(x: Annotated[Table, Param(ge=1)]) -> int:
         return 0
 
     def on_text_or_none(x: Annotated[str | None, Param(ge=0)] = None) -> str:
@@ -278,6 +278,77 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.problems[0].type == "param_limit_not_supported"
+
+
+def test_an_annotated_types_limit_with_no_rule_for_its_type_is_refused_as_a_param_limit_is():
+    """Pydantic builds ``Annotated[int, MaxLen(3)]`` and then refuses every value, so the graph would compile and
+    never run."""
+
+    def on_number(x: Annotated[int, MaxLen(3)]) -> int:
+        return x
+
+    def on_items(x: list[Annotated[int, Len(1, 3)]]) -> int:
+        return 0
+
+    def on_text_or_none(x: Annotated[str, Interval(ge=0)] | None = None) -> str:
+        return ""
+
+    for wrong in (on_number, on_items, on_text_or_none):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == "param_limit_not_supported"
+
+
+def test_a_length_limit_on_a_table_counts_its_rows_written_with_param_or_annotated_types():
+    class Row(TypedDict):
+        a: int
+
+    @node("few-rows", title="Few rows", description="For a test.")
+    def few_rows(
+        rows: Annotated[Table[Row], MinLen(1)], more: Annotated[Table, Param(max_length=1)]
+    ) -> int:
+        return rows.height
+
+    graph = compiled_graph(few_rows)
+    assert graph.run({"rows": [{"a": 1}], "more": []}).outputs == {"result": 1}
+    for given, code in (
+        ({"rows": [], "more": []}, "too_short"),
+        ({"rows": [{"a": 1}], "more": [{"b": 1}] * 2}, "too_long"),
+    ):
+        with pytest.raises(InvalidCallError) as refused:
+            graph.run(given)
+        assert refused.value.problems[0].ctx["errors"][0]["type"] == code
+
+
+def test_a_limit_on_one_member_of_a_union_limits_that_member_only():
+    @node("int-or-text", title="Int or text", description="For a test.")
+    def int_or_text(x: Annotated[int, Ge(0)] | str) -> str:
+        return str(x)
+
+    graph = compiled_graph(int_or_text)
+    assert graph.run({"x": "a"}).outputs == {"result": "a"}
+    assert graph.run({"x": 3}).outputs == {"result": "3"}
+    with pytest.raises(InvalidCallError):
+        graph.run({"x": -1})
+
+
+def _not_negative(value: int) -> int:
+    if value < 0:
+        raise ValueError("below zero")
+    return value
+
+
+def test_metadata_on_a_series_is_for_its_items():
+    """A validator, like a limit, on a ``Series`` checks each item; it was dropped and ``-1`` passed."""
+
+    @node("every-item", title="Every item", description="For a test.")
+    def every_item(xs: Annotated[Series[int], AfterValidator(_not_negative)]) -> int:
+        return len(xs)
+
+    graph = compiled_graph(every_item)
+    assert graph.run({"xs": [1, 2]}).outputs == {"result": 2}
+    with pytest.raises(InvalidCallError):
+        graph.run({"xs": [1, -1]})
 
 
 def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():

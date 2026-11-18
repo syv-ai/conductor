@@ -113,15 +113,19 @@ def async_run() -> str:
 
 @DECLARATION_PROBLEMS.problem
 def param_limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
-    """A ``Param`` sets a limit that pydantic has no rule for on the input's type.
+    """A ``Param``, or an annotated-types limit such as ``MaxLen(3)``, sets a limit that pydantic has no rule for on
+    the input's type.
 
-    pydantic knows these limits:
+    Pydantic would build the type, then refuse every value it is given. An annotated-types limit is read as the
+    ``Param`` limit of the same name (``Ge(0)`` as ``ge=0``, ``Len(1, 3)`` as ``min_length=1, max_length=3``), so
+    the rule is the same for both. pydantic knows these limits:
 
     - ``ge``, ``gt``, ``le``, ``lt`` and ``multiple_of`` on numbers (``Decimal`` too), dates, times and durations,
     - ``min_length`` and ``max_length`` on texts, bytes, lists, tuples, sets and dicts,
     - ``pattern`` on texts.
 
-    A table takes no limits. The same goes for a ``Param`` on a field of a model that a node takes.
+    A table takes only ``min_length`` and ``max_length``, which count its rows. The same goes for a ``Param`` on a
+    field of a model that a node takes.
 
     To fix it, use only limits pydantic knows for the type.
 
@@ -136,7 +140,7 @@ def param_limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
 
         declaration_refused(lambda: node("short", title="Short", description="Passes the text on as it is.")(short))
     """
-    return f"pydantic has no rule for {comma_separated(unknown_limits)} on {type}. Remove it from the Param, or check the value in the node instead."
+    return f"pydantic has no rule for {comma_separated(unknown_limits)} on {type}. Remove it from the hint, or check the value in the node instead."
 
 
 @DECLARATION_PROBLEMS.problem
@@ -930,7 +934,7 @@ def pydantic_field_in_hint() -> str:
     return type, on an item (``Series[Annotated[int, Field(ge=0)]]``) and on a column of a table's row type.
 
     A type that carries its own limits is still fine. ``PositiveInt``, ``constr(min_length=1)`` and
-    ``Annotated[int, annotated_types.Gt(0)]`` are read just as pydantic reads them. ``Field(...)`` on the fields of
+    ``Annotated[int, annotated_types.Gt(0)]`` are read just as pydantic reads them, the last as ``Param(gt=0)``. ``Field(...)`` on the fields of
     your own model or dataclass is fine too, since it belongs to that class.
 
     To fix it, write the same thing on ``Param``, like ``Annotated[int, Param(ge=0)]``.

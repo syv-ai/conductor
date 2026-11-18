@@ -14,6 +14,7 @@ from typing import Annotated, Any, TypedDict
 
 import polars as pl
 import pytest
+from annotated_types import Ge
 from conductor import (
     Choice,
     Deprecation,
@@ -1202,6 +1203,12 @@ def test_two_inputs_of_one_graph_input_written_differently_but_meaning_the_same_
     graph = _one_graph_input_feeding(a_hint, b_hint)
     assert graph.problems == []
     assert graph.inputs == _one_graph_input_feeding(int, int).inputs
+    assert graph.run({"x": 3}).outputs == {"a": 3, "b": 3}
+
+
+def test_two_inputs_of_one_graph_input_with_one_limit_written_by_annotated_types_and_by_param_agree():
+    graph = _one_graph_input_feeding(Annotated[int, Ge(0)], Annotated[int, Param(ge=0)])
+    assert graph.problems == []
     assert graph.run({"x": 3}).outputs == {"a": 3, "b": 3}
 
 
