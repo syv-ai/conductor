@@ -15,7 +15,7 @@ import pytest
 from conductor import Graph, Problem
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
-from conductor_providers.fastapi.state import QueuedAnswer, RunOutcome, RunState
+from conductor_providers.fastapi.state import RunOutcome, RunState
 from conductor_providers.fastapi.store import GuardedStore
 from pydantic import TypeAdapter, ValidationError
 from pytest import LogCaptureFixture
@@ -95,30 +95,55 @@ def test_a_cancel_asked_while_the_run_ran_stays_asked_for_the_resume_a_taken_ans
     assert (state.status, state.cancel_asked) == ("running", True)
 
 
-def test_a_failed_resume_call_keeps_the_queued_and_clears_a_cancel_asked() -> None:
+def test_a_failed_resume_call_gives_the_run_its_queue_then_and_there_and_clears_a_cancel_asked() -> (
+    None
+):
+    run, waiting_id = _waiting()
     cause = Problem(type="raised_outside_a_node", msg="It raised.", ctx={"error": "KeyError"})
-    queued = RunState.started().with_queued({"approve~1": True}).asked_to_stop()
 
-    state = queued.failed(cause)
+    answered, given = (
+        RunState.started().with_queued({waiting_id: True}).asked_to_stop().failed(cause, run)
+    )
+    declined, ended = RunState.started().with_queued(declines={waiting_id: "No"}).failed(cause, run)
 
-    assert (state.status, state.cause, state.cancel_asked, state.queued) == (
+    assert (answered.status, answered.cause, answered.cancel_asked, answered.queued) == (
         "failed",
         cause,
         False,
-        [QueuedAnswer(waiting_id="approve~1", answer=True)],
+        [],
+    )
+    assert given is not None and given.to_json() == run.answer(waiting_id, True).to_json()
+    assert (declined.status, declined.cause.type, declined.queued) == (
+        "declined",
+        "answer_declined",
+        [],
+    )
+    assert ended is not None and ended.status == "declined"
+
+
+def test_a_failed_resume_call_whose_run_cant_be_loaded_refuses_each_queued_reply_with_its_cause() -> (
+    None
+):
+    """There is no run to give the queue to, so each reply is refused loudly rather than kept or dropped unseen."""
+    cause = Problem(type="saved_run_unreadable", msg="It can't be read.", ctx={})
+
+    state, given = (
+        RunState.started()
+        .with_queued({"a~1": True})
+        .with_queued(declines={"b~2": None})
+        .failed(cause, None)
     )
 
+    assert (state.status, state.cause, state.queued, given) == ("failed", cause, [], None)
+    assert state.refused == {"a~1": [cause], "b~2": [cause]}
 
-def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -> None:
+
+def test_answers_taken_clear_what_was_refused_for_their_questions() -> None:
     refused = RunState.started().model_copy(
         update={"refused": {"a": [Problem(type="invalid_answer", msg="No.")], "b": []}}
     )
-    state = refused.with_queued({"a": 1, "c": 3}).with_queued({"a": 2}).answered({"a"})
 
-    assert (state.queued, list(state.refused)) == (
-        [QueuedAnswer(waiting_id="c", answer=3)],
-        ["b"],
-    )
+    assert list(refused.answered({"a"}).refused) == ["b"]
 
 
 def test_a_queued_decline_the_run_takes_ends_it_declined_and_writes_the_declined_run_with_nothing_waiting() -> (

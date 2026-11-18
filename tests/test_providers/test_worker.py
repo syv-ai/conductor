@@ -1083,22 +1083,6 @@ async def test_a_worker_that_never_served_declines_a_waiting_run() -> None:
     assert (written.status, written.cause.type) == ("declined", "answer_declined")
 
 
-def _failed_with_queued(store: MemoryStore, run_id: str, reply: dict[str, Any]) -> None:
-    """Writes the run's row as a resume call that raised leaves it, with ``reply`` queued while it ran."""
-    store.rows[run_id] = dataclasses.replace(
-        store.rows[run_id],
-        status="failed",
-        state=json.dumps(
-            {
-                **store.state(run_id),
-                "status": "failed",
-                "cause": {"type": "raised_outside_a_node", "msg": "It raised.", "ctx": {}},
-                "queued": [reply],
-            }
-        ),
-    )
-
-
 def _queued_decline(waiting_id: str) -> dict[str, Any]:
     return {"kind": "decline", "waiting_id": waiting_id, "reason": "First"}
 
@@ -1116,72 +1100,6 @@ def _event_types(events: list[dict[str, Any]]) -> list[str]:
     "kind",
     ["answer", "decline"],
 )
-async def test_a_decline_to_a_stopped_run_ends_it_at_once_and_drops_the_replies_its_queue_kept(
-    kind: str,
-) -> None:
-    """A resume call that raised leaves its queue, and the view still shows the question waiting. A decline to the
-    run is given to it as its row has it, so the run ends ``declined`` with this call's reason, and what the queue
-    kept is dropped: the run has ended, so no reply in it could be taken. Its events get the ``run_end``."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = MemoryStore()
-    worker = _worker(store, registry)
-    async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        await store.ended(run_id)
-    kept = (
-        {"kind": "answer", "waiting_id": waiting_id, "answer": False}
-        if kind == "answer"
-        else _queued_decline(waiting_id)
-    )
-    _failed_with_queued(store, run_id, kept)
-    events = len(await store.stored_events(run_id))
-    assert [waiting.id for waiting in (await store.view(run_id)).waiting] == [waiting_id]
-
-    written = await worker.decline(run_id, waiting_id, reason="Second", allows=EVERY_RUN)
-
-    assert written == await store.view(run_id)
-    assert (written.status, written.cause.type, written.cause.ctx, written.waiting) == (
-        "declined",
-        "answer_declined",
-        {"reason": "Second"},
-        [],
-    )
-    assert store.state(run_id)["queued"] == []
-    assert _event_types((await store.stored_events(run_id))[events:]) == [
-        "run_end:declined:answer_declined"
-    ]
-
-
-async def test_an_answer_to_a_stopped_run_whose_queue_answers_the_same_question_wins_over_it() -> (
-    None
-):
-    """With no decline queued, an answer to a stopped run is given to the run as its row has it, and the queue waits
-    for the end of the resume call. So of two answers to one question, the later is taken."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = MemoryStore()
-    worker = _worker(store, registry)
-    async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        await store.ended(run_id)
-        _failed_with_queued(
-            store,
-            run_id,
-            {"kind": "answer", "waiting_id": waiting_id, "answer": False},
-        )
-
-        written = await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
-        ended = await store.ended(run_id)
-
-    assert written.status == "running"
-    assert (ended.status, ended.outputs, ended.refused) == (
-        "complete",
-        {"busy": "x", "after": True},
-        {},
-    )
-
-
 def _two_questions(
     busy_fails_once: bool,
 ) -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, str]]:
@@ -1235,35 +1153,6 @@ def _two_questions(
     return registry, graph, inputs, ids
 
 
-async def test_a_queued_answer_to_a_question_asked_after_the_checkpoint_is_taken_when_another_is_answered() -> (
-    None
-):
-    """A worker died after its run asked ``second``, and the answer to it was queued. The run's checkpoint asks only
-    ``first``, and the next resume call raised outside a node. Answering ``first`` then resumes the run with the
-    queue kept, so the run asks ``second`` again and takes the queued answer: it ends complete."""
-    registry, graph, inputs, ids = _two_questions(busy_fails_once=True)
-    checkpoint = Graph.compile(graph, registry).run(inputs)
-    assert [waiting.loc[0] for waiting in checkpoint.waiting] == ["a_first"]
-    store, calls = MemoryStore(), []
-
-    def raises_once(metadata: object, stop: ThreadEvent) -> None:
-        calls.append(metadata)
-        if len(calls) == 1:
-            raise ConnectionError("the secrets service is down")
-
-    worker = _worker(store, registry, context=raises_once)
-    await store.create(left_running("left", graph, checkpoint, owner="a-dead-worker"))
-    await worker.answer("left", {ids["c_second"]: True}, allows=EVERY_RUN)
-    async with worker.serving():
-        failed = await store.ended("left")
-        assert (failed.status, len(store.state("left")["queued"])) == ("failed", 1)
-
-        await worker.answer("left", {ids["a_first"]: False}, allows=EVERY_RUN)
-        ended = await store.ended("left")
-
-    assert (ended.status, ended.outputs, ended.refused) == ("complete", {"after": "False/True"}, {})
-
-
 async def test_a_decline_ends_every_question_so_a_decline_of_another_is_not_waiting() -> None:
     """A run that waits on two questions is declined on one. The run has ended, so the other waits no more, and a
     decline of it is refused with nothing written."""
@@ -1304,31 +1193,49 @@ async def test_one_call_that_answers_one_waiting_call_twice_is_refused_on_a_stop
     assert store.rows[run_id] == before
 
 
-async def test_a_resume_of_a_failed_run_whose_queue_holds_a_decline_ends_it_declined_as_its_resume_call_stops() -> (
+async def test_a_decline_queued_during_a_resume_call_that_raised_ends_the_run_then_so_no_later_reply_calls_a_node() -> (
     None
 ):
-    """A person declined while the run ran, and its resume call then raised. A resume resumes the run with its queue
-    kept, as with any queued reply, and the run takes the decline when that call stops: it ends ``declined``, and its
-    last ``run_end`` says so."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = MemoryStore()
-    worker = _worker(store, registry)
+    """A person declines ``a_first`` while the run runs, and the resume call then raises outside any node. The run
+    as the row has it takes the queue as the call fails, so it ends ``declined`` at once, as it would on a running
+    run. A later answer to ``c_second`` is ``not_waiting`` and a resume is ``run_not_resumable``: no node is called
+    after the person said stop."""
+    registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
+    checkpoint = Graph.compile(graph, registry).run(inputs)
+    assert sorted(waiting.loc[0] for waiting in checkpoint.waiting) == ["a_first", "c_second"]
+    store, calls = MemoryStore(), []
+
+    def raises(metadata: object, stop: ThreadEvent) -> None:
+        calls.append(metadata)
+        raise ConnectionError("the secrets service is down")
+
+    worker = _worker(store, registry, context=raises)
+    await store.create(left_running("left", graph, checkpoint, owner="a-dead-worker"))
+    queued = await worker.decline("left", ids["a_first"], reason="No", allows=EVERY_RUN)
+    assert queued.status == "running"
     async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        await store.ended(run_id)
-        _failed_with_queued(store, run_id, _queued_decline(waiting_id))
+        ended = await store.ended("left")
+    row = store.rows["left"]
 
-        assert (await worker.resume(run_id, allows=EVERY_RUN)).status == "running"
-        ended = await store.ended(run_id)
+    refused = []
+    for later in (
+        worker.answer("left", {ids["c_second"]: True}, allows=EVERY_RUN),
+        worker.resume("left", allows=EVERY_RUN),
+    ):
+        with pytest.raises(InvalidCallError) as refusal:
+            await later
+        refused.extend((problem.type, problem.ctx["status"]) for problem in refusal.value.problems)
 
-    assert (ended.status, ended.cause.type, ended.cause.ctx) == (
+    assert (ended.status, ended.cause.type, ended.cause.ctx, ended.waiting) == (
         "declined",
         "answer_declined",
-        {"reason": "First"},
+        {"reason": "No"},
+        [],
     )
-    assert (store.rows[run_id].owner, store.rows[run_id].lease_until) == (None, None)
-    assert _event_types(await store.stored_events(run_id))[-1] == "run_end:declined:answer_declined"
+    assert store.state("left")["queued"] == []
+    assert _event_types(await store.stored_events("left"))[-1] == "run_end:declined:answer_declined"
+    assert refused == [("not_waiting", "declined"), ("run_not_resumable", "declined")]
+    assert store.rows["left"] == row and len(calls) == 1
 
 
 class _FailsAnUpdateWithAnEvent(MemoryStore):
@@ -1451,32 +1358,6 @@ async def test_a_held_runs_run_end_is_written_in_the_update_that_writes_how_it_s
         await store.ended(await _started(worker, graph, inputs))
 
     assert [came for came in store.came if came[1] == "run_end"] == [("update", "run_end")]
-
-
-async def test_an_answer_to_a_stopped_run_whose_queue_declines_its_question_wins_over_the_decline() -> (
-    None
-):
-    """A decline the run hasn't taken yet is a queued reply like any other. So an answer to the stopped run is given
-    to the run as its row has it, and what the queue held for that question is dropped: of the two replies to one
-    question, the later is taken, as of two answers."""
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = MemoryStore()
-    worker = _worker(store, registry)
-    async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        await store.ended(run_id)
-        _failed_with_queued(store, run_id, _queued_decline(waiting_id))
-
-        written = await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
-        ended = await store.ended(run_id)
-
-    assert written.status == "running"
-    assert (ended.status, ended.outputs, ended.refused) == (
-        "complete",
-        {"busy": "x", "after": True},
-        {},
-    )
 
 
 async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_ends_the_run_when_it_stops() -> (
@@ -1915,9 +1796,12 @@ async def test_an_answer_queued_before_a_cancelled_run_asks_its_question_is_refu
         assert await _resume_calls(store, run_id) == 1
 
 
-async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_and_is_taken_after_a_resume() -> (
+async def test_an_answer_queued_for_a_question_the_checkpoint_hasnt_asked_is_refused_loudly_when_the_resume_call_raises() -> (
     None
 ):
+    """The run as the row has it takes the queue as the call fails, so a row that stops holds none. An answer to a
+    question the run asked after its last checkpoint finds nothing waiting there: it is ``not_waiting`` in
+    ``refused``, never dropped unseen, and the question waits again on the next resume."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     resume_calls = []
@@ -1937,18 +1821,17 @@ async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_an
 
     async with worker.serving():
         failed = await store.ended("left")
-        assert (failed.status, failed.refused) == (
-            "failed",
-            {},
-        )  # the answer stays queued, as the resume below shows
+        assert store.state("left")["queued"] == []
+        assert (failed.status, failed.cause.type) == ("failed", "raised_outside_a_node")
+        assert {key: [p.type for p in value] for key, value in failed.refused.items()} == {
+            waiting_id: ["not_waiting"]
+        }
 
         await worker.resume("left", allows=EVERY_RUN)
-        # this resume call ends waiting, then takes the answer queued before the call that failed
-        completed = await store.ended("left")
-    assert (completed.status, completed.refused, completed.outputs) == (
-        "complete",
-        {},
-        {"busy": "x", "after": True},
+        asked_again = await store.ended("left")
+    assert (asked_again.status, [waiting.id for waiting in asked_again.waiting]) == (
+        "waiting",
+        [waiting_id],
     )
 
 
@@ -3279,3 +3162,39 @@ async def test_a_views_metadata_is_the_json_the_row_keeps_not_as_the_type_reads_
         view = await worker.read(run_id, allows=EVERY_RUN)
 
     assert view.metadata == {"user": "anna", "legacy": 7}
+
+
+async def test_a_held_run_that_stops_on_a_row_it_cant_read_logs_it_with_the_runs_id(
+    caplog: LogCaptureFixture,
+) -> None:
+    """A row the worker can't read can't fail the run, since the failure would be written to that row. The held run
+    stops, and the log says which run and why, rather than the task dying unseen."""
+    registry, graph, gate, inputs, _ = asking()
+
+    class Unreadable(MemoryStore):
+        """Writes a ``state`` the worker can't read just before the write that ends the first resume call."""
+
+        broken = False
+
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
+            if not self.broken and event is not None:
+                self.broken = True
+                row = self.rows[run_id]
+                self.rows[run_id] = dataclasses.replace(row, state="{}", rev=row.rev + 1)
+            return await super().update(run_id, rev, changes, event)
+
+    store = Unreadable()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        gate.set()
+        async with asyncio.timeout(5):
+            while not any("stopped resuming run" in record.message for record in caplog.records):
+                await asyncio.sleep(0.01)
+
+    assert any(
+        f"the worker stopped resuming run {run_id}" in record.message and record.exc_info
+        for record in caplog.records
+    )

@@ -231,6 +231,8 @@ Every route under `/runs` but the events route answers with the run as it is aft
 
 Answers and declines sent while a run is running are queued and given to the run when it stops, in the order they came. The route still answers 202, with the run `running`. Only an answer, or a reason, that can't be written as JSON is refused at once, with the same 422 a run that isn't running gives it. One the run turns down then shows up in the run's `refused`, by its waiting id. `python -m conductor.about answers-and-declines` has the rest of the queue's rules, such as which of two replies to one question is taken, and what a run whose resume call raised does with what it had queued.
 
+A decline sent while a run is running is taken when the resume call stops, so the calls that resume call is making go on until then. To stop them at once as well, also send `POST /runs/{id}/cancel`.
+
 ## When a call is refused
 
 Every refusal has the shape of FastAPI's own 422: `{"detail": [{"type", "loc", "msg", ...}, ...]}`. Each route's OpenAPI entry declares the refusals it can answer with. A missing run, or one the filter hides, is a 404, `no_such_run`. When that run is the `previous` of `POST /runs` or `POST /estimate`, its `loc` is `["previous"]`, so a client can tell it from a route that isn't there. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md). So is a `previous` run that can't be loaded on this request's nodes. Its problems are the ones `Run.from_json` gives for its saved run, as they are, such as `saved_run_unreadable` for a saved run someone edited.

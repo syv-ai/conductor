@@ -28,7 +28,7 @@ from pydantic_core import from_json
 from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
-from conductor_providers.fastapi.problems import no_such_run, run_not_resumable
+from conductor_providers.fastapi.problems import RESUMABLE, no_such_run, run_not_resumable
 from conductor_providers.fastapi.state import M, RunOutcome, RunRow, RunState, RunView
 from conductor_providers.fastapi.store import GuardedStore, RunStore
 
@@ -292,7 +292,8 @@ class Worker(Generic[M, X]):
         A run that takes the decline is ``declined``, with ``answer_declined``: nothing more is called, and a later
         answer, decline or resume is refused. A running run queues the decline as it queues an answer, and takes it
         when its resume call ends. A run that isn't running takes it here, with no resume call, so this needs no
-        serving worker. The queue's rules are in ``python -m conductor.about answers-and-declines``.
+        serving worker. To stop a running run's calls at once too, ``cancel`` it as well. The queue's rules are in
+        ``python -m conductor.about answers-and-declines``.
 
         Args:
             run_id: The run's id.
@@ -305,8 +306,8 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), ``reason`` can't be written as JSON
-                (``invalid_decline_reason``), or a run that isn't running refuses the decline (``not_waiting``,
-                ``answer_stale``). Nothing is written then.
+                (``invalid_decline_reason``), a run that isn't running refuses the decline (``not_waiting``,
+                ``answer_stale``), or it can't be loaded on its metadata's nodes. Nothing is written then.
         """
 
         async def declined(row: RunRow[M]) -> RunRow[M] | None:
@@ -357,7 +358,7 @@ class Worker(Generic[M, X]):
         """
 
         async def resumed(row: RunRow[M]) -> RunRow[M] | None:
-            if row.state.cause is None or row.state.status == "declined":
+            if row.state.status not in RESUMABLE:
                 raise InvalidCallError([run_not_resumable(status=row.state.status)])
             return await self._reply(row, max_items=max_items)
 
@@ -694,8 +695,8 @@ class Worker(Generic[M, X]):
         """One try at giving a run this call's answers, or its higher ceiling: ``answer`` and ``resume`` both come
         here.
 
-        A running run queues the answers. Otherwise they go to ``run.answer``, and the run is claimed and resumed
-        with its queue kept. The rules are in ``python -m conductor.about answers-and-declines``.
+        A running run queues the answers. Otherwise they go to ``run.answer``, and the run is claimed and resumed.
+        A row that isn't running holds no queue. The rules are in ``python -m conductor.about answers-and-declines``.
 
         Args:
             row: The run's row as read.

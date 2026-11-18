@@ -191,17 +191,16 @@ class RunState(BaseModel):
         return self.model_copy(update={"cancel_asked": True})
 
     def answered(self, waiting_ids: Collection[str]) -> RunState:
-        """This state once the run took answers to some questions: nothing is refused or queued for them any more.
+        """This state once the run took answers to some questions: nothing is refused for them any more.
 
         Args:
             waiting_ids: The waiting ids the run took answers to.
 
         Returns:
-            The state without them in ``refused`` and ``queued``.
+            The state without them in ``refused``.
         """
-        queued = [reply for reply in self.queued if reply.waiting_id not in waiting_ids]
         refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
-        return self.model_copy(update={"queued": queued, "refused": refused})
+        return self.model_copy(update={"refused": refused})
 
     def declined(self, run: Run[Any]) -> RunState:
         """This state once a person's decline ended the run for good: ``declined``, with nothing queued or asked.
@@ -296,20 +295,43 @@ class RunState(BaseModel):
                 refused.pop(reply.waiting_id, None)
         return given, taken, refused
 
-    def failed(self, cause: Problem) -> RunState:
+    def failed(self, cause: Problem, run: Run[Any] | None) -> tuple[RunState, Run[Any] | None]:
         """This state once a resume call raised, or conductor refused it, so it returned no run.
 
-        The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued for the next call
-        (``python -m conductor.about answers-and-declines``), and a cancel asked is cleared, since the run has
-        stopped.
+        The run as the row has it, its last checkpoint, is given the replies queued meanwhile then and there, as
+        ``ended_with`` gives them. So a row that stops never holds a queue, and a later answer, decline or resume
+        acts on the run alone. A run that takes a decline is ``declined``; else it is ``failed`` with ``cause``. An
+        answer to a question the run asked after its last checkpoint is refused as ``not_waiting`` in ``refused``,
+        and that question waits again on the next resume. A cancel asked is cleared, since the run has stopped.
+
+        When the row's run can't be loaded, there is no run to give the queue to, so each queued reply is refused
+        with ``cause``, in ``refused`` by its waiting id.
 
         Args:
             cause: Why the resume call failed.
+            run: The run as the row has it, or ``None`` when it couldn't be loaded.
 
         Returns:
-            The state, ``failed`` with ``cause``.
+            The state, and the run given the queue when it took any of it, for the row to keep; ``None`` to keep the
+            row's run as it is.
         """
-        return self.model_copy(update={"status": "failed", "cause": cause, "cancel_asked": False})
+        if run is None:
+            given, taken = None, False
+            refused = {**self.refused, **{reply.waiting_id: [cause] for reply in self.queued}}
+        else:
+            given, taken, refused = self._given_to(run)
+        if given is not None and given.status == "declined":
+            return self.model_copy(update={"refused": refused}).declined(given), given
+        state = self.model_copy(
+            update={
+                "status": "failed",
+                "cause": cause,
+                "queued": [],
+                "refused": refused,
+                "cancel_asked": False,
+            }
+        )
+        return state, given if taken else None
 
 
 @dataclass(frozen=True)

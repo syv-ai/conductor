@@ -32,6 +32,11 @@ def no_such_run(*loc: str | int) -> str:
     return "There is no run by that id that you may see; check the id."
 
 
+#: The statuses of a run that a resume goes on from: the ways a resume call ends a run early. ``Worker.resume``
+#: refuses any other as ``run_not_resumable``, whose message lists these.
+RESUMABLE: tuple[RunStatus, ...] = ("failed", "stopped", "cancelled", "timed_out")
+
+
 @SERVING_PROBLEMS.problem
 def run_not_resumable(*, status: RunStatus) -> str:
     """A resume was asked of a run that didn't end early, or that a person's decline ended for good.
@@ -39,9 +44,10 @@ def run_not_resumable(*, status: RunStatus) -> str:
     Args:
         status: The run's status.
     """
+    resumable = f"{', '.join(RESUMABLE[:-1])} or {RESUMABLE[-1]}"
     return (
-        f"The run is {status}, and only a run that failed, stopped, was cancelled or timed out can be resumed; read "
-        "the run to see what it needs."
+        f"The run is {status}, and only a run that is {resumable} can be resumed; read the run to see what it "
+        "needs."
     )
 
 

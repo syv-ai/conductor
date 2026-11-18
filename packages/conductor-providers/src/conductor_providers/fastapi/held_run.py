@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from threading import Event
 from typing import Any
 
-from conductor import InvalidCallError, NodeRegistry, Problem
+from conductor import InvalidCallError, NodeRegistry, Problem, Run
 from conductor.events import RunCheckpoint, RunEnd
 
 from conductor_providers.fastapi.problems import raised_outside_a_node
@@ -116,6 +116,9 @@ class HeldRun:
         that a node call still going on can stop, and the run is left as the store has it, ``running``. Once its
         lease runs out, a worker resumes it from the last checkpoint; a node call still on a thread may then be made
         again while it runs.
+
+        Anything else that raises here is a fault the run can't be failed with, such as a row whose JSON the worker
+        can't read. It is logged with the run's id, and the run is left as the store has it.
         """
         renewing = asyncio.create_task(self._renew())
         try:
@@ -125,6 +128,12 @@ class HeldRun:
             self._stop.set()  # another worker makes the calls going on again
             log.exception(
                 "the store raised while run %s was resumed; a worker resumes the run once its lease runs out",
+                self.run_id,
+            )
+        except Exception:
+            self._stop.set()
+            log.exception(
+                "the worker stopped resuming run %s, and left it as the store has it; read its row to see why",
                 self.run_id,
             )
         finally:
@@ -150,11 +159,12 @@ class HeldRun:
         settings, row = self._settings, self._row
         # the run as it last stopped: a checkpoint changes only its progress
         stopped = row.outcome
-        # the run as the row has it, which a failed run lists; nothing, until the run is loaded
+        # the run as the row has it, which a failed run lists and is given its queue; nothing, until it is loaded
         held = RunOutcome(waiting=[], outputs=None, progress=None)
+        last: Run[Any] | None = None
         try:
             run = await asyncio.to_thread(row.loaded, settings.nodes_for(row.metadata))
-            held = await asyncio.to_thread(RunOutcome.of, run)
+            held, last = await asyncio.to_thread(RunOutcome.of, run), run
             stream = run.stream(
                 context=settings.context_for(row.metadata, self._stop),
                 timeout=settings.resume_timeout,
@@ -168,7 +178,7 @@ class HeldRun:
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
                         saved = await asyncio.to_thread(event.run.to_json)
-                        held = await asyncio.to_thread(RunOutcome.of, event.run)
+                        held, last = await asyncio.to_thread(RunOutcome.of, event.run), event.run
                         progressed = stopped.model_copy(update={"progress": held.progress})
                         await self._write(run=saved, outcome=progressed)
                     elif isinstance(event, RunEnd):
@@ -194,7 +204,14 @@ class HeldRun:
         except Exception as error:
             log.exception("resuming run %s failed", self.run_id)
             cause = raised_outside_a_node(error=type(error).__name__)
-        return RunEnd(status="failed", cause=cause), lambda state: (state.failed(cause), None, held)
+
+        def failed(state: RunState) -> tuple[RunState, str | None, RunOutcome | None]:
+            ended, given = state.failed(cause, last)
+            if given is None:
+                return ended, None, held
+            return ended, given.to_json(), RunOutcome.of(given)
+
+        return RunEnd(status="failed", cause=cause), failed
 
     async def _finish(self, run_end: RunEnd | None, after: _After) -> None:
         """Write how a resume call ended.
@@ -203,9 +220,9 @@ class HeldRun:
         an answer written meanwhile is never written over. The ``run_end`` is written with the row, in one
         ``update``, so it lands once, with the write that lands, and a follower that reads that the run stopped has
         the event to read. When the run stops, it says what the row says: a decline queued meanwhile ends the run
-        ``declined``, though the call's own ``run_end`` said ``waiting``. When the run goes on, it is the call's own. A run another
-        worker took is left as it is. A run that is to go on as the worker shuts down is handed back for another
-        worker.
+        ``declined``, though the call's own ``run_end`` said ``waiting``. When the run goes on, it is the call's
+        own. A run another worker took is left as it is. A run that is to go on as the worker shuts down is handed
+        back for another worker.
 
         Args:
             run_end: The call's own ``run_end``; ``None`` for a run handed back.
