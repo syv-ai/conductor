@@ -983,7 +983,7 @@ A record whose parts contradict each other is refused: `loops` without `is_serie
 - `registry.describe()` is a `RegistryDescription`, with `nodes`, and `types` (each with `id`, `title` and `accepted_as`).
 - A subgraph's palette entry lists the fields it offers only in `registry.describe()`, which has the nodes its graph uses. A subgraph's definition has no `describe()`.
 - Its inputs, outputs and `asks` are those of its own graph, compiled on the registry's nodes: `graph.inputs`, `graph.outputs` and `graph.asks`.
-- A subgraph whose graph has problems on the registry's nodes, such as a node the registry doesn't have yet, has no fields to offer, and `registry.describe()` leaves it out, with one warning on the `conductor` logger naming the subgraph and its problems' codes. `check_registry` reports it as `subgraph_broken`, with its graph's problems, and a graph that uses it gets them too.
+- A subgraph whose graph has problems on the registry's nodes, such as a node the registry doesn't have yet, has no fields to offer, and `registry.describe()` leaves it out, with one warning on the `conductor` logger naming the subgraph and its problems' codes. `check_registry` reports it as one `subgraph_broken` for each of its graph's problems, and a graph that uses it gets them too.
 - `graph.describe()` is a `GraphDescription`. Each input of a node is its `FieldDescription`, as `field`, beside its `source`. Each graph input is its `FieldDescription`.
 - Each of these is a host's response model as it is, and `model_dump(mode="json")` writes it.
 
@@ -1164,10 +1164,11 @@ A widget tells an editor how to draw a field. Widgets are frozen models with a `
 `check_registry(registry, /, *, examples={}, context=None)` is one test a node package or a host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`.
 
 - It returns every problem at once, as `Problem`s with `loc` `(node_id, version)`. For `example_for_no_node` given without a version, `loc` is `(node_id,)`.
+- A check that fails on a problem conductor reports, such as an example that doesn't compile or an upgrade `registry.upgrade` refuses, gives one problem for each problem behind it, with that problem's message in `ctx.reason`, its code in `ctx.problem` and its `loc`, as it is, in `ctx.loc` (`["b", "n"]` for input `n` of node `b` in a subgraph's graph): `assert [p.ctx["problem"] for p in check_registry(registry)] == ["unknown_node"]`. An exception the node raised is `ctx.problem` `execution_failed`, and its `ctx.reason` names only its class: "the node raised ZeroDivisionError".
 - A node's function is called only for a node given an example, once per example, through the engine, as a graph of that one node.
 - Each older version is put in a graph of that one node, upgraded with `registry.upgrade` and compiled, with or without an example. Its inputs get the first example's values, or made-up ones, and each required input left without a value is a graph input, as `make_graph` makes it, so a `T` input needs no example. A required input that takes only a constant can't be a graph input: when no value can be made up for one, the version is `needs_example`, and neither its upgrade nor its hooks are checked.
 - `(id, version)` keys an older version's examples. `context=` gives every example the run's context, as `graph.run` takes it.
-- Every subgraph version has its own graph compiled on the registry's nodes, and one that has problems is `subgraph_broken`, and its examples aren't run, so one fault gives one code.
+- Every subgraph version has its own graph compiled on the registry's nodes, and one that has problems is `subgraph_broken`, and its examples aren't run, so one fault gives one problem.
 - The checks are `hook_failed`, `example_hook_failed`, `needs_example`, `subgraph_broken`, `upgrade_broken`, `changed_its_inputs`, `example_run_failed`, `example_not_compiled`, `example_refused` and `example_for_no_node`. `python -m conductor.about problems` says what each means and how to fix it. These codes are `check_registry`'s, in `REGISTRY_CHECK_PROBLEMS.codes` and not in `PROBLEMS.codes`.
 - A node known to fail goes in a test of its own, marked `pytest.mark.xfail(strict=True)`, that checks `registry.filter(...)` down to that node. `python -m conductor.about example-run-failed` shows one.
 

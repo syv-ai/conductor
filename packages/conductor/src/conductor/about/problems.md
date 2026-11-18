@@ -136,6 +136,6 @@ def why_it_stopped(run: Run) -> Problem:
 
 ## `check_registry`
 
-Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they are not in `PROBLEMS.codes`. `loc` is the node's id and its version.
+Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they are not in `PROBLEMS.codes`. `loc` is the node's id and its version. A check that fails on a problem conductor reports gives one problem for each problem behind it: `ctx.reason` is that problem's message, `ctx.problem` its code, and `ctx.loc` its `loc`, as it is, like `["b", "n"]`.
 
 <!-- problems: conductor.testing.REGISTRY_CHECK_PROBLEMS -->

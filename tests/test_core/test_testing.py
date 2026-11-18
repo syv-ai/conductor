@@ -12,9 +12,9 @@ from conductor import (
     Ask,
     Context,
     ExternalError,
+    GraphRecord,
     NodeRegistry,
     Param,
-    Problem,
     Series,
     Upgrade,
     make_graph,
@@ -36,11 +36,6 @@ def registry_of(*definitions: Any) -> NodeRegistry[Session]:
 
 def found(registry: NodeRegistry, **options: Any) -> list[tuple[str, tuple[str | int, ...]]]:
     return [(p.type, p.loc) for p in check_registry(registry, **options)]
-
-
-def behind(problem: Problem) -> list[str]:
-    """Returns the codes of the problems that one ``check_registry`` problem was made from."""
-    return [one["type"] for one in problem.ctx["problems"]]
 
 
 # -- nodes that keep the contract ------------------------------------------------------------------
@@ -115,22 +110,95 @@ def test_a_subgraph_whose_graph_does_not_compile_is_reported_with_its_graphs_pro
     # the subgraph uses upper, which the registry doesn't have
     (problem,) = check_registry(registry_of(shout))
 
-    assert (problem.type, problem.loc, behind(problem)) == (
+    assert (problem.type, problem.loc, problem.ctx["problem"]) == (
         "subgraph_broken",
         ("shout", 1),
-        ["unknown_node"],
+        "unknown_node",
     )
     assert found(registry_of(upper, shout)) == []
+
+
+def test_two_nodes_of_a_subgraph_with_the_same_fault_are_told_apart_by_where_they_are():
+    """Each problem behind ``subgraph_broken`` says where it is in the subgraph's graph, in ``ctx.loc``."""
+    twice = subgraph("twice", title="Twice", description="For a test.")(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "a": {
+                        "node": "upper",
+                        "inputs": {"text": {"constant": "x"}, "times": {"constant": "many"}},
+                    },
+                    "b": {
+                        "node": "upper",
+                        "inputs": {"text": {"constant": "y"}, "times": {"constant": "lots"}},
+                    },
+                },
+                "outputs": {"result": {"node": "a", "output": "result"}},
+            }
+        )
+    )
+
+    assert [
+        (p.type, p.ctx["problem"], p.ctx["loc"]) for p in check_registry(registry_of(upper, twice))
+    ] == [
+        ("subgraph_broken", "invalid_value", ["a", "times"]),
+        ("subgraph_broken", "invalid_value", ["b", "times"]),
+    ]
+
+
+def _named_by_text(names: str) -> dict[str, type]:
+    return {name: str for name in names.split(",")}
+
+
+@node("name-each", title="Name each", description="For a test.", compute_outputs=_named_by_text)
+def name_each(names: str) -> dict[str, str]:
+    return {}
+
+
+def test_the_loc_behind_a_check_problem_is_the_problem_s_own_loc_whatever_its_shape():
+    """``ctx.loc`` is the ``loc`` of the problem behind it, as it is, so nothing about its shape is guessed.
+
+    An edge from a missing node and an output a node lacks end in an input; a hook's name that is no name ends in
+    the name; a missing context ends in the node's ``Context`` parameter.
+    """
+    edges = subgraph("edges", title="Edges", description="For a test.")(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "j": {
+                        "node": "upper",
+                        "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}},
+                    },
+                    "k": {
+                        "node": "upper",
+                        "inputs": {"text": {"sources": [{"node": "j", "output": "nope"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "j", "output": "result"}},
+            }
+        )
+    )
+    checked = check_registry(
+        registry_of(upper, who, name_each, edges),
+        examples={"who": [{"text": "a"}], "name-each": [{"names": "a.b"}]},
+    )
+
+    assert [(p.type, p.ctx["problem"], p.ctx["loc"]) for p in checked] == [
+        ("example_refused", "context_missing", ["who", "ctx"]),
+        ("example_hook_failed", "compute_hook_returned_invalid", ["name-each", "a.b"]),
+        ("subgraph_broken", "edge_names_missing_node", ["j", "text"]),
+        ("subgraph_broken", "unknown_output", ["k", "text"]),
+    ]
 
 
 def test_a_broken_subgraph_with_an_example_is_reported_as_broken_and_its_example_is_not_run():
     # one fault gives one code, whether or not the subgraph has an example
     (problem,) = check_registry(registry_of(shout), examples={"shout": [{"text": "hi"}]})
 
-    assert (problem.type, problem.loc, behind(problem)) == (
+    assert (problem.type, problem.loc, problem.ctx["problem"]) == (
         "subgraph_broken",
         ("shout", 1),
-        ["unknown_node"],
+        "unknown_node",
     )
 
 
@@ -247,7 +315,7 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
         ("upgrade_broken", ("length", 1)),
     ]
     [problem] = check_registry(registry_of(size))
-    assert behind(problem) == ["invalid_value"]
+    assert problem.ctx["problem"] == "invalid_value"
 
 
 def test_an_older_version_whose_input_no_value_can_be_made_up_for_upgrades_without_an_example():
@@ -342,13 +410,12 @@ def test_an_upgrade_that_raises_is_upgrade_broken_with_the_refusal_of_registry_u
 
     with caplog.at_level(logging.ERROR, logger="conductor"):
         [problem] = check_registry(registry_of(leak))
-    assert (problem.type, problem.loc, behind(problem)) == (
+    assert (problem.type, problem.loc, problem.ctx["problem"]) == (
         "upgrade_broken",
         ("leak", 1),
-        ["cannot_move_to_version_raised"],
+        "cannot_move_to_version_raised",
     )
-    [refusal] = problem.ctx["problems"]
-    assert (refusal["loc"], refusal["ctx"]["error"]) == (["leak"], "KeyError")
+    assert "KeyError" in problem.ctx["reason"]
     assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
 
 
@@ -387,17 +454,17 @@ def test_an_upgrade_that_returns_none_is_upgrade_broken_and_the_other_nodes_are_
         return n
 
     checked = check_registry(registry_of(forgets, fails))
-    assert [(p.type, p.loc, behind(p)) for p in checked] == [
-        ("upgrade_broken", ("forgets", 1), ["cannot_move_to_version_rewrite_failed"]),
-        ("upgrade_broken", ("fails", 1), ["cannot_move_to_version_raised"]),
+    assert [(p.type, p.loc, p.ctx["problem"]) for p in checked] == [
+        ("upgrade_broken", ("forgets", 1), "cannot_move_to_version_rewrite_failed"),
+        ("upgrade_broken", ("fails", 1), "cannot_move_to_version_raised"),
     ]
 
 
-def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
-    """A ``check_registry`` problem's ``reason`` is the messages of the problems behind it.
+def test_each_problem_behind_a_check_is_one_problem_with_its_message_and_its_code():
+    """A ``check_registry`` problem is about one problem behind it.
 
-    Those problems are in ``ctx.problems``. The ``reason`` is just their messages, joined by a space, since each is
-    whole sentences. This holds for every kind alike.
+    Its ``reason`` is that problem's message, and its ``problem`` that problem's code, so a test reads both without
+    unpacking anything. An example with two faults gives two problems. This holds for every kind alike.
     """
 
     @node("size", title="Size v1", description="For a test.")
@@ -415,17 +482,29 @@ def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
         return n
 
     [problem] = check_registry(registry_of(size))
-    [behind] = problem.ctx["problems"]
-    assert problem.ctx["reason"] == behind["msg"]
+    assert (problem.ctx["problem"], problem.ctx["reason"]) == (
+        "invalid_value",
+        "The graph record gives 'n' a value that isn't valid: Input should be a valid integer, unable to parse "
+        "string as an integer. Give it a value of the input's type.",
+    )
 
     @node("pair", title="Pair", description="For a test.")
     def pair(left: str, right: str) -> str:
         return left + right
 
-    [problem] = check_registry(registry_of(pair), examples={"pair": [{"lft": "a", "right": "b"}]})
-    first, second = (behind["msg"] for behind in problem.ctx["problems"])
-    assert (problem.type, problem.ctx["reason"]) == ("example_not_compiled", f"{first} {second}")
-    assert ".;" not in problem.msg
+    checked = check_registry(registry_of(pair), examples={"pair": [{"lft": "a", "right": "b"}]})
+    assert [(p.type, p.ctx["problem"], p.ctx["reason"]) for p in checked] == [
+        (
+            "example_not_compiled",
+            "unknown_input",
+            "'pair' has no input 'lft'. Its inputs are left, right.",
+        ),
+        (
+            "example_not_compiled",
+            "input_has_no_value",
+            "'left' gets no value. Wire an edge into it, give it a constant, or make it a graph input.",
+        ),
+    ]
 
 
 # -- calling the body ------------------------------------------------------------------------------
@@ -481,11 +560,12 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
         "upper": [{"txt": "a"}],
     }
     problems = check_registry(registry_of(unsure, offline, who, upper), examples=examples)
-    assert [(p.type, p.loc, behind(p)) for p in problems] == [
-        ("example_run_failed", ("unsure", 1), ["invalid_ask"]),
-        ("example_run_failed", ("offline", 1), ["external_failed"]),
-        ("example_refused", ("who", 1), ["context_missing"]),
-        ("example_not_compiled", ("upper", 1), ["unknown_input", "input_has_no_value"]),
+    assert [(p.type, p.loc, p.ctx["problem"]) for p in problems] == [
+        ("example_run_failed", ("unsure", 1), "invalid_ask"),
+        ("example_run_failed", ("offline", 1), "external_failed"),
+        ("example_refused", ("who", 1), "context_missing"),
+        ("example_not_compiled", ("upper", 1), "unknown_input"),
+        ("example_not_compiled", ("upper", 1), "input_has_no_value"),
     ]
 
 
@@ -528,12 +608,12 @@ def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_ra
         return repr(thing)
 
     (problem,) = check_registry(registry_of(takes), examples={"takes": [{"thing": Opaque()}]})
-    assert (problem.type, problem.loc, behind(problem)) == (
+    assert (problem.type, problem.loc, problem.ctx["problem"]) == (
         "example_not_compiled",
         ("takes", 1),
-        ["invalid_value"],
+        "invalid_value",
     )
-    assert problem.ctx["problems"][0]["loc"] == ["takes", "thing"]
+    assert "'thing'" in problem.ctx["reason"]
 
 
 def test_a_body_returning_what_its_type_refuses_is_run_failed():
@@ -549,9 +629,9 @@ def test_a_body_returning_what_its_type_refuses_is_run_failed():
         registry_of(counts, tally),
         examples={"counts": [{"text": "a"}], "tally": [{"labels": ["a"]}]},
     )
-    assert [(p.type, p.loc, behind(p)) for p in problems] == [
-        ("example_run_failed", ("counts", 1), ["invalid_output"]),
-        ("example_run_failed", ("tally", 1), ["invalid_output"]),
+    assert [(p.type, p.loc, p.ctx["problem"]) for p in problems] == [
+        ("example_run_failed", ("counts", 1), "invalid_output"),
+        ("example_run_failed", ("tally", 1), "invalid_output"),
     ]
 
 
@@ -566,12 +646,18 @@ def test_what_a_check_says_is_made_from_its_ctx_alone():
     (found,) = check_registry(registry, examples={"halve": [{"n": 2}], "halv": [{"n": 2}]})[1:]
     (missing,) = check_registry(registry, examples={"halv": [{"n": 2}]})
 
-    assert (found.type, found.loc, found.ctx["status"], found.ctx["reason"], behind(found)) == (
+    assert (
+        found.type,
+        found.loc,
+        found.ctx["status"],
+        found.ctx["reason"],
+        found.ctx["problem"],
+    ) == (
         "example_run_failed",
         ("halve", 1),
         "failed",
         "the node raised ZeroDivisionError",
-        ["execution_failed"],
+        "execution_failed",
     )
     assert (missing.type, missing.loc, missing.ctx) == (
         "example_for_no_node",

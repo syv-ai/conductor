@@ -180,8 +180,8 @@ What changes in how you work, before the name-by-name tables:
   subgraph in it, may stop to ask a person. A subgraph's palette entry in `registry.describe()` has its own graph's
   `inputs`, `outputs` and `asks`. A subgraph whose graph has problems on the registry's nodes is left out of
   `registry.describe()`, where it was an entry with no inputs or outputs and no word why, with one warning on the
-  `conductor` logger naming it and its problems' codes, and `check_registry` reports it as `subgraph_broken`, with
-  its graph's problems in `ctx.problems`, whether or not it has examples, which then aren't run.
+  `conductor` logger naming it and its problems' codes, and `check_registry` reports it as `subgraph_broken`, one for
+  each of its graph's problems, whether or not it has examples, which then aren't run.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
@@ -366,7 +366,7 @@ What changes in how you work, before the name-by-name tables:
   `ctx.error` and its `ctx` as `ctx.error_ctx`, under `cannot_move_to_version_rewrite_failed`; so does a rewrite that returns
   no dict whose keys are text, such as `None`, with `ctx.error` `not_a_mapping`. The author's exception, or a bare
   `AttributeError` for a `None` return, no longer escapes. `check_registry` reports
-  it, like any refused upgrade, as `upgrade_broken` with the refusal in `ctx.problems`.
+  it, like any refused upgrade, as `upgrade_broken` with the refusal's code in `ctx.problem`.
   `saved_run_of_another_graph` has `ctx.saved` only when the save's `graph` has a fingerprint's form, and its message
   quotes only this graph's fingerprint.
 - **A problem never quotes a value a graph carries, a key inside one included.** A record's fault inside a
@@ -642,10 +642,14 @@ What changes in how you work, before the name-by-name tables:
   a `Param(choices=)`, is refused with "the value is not "ida" or "bo"" (`not_a_choice` in `ctx.errors`, and in the
   `reason` of `invalid_answer`), past five counted as `type_mismatch` counts them: `"a", "b", "c", "d", "e" or 4
   more`. It said "the value is not one of the choices", while a `Literal`'s refusal named its values.
-- **`check_registry` joins the messages behind a problem with a space.** The `reason` of `example_not_compiled`,
-  `example_refused`, `example_hook_failed`, `subgraph_broken` and `upgrade_broken` is the messages of the
-  problems behind it, each whole sentences, joined by a space: "'old' has no input 'bb'. Its inputs are b. 'b' gets
-  no value. ..." They were joined by "; ", which put ".;" between them.
+- **`check_registry` gives one problem for each problem behind it (provisional).** `hook_failed`,
+  `example_hook_failed`, `subgraph_broken`, `upgrade_broken`, `example_run_failed`, `example_not_compiled` and
+  `example_refused` each carry one problem behind them: `ctx.reason` is its message, `ctx.problem` its code, such
+  as `"unknown_input"`, and `ctx.loc` its `loc`, as it is, such as `["b", "n"]` for a node of a subgraph's graph. They carried every problem behind them as JSON in `ctx.problems`, with `ctx.reason` their
+  messages joined. So an example with a misspelt input gives two `example_not_compiled`, one `unknown_input` and one
+  `input_has_no_value`, and a test reads `p.ctx["problem"]` with nothing to unpack. An example that doesn't compile
+  is `example_hook_failed` for each hook's problem and `example_not_compiled` for each other one, where a mix was one
+  `example_not_compiled`.
 - **The docs teach one form for fixed choices.** `docs/`, the reference, the skills, the notebooks and the
   docstrings write fixed choices as `Param(choices=[...])` on a plain type, each value once:
   `Annotated[str, Param(choices=[Choice("s", "Small"), Choice("m", "Medium")])]`. A `Literal` gives the same

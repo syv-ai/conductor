@@ -13,7 +13,9 @@ host adds one test to its suite::
 A node's function is only called for a node you give an example for, since a node might send mail or charge a card.
 Each example runs through the engine, as a graph of that one node with the example's values typed in.
 
-Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)``. Here is what each code means:
+Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)``. Where a check fails because of a
+problem conductor reports, such as a graph that doesn't compile, it gives one problem for each problem behind it, with
+that problem's message in ``ctx.reason``, its code in ``ctx.problem`` and its ``loc`` in ``ctx.loc``. Here is what each code means:
 
 - ``hook_failed``: a ``compute_added_inputs`` or ``compute_outputs`` hook fails when it is called with the node's
   defaults and made-up values. ``example_hook_failed``: it fails on an example.
@@ -170,11 +172,9 @@ def _version_problems(
         if graph_problems:
             return [
                 problems.subgraph_broken(
-                    version.id,
-                    version.version,
-                    reason=_reason(graph_problems),
-                    problems=[p.model_dump(mode="json") for p in graph_problems],
+                    version.id, version.version, reason=_reason(p), problem=p.type, loc=list(p.loc)
                 )
+                for p in graph_problems
             ]
     if not given:
         return _hook_problems(version, registry)
@@ -239,7 +239,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     ]
     return [
         problems.hook_failed(
-            version.id, version.version, reason=_reason([p]), problems=[p.model_dump(mode="json")]
+            version.id, version.version, reason=_reason(p), problem=p.type, loc=list(p.loc)
         )
         for p in failed
     ]
@@ -265,16 +265,16 @@ def _upgrade_problems(
         behind = refused.problems
     else:
         behind = Graph.compile(upgraded, registry).problems
-    if not behind:
-        return []
     return [
         problems.upgrade_broken(
             older.id,
             older.version,
             newest=newest,
-            reason=_reason(behind),
-            problems=[p.model_dump(mode="json") for p in behind],
+            reason=_reason(p),
+            problem=p.type,
+            loc=list(p.loc),
         )
+        for p in behind
     ]
 
 
@@ -300,14 +300,11 @@ def _run_problems(
     try:
         run = graph.run(context=context)
     except InvalidCallError as refused:
-        call_problems = refused.problems
         return [
             problems.example_refused(
-                version.id,
-                version.version,
-                reason=_reason(call_problems),
-                problems=[p.model_dump(mode="json") for p in call_problems],
+                version.id, version.version, reason=_reason(p), problem=p.type, loc=list(p.loc)
             )
+            for p in refused.problems
         ]
     found = [
         problems.changed_its_inputs(version.id, version.version, input=name) for name in changed
@@ -318,43 +315,36 @@ def _run_problems(
                 version.id,
                 version.version,
                 status=run.status,
-                reason=_reason([cause]),
-                problems=[cause.model_dump(mode="json")],
+                reason=_reason(cause),
+                problem=cause.type,
+                loc=list(cause.loc),
             )
         )
     return found
 
 
 def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) -> list[Problem]:
-    """Returns the one problem for an example that doesn't compile.
+    """Returns one problem for each reason an example doesn't compile.
 
-    It is ``example_hook_failed`` when a hook caused every problem, and ``example_not_compiled`` otherwise.
+    It is ``example_hook_failed`` for a hook that failed, and ``example_not_compiled`` for anything else.
     """
-    reason = _reason(graph_problems)
-    written = [p.model_dump(mode="json") for p in graph_problems]
-    if all(p.type in _HOOK_FAILED for p in graph_problems):
-        return [
-            problems.example_hook_failed(
-                version.id, version.version, reason=reason, problems=written
-            )
-        ]
     return [
-        problems.example_not_compiled(version.id, version.version, reason=reason, problems=written)
+        (problems.example_hook_failed if p.type in _HOOK_FAILED else problems.example_not_compiled)(
+            version.id, version.version, reason=_reason(p), problem=p.type, loc=list(p.loc)
+        )
+        for p in graph_problems
     ]
 
 
-def _reason(behind: Sequence[Problem]) -> str:
-    """Returns the ``reason`` of a ``check_registry`` problem: the messages of the problems behind it.
+def _reason(problem: Problem) -> str:
+    """Returns the ``reason`` of a ``check_registry`` problem: the message of the problem behind it.
 
-    Each message is one or more whole sentences, so they are joined by a space: ``"'glue' has no input 'aa'. Its
-    inputs are a, b. 'b' gets no value. ..."``. An exception the node raised is an ``execution_failed`` problem,
-    whose message doesn't say which exception it was. So its class name is used instead, as in
-    ``"the node raised ZeroDivisionError"``. A run ends on one cause, so that text is never joined to another.
+    An exception the node raised is an ``execution_failed`` problem, whose message doesn't say which exception it
+    was. So its class name is the reason instead, as in ``"the node raised ZeroDivisionError"``.
     """
-    return " ".join(
-        f"the node raised {p.ctx['error']}" if p.type == "execution_failed" else p.msg
-        for p in behind
-    )
+    if problem.type == "execution_failed":
+        return f"the node raised {problem.ctx['error']}"
+    return problem.msg
 
 
 def _watched(

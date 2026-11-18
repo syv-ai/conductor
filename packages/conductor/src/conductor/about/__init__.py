@@ -122,7 +122,8 @@ def _problems(catalogue: ProblemCatalogue) -> str:
     - the text of its docstring;
     - its example;
     - its message, with a slot for each ``ctx`` value;
-    - what its ``loc`` is, when it has one;
+    - what its ``loc`` is, when it has one: the line under ``Args:`` of the one parameter that is no ``ctx`` key,
+      the rest of ``loc`` (``*loc``);
     - a table of its ``ctx`` keys, when it has any. Each row gives the key's type, whether it is always given, and
       its line under ``Args:``.
 
@@ -143,7 +144,8 @@ def _problems(catalogue: ProblemCatalogue) -> str:
             out.append(f"## {section}\n\n{catalogue.sections[section]}")
         docs = _kind_docs(kind)
         rows = []
-        for key, hint in typing.get_type_hints(kind.ctx_type).items():
+        ctx_keys = typing.get_type_hints(kind.ctx_type)
+        for key, hint in ctx_keys.items():
             if key not in docs.arguments:
                 raise LookupError(
                     f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'"
@@ -159,7 +161,11 @@ def _problems(catalogue: ProblemCatalogue) -> str:
                     docs.text,
                     *([f"```python\n{docs.example}\n```"] if docs.example else []),
                     f"> {kind.sentence}",
-                    *([f"`loc`: {docs.arguments['loc']}"] if "loc" in docs.arguments else []),
+                    *(
+                        f"`loc`: {line}"
+                        for name, line in docs.arguments.items()
+                        if name not in ctx_keys
+                    ),
                     *(
                         [
                             "\n".join(
