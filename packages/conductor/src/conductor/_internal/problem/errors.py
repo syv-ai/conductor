@@ -49,10 +49,10 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
-from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticKnownError
 from pydantic_core.core_schema import ErrorType
 
-from conductor._internal.base import place_text
+from conductor._internal.base import place_text, plain_json
 
 from .run_problems import external_failed, node_error
 from .type import Problem
@@ -105,40 +105,80 @@ def is_conductor_error(fault: ErrorDetails) -> bool:
 
 def refusal_errors(refused: PydanticCustomError) -> list[dict[str, Any]]:
     """Returns the ``ctx.errors`` of a problem made from one refusal conductor raised itself, such as
-    ``set_has_no_order``: one error, of the refusal's type, with its message and an empty ``loc``.
+    ``set_has_no_order``: one error, of the refusal's type, with its message, an empty ``loc`` and its ``ctx`` if it
+    has one.
 
     So a host reads such a refusal by its code, as it reads one a type made (``value_free_errors``).
     """
-    return [{"type": refused.type, "loc": [], "msg": refused.message()}]
+    return [_written_error(refused.type, [], refused.message(), refused.context or {})]
 
 
 def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     """Returns pydantic's errors with nothing of the refused value left in them.
 
     A problem's ``ctx.errors`` is made from this. Each error keeps its ``type``. Its ``loc`` is emptied, since
-    pydantic's ``loc`` may contain a key of the value. A caller that knows the type can put back the steps the type
-    declares. Its ``msg`` is kept when conductor wrote it, or when pydantic wrote it about the type, as a limit's
-    message is. Any other message is replaced: one a host's validator raised, whatever type it gives, and one of
-    pydantic's that quotes the value or an exception's text, like ``value_error``'s.
+    pydantic's ``loc`` may contain a key of the value. A caller that knows the type puts back the steps the type
+    declares (``Type.refusal``). Its ``msg`` and its ``ctx`` are kept when conductor wrote them, or when pydantic
+    wrote them about the type, as a limit's are: ``{"ge": 3}`` is the type's, and lets a host write its own message
+    by the code. Of pydantic's ``ctx`` only the keys its message reads are kept (``_ctx_its_message_reads``). Any
+    other message is replaced and its ``ctx`` dropped: one a host's validator raised, whatever type it gives, and one
+    of pydantic's that quotes the value or an exception's text, like ``value_error``'s.
 
-    For example, an ``int`` refusing ``"many"`` gives::
+    For example, an ``Annotated[int, Param(ge=3)]`` refusing ``1`` gives::
 
-        [{"type": "int_parsing", "loc": [], "msg": "Input should be a valid integer, unable to parse string as an integer"}]
+        [{"type": "greater_than_equal", "loc": [], "msg": "Input should be greater than or equal to 3", "ctx": {"ge": 3}}]
 
     Args:
         error: The error pydantic raised.
 
     Returns:
-        One dict per error, with the keys ``type``, ``loc`` and ``msg``.
+        One dict per error, with the keys ``type``, ``loc`` and ``msg``, and ``ctx`` when it is kept and not empty.
     """
     return [
-        {
-            "type": fault["type"],
-            "loc": [],
-            "msg": fault["msg"] if _message_holds_no_value(fault) else _VALIDATOR_PREFIX,
-        }
+        _written_error(fault["type"], [], fault["msg"], _ctx_its_message_reads(fault))
+        if _message_holds_no_value(fault)
+        else _written_error(fault["type"], [], _VALIDATOR_PREFIX, {})
         for fault in error.errors()
     ]
+
+
+def _ctx_its_message_reads(fault: ErrorDetails) -> Mapping[str, Any]:
+    """Returns the ``ctx`` of an error whose message is kept, with only the keys its message is made from.
+
+    A message that matches pydantic's own proves only the keys it reads. A host's validator may raise
+    ``PydanticCustomError("greater_than", "Input should be greater than {gt}", {"gt": 0, "seen": value})``: the
+    message is pydantic's, and ``seen`` holds the value. So for one of pydantic's errors a key is kept only when
+    pydantic's message for the error's type changes, or can't be written, without it. A ``ctx`` conductor wrote is
+    kept whole: conductor names in it only what a developer wrote.
+    """
+    ctx = fault.get("ctx", {})
+    if is_conductor_error(fault):
+        return ctx
+
+    def message(given: Mapping[str, Any]) -> str | None:
+        try:
+            return PydanticKnownError(cast(ErrorType, fault["type"]), dict(given) or None).message()
+        except (KeyError, TypeError):
+            return None
+
+    whole = message(ctx)
+    return {
+        key: value
+        for key, value in ctx.items()
+        if message({other: kept for other, kept in ctx.items() if other != key}) != whole
+    }
+
+
+def _written_error(
+    error_type: str, loc: list[str | int], msg: str, ctx: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Returns one error of a problem's ``ctx.errors``, with ``ctx`` as plain JSON, without conductor's mark, and
+    left out when it is empty."""
+    kept = {key: value for key, value in ctx.items() if key not in OWN_MESSAGE}
+    written: dict[str, Any] = {"type": error_type, "loc": loc, "msg": msg}
+    if kept:
+        written["ctx"] = plain_json(kept)
+    return written
 
 
 def _message_holds_no_value(fault: ErrorDetails) -> bool:

@@ -134,8 +134,9 @@ class TypeRefusal(TypedDict):
 
     Attributes:
         reason: The first error's message.
-        errors: Pydantic's errors with the value taken out. Each ``loc`` keeps only steps the type declares, like
-            list indexes and field names.
+        errors: Pydantic's errors with the value taken out (``value_free_errors``), each with its ``type``,
+            ``loc``, ``msg`` and maybe ``ctx``. Each ``loc`` keeps only steps the type declares, like list indexes
+            and field names.
         column: The table column the first error is in, when it is in one.
     """
 

@@ -39,8 +39,8 @@ from conductor import (
     make_graph,
     node,
 )
-from pydantic import BaseModel, Discriminator, Field, field_validator
-from pydantic_core import core_schema
+from pydantic import AfterValidator, BaseModel, Discriminator, Field, field_validator
+from pydantic_core import PydanticCustomError, core_schema
 
 from tests.test_core.nodes import registry_of
 
@@ -1509,6 +1509,68 @@ def test_a_number_that_enters_must_be_finite_at_any_depth_by_every_door(
         _DOORS[door],
         ["finite_number"],
     )
+
+
+def _greater_than_seen(value: str) -> str:
+    """A host's check that raises pydantic's own ``greater_than`` with the value in a ``ctx`` key its message never
+    reads."""
+    raise PydanticCustomError(
+        "greater_than", "Input should be greater than {gt}", {"gt": 0, "seen": value}
+    )
+
+
+@pytest.mark.parametrize(
+    ("given", "input_type", "error"),
+    [
+        (
+            2,
+            Annotated[int, Param(ge=3)],
+            {
+                "type": "greater_than_equal",
+                "loc": [],
+                "msg": "Input should be greater than or equal to 3",
+                "ctx": {"ge": 3},
+            },
+        ),
+        (
+            [1, "x"],
+            list[Annotated[str, Param(max_length=2)]],
+            {"type": "string_type", "loc": [0], "msg": "Input should be a valid string"},
+        ),
+        (
+            {"level": "high"},
+            Levels,
+            {"type": "float_type", "loc": ["level"], "msg": "Input should be a valid number"},
+        ),
+        (
+            {"cpr-0102031234": "x"},
+            dict[str, int],
+            {"type": "int_type", "loc": [], "msg": "Input should be a valid integer"},
+        ),
+        (
+            "x",
+            Annotated[str, AfterValidator(_greater_than_seen)],
+            {
+                "type": "greater_than",
+                "loc": [],
+                "msg": "Input should be greater than 0",
+                "ctx": {"gt": 0},
+            },
+        ),
+    ],
+    ids=["limit-ctx", "list-index", "record-field", "dict-key-not-kept", "host-ctx-key-not-read"],
+)
+def test_each_error_of_a_refusal_keeps_its_type_ctx_and_loc_within_the_value(
+    given: Any, input_type: Any, error: dict[str, Any]
+):
+    """The ``ctx`` of a type's own error, like ``{"ge": 3}``, is the type's, so a host can write its own message by
+    the code. A list's index and a record's field are steps the type declares; a dict's key is part of the value, so
+    the ``loc`` stops there."""
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, input_type)
+
+    (problem,) = refused.value.problems
+    assert problem.ctx["errors"] == [error]
 
 
 @pytest.mark.parametrize(
