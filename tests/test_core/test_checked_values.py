@@ -15,7 +15,7 @@ import asyncio
 import datetime
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Event
 from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
@@ -1227,3 +1227,40 @@ def test_a_declared_default_of_none_the_bound_type_does_not_take_is_a_problem_of
     (refused,) = output.problems
     assert refused.ctx["output"] == "other" and "input" not in refused.ctx
     assert refused.msg.endswith("Change its default, or declare it with no default.")
+
+
+@node("lines", title="Lines", description="For a test.")
+def _lines(item: str) -> Table[Line]:
+    return pl.DataFrame({"item": [item], "amount": [1]})
+
+
+@node("first-line", title="First line", description="For a test.")
+def _first_line(one: T, other: T = [{"item": "x"}]) -> T:  # type: ignore[assignment]
+    return one
+
+
+@dataclass(frozen=True)
+class _KeptLines[V]:
+    value: V
+    other: V = field(default_factory=lambda: [{"item": "x"}])  # type: ignore[assignment]
+
+
+@node("kept-lines", title="Kept lines", description="For a test.")
+def _kept_lines(value: T) -> _KeptLines[T]:
+    return _KeptLines(value)
+
+
+def test_a_bound_default_that_is_a_table_missing_a_column_names_the_column():
+    """A default the edges make a ``Table[R]`` is refused for a column it lacks, and the problem names that column."""
+    registry = registry_of(_lines, _first_line, _kept_lines)
+    found = [
+        problem
+        for second, into in ((_first_line, "first-line.one"), (_kept_lines, "kept-lines.value"))
+        for problem in Graph.compile(
+            make_graph(_lines, second, edges=[("lines.result", into)]), registry
+        ).problems
+    ]
+    assert [(p.type, p.loc, p.ctx["column"]) for p in found] == [
+        ("invalid_value_bound_default", ("first-line", "other"), "amount"),
+        ("output_default_bound_invalid", ("kept-lines", "other"), "amount"),
+    ]

@@ -20,7 +20,18 @@ import typing
 from collections.abc import Mapping
 from enum import Enum
 from types import FunctionType, MethodType, UnionType
-from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    Literal,
+    NotRequired,
+    TypedDict,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 from weakref import WeakValueDictionary
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
@@ -115,23 +126,22 @@ def _written_metadata(metadata: Any) -> str:
     return repr(metadata)
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
-class TypeRefusal:
+class TypeRefusal(TypedDict):
     """Why a type refused a value, without quoting the value.
 
-    ``Type.refusal`` returns one. A validator turns it into a problem: ``invalid_input``, ``invalid_output`` and
-    the others take these three fields as their ``reason``, ``errors`` and ``column``.
+    ``Type.refusal`` returns one. Every kind of problem about a value a type refused takes these keys as its own, so a
+    validator passes the refusal whole: ``invalid_input("inputs", name, name=name, **refusal)``.
 
     Attributes:
         reason: The first error's message.
         errors: Pydantic's errors with the value taken out. Each ``loc`` keeps only steps the type declares, like
             list indexes and field names.
-        column: The table column the first error is in, or ``None``.
+        column: The table column the first error is in, when it is in one.
     """
 
     reason: str
     errors: list[dict[str, Any]]
-    column: str | None
+    column: NotRequired[str]
 
 
 class Type:
@@ -263,7 +273,7 @@ class Type:
             try:
                 one.argument_validator.validate_python(value)
             except ValidationError as error:
-                if all(not fault["loc"] for fault in one.refusal(error).errors):
+                if all(not fault["loc"] for fault in one.refusal(error)["errors"]):
                     continue
             return False
         return True
@@ -723,7 +733,10 @@ class Type:
             elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
                 columns.append(whole)
                 error_record["loc"] = [whole]
-        return TypeRefusal(value_free[0]["msg"], value_free, columns[0] if columns else None)
+        refusal = TypeRefusal(reason=value_free[0]["msg"], errors=value_free)
+        if columns:
+            refusal["column"] = columns[0]
+        return refusal
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc``, a list index or a field name, and returns where it leads.

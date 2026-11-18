@@ -237,16 +237,8 @@ def _refused_output(
         error: The error pydantic raised, as ``Type.refusal`` takes it.
         under: Where the output's value sits in ``error``, as ``Type.refusal`` takes it.
     """
-    refused = field.whole.refusal(error, under)
     return InvalidCallError(
-        [
-            run_problems.invalid_output(
-                reason=refused.reason,
-                output=field.name,
-                errors=refused.errors,
-                column=refused.column,
-            )
-        ]
+        [run_problems.invalid_output(output=field.name, **field.whole.refusal(error, under))]
     )
 
 

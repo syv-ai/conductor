@@ -128,14 +128,8 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
             return call_problems.invalid_input_list_for_one_value(
                 "inputs", name, name=name, expected=field.whole.id, length=len(value)
             )  # the one mistake whose fix is in the graph, not in the value
-        refused = field.whole.refusal(error, under=(key,))
         return call_problems.invalid_input(
-            "inputs",
-            name,
-            name=name,
-            reason=refused.reason,
-            errors=refused.errors,
-            column=refused.column,
+            "inputs", name, name=name, **field.whole.refusal(error, under=(key,))
         )
 
 
@@ -259,15 +253,10 @@ class ConstantValidator(Validator[JsonValue, Any]):
         try:
             return self._field.whole.argument_validator.validate_python(value)
         except ValidationError as error:
-            refused = self._field.whole.refusal(error)
             raise InvalidCallError(
                 [
                     compile_problems.invalid_value(
-                        self._node_id,
-                        self._field.name,
-                        reason=refused.reason,
-                        errors=refused.errors,
-                        column=refused.column,
+                        self._node_id, self._field.name, **self._field.whole.refusal(error)
                     )
                 ]
             ) from None

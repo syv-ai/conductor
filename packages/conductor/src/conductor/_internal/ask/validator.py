@@ -401,7 +401,7 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
     except PydanticCustomError as refused:  # a table with a column a saved run can't keep as it is
         raise conductor_error("not_its_type", refused.message()) from None
     except ValidationError as error:
-        raise conductor_error("not_its_type", value_type.refusal(error).reason) from None
+        raise conductor_error("not_its_type", value_type.refusal(error)["reason"]) from None
 
 
 def _no_json_form() -> PydanticCustomError:

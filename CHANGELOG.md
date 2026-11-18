@@ -665,6 +665,9 @@ What changes in how you work, before the name-by-name tables:
   output its node doesn't have. `unknown_node` writes one message, "The registry has no node 'read'. Add it to the
   registry, or use one the registry has: upper, count." (`none` on an empty registry), where it wrote "Its nodes are
   ..." or, on an empty registry, "It has no nodes at all."
+- **A refused default of a table names its column.** `invalid_value_bound_default` and
+  `output_default_bound_invalid` carry `ctx.column` for a table's default that a type refuses, as `invalid_value`,
+  `invalid_input`, `invalid_edge_value` and `invalid_output` do. They left it out.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

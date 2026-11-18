@@ -391,7 +391,14 @@ def invalid_value(
 
 @COMPILE_PROBLEMS.problem
 def invalid_value_bound_default(
-    node_id: str, input: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]
+    node_id: str,
+    input: str,
+    /,
+    *,
+    type: str,
+    reason: str,
+    errors: list[dict[str, Any]],
+    column: str | None = None,
 ) -> str:
     """A default an input declares doesn't fit the type its edges give a type variable.
 
@@ -408,6 +415,7 @@ def invalid_value_bound_default(
         type: The type its edges give the type variable.
         reason: Why that type refuses the default, without quoting it.
         errors: pydantic's list of what it refused, without the value.
+        column: For a table, the column of the first value refused.
 
     Example:
         @registry.node("first", title="First", description="Returns the first of two values.")
@@ -425,7 +433,14 @@ def invalid_value_bound_default(
 
 @COMPILE_PROBLEMS.problem
 def output_default_bound_invalid(
-    node_id: str, output: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]
+    node_id: str,
+    output: str,
+    /,
+    *,
+    type: str,
+    reason: str,
+    errors: list[dict[str, Any]],
+    column: str | None = None,
 ) -> str:
     """A default an output declares doesn't fit the type its node's edges give a type variable.
 
@@ -441,6 +456,7 @@ def output_default_bound_invalid(
         type: The type its node's edges give the type variable.
         reason: Why that type refuses the default, without quoting it.
         errors: pydantic's list of what it refused, without the value.
+        column: For a table, the column of the first value refused.
 
     Example:
         @dataclass(frozen=True)

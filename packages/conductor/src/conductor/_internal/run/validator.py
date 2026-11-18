@@ -122,16 +122,8 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
             try:
                 read[name] = validate(value, strict=False)
             except ValidationError as error:
-                refused = whole.refusal(error)
                 raise InvalidCallError(
-                    [
-                        run_problems.invalid_edge_value(
-                            input=name,
-                            reason=refused.reason,
-                            errors=refused.errors,
-                            column=refused.column,
-                        )
-                    ]
+                    [run_problems.invalid_edge_value(input=name, **whole.refusal(error))]
                 ) from None
         return read
 

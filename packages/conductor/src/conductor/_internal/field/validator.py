@@ -56,7 +56,7 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
             declaration_problems.default_none_not_taken()
             if default is None
             else declaration_problems.default_invalid(
-                default=repr(default), type=whole.id, reason=whole.refusal(error).reason
+                default=repr(default), type=whole.id, reason=whole.refusal(error)["reason"]
             )
         )
         raise NodeDeclarationError(refused, name) from None
@@ -176,22 +176,13 @@ class BoundDefaultValidator(Validator[Field, Field]):
                 field.name, hint, _read_default(whole, field.default), is_output=field.is_output
             )
         except ValidationError as error:
-            refused = whole.refusal(error)
             kind = (
                 compile_problems.output_default_bound_invalid
                 if field.is_output
                 else compile_problems.invalid_value_bound_default
             )
             raise InvalidCallError(
-                [
-                    kind(
-                        self._node_id,
-                        field.name,
-                        type=whole.id,
-                        reason=refused.reason,
-                        errors=refused.errors,
-                    )
-                ]
+                [kind(self._node_id, field.name, type=whole.id, **whole.refusal(error))]
             ) from None
 
 
