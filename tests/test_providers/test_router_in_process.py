@@ -992,6 +992,29 @@ async def test_a_body_whose_inputs_are_not_an_object_is_refused_as_fastapi_refus
             ]
 
 
+async def test_a_request_fastapi_refuses_is_answered_without_quoting_what_it_sent() -> None:
+    """Pydantic keeps the refused value in each error's ``input``, and a refusal never quotes a value."""
+    registry, graph, _ = _uploads()
+    secret = "secret-123"
+    refusals = [
+        ("post", "/runs", {"json": {"inputs": {"x": secret}}}),
+        ("post", "/estimate", {"json": {"graph": graph, "inputs": [secret]}}),
+        ("post", "/runs/r/resume", {"json": {"max_items": secret}}),
+        ("post", "/runs/r/answers", {"json": [secret]}),
+        ("post", "/runs/r/declines", {"json": {"waiting_id": "w", "reason": [secret]}}),
+        ("post", "/runs/r/again", {"json": secret}),
+        ("get", "/runs/r/events", {"headers": {"last-event-id": secret}}),
+    ]
+
+    async with _serving(_app(store=MemoryStore(), registry=lambda _: registry)) as client:
+        for method, path, request in refusals:
+            refused = await client.request(method, path, **request)
+
+            assert refused.status_code == 422, path
+            assert secret not in refused.text, path
+            assert all("input" not in error for error in refused.json()["detail"]), path
+
+
 async def test_text_that_isnt_json_is_refused_as_conductor_refuses_a_record() -> None:
     registry, _, _ = _uploads()
     as_json = {"content-type": "application/json"}

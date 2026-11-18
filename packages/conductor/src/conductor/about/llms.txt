@@ -1266,6 +1266,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 **Refusals.**
 
 - The worker refuses a call with conductor's `InvalidCallError`. The router answers `{"detail": [problem, ...]}`, with the status of the first problem's code: 404 for `no_such_run`, 409 for `run_not_resumable`, and 422 for the rest. Its schema declares the 404 and 409 in the shape of FastAPI's own 422, which a problem fits.
+- A request FastAPI refuses, such as a body that isn't an object or a header that isn't a number, is FastAPI's own 422, on every route, with each error's `type`, `loc`, `msg` and `ctx` and without its `input`: a refusal quotes nothing the request sent, as a problem quotes no value (see "Errors").
 - A run whose resume raised outside a node ends `failed`, and lists what waits in its last checkpoint. Its cause is conductor's own problem where conductor refused to resume it (`context_missing`, `invalid_context`, `saved_run_unreadable`, `run_unwritable`), and `raised_outside_a_node` otherwise, with the exception's class name as `ctx.error`.
 - A queued answer whose type's check raises is refused as `raised_outside_a_node` too.
 - A previous run that can't be loaded on the new run's nodes is refused with the problems `Run.from_json` gives for its saved run, as they are: its graph's own problems, `saved_run_of_another_graph` or `saved_run_unreadable` (a 422). The worker adds no code of its own, so a client reads the same problem whether it loads the saved run itself or names it in `previous`.

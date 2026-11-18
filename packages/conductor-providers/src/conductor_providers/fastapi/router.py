@@ -4,7 +4,7 @@ Each route reads its request, calls one method of the worker and answers with wh
 the real work: it keeps runs in the store, resumes them, and takes over the runs of a worker that died.
 """
 
-from collections.abc import AsyncIterable, AsyncIterator, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Coroutine
 from operator import attrgetter
 from typing import Annotated, Any
 
@@ -17,7 +17,9 @@ from conductor import (
     RegistryDescription,
     RunProgress,
 )
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Decline, Resume, StartRun, declared
@@ -77,6 +79,30 @@ async def _refused_as_responses() -> AsyncIterator[None]:
         raise HTTPException(status, detail) from None
 
 
+class _ValueFreeRoute(APIRoute):
+    """A route whose 422 for a request FastAPI or a body's reader refuses quotes nothing the request sent.
+
+    Pydantic keeps the refused value in each error's ``input``, and FastAPI writes it into the 422: the whole body
+    for a body that isn't an object, or a header's text. A refusal never quotes a value
+    (``python -m conductor.about errors``), so every error is answered without it, on every route.
+    """
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def handled(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError as refused:
+                errors = [
+                    {key: value for key, value in error.items() if key != "input"}
+                    for error in refused.errors()
+                ]
+                raise RequestValidationError(errors) from None
+
+        return handled
+
+
 def run_router(
     worker: Worker[M, X],
     *,
@@ -107,6 +133,7 @@ def run_router(
         lifespan=lambda _: worker.serving(),
         dependencies=[Depends(_refused_as_responses)],
         generate_unique_id_function=attrgetter("name"),
+        route_class=_ValueFreeRoute,
     )
     start_body = _body(declared(StartRun))
 
