@@ -1,7 +1,8 @@
 """The rules conductor adds to every type's own check, beyond pydantic's.
 
 ``with_rules`` returns a type's core schema with them, wherever a value sits in it: on the value itself, an item of a
-list or a ``Series``, a field of a ``TypedDict``, a value of a dict and a cell of a table. The fields of a host's own
+list or a ``Series``, a field of a ``TypedDict``, a value of a dict and a cell of a table. A dict's key is left as
+pydantic reads it, from its text. The fields of a host's own
 model or dataclass are left to the host's rules.
 
 - A yes or no is not a number. Pydantic takes ``True`` as the number 1, so the schema of ``list[int]`` turns
@@ -39,8 +40,11 @@ def _not_a_bool(value: Any) -> Any:
     return value
 
 
-#: The keys of a core schema whose values are not schemas that check a value, so the walk leaves them alone.
-_NOT_VALIDATORS = frozenset({"serialization", "metadata"})
+#: The keys of a core schema whose values the walk leaves alone: ``serialization`` and ``metadata`` are not schemas
+#: that check a value, and ``keys_schema`` checks a dict's key, which is text in JSON and so never a yes or no.
+#: Pydantic reads a key like ``"1"`` from its text only when the key's schema is its own, so a guard around it
+#: would refuse every key of ``dict[int, str]`` given as JSON.
+_NOT_VALIDATORS = frozenset({"serialization", "metadata", "keys_schema"})
 
 #: The core schema types of a host's own model or dataclass. Pydantic checks their fields by the host's own rules.
 _HOSTS_OWN = frozenset({"model", "dataclass"})

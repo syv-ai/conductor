@@ -15,7 +15,7 @@ pydantic's ``finite_number``, though what a node computes may hold them.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import polars as pl
@@ -76,7 +76,13 @@ def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> An
         text = finite_json_text(value, value_type.id, fallback=_written)
     except PydanticSerializationError:
         raise no_json_form() from None
-    return _checked(value_type, value, lambda: validator.validate_json(text, strict=True))
+    read = _checked(value_type, value, lambda: validator.validate_json(text, strict=True))
+    # A dict's key is text in the JSON, so the text can't show a key that isn't finite, like dict[float, str]'s
+    # "Infinity", until the type has read it. A saved run is read by its own reader, so it may keep such keys.
+    finite_json_text(
+        [key for part in _parts(read) if isinstance(part, dict) for key in part], value_type.id
+    )
+    return read
 
 
 def _checked(value_type: Type, value: Any, check: Callable[[], Any]) -> Any:
@@ -149,18 +155,25 @@ def set_has_no_order() -> PydanticCustomError:
     )
 
 
-def holds_a_set(value: Any, walked: frozenset[int] = frozenset()) -> bool:
-    """Whether ``value`` is a set, or has one somewhere inside: in a list, tuple or dict, or in a field of a
-    dataclass or a pydantic model.
+def holds_a_set(value: Any) -> bool:
+    """Whether ``value`` is a set, or has one somewhere inside (``_parts``).
 
     Pydantic writes a set as an array by itself and never hands it to a ``fallback``, so the set is looked for
-    before the value is written. A container already walked on the way down (``walked``, by ``id``) is a cycle,
-    which isn't walked again: pydantic refuses it when it writes the value.
+    before the value is written.
     """
-    if isinstance(value, (set, frozenset)):
-        return True
+    return any(isinstance(part, (set, frozenset)) for part in _parts(value))
+
+
+def _parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
+    """Yields ``value`` and every value inside it: in a list, tuple or dict, or in a field of a dataclass or a
+    pydantic model.
+
+    A container already walked on the way down (``walked``, by ``id``) is a cycle, which isn't walked again: pydantic
+    refuses it when it writes the value.
+    """
+    yield value
     if id(value) in walked:
-        return False
+        return
     inside = walked | {id(value)}
     if isinstance(value, dict):
         parts: Any = value.values()
@@ -171,8 +184,9 @@ def holds_a_set(value: Any, walked: frozenset[int] = frozenset()) -> bool:
     elif dataclasses.is_dataclass(value) and not isinstance(value, type):
         parts = (getattr(value, field.name) for field in dataclasses.fields(value))
     else:
-        return False
-    return any(holds_a_set(part, inside) for part in parts)
+        return
+    for part in parts:
+        yield from _parts(part, inside)
 
 
 def _written(value: Any) -> Any:

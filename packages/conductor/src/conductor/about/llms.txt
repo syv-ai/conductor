@@ -288,6 +288,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 - A class's own fields named `id` or `title` stay its own.
 - A `TypedDict` declares nothing. Its id is `record`, and a table's id names its columns: `Table[name: str, email: str | None]`.
 - A generic is known by its class and its arguments: `dict[str, int]`, or a bare `list` for `list[Any]`. So a class of your own inside one is declared too. A generic pydantic model declared as `box` is `box[int]` with an `int` inside.
+- A dict's key is text in JSON, so a key that isn't `str` is read from its text: `dict[int, str]` takes `{"1": "a"}`, and `{1: "a"}` is written so. A yes or no is not a number key: `{True: "a"}` is refused. A number key is read by pydantic's lax rule for a key's text: an `int` key takes `"1.0"` and `"+1"`, a `bool` key takes `"yes"` and `"off"`. A key that isn't finite, `{"Infinity": "a"}` or `{inf: "a"}` for `dict[float, str]`, is refused with `finite_number` where the value enters, as any number that enters is; a saved run may hold one.
 - A `Literal` is known by its values' types, a union by its members, and a type alias by its name.
 - `accepts=[...]` lists the other classes whose values may land on the type. The type reads such a value itself.
 - A subclass of a builtin, such as `class Text(str)`, needs only its declaration. A value is validated as the builtin, then made the subclass. A class that needs another way gives its own `__get_pydantic_core_schema__`.

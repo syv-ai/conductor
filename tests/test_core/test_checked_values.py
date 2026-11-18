@@ -1458,6 +1458,37 @@ def test_a_value_is_read_as_its_json_would_be_by_every_door(
     assert _given(given, input_type, door) == received
 
 
+@pytest.mark.parametrize("door", _DOORS)
+@pytest.mark.parametrize("given", [{"1": "a"}, {1: "a"}], ids=["text-key", "int-key"])
+def test_a_dict_with_number_keys_reads_each_key_from_its_text_by_every_door(given: Any, door: str):
+    """A JSON object's keys are text, so ``dict[int, str]`` is given ``{"1": "a"}``, and ``{1: "a"}`` is written so."""
+    assert _given(given, dict[int, str], door) == {1: "a"}
+
+
+@pytest.mark.parametrize("door", _DOORS)
+@pytest.mark.parametrize(
+    "given",
+    [{math.inf: "a"}, {"Infinity": "a"}, {"NaN": "a"}, {"inf": "a"}],
+    ids=["inf", "infinity-text", "nan-text", "inf-text"],
+)
+def test_a_number_key_that_is_not_finite_is_refused_by_every_door(given: Any, door: str):
+    """A key is text in the JSON, so only the key the type reads shows it isn't finite."""
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, dict[float, str], door)
+
+    (problem,) = refused.value.problems
+    assert problem.ctx["errors"][0]["type"] == "finite_number"
+
+
+@pytest.mark.parametrize("door", _DOORS)
+def test_a_yes_or_no_is_not_a_number_key(door: str):
+    with pytest.raises(InvalidCallError) as refused:
+        _given({True: "a"}, dict[int, str], door)
+
+    (problem,) = refused.value.problems
+    assert problem.ctx["errors"][0]["type"] == "int_parsing"
+
+
 class Levels(TypedDict):
     level: float
 
