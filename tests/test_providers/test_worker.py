@@ -1913,7 +1913,12 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
         [(problem.type, problem.ctx) for problem in ended.refused[waiting.id]],
     ) == (
         "waiting",
-        [("raised_outside_a_node", {"error": "KeyError"})],
+        [
+            (
+                "invalid_answer",
+                {"waiting_id": waiting.id, "reason": "The value did not pass its type's own check"},
+            )
+        ],
     )
     assert await _resume_calls(store, run_id) == 1
     # No host reads the queue, and an answer left in it would only show at the run's next stop. This run never stops

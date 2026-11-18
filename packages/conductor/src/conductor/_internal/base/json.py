@@ -82,23 +82,38 @@ def validate_as_json(
 
     Pydantic has no call that checks a Python value by the rules for JSON input. ``validate_python(strict=True)``
     refuses a date given as text, and ``validate_strings`` takes ``"yes"`` as ``True``. So the value is written as
-    JSON text first, and then the text is checked. ``inf`` and ``nan`` are written as the bare words ``Infinity``
-    and ``NaN``, which pydantic reads back as floats.
+    JSON text first (``json_text``), and then the text is checked.
 
     Args:
         validator: Pydantic's validator for the type.
         value: The value to check.
-        fallback: Called with any value pydantic can't write as JSON. It returns what to write instead, or raises
-            ``PydanticCustomError`` to refuse the value. That error is raised from here unchanged.
+        fallback: As ``json_text`` takes it.
 
     Returns:
         The value as ``validator`` returns it.
 
     Raises:
+        PydanticSerializationError: As ``json_text`` raises it.
+        PydanticCustomError: ``fallback`` refused the value.
+        ValidationError: The type refuses the value.
+    """
+    return validator.validate_json(json_text(value, fallback), strict=True)
+
+
+def json_text(value: Any, fallback: Callable[[Any], Any] | None = None) -> str:
+    """Writes a Python value as the JSON text it is checked from (``validate_as_json``).
+
+    ``inf`` and ``nan`` are written as the bare words ``Infinity`` and ``NaN``, which pydantic reads back as floats.
+
+    Args:
+        value: The value to write.
+        fallback: Called with any value pydantic can't write as JSON. It returns what to write instead, or raises
+            ``PydanticCustomError`` to refuse the value. That error is raised from here unchanged.
+
+    Raises:
         PydanticSerializationError: The value can't be written as JSON, and ``fallback`` gave nothing to write
             instead.
         PydanticCustomError: ``fallback`` refused the value.
-        ValidationError: The type refuses the value.
     """
     refused: list[PydanticCustomError] = []
 
@@ -111,13 +126,12 @@ def validate_as_json(
             raise
 
     try:
-        text = to_json(
+        return to_json(
             value,
             inf_nan_mode="constants",
             fallback=None if fallback is None else functools.partial(written, write=fallback),
-        )
+        ).decode()
     except PydanticSerializationError:
         if refused:
             raise refused[0] from None
         raise
-    return validator.validate_json(text, strict=True)

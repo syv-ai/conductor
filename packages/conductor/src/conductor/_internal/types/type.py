@@ -45,7 +45,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json
+from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
@@ -275,6 +275,9 @@ class Type:
             except ValidationError as error:
                 if all(not fault["loc"] for fault in one.refusal(error)["errors"]):
                     continue
+            # a host's own check may raise something else where pydantic would refuse, as ``takes_value`` says
+            except Exception:  # noqa: BLE001
+                continue
             return False
         return True
 
@@ -376,7 +379,7 @@ class Type:
         held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
         if param.choices is not None:
             held.append(
-                f"choices={[choice.id for choice in read_choices(param.choices, self.argument_validator, self.to_json)]!r}"
+                f"choices={[choice.id for choice in read_choices(param.choices, functools.partial(validate_as_json, self.argument_validator), self.to_json)]!r}"
             )
         held += [_written_metadata(other) for other in others]
         return f"{_written(bare)}{held}" if held else _written(bare)

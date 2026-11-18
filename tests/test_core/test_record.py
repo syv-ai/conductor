@@ -2280,10 +2280,11 @@ def test_a_table_as_a_constant_is_refused_at_the_call_and_the_reason_says_to_wri
         make_graph(count, constants={"count.rows": pl.DataFrame({"a": [1]})})
     (problem,) = refused.value.problems
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
-    assert (
-        problem.ctx["reason"]
-        == "it can't be written as JSON, and a graph record is saved as JSON (in a graph record, a table is written as a list of records)"
+    assert problem.ctx["reason"] == (
+        "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of"
+        " records"
     )
+    assert [error["type"] for error in problem.ctx["errors"]] == ["no_json_form"]
 
 
 def test_a_node_record_accepts_only_json_in_its_constants_defaults_and_display():
@@ -2295,30 +2296,24 @@ def test_a_node_record_accepts_only_json_in_its_constants_defaults_and_display()
         InputEntry(graph_input="x", default=object())
 
 
-def test_a_float_that_is_not_finite_as_a_constant_is_written_as_text_so_a_record_equals_its_json():
-    from conductor import Ask
-
+def test_a_float_that_is_not_finite_as_a_constant_is_refused_where_it_is_written_and_its_text_where_it_is_read():
     @node("half", title="Half", description="For a test.")
     def half(n: float) -> float:
         return n / 2
 
-    @node("ask", title="Ask", description="For a test.", asks=True)
-    def ask(x: float) -> str:
-        raise Ask("ok?")
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(half, constants={"half.n": float("nan")})
+    (written,) = refused.value.problems
+    (read,) = Graph.compile(
+        {
+            "nodes": {"half": {"node": "half", "inputs": {"n": {"constant": "Infinity"}}}},
+            "outputs": {"result": {"node": "half", "output": "result"}},
+        },
+        registry_of(half),
+    ).problems
 
-    registry = registry_of(half, ask)
-    record = make_graph(half, constants={"half.n": float("nan")})
-    read_back = GraphRecord.model_validate_json(record.model_dump_json())
-    waiting = Graph.compile(make_graph(half, ask, constants={"half.n": float("inf")}), registry)
-
-    assert record.nodes["half"].inputs == {"n": InputEntry(constant="NaN")}
-    assert (
-        read_back == record
-        and Graph.compile(read_back, registry).fingerprint
-        == Graph.compile(record, registry).fingerprint
-    )
-    compiled_from_json = Graph.compile(waiting.record.model_dump_json(), registry)
-    assert Run.from_json(waiting.run().to_json(), compiled_from_json).status == "waiting"
+    assert (written.type, written.ctx["errors"][0]["type"]) == ("invalid_value", "finite_number")
+    assert (read.type, read.ctx["errors"][0]["type"]) == ("invalid_value", "float_type")
     with pytest.raises(ValidationError):
         NodeRecord(node="half", display={"z": float("inf")})
     with pytest.raises(ValidationError):

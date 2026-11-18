@@ -1311,9 +1311,45 @@ class Priced(TypedDict):
     amount: int
 
 
-def _given(value: Any, input_type: Any) -> Any:
-    """Gives ``value`` to the one graph input of a graph of one node, ``t``, that takes ``input_type``, and
-    returns what the node received."""
+@host_type("Gauge", title="Gauge")
+@dataclass
+class Gauge:
+    level: float
+    label: str
+
+
+@host_type("Dial", title="Dial")
+class Dial(BaseModel):
+    level: float
+    label: str
+
+
+@host_type("Strict", title="Strict")
+class Strict:
+    """A host's class whose own check raises a ``TypeError`` for what it can't read, as ``float(None)`` does."""
+
+    def __init__(self, level: Any) -> None:
+        self.level = float(level)
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            lambda value: value if isinstance(value, Strict) else Strict(value),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda held: held.level),
+        )
+
+
+#: The doors a value enters a graph by, and the problem each gives a value its type refuses.
+_DOORS = {"input": "invalid_input", "constant": "invalid_value", "default": "invalid_value"}
+
+
+def _given(value: Any, input_type: Any, door: str = "input") -> Any:
+    """Gives ``value`` to the one input, ``value``, of a graph of one node, ``take``, that takes ``input_type``,
+    and returns what the node received.
+
+    ``door`` says how: as the graph input a caller gives, or as a constant or a graph input's default that
+    ``make_graph`` writes into the record. A value refused raises ``InvalidCallError``, a compile problem too.
+    """
     received: list[Any] = []
 
     def take(value: input_type) -> str:  # type: ignore[valid-type]
@@ -1321,11 +1357,20 @@ def _given(value: Any, input_type: Any) -> Any:
         return "ok"
 
     definition = node("take", title="Take", description="For a test.")(take)
-    Graph.compile(make_graph(definition), registry_of(definition)).run({"value": value})
+    if door == "input":
+        Graph.compile(make_graph(definition), registry_of(definition)).run({"value": value})
+    else:
+        graph = Graph.compile(
+            make_graph(definition, **{f"{door}s": {"take.value": value}}), registry_of(definition)
+        )
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
+        graph.run()
     (taken,) = received
     return taken
 
 
+@pytest.mark.parametrize("door", _DOORS)
 @pytest.mark.parametrize(
     ("given", "input_type"),
     [
@@ -1339,6 +1384,9 @@ def _given(value: Any, input_type: Any) -> Any:
         ({"degrees": "1"}, Celsius),
         (datetime.datetime(2026, 1, 2), datetime.date),
         (1767312000, datetime.datetime),
+        ("Infinity", int),
+        ("Infinity", float),
+        ("inf", float),
     ],
     ids=[
         "text-for-int",
@@ -1351,18 +1399,25 @@ def _given(value: Any, input_type: Any) -> Any:
         "text-in-a-dataclass",
         "datetime-for-date",
         "number-for-datetime",
+        "infinity-for-int",
+        "infinity-for-float",
+        "inf-for-float",
     ],
 )
-def test_a_callers_value_is_read_strictly_as_its_json_so_a_lax_conversion_is_refused(
-    given: Any, input_type: Any
+def test_a_value_is_read_strictly_as_its_json_by_every_door_so_a_lax_conversion_is_refused(
+    given: Any, input_type: Any, door: str
 ):
     with pytest.raises(InvalidCallError) as refused:
-        _given(given, input_type)
+        _given(given, input_type, door)
 
     (problem,) = refused.value.problems
-    assert (problem.type, problem.loc) == ("invalid_input", ("inputs", "value"))
+    assert (problem.type, problem.loc) == (
+        _DOORS[door],
+        ("inputs", "value") if door == "input" else ("take", "value"),
+    )
 
 
+@pytest.mark.parametrize("door", _DOORS)
 @pytest.mark.parametrize(
     ("given", "input_type", "received"),
     [
@@ -1373,6 +1428,9 @@ def test_a_callers_value_is_read_strictly_as_its_json_so_a_lax_conversion_is_ref
         ((1, 2), list[int], [1, 2]),
         ({"a": datetime.date(2026, 1, 2)}, Any, {"a": "2026-01-02"}),
         (None, str | None, None),
+        ([{"name": "a", "amount": 1}], list[Priced], [{"name": "a", "amount": 1}]),
+        ("Infinity", float | str, "Infinity"),
+        ({"level": 1.5, "label": "NaN"}, Gauge, Gauge(1.5, "NaN")),
     ],
     ids=[
         "int-for-float",
@@ -1382,35 +1440,136 @@ def test_a_callers_value_is_read_strictly_as_its_json_so_a_lax_conversion_is_ref
         "tuple-for-list",
         "any",
         "none",
+        "records",
+        "a-text-a-float-is-written-as-is-text",
+        "a-text-a-float-is-written-as-in-a-dataclass",
     ],
 )
-def test_a_callers_value_is_read_as_its_json_would_be(given: Any, input_type: Any, received: Any):
-    assert _given(given, input_type) == received
+def test_a_value_is_read_as_its_json_would_be_by_every_door(
+    given: Any, input_type: Any, received: Any, door: str
+):
+    assert _given(given, input_type, door) == received
 
 
-def test_a_host_class_given_as_itself_is_written_by_its_own_schema_and_read_back():
-    taken = _given(Label("urgent"), Label)
+class Levels(TypedDict):
+    level: float
+
+
+@pytest.mark.parametrize("door", _DOORS)
+@pytest.mark.parametrize(
+    ("given", "input_type"),
+    [
+        (math.inf, float),
+        (math.nan, float),
+        (-math.inf, Any),
+        ({"a": [math.nan]}, Any),
+        ([1.0, math.inf], list[float]),
+        ([math.nan], Series[float]),
+        ({"level": math.inf}, Levels),
+        (Gauge(math.inf, "a"), Gauge),
+        ({"level": math.nan, "label": "a"}, Dial),
+        ((math.inf, "a"), tuple[float, str]),
+        ([{"level": math.nan}], Table[Levels]),
+    ],
+    ids=[
+        "inf",
+        "nan",
+        "any",
+        "deep-in-any",
+        "list",
+        "series",
+        "typed-dict",
+        "host-dataclass",
+        "host-model",
+        "tuple",
+        "table-records",
+    ],
+)
+def test_a_number_that_enters_must_be_finite_at_any_depth_by_every_door(
+    given: Any, input_type: Any, door: str
+):
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, input_type, door)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
+        _DOORS[door],
+        ["finite_number"],
+    )
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [pl.DataFrame({"level": [1.0, math.nan]}), pl.DataFrame({"level": [math.inf]})],
+    ids=["nan", "inf"],
+)
+def test_a_frame_given_for_a_table_with_a_float_cell_not_finite_is_refused(frame: pl.DataFrame):
+    with pytest.raises(InvalidCallError) as refused:
+        _given(frame, Table[Levels])
+
+    (problem,) = refused.value.problems
+    assert ([error["type"] for error in problem.ctx["errors"]], problem.ctx["column"]) == (
+        ["finite_number"],
+        "level",
+    )
+
+
+def test_a_node_computes_a_float_that_is_not_finite_and_the_run_keeps_it():
+    assert math.isnan(_returning(math.nan, float).results["g"]["result"])
+    assert math.isinf(_returning(-math.inf, float).results["g"]["result"])
+
+
+@pytest.mark.parametrize("door", _DOORS)
+@pytest.mark.parametrize("given", [None, {"level": 1}], ids=["none", "mapping"])
+def test_a_host_check_that_raises_a_type_error_is_a_refusal_never_an_exception(
+    given: Any, door: str
+):
+    with pytest.raises(InvalidCallError) as refused:
+        _given(given, Strict, door)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
+        _DOORS[door],
+        ["value_error"],
+    )
+
+
+def test_a_list_given_to_a_host_check_that_raises_a_type_error_is_a_list_for_one_value():
+    with pytest.raises(InvalidCallError) as refused:
+        _given([1], Strict)
+
+    assert refused.value.problems[0].type == "invalid_input_list_for_one_value"
+
+
+@pytest.mark.parametrize("door", _DOORS)
+def test_a_host_class_given_as_itself_is_written_by_its_own_schema_and_read_back(door: str):
+    taken = _given(Label("urgent"), Label, door)
 
     assert (type(taken), taken.text) == (Label, "urgent")
 
 
+@pytest.mark.parametrize("door", _DOORS)
 @pytest.mark.parametrize("given", [Socket(), object()], ids=["host-object", "any-object"])
-def test_a_value_json_cannot_write_is_refused_where_it_is_given(given: Any):
+def test_a_value_json_cannot_write_is_refused_where_it_is_given(given: Any, door: str):
     with pytest.raises(InvalidCallError) as refused:
-        _given(given, Socket if isinstance(given, Socket) else Any)
-
-    (problem,) = refused.value.problems
-    assert problem.type == "invalid_input"
-
-
-@pytest.mark.parametrize("input_type", [list[str], Series[str], Any], ids=["list", "series", "any"])
-def test_a_set_given_is_refused_as_set_has_no_order(input_type: Any):
-    with pytest.raises(InvalidCallError) as refused:
-        _given({"a", "b"}, input_type)
+        _given(given, Socket if isinstance(given, Socket) else Any, door)
 
     (problem,) = refused.value.problems
     assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
-        "invalid_input",
+        _DOORS[door],
+        ["no_json_form"],
+    )
+
+
+@pytest.mark.parametrize("door", _DOORS)
+@pytest.mark.parametrize("input_type", [list[str], Series[str], Any], ids=["list", "series", "any"])
+def test_a_set_given_is_refused_as_set_has_no_order(input_type: Any, door: str):
+    with pytest.raises(InvalidCallError) as refused:
+        _given({"a", "b"}, input_type, door)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
+        _DOORS[door],
         ["set_has_no_order"],
     )
 

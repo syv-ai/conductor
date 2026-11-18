@@ -2237,13 +2237,17 @@ def test_a_literal_of_plain_values_whose_json_differs_is_declared_and_reads_back
     assert (read, type(read)) == (value, type(value))
 
 
-def test_choices_that_are_not_finite_floats_are_told_apart_and_matched_by_their_json_form() -> None:
+def test_choices_that_are_not_finite_floats_are_told_apart_by_their_json_form_and_never_given() -> (
+    None
+):
     @node("cap", title="Cap", description="For a test.")
     def cap(limit: Annotated[float, Param(choices=[float("inf"), float("nan")])]) -> str:
         return str(limit)
 
     assert [c.id for c in cap.describe().inputs[0].choices or ()] == ["Infinity", "NaN"]
-    assert compiled_graph(cap).run({"limit": float("nan")}).outputs == {"result": "nan"}
+    with pytest.raises(InvalidCallError) as refused:
+        compiled_graph(cap).run({"limit": float("nan")})
+    assert refused.value.problems[0].ctx["errors"][0]["type"] == "finite_number"
 
 
 @pytest.mark.parametrize(

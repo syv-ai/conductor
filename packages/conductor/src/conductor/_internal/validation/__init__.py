@@ -20,18 +20,16 @@ it. A ``NodeError``'s ``ctx`` is checked by ``NodeError`` itself, where a node m
 declarations are checked where the type is declared: ``Param`` checks its choices against the type it limits
 (``types/param.py``), and ``@host_type`` checks its arguments.
 
-What validators share besides ``Validator`` is in ``json.py``: the one strict reader of a value given from Python
-where JSON could have come instead, a caller's input or a person's answer (``read_as_json``).
+What validators share besides ``Validator`` is in ``json.py``: the one strict reader of a value that enters a
+graph, a caller's input, a person's answer or a record's constant or default (``read_as_json``).
 """
 
-from .json import holds_a_set, json_data, no_json_form, read_as_json, set_has_no_order
+from .json import json_data, read_as_json, set_has_no_order
 from .type import Validator
 
 __all__ = [
     "Validator",
-    "holds_a_set",
     "json_data",
-    "no_json_form",
     "read_as_json",
     "set_has_no_order",
 ]

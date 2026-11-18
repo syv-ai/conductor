@@ -22,6 +22,7 @@ answer stands in for that value.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -105,7 +106,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 try:
                     choices[name] = read_choices(
                         given,
-                        value_type.output_validator,
+                        functools.partial(read_as_json, value_type, value_type.output_validator),
                         value_type.to_json,
                         known=value_type.choices or (),
                     )

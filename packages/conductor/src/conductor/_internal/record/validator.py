@@ -6,8 +6,9 @@ that it has a record's shape and returns a ``GraphRecord``. Say a host compiles 
 ``invalid_record`` problem at ``("record", "nodes", "shout", "node")``.
 
 ``WrittenValuesValidator`` checks the Python values that ``make_graph`` and ``registry.upgrade`` write into a
-record, and converts them to JSON. A date becomes its ISO text. A set is refused, since it has no order and the
-record could list it differently in another process.
+record, and converts them to JSON, as a caller's value for an ``Any`` input is. A date becomes its ISO text. A set
+is refused, since it has no order and the record could list it differently in another process, and so is a frame:
+a record holds a table as a list of records.
 
 Only the shape is checked here. A record can have the right shape and still be wrong as a graph, for example with
 an edge from a node it doesn't have. That isn't refused: compiling lists it in ``graph.problems``, so an editor can
@@ -20,9 +21,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-import polars as pl
 from pydantic import JsonValue, ValidationError
-from pydantic_core import PydanticSerializationError
+from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import plain_json
 from conductor._internal.problem import (
@@ -31,7 +31,8 @@ from conductor._internal.problem import (
     compile_problems,
     refusal_errors,
 )
-from conductor._internal.validation import Validator, holds_a_set, set_has_no_order
+from conductor._internal.types import Type
+from conductor._internal.validation import Validator, read_as_json
 
 from .graph import GraphRecord
 
@@ -143,12 +144,14 @@ class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], G
 class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]]):
     """A validator for the constants or defaults Python code writes into a graph record for one node.
 
-    It converts each value to the JSON the record stores. ``{"day": date(2026, 1, 2)}`` becomes
-    ``{"day": "2026-01-02"}``. A float that isn't finite becomes its text, ``"NaN"`` or ``"Infinity"``.
+    It writes each value as the JSON the record stores, as a caller's value is written for an ``Any`` input
+    (``read_as_json``). ``{"day": date(2026, 1, 2)}`` becomes ``{"day": "2026-01-02"}``, a host's object is written
+    by its own class's schema. The input's type reads it when the graph is compiled.
 
     Raises (when called):
         InvalidCallError: One ``invalid_value`` problem at ``(node_id, input)`` for each value that can't be written
-            as JSON, or that has a set in it (``set_has_no_order``).
+            as JSON (``no_json_form``), a frame among them, that has a set in it (``set_has_no_order``), or that
+            holds a number that isn't finite (``finite_number``).
     """
 
     def __init__(self, node_id: str) -> None:
@@ -168,21 +171,23 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
         written: dict[str, JsonValue] = {}
         problems = []
         for name, value in values.items():
-            if holds_a_set(value):
-                error = set_has_no_order()
+            try:
+                written[name] = plain_json(
+                    read_as_json(Type(Any), Type(Any).output_validator, value)
+                )
+            except ValidationError as error:  # a number that isn't finite
+                problems.append(
+                    compile_problems.invalid_value(self._node_id, name, **Type(Any).refusal(error))
+                )
+            except PydanticCustomError as refused:
                 problems.append(
                     compile_problems.invalid_value(
-                        self._node_id, name, reason=error.message(), errors=refusal_errors(error)
+                        self._node_id,
+                        name,
+                        reason=refused.message(),
+                        errors=refusal_errors(refused),
                     )
                 )
-                continue
-            try:
-                written[name] = plain_json(value)
-            except PydanticSerializationError:
-                reason = "it can't be written as JSON, and a graph record is saved as JSON"
-                if isinstance(value, pl.DataFrame):
-                    reason += " (in a graph record, a table is written as a list of records)"
-                problems.append(compile_problems.invalid_value(self._node_id, name, reason=reason))
         if problems:
             raise InvalidCallError(problems)
         return written

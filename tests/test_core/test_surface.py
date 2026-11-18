@@ -461,17 +461,18 @@ def _strict(document: str | bytes) -> Any:
 def _streamed_events() -> list[Any]:
     """Returns the events of a real run, with a checkpoint after each call.
 
-    The run's output is a table with a NaN in it, and a float that isn't finite.
+    The run's output is a table with a NaN in it, and a float that isn't finite, each made by a node, since a
+    number given to a run is finite.
     """
     registry = NodeRegistry()
 
     @registry.node("frame", title="Frame", description="For a test.")
     def frame(x: float) -> Table:
-        return pl.DataFrame({"a": [x, 1.0], "b": ["x", None]})
+        return pl.DataFrame({"a": [x * math.nan, 1.0], "b": ["x", None]})
 
     @registry.node("same", title="Same", description="For a test.")
     def same(x: float) -> float:
-        return x
+        return x * math.inf
 
     graph = Graph.compile(
         GraphRecord.model_validate(
@@ -492,7 +493,7 @@ def _streamed_events() -> list[Any]:
     async def stream() -> list[Any]:
         return [
             event
-            async for event in graph.with_inputs({"f_x": math.nan, "s_x": math.inf}).stream(
+            async for event in graph.with_inputs({"f_x": 1.0, "s_x": 1.0}).stream(
                 checkpoint_every=1e-9
             )
         ]

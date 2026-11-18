@@ -19,8 +19,8 @@ is ``max_items=2.5``.
 Constants. These are checked by their input's type when the graph is compiled. Take ``shout(line: str, mark: str =
 "!")`` with ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``. It gets ``"?"`` on every call. The
 constant ``3`` is refused with ``invalid_value`` at ``("shout", "mark")``. The problem says what the type refused,
-without quoting the value. A record stores JSON, so a value is converted the way its JSON would be:
-``"2026-01-02"`` is a ``date`` for an input that takes one.
+without quoting the value. A record stores JSON, so a value is read strictly, as a caller's graph input is:
+``"2026-01-02"`` is a ``date`` for an input that takes one, and ``"3"`` is no ``int``.
 """
 
 from __future__ import annotations
@@ -217,8 +217,9 @@ class LimitsValidator(Validator[Limits, Limits]):
 class ConstantValidator(Validator[JsonValue, Any]):
     """The validator for a value the graph record gives one input of a node.
 
-    The value is a constant, or a graph input's default. The record stores it as JSON, and this validator converts
-    it by the input's type.
+    The value is a constant, or a graph input's default. The record stores it as JSON, and this validator reads it
+    by the input's type strictly, as a caller's graph input is read (``read_as_json``). So ``"3"`` is refused for an
+    ``int``, as ``graph.run({"n": "3"})`` is, and ``"2026-01-02"`` is a ``date``.
 
     Raises (when called):
         InvalidCallError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
@@ -230,18 +231,18 @@ class ConstantValidator(Validator[JsonValue, Any]):
         self._field = field
 
     def __call__(self, value: JsonValue) -> Any:
-        """Checks ``value`` and returns it converted by the input's type.
+        """Checks ``value`` and returns it read by the input's type.
 
         Raises:
             InvalidCallError: See the class.
         """
+        whole, name = self._field.whole, self._field.name
         try:
-            return self._field.whole.argument_validator.validate_python(value)
+            return read_as_json(whole, whole.argument_validator, value)
+        except PydanticCustomError as refused:  # a text JSON can't write, such as a lone surrogate
+            found = compile_problems.invalid_value(
+                self._node_id, name, reason=refused.message(), errors=refusal_errors(refused)
+            )
         except ValidationError as error:
-            raise InvalidCallError(
-                [
-                    compile_problems.invalid_value(
-                        self._node_id, self._field.name, **self._field.whole.refusal(error)
-                    )
-                ]
-            ) from None
+            found = compile_problems.invalid_value(self._node_id, name, **whole.refusal(error))
+        raise InvalidCallError([found])

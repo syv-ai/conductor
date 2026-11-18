@@ -88,9 +88,9 @@ Each input gets exactly one thing: a `constant`, a `graph_input` (the caller's v
 things, so no rule has to say which one wins. A graph input ignores the default the node declares: only the record's
 `default` counts, and a graph input without one is required.
 
-Constants, defaults and `display` are stored as JSON: a date as its ISO text, a float that isn't finite as `"NaN"`.
-So a record always equals its own JSON, and its fingerprint survives a store. The cost is that a value with no JSON
-form, like a polars frame, can't be a constant. `display` is the host's: conductor stores it, never reads it, and
+Constants, defaults and `display` are stored as JSON: a date as its ISO text. So a record always equals its own JSON,
+and its fingerprint survives a store. The cost is that a value with no JSON form, like a polars frame, can't be a
+constant, and neither can a float that isn't finite, since a number that enters a graph is finite. `display` is the host's: conductor stores it, never reads it, and
 leaves it out of the fingerprint.
 
 Whether an input is a constant is decided per graph, because a node can't know every graph it will be used in. A node
@@ -119,8 +119,8 @@ def half(n: float) -> float:
     return n / 2
 
 
-typed = make_graph(half, constants={"half.n": float("nan")})
-print(typed.nodes["half"].inputs["n"])  # constant='NaN'
+typed = make_graph(half, constants={"half.n": 0.5})
+print(typed.nodes["half"].inputs["n"])  # constant=0.5
 ```
 
 **Worth questioning:** the chain never matches inputs to outputs by name. If an output and an input happened to share
@@ -398,12 +398,11 @@ where it's written.
 field's JSON schema. On a node's input, `Param` is the only spelling: pydantic's `Field(...)` in the hint is refused
 (`pydantic_field_in_hint`), so a limit is never written two ways.
 
-A value given from Python where JSON could have come instead (a caller's graph inputs, a person's answers, the
-choices an `Ask` offers) is read strictly from its JSON form, so it reads as the same value sent over HTTP. A node's
-return is read strictly as the Python value it is. Values the graph record holds (constants, defaults) are read laxly
-today, so a default `"3"` for an `int` is `3` where a caller's `"3"` is refused. A value an edge carries is read
-laxly where the input asks more than its source's type promises. Either way a `bool` never
-counts as a number.
+Every value that enters a graph from outside (a caller's graph inputs, a person's answers, the choices an `Ask`
+offers, and the constants and defaults a graph record holds) is read strictly from its JSON form by one reader, so a
+value given from Python reads as the same value sent over HTTP or written in a record: `"3"` is no `int`, wherever it
+is given. A node's return is read strictly as the Python value it is. A value an edge carries is read laxly where the
+input asks more than its source's type promises. Either way a `bool` never counts as a number.
 
 Each type hint is read once into one object, and pydantic does all the validating. The one thing pydantic can't say is
 whether an output of one type may feed an input of another, so conductor walks the two types itself. Answering that

@@ -484,8 +484,8 @@ def test_each_problem_behind_a_check_is_one_problem_with_its_message_and_its_cod
     [problem] = check_registry(registry_of(size))
     assert (problem.ctx["problem"], problem.ctx["reason"]) == (
         "invalid_value",
-        "The graph record gives 'n' a value that isn't valid: Input should be a valid integer, unable to parse "
-        "string as an integer. Give it a value of the input's type.",
+        "The graph record gives 'n' a value that isn't valid: Input should be a valid integer. Give it a value of"
+        " the input's type.",
     )
 
     @node("pair", title="Pair", description="For a test.")
@@ -590,13 +590,16 @@ def test_an_example_for_a_node_or_version_not_there_is_example_for_no_node():
     ]
 
 
-def test_a_value_unequal_to_its_own_copy_is_never_called_changed():
+def test_an_example_with_a_float_that_is_not_finite_is_not_compiled():
     @node("reads", title="Reads", description="For a test.")
     def reads(values: Series[float], thing: Any) -> int:
         return len(values)
 
     examples = {"reads": [{"values": [1.0, float("nan")], "thing": float("nan")}]}
-    assert found(registry_of(reads), examples=examples) == []
+    assert found(registry_of(reads), examples=examples) == [
+        ("example_not_compiled", ("reads", 1)),
+        ("example_not_compiled", ("reads", 1)),
+    ]
 
 
 def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_raises_nothing():

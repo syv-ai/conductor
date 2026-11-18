@@ -558,7 +558,7 @@ def test_a_single_value_as_the_constant_of_a_series_input_is_refused_not_wrapped
         REGISTRY,
     ).problems
     assert (problem.type, problem.loc) == ("invalid_value", ("j", "texts"))
-    assert problem.ctx["reason"] == "Input should be a valid list"
+    assert problem.ctx["reason"] == "Input should be a valid array"
 
 
 # -- what the graph offers -------------------------------------------------------------------------

@@ -1,25 +1,33 @@
-"""Reading a value given from Python where JSON could have come instead.
+"""Reading a value that enters a graph, where JSON could have come instead.
 
-A caller's graph inputs and a person's answers may come from Python or over HTTP, and both must read the same.
-So such a value is read strictly, the way its JSON text would be (``read_as_json``): ``True`` is a ``bool`` and
-``"yes"`` is refused, ``3`` is an ``int`` and ``"3"`` is refused, and a ``date`` may be given as a ``date`` or as
-its ISO text. What reads that way is also what a saved run reads back.
+A caller's graph inputs and a person's answers may come from Python or over HTTP, and a graph record's constants
+and defaults are JSON, and all must read the same. So such a value is read strictly, the way its JSON text would be
+(``read_as_json``): ``True`` is a ``bool`` and ``"yes"`` is refused, ``3`` is an ``int`` and ``"3"`` is refused,
+and a ``date`` may be given as a ``date`` or as its ISO text. A saved run is read laxly, since conductor wrote it,
+and what reads strictly here reads the same there.
 
 Two things have no JSON form here. A set has no order (``set_has_no_order``), and a frame is a value only where
 its type is a table, which reads it as it is. Anything else pydantic can't write, such as an object held in
-memory, is ``no_json_form``.
+memory, is ``no_json_form``. And a number that enters is finite: ``inf`` and ``nan`` are refused here with
+pydantic's ``finite_number``, though what a node computes may hold them.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from typing import Any
 
 import polars as pl
-from pydantic import BaseModel
-from pydantic_core import PydanticCustomError, PydanticSerializationError, SchemaValidator
+from pydantic import BaseModel, ValidationError
+from pydantic_core import (
+    PydanticCustomError,
+    PydanticSerializationError,
+    SchemaValidator,
+    from_json,
+)
 
-from conductor._internal.base import validate_as_json
+from conductor._internal.base import json_text, validate_as_json
 from conductor._internal.problem import NodeDeclarationError, conductor_error
 from conductor._internal.table import TableType, frame_as_json
 from conductor._internal.types import Type
@@ -28,10 +36,20 @@ from conductor._internal.types import Type
 def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
     """Reads ``value`` by ``value_type`` strictly, the way ``validator`` reads the same value sent as JSON text.
 
-    The value is written as JSON text and read back (``validate_as_json``). A host's object is written by its own
-    class's schema, as a value of its type is. A frame given where the type is a table is read as it is, strictly,
-    as a node's return is: the table's own rules make it read as its JSON would, and it keeps only the columns it
-    names, so a column it doesn't name is never written.
+    The value is written as JSON text (``json_text``) and read back strictly, a host's object written by its own
+    class's schema, as a value of its type is. A number in it must be finite: pydantic's parser reads the text with
+    ``allow_inf_nan=False``, so ``inf`` and ``nan`` are refused at any depth, whatever the type, ``Any`` and a
+    host's model included, with pydantic's own ``finite_number``. Their texts, ``"Infinity"`` and ``"NaN"``, are
+    text, which a ``float`` refuses.
+
+    A frame given where the type is a table is read as it is, strictly, as a node's return is: the table's own
+    rules make it read as its JSON would, and it keeps only the columns it names, so a column it doesn't name is
+    never written. A float column of it with a ``NaN`` or an infinite cell is refused with ``finite_number`` too,
+    at the column.
+    The table type itself takes them, since it also reads what a node returns.
+
+    A host's own check may raise something other than pydantic's error, such as ``float(None)``'s ``TypeError``.
+    That is a refusal too, as ``Type.takes_value`` reads it: a ``ValidationError`` with ``value_error``.
 
     Args:
         value_type: The type the value is read by.
@@ -42,18 +60,61 @@ def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> An
     Raises:
         PydanticCustomError: ``set_has_no_order`` if the value has a set in it, and ``no_json_form`` if it can't
             be written as JSON, a frame where the type is no table among them.
-        ValidationError: ``validator`` refuses the value.
+        ValidationError: ``validator`` refuses the value, or ``finite_number`` for a number in it that isn't
+            finite.
     """
     if isinstance(value, pl.DataFrame) and any(
         isinstance(Type(option), TableType) for option in value_type.options
     ):
-        return validator.validate_python(value, strict=True)
+        if (column := _column_not_finite(value)) is not None:
+            raise _not_finite(value_type, (column,), value)
+        return _checked(value_type, value, lambda: validator.validate_python(value, strict=True))
     if holds_a_set(value):
         raise set_has_no_order()
     try:
-        return validate_as_json(validator, value, fallback=_written)
+        text = json_text(value, fallback=_written)
     except PydanticSerializationError:
         raise no_json_form() from None
+    try:
+        from_json(text, allow_inf_nan=False)
+    except ValueError:  # the parser says only where in the text, so the refusal is the value's
+        raise _not_finite(value_type, (), value) from None
+    return _checked(value_type, value, lambda: validator.validate_json(text, strict=True))
+
+
+def _checked(value_type: Type, value: Any, check: Callable[[], Any]) -> Any:
+    """Returns what ``check``, a call of the type's validator on ``value``, gives.
+
+    A host's own check may raise something other than pydantic's error where pydantic would refuse, such as
+    ``float(None)``'s ``TypeError``, as ``Type.takes_value`` says. That is a refusal too, so it is raised as a
+    ``ValidationError`` with ``value_error``.
+    """
+    try:
+        return check()
+    except ValidationError:
+        raise
+    except Exception as error:  # noqa: BLE001  a host's own check, which may raise anything
+        raise ValidationError.from_exception_data(
+            value_type.id,
+            [{"type": "value_error", "loc": (), "input": value, "ctx": {"error": error}}],
+        ) from None
+
+
+def _column_not_finite(frame: pl.DataFrame) -> str | None:
+    """The first float column of ``frame`` with a ``NaN`` or an infinite cell, or ``None`` when it has none."""
+    floats = frame.select(pl.col(pl.Float32, pl.Float64))
+    held = floats.select((~pl.all().is_finite()).any())
+    return next((column for column in held.columns if held[column].item()), None)
+
+
+def _not_finite(value_type: Type, loc: tuple[str, ...], value: Any) -> ValidationError:
+    """Pydantic's own refusal of a number that isn't finite, ``finite_number``, as its float check raises it.
+
+    A value that enters a graph may hold none, though what a node computes may.
+    """
+    return ValidationError.from_exception_data(
+        value_type.id, [{"type": "finite_number", "loc": loc, "input": value}]
+    )
 
 
 def json_data(value: Any) -> Any:
@@ -61,8 +122,8 @@ def json_data(value: Any) -> Any:
 
     A host keeps a person's answer this way until the run is given it (``Run.queued_as_json``). A ``date``
     becomes its ISO text, a dataclass or a model a mapping of its fields, and a frame its columns, since the
-    answer's type isn't known to read the frame as it is. ``inf`` stays a float, so the data reads back as the
-    value did; ``base.plain_json`` writes it as its text instead, for JSON text a standard parser reads.
+    answer's type isn't known to read the frame as it is. ``inf`` stays a float, so the data is refused where it is
+    read (``finite_number``), as the value itself is.
 
     Raises:
         PydanticCustomError: ``set_has_no_order`` or ``no_json_form``, as ``read_as_json`` raises them, or a
@@ -138,7 +199,7 @@ def _written(value: Any) -> Any:
     if isinstance(value, pl.DataFrame):
         raise conductor_error(
             "no_json_form",
-            "a frame is read only where the value's own type is a table, or a union with one: give its rows as a list of records",
+            "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of records",
         )
     try:
         return Type(type(value)).to_json(value)

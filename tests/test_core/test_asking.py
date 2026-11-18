@@ -373,14 +373,34 @@ def test_a_series_whose_items_take_none_is_answered_with_none_beside_its_picks()
     )
 
 
-def test_a_choice_that_is_not_a_finite_float_is_picked_by_its_json_text():
+@pytest.mark.parametrize(
+    "asked",
+    [{"choices": [1.5, float("inf")]}, {"default": float("nan")}],
+    ids=["choice", "default"],
+)
+def test_an_ask_offering_a_float_that_is_not_finite_is_invalid_ask_since_no_one_could_give_it(
+    asked: dict[str, Any],
+):
     @node("cap", title="Cap", description="For a test.", asks=True)
     def cap(ticket: str) -> float:
-        raise Ask(f"Cap {ticket}", choices=[1.5, float("inf")])
+        raise Ask(f"Cap {ticket}", **asked)
 
     _, run = _once(cap, ticket="T-1")
-    assert run.waiting[0].questions[0].choices == (Choice(1.5, "1.5"), Choice("Infinity", "inf"))
-    assert run.with_answers("q", float("inf")).resume().outputs == {"result": float("inf")}
+    assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
+    assert "Input should be a finite number" in run.cause.msg
+
+
+def test_an_answer_of_a_float_that_is_not_finite_is_refused():
+    @node("cap", title="Cap", description="For a test.", asks=True)
+    def cap(ticket: str) -> float:
+        raise Ask(f"Cap {ticket}", choices=[1.5, 2.5])
+
+    _, run = _once(cap, ticket="T-1")
+    assert (
+        _refused(lambda: run.with_answers("q", float("inf")))[0].msg
+        == "That isn't a valid answer: Input should be a finite number."
+    )
+    assert run.with_answers("q", 1.5).resume().outputs == {"result": 1.5}
 
 
 def test_a_series_that_takes_none_is_answered_none_beside_its_choices():
@@ -2191,16 +2211,8 @@ def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():
     def cap(ticket: str) -> Annotated[float, Param(choices=[1.0, float("inf")])]:
         raise Ask(f"Cap {ticket}")
 
-    asked_inf = node("cap-asked", title="Cap", description="For a test.", asks=True)(
-        _ask_cap_with_inf
-    )
-    for definition in (cap, asked_inf):
-        _, run = _once(definition, ticket="T-1")
-        assert run.waiting[0].questions[0].json_schema == {"type": "number"}
-
-
-def _ask_cap_with_inf(ticket: str) -> float:
-    raise Ask(f"Cap {ticket}", choices=[1.5, float("inf")])
+    _, run = _once(cap, ticket="T-1")
+    assert run.waiting[0].questions[0].json_schema == {"type": "number"}
 
 
 def test_an_ask_that_offers_some_of_a_types_titled_choices_by_id_keeps_their_titles():

@@ -13,7 +13,7 @@ so this one imports nothing from conductor except ``utils``.
 """
 
 from .hashing import json_hash, short_hash
-from .json import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
+from .json import NON_FINITE_FLOATS, canonical_json, json_text, plain_json, validate_as_json
 from .model import ConductorModel
 from .place import (
     FIELD_SEPARATOR,
@@ -49,6 +49,7 @@ __all__ = [
     "is_field",
     "is_name",
     "json_hash",
+    "json_text",
     "parse_loc",
     "parse_node_path",
     "parse_waiting_id",

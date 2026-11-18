@@ -1608,25 +1608,6 @@ def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_fie
     ) == (1.0, 1, {"s": "NaN"})
 
 
-def test_a_float_that_is_not_finite_given_by_a_caller_reads_back_by_the_type_of_its_input():
-    @node("given", title="Given", description="For a test.")
-    def given(options: dict, level: Any, ratio: float) -> str:
-        return repr((options, level, ratio))
-
-    graph = Graph.compile(make_graph(given), registry_of(given))
-    run = graph.run(
-        {"options": {"a": math.nan, "b": [math.inf]}, "level": -math.inf, "ratio": math.inf}
-    )
-    _strict(run.to_json())
-    back = _round_trip(run)
-
-    assert back.inputs == {
-        "options": {"a": "NaN", "b": ["Infinity"]},
-        "level": "-Infinity",
-        "ratio": math.inf,
-    }
-
-
 def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_error():
     @node("same", title="Same", description="For a test.")
     def same(text: str) -> str:
