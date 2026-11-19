@@ -3037,13 +3037,19 @@ def test_a_decline_whose_reason_isnt_text_is_refused_and_the_run_is_left_as_it_w
     """
     run = _approve_then_pay().run({"text": "A:900"})
     (waiting,) = run.waiting
-    for reason in (123, object(), "\ud800"):
+    for reason, error in (
+        (123, "string_type"),
+        (object(), "no_json_form"),
+        ("\ud800", "no_json_form"),
+    ):
         (problem,) = _refused(lambda reason=reason: run.with_decline(waiting, reason=reason))
-        assert (problem.type, problem.loc, problem.ctx) == (
+        assert (problem.type, problem.loc, problem.ctx["waiting_id"]) == (
             "invalid_decline_reason",
             ("approval", 0),
-            {"waiting_id": waiting.id, "got": type(reason).__name__},
+            waiting.id,
         )
+        assert [(e["type"], e["loc"]) for e in problem.ctx["errors"]] == [(error, [])]
+        assert "got" not in problem.ctx
     assert (run.status, [w.id for w in run.waiting]) == ("waiting", [waiting.id])
 
 

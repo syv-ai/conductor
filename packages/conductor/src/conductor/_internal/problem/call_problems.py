@@ -262,28 +262,26 @@ def invalid_answer(
 
 
 @CALL_PROBLEMS.problem
-def invalid_decline_reason(*loc: str | int, waiting_id: str, got: str) -> str:
+def invalid_decline_reason(*loc: str | int, waiting_id: str, errors: list[dict[str, Any]]) -> str:
     """The reason given to ``run.with_decline`` isn't text that JSON can write.
 
     The reason goes in the ``ctx`` of the run's ``answer_declined`` problem, for a host to show, and a saved run
-    writes it as JSON. So it is a ``str`` JSON can write, or ``None`` for no reason. A ``str`` with a lone surrogate
-    is refused too, and ``got`` is then ``str``.
+    writes it as JSON. So it is a ``str`` JSON can write, or ``None`` for no reason. ``ctx.errors`` says why, without
+    the reason: ``string_type`` for a value that isn't text, and ``no_json_form`` for a ``str`` with a lone surrogate
+    or an object JSON can't write.
 
     To fix it, give the reason as a ``str``, or leave it out.
 
     Args:
         loc: The node and the item indexes of the call that was declined.
         waiting_id: The waiting id given to ``run.with_decline``.
-        got: The class of the reason given.
+        errors: What was refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the reason.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         refused(lambda: waiting.with_decline(waiting.waiting[0], reason=123))  # type: ignore[arg-type]
     """
-    return (
-        f"The reason for declining must be text that can be written as JSON, and this {got} can't be. Give a str,"
-        " or leave the reason out."
-    )
+    return "The reason for declining must be text that can be written as JSON. Give a str, or leave the reason out."
 
 
 @CALL_PROBLEMS.problem

@@ -34,13 +34,12 @@ from pydantic_core import (
     ErrorDetails,
     InitErrorDetails,
     PydanticCustomError,
-    PydanticSerializationError,
     SchemaValidator,
     core_schema,
 )
 from pydantic_core.core_schema import TypedDictField
 
-from conductor._internal.base import REQUIRED, SKIPPED, Loc, validate_as_json
+from conductor._internal.base import REQUIRED, SKIPPED, Loc
 from conductor._internal.field import Field, check_branches
 from conductor._internal.problem import (
     InvalidCallError,
@@ -520,8 +519,8 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
             ) from None
 
 
-#: Checks a decline's reason: a ``str``, or ``None``.
-_REASON = SchemaValidator(core_schema.nullable_schema(core_schema.str_schema()))
+#: The type of a decline's reason: a ``str``, or ``None``.
+_REASON = Type(str | None)
 
 
 class DeclineValidator(Validator[Any, str | None]):
@@ -533,8 +532,8 @@ class DeclineValidator(Validator[Any, str | None]):
     ``"Over budget"`` is taken. ``123`` is refused, and so is a ``str`` JSON can't write, such as a lone surrogate.
 
     Raises (when called):
-        InvalidCallError: One ``invalid_decline_reason`` problem, with the class of what was given. It
-            doesn't quote the reason.
+        InvalidCallError: One ``invalid_decline_reason`` problem, with pydantic's errors. It doesn't quote the
+            reason.
     """
 
     def __init__(self, *, loc: Loc, waiting_id: str) -> None:
@@ -554,12 +553,14 @@ class DeclineValidator(Validator[Any, str | None]):
             InvalidCallError: See the class.
         """
         try:
-            return cast(str | None, validate_as_json(_REASON, reason))
-        except (ValidationError, PydanticSerializationError):
+            return cast(str | None, read_as_json(_REASON, _REASON.argument_validator, reason))
+        except ValidationError as error:
             raise InvalidCallError(
                 [
                     call_problems.invalid_decline_reason(
-                        *self._loc, waiting_id=self._waiting_id, got=type(reason).__name__
+                        *self._loc,
+                        waiting_id=self._waiting_id,
+                        errors=_REASON.refusal(error)["errors"],
                     )
                 ]
             ) from None
