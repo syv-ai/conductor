@@ -1,6 +1,6 @@
 # Illustrated pages
 
-Eleven pages that show how conductor works, each with diagrams, examples you can step through, and the output the examples print. Each is one HTML file in `docs/explainers/`, so it also opens straight from disk. Read them in order, or start with the one you need.
+Pages that show how conductor works, each with diagrams, examples you can step through, and the output the examples print. Each is one HTML file in `docs/explainers/`, so it also opens straight from disk; the problems page's catalogue and the standard nodes' palette are written in from the code when the docs are built (`docs/hooks/explainers.py`). A test runs every example on them and checks the output each page shows (`tests/test_core/test_explainer_samples_run.py`). Read them in order, or start with the one you need.
 
 1. [Overview](explainers/overview.html): the map of the packages, one run from start to finish, and why conductor is built the way it is.
 2. [A node and its types](explainers/nodes-and-types.html): what `@node` reads from a function, `Param`, the four shapes of output, `@host_type` and the hooks.

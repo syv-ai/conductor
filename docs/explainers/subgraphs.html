@@ -5,12 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Conductor Subgraphs</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 explainer series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    diagrams, the explorer, code and tables; sections are separated by space and a faint
    staff of rules, never by boxes.
@@ -32,11 +29,11 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
 
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -57,7 +54,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -67,7 +64,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -297,8 +294,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="6">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="6">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -357,7 +354,7 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 6 of 11</p>
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; page 6 of 11</p>
   <h1>A graph <em>inside</em> a graph</h1>
   <div class="prose stack">
     <p class="lede">A subgraph is a <a href="graph-record-and-compiling.html#record">graph record</a> used as one node of another graph. You make it with <code>subgraph(...)</code>, much as you make a node from a function with <a href="nodes-and-types.html#signature"><code>@node</code></a> (see <a href="nodes-and-types.html">a node and its types</a>). The graph that uses it is the outer graph, and the nodes in its record are its inner nodes.</p>
@@ -476,7 +473,85 @@ body { margin: 0; }
     </figure>
       <div class="state-text" id="state-text" aria-live="polite"></div>
     </div>
-    <div id="state-code"></div>
+<div id="state-code">
+<script type="text/x-python">
+import json
+
+from conductor import Ask, Graph, NodeRegistry, Series, make_graph, subgraph
+
+registry = NodeRegistry()
+
+
+@registry.node("lines", title="Lines", description="Splits a text into lines.")
+def lines(text: str) -> Series[str]:
+    return text.split("\n")
+
+
+@registry.node("strip", title="Strip", description="Trims a line, None for a blank one.")
+def strip(line: str) -> str | None:
+    return line.strip() or None
+
+
+@registry.node("shout", title="Shout", description="Capitals.")
+def shout(line: str) -> str:
+    return line.upper()
+
+
+@registry.node("join", title="Join", description="Joins.")
+def join(texts: Series[str]) -> str:
+    return " / ".join(texts)
+
+
+@registry.node("check", title="Check", description="Asks a person whether to keep a line.", asks=True)
+def check(line: str) -> bool:
+    raise Ask(f"Keep {line!r}?")
+</script>
+<div class="view-code" data-s="a">
+<p class="label">Run it &middot; the <code class="int" title="Internal">input_names</code> and <code class="int" title="Internal">output_names</code> line <span class="lvl int">Internal</span></p>
+<div class="pair">
+<pre data-lang="py">loud = subgraph("loud", title="Loud",
+    description="Trims a line and writes it in capitals.")(
+    make_graph(strip, shout, edges=[("strip.result", "shout.line")])
+)
+registry.add(loud)
+print(type(loud).__name__, loud.input_names, loud.output_names)
+
+graph = Graph.compile(make_graph(lines, loud, join, edges=[
+    ("lines.result", "loud.line"), ("loud.result", "join.texts")]), registry)
+print(graph)
+print(graph.describe().nodes["loud"].per_item_of)
+print(graph.run({"text": " a \nb "}).outputs)</pre>
+<pre class="out">SubgraphDefinition ('line',) ('result',)
+&lt;Graph of 3 nodes, runnable&gt;
+lines.result
+{'result': 'A / B'}</pre>
+</div>
+</div>
+<div class="view-code" data-s="b" hidden>
+<p class="label">Run it &middot; <code class="int" title="Internal">loud.graph</code> <span class="lvl int">Internal</span></p>
+<div class="pair">
+<pre data-lang="py">inner = Graph.compile(loud.graph, registry)
+print(inner, list(inner.inputs), list(inner.outputs))
+print({n: d.per_item_of for n, d in inner.describe().nodes.items()})
+
+d = graph.describe().nodes["loud"]
+print([i.field.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_of)</pre>
+<pre class="out">&lt;Graph of 2 nodes, runnable&gt; ['line'] ['result']
+{'shout': None, 'strip': None}
+['line'] ['result'] lines.result</pre>
+</div>
+</div>
+<div class="view-code" data-s="c" hidden>
+<p class="label">Run it</p>
+<div class="pair">
+<pre data-lang="py">run = graph.run({"text": " a \nb "})
+print(list(run.progress.nodes))
+print(list(json.loads(run.to_json())["outcomes"]))</pre>
+<pre class="out">['lines', 'loud/strip', 'loud/shout', 'loud', 'join']
+['lines', 'loud/strip', 'loud/shout', 'join']</pre>
+</div>
+</div>
+</div>
   </div>
 </section>
 
@@ -500,6 +575,21 @@ body { margin: 0; }
     </div>
     <div class="stack">
       <p class="label">Run it</p>
+<script type="text/x-python">
+broken = subgraph("broken", title="Broken", description="Names a node that isn't there.")(
+    '{"nodes": {"x": {"node": "nothere", "inputs": {"line": {"graph_input": "line"}}}},'
+    ' "outputs": {"result": {"node": "x", "output": "result"}}}'
+)
+loop_b = subgraph("self-b", title="B", description="Uses self-a.")(
+    '{"nodes": {"y": {"node": "self-a", "inputs": {"line": {"graph_input": "line"}}}},'
+    ' "outputs": {"result": {"node": "y", "output": "result"}}}'
+)
+loop_a = subgraph("self-a", title="A", description="Uses self-b.")(
+    '{"nodes": {"x": {"node": "self-b", "inputs": {"line": {"graph_input": "line"}}}},'
+    ' "outputs": {"result": {"node": "x", "output": "result"}}}'
+)
+registry.add(broken, loop_b, loop_a)
+</script>
 <pre data-lang="py"># a subgraph whose record names a node that isn't there
 g = Graph.compile(make_graph(broken), registry)
 for p in g.problems:
@@ -570,7 +660,7 @@ print(run2.status, run2.outputs)</pre>
     <div class="stack">
       <p class="label">What it prints</p>
       <p class="muted"><code>run.with_answers</code> takes a mapping of answers by waiting id. An id may name the call without the part after <code>~</code>, as the first answer in the sample does with <code>"review@0/check"</code>. With it, the id also carries a fingerprint of the node's code, the call's inputs and its items, and an answer to an id whose call now asks another question is refused (<a href="asking-a-person.html#ids"><code>answer_stale</code></a>).</p>
-<pre class="out">review@0/check~cc0e11c8 ('review', 0, 'check') Keep 'a'?
+<pre class="out" id="review-out">review@0/check~cc0e11c8 ('review', 0, 'check') Keep 'a'?
 review@2/check~d06812fa ('review', 2, 'check') Keep 'c'?
 none input: ('review', 1, 'check') line
 complete {'result': [True, None, False]}</pre>
@@ -619,6 +709,42 @@ complete {'result': [True, None, False]}</pre>
 
   <div class="pair">
     <div class="stack">
+<script type="text/x-python">
+import textwrap
+
+registry = NodeRegistry()
+
+
+@registry.node("upper", title="Uppercase", description="Turns a text into capital letters.")
+def upper(text: str) -> str:
+    return text.upper()
+
+
+@registry.node("join", title="Join", description="Joins the words into one text.")
+def join(texts: Series[str]) -> str:
+    return " ".join(texts)
+
+
+@registry.node("documents", title="Documents", description="Splits a text into documents at each semicolon.")
+def documents(text: str) -> Series[str]:
+    return text.split(";")
+
+
+@registry.node("lines", title="Lines", description="Splits a document into lines at each comma.")
+def lines(document: str) -> Series[str]:
+    return document.split(",")
+
+
+@registry.node("pair", title="Pair", description="Puts two texts together.")
+def pair(a: str, b: str) -> str:
+    return a + b
+
+
+per_line = subgraph("per-line", title="Per line", description="Every line of every document, in capital letters.")(
+    make_graph(documents, lines, upper, edges=[("documents.result", "lines.document"), ("lines.result", "upper.text")])
+)
+registry.add(per_line)
+</script>
 <pre data-lang="py">g = Graph.compile(make_graph(per_line, join,
     edges=[("per-line.result", "join.texts")]), registry)
 run = g.run({"text": "a,b;c"})
@@ -634,7 +760,13 @@ str True ['documents.result', 'lines.result']</pre>
       <p>An output's description keeps the type of one value, <code>str</code>, and lists its <code>loops</code> outermost first. Each entry is one level of list.</p>
       <p class="muted"><span class="lvl int">Internal</span> <a href="graph-record-and-compiling.html#compiling">Compiling</a> asks the compiled subgraph node's inner graph for each output's loops, the node that returns it and the <a href="nodes-and-types.html#outputs">branches</a> it needs.</p>
       <p class="muted">Two outputs from loops that don't nest can't be paired. When one of them is made inside a subgraph, no edge in the outer graph can fix that, and the <a href="problems.html">problem</a> says so.</p>
-      <p class="small">The sample prints the problem's <a href="problems.html#kinds"><code>type</code></a> and loc, then <code>series</code> and <code>subgraphs</code> from its <code>ctx</code>, then its message. Line breaks are added here.</p>
+      <p class="small">Here <code>pair</code> reads one line of <code>per-line</code> and one line of a <code>lines</code> outside it. The sample prints the problem's <a href="problems.html#kinds"><code>type</code></a> and loc, then <code>series</code> and <code>subgraphs</code> from its <code>ctx</code>, then its message.</p>
+<pre data-lang="py">g = Graph.compile(make_graph(per_line, lines, pair, edges=[
+    ("per-line.result", "pair.a"), ("lines.result", "pair.b")]), registry)
+for p in g.problems:
+    print(p.type, p.loc)
+    print(" ", p.ctx["series"], p.ctx["subgraphs"])
+    print(textwrap.fill(p.msg, 62))</pre>
 <pre class="out">series_not_nested_inside_subgraph ('pair',)
   ['per-line/lines.result', 'lines.result'] ['per-line']
 'pair' reads items from per-line/lines.result, lines.result,
@@ -657,10 +789,30 @@ subgraph so it returns both from the same loop.</pre>
   </div>
   <div class="pair">
     <div class="stack">
+<script type="text/x-python">
+from typing import TypedDict, cast
+
+from conductor import Table
+
+
+class Contact(TypedDict):
+    name: str
+
+
+@registry.node("each", title="Each", description="Gives the rows of a table, or the items of a list, one at a time.")
+def each[T](value: Table[T] | list[T]) -> Series[T]:
+    return cast("list[T]", value)
+
+
+@registry.node("known", title="Known contacts", description="Takes a table of contacts and passes it on.")
+def known(contacts: Table[Contact]) -> Table[Contact]:
+    return contacts
+</script>
 <pre data-lang="py">registry.add(
-    subgraph("shout-names", ...)(make_graph(each, upper,
-        edges=[("each.result.name", "upper.text")])),
-    subgraph("shout-contacts", ...)(make_graph(known, each, upper,
+    subgraph("shout-names", title="Shout names", description="Writes each name in capitals.")(
+        make_graph(each, upper, edges=[("each.result.name", "upper.text")])),
+    subgraph("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
+        make_graph(known, each, upper,
         edges=[("known.result", "each.value"),
                ("each.result.name", "upper.text")])),
 )
@@ -675,7 +827,13 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
     <div class="stack">
       <p>The example is from the user guide, <code>docs/subgraphs.md</code>. <code>each</code> is <a href="standard-nodes.html#control">generic</a>: <code>def each[T](value: Table[T] | list[T]) -> Series[T]</code>.</p>
       <p class="muted">A subgraph is compiled with nothing wired into it. A type variable at one of its <a href="graph-record-and-compiling.html#record">graph inputs</a> has no edge to bind it, so <code>shout-names</code> offers <code>Table | list</code>, and its edge <code>each.result.name</code> can't be checked until a run. <code>shout-contacts</code> starts with <code>known</code>, whose input says exactly what it takes, so the subgraph offers <code>Table[name: str]</code> and its edges are checked when it's compiled.</p>
-      <p class="muted">The palette entry also says <a href="asking-a-person.html#walk"><code>asks</code></a> when any node inside asks, at any depth. For <code>review</code> above, <code>registry.describe()</code> gives the input <code>line</code>, the output <code>result</code> and <code>asks</code> true. <code>takes_added_inputs</code> and <code>computes_outputs</code> are false for every subgraph.</p>
+      <p class="muted">The palette entry also says whether the subgraph <a href="asking-a-person.html#walk"><code>asks</code></a>. Here is <code>review</code> from above, added with its two nodes. The rules for a palette entry are in <code>python -m conductor.about the-palette</code>.</p>
+<pre data-lang="py">registry.add(strip, check, review)
+entry = {d.id: d for d in registry.describe().nodes}["review"]
+print([i.name for i in entry.inputs], [o.name for o in entry.outputs])
+print(entry.asks, entry.takes_added_inputs, entry.computes_outputs)</pre>
+<pre class="out">['line'] ['result']
+True False False</pre>
     </div>
   </div>
 </section>
@@ -686,42 +844,8 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
 <section id="choices" aria-labelledby="choices-h">
   <div class="section-head prose">
     <p class="eyebrow">Why it's built this way</p>
-    <h2 id="choices-h">Seven design choices</h2>
-  </div>
-  <div class="choices">
-    <article class="choice">
-      <h3>A subgraph is made like any node definition.<span class="lvl pub">Public</span></h3>
-      <p><code>subgraph()</code> takes <a href="nodes-and-types.html#signature"><code>@node</code></a>'s arguments, less <code>policy</code>, the <a href="nodes-and-types.html#hooks">hooks</a> and <code>asks</code>. So a registry, a <a href="graph-record-and-compiling.html#record">graph record</a> and <a href="graph-record-and-compiling.html#upgrade"><code>registry.upgrade</code></a> treat it as any node. It has an id, <a href="nodes-and-types.html#versions">versions</a> and a <a href="nodes-and-types.html#registry">palette entry</a>.</p>
-      <p class="cost"><b>Cost:</b> it has no <a href="nodes-and-types.html#policy"><code>Policy</code></a>, so a whole subgraph can't be <a href="running-and-streaming.html#policy">retried</a> or limited as one unit. Each inner node uses its own.</p>
-    </article>
-    <article class="choice">
-      <h3>Its interface is its record's graph inputs and outputs.<span class="lvl pub">Public</span></h3>
-      <p>An edge reads <code>loud.result</code>, an output of a node in its own graph. No name may contain <code>/</code>, so no edge can reach a node inside. What the subgraph offers is what its record declares, and nothing else.</p>
-    </article>
-    <article class="choice">
-      <h3>The same <code class="int" title="Internal">Compiler</code> compiles it on its own.<span class="lvl int">Internal</span></h3>
-      <p>One set of rules covers every graph. So a subgraph's faults are the same <a href="problems.html">problems</a> as anywhere, with the subgraph node's id in front of their <code>loc</code>. You see the choice in a problem's <code>loc</code>, and in the loose input type the palette offers, which is its cost.</p>
-      <p class="cost"><b>Cost:</b> nothing wired in is known when it's <a href="graph-record-and-compiling.html#compiling">compiled</a>. A <a href="standard-nodes.html#control">generic</a> first node gives the subgraph a loose input type, like <code>Table | list</code>.</p>
-    </article>
-    <article class="choice">
-      <h3>A run calls only function nodes, from a flat blueprint.<span class="lvl int">Internal</span></h3>
-      <p>When a graph's first run is made or read, <a href="running-and-streaming.html#start"><code class="int" title="Internal">RunBlueprint.of</code></a> lists every function node of the graph and its subgraphs by full path. So a node inside gets one call per item of every <a href="series-and-tables.html#loop">loop</a> it's inside, its own <code>Policy</code>, and its own <a href="saved-runs-and-reuse.html#again">reuse</a>. A <code>Series</code> input inside still collects only the loops inside the subgraph.</p>
-      <p class="cost"><b>Cost:</b> the subgraph node has no <a href="running-and-streaming.html#outcomes">outcomes</a> of its own. Its results, progress and <a href="running-and-streaming.html#stream">events</a> are worked out from the nodes inside it.</p>
-    </article>
-    <article class="choice">
-      <h3>A loop inside is named by the list inside.<span class="lvl pub">Public</span></h3>
-      <p>The loop over <code>documents.result</code> inside <code>per-line</code> is <code>per-line/documents.result</code>. Two outputs returned in that loop name the same loop, so they line up item by item outside.</p>
-      <p class="cost"><b>Cost:</b> outputs from two loops inside that don't nest can't be paired by any edge outside. The problem says to change the subgraph or collect one of them.</p>
-    </article>
-    <article class="choice">
-      <h3>A call has one address wherever it is named.<span class="lvl pub">Public</span></h3>
-      <p>A <code>loc</code> puts each <a href="series-and-tables.html#indexes">item index</a> right after the node inside its loop: <code>("review", 0, "check")</code>. Problems, <a href="asking-a-person.html#host">waiting calls</a> and <a href="running-and-streaming.html#outcomes"><code>run.none_input_calls</code></a> use it, and a <a href="asking-a-person.html#ids">waiting id</a> writes the same thing as text, <code>review@0/check</code>.</p>
-    </article>
-    <article class="choice">
-      <h3>The palette entry comes from the registry, not the definition.<span class="lvl pub">Public</span></h3>
-      <p>Its fields depend on the nodes the record uses, so the registry compiles it to find them. A definition with its own <code>describe()</code> couldn't know them without a registry.</p>
-      <p class="cost"><b>Cost:</b> <code>registry.describe()</code> compiles each subgraph's entry once, with every subgraph inside it, and again on the first <code>registry.describe()</code> after the registry's nodes change. Each <code>Graph.compile</code> compiles its subgraphs afresh.</p>
-    </article>
+    <h2 id="choices-h">Where the reasons are written</h2>
+    <p class="muted">Why a run calls only the nodes inside, rather than a run per item, is in the reviewer's guide, <a href="../design/#the-engine">docs/design.md, The engine</a>. The user guide, <a href="../subgraphs/">docs/subgraphs.md</a>, says what a subgraph takes and gives, why it is compiled alone (<a href="../subgraphs/#a-subgraph-is-compiled-alone">A subgraph is compiled alone</a>), and how a place inside one is named (<a href="../subgraphs/#finding-what-happened-inside">Finding what happened inside</a>). The rules are in <code>python -m conductor.about the-graph-record</code>.</p>
   </div>
 </section>
 
@@ -806,23 +930,6 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
         C("subgraph(...)(record)") + " returns a " + C("SubgraphDefinition") + ". Its inputs and outputs are the " + '<a href="graph-record-and-compiling.html#record">graph inputs and outputs</a>' + " its record declares.",
         "In the outer graph, " + C("loud") + " is wired like any node. " + C("lines") + " returns a " + '<a href="series-and-tables.html#loop"><code>Series[str]</code></a>' + " and " + C("loud") + " takes one line, so " + C("loud") + "'s nodes are called once per line, and " + C("join") + " collects what they return.",
       ],
-      label: "Run it &middot; the " + CI("input_names") + " and " + CI("output_names") + " line " + INT,
-      code: `loud = subgraph("loud", title="Loud",
-    description="Trims a line and writes it in capitals.")(
-    make_graph(strip, shout, edges=[("strip.result", "shout.line")])
-)
-registry.add(loud)
-print(type(loud).__name__, loud.input_names, loud.output_names)
-
-graph = Graph.compile(make_graph(lines, loud, join, edges=[
-    ("lines.result", "loud.line"), ("loud.result", "join.texts")]), registry)
-print(graph)
-print(graph.describe().nodes["loud"].per_item_of)
-print(graph.run({"text": " a \\nb "}).outputs)`,
-      out: `SubgraphDefinition ('line',) ('result',)
-<Graph of 3 nodes, runnable>
-lines.result
-{'result': 'A / B'}`,
     },
     b: {
       title: "loud's record is compiled as a Graph of its own" + INT,
@@ -831,16 +938,6 @@ lines.result
         "Inside its own graph, " + C("strip") + " and " + C("shout") + " are in no loop. The loop is outside, where " + C("loud") + " is.",
         "None of " + C("loud") + "'s nodes is copied into the outer graph. It still has three nodes.",
       ],
-      label: "Run it &middot; " + CI("loud.graph") + " " + INT,
-      code: `inner = Graph.compile(loud.graph, registry)
-print(inner, list(inner.inputs), list(inner.outputs))
-print({n: d.per_item_of for n, d in inner.describe().nodes.items()})
-
-d = graph.describe().nodes["loud"]
-print([i.field.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_of)`,
-      out: `<Graph of 2 nodes, runnable> ['line'] ['result']
-{'shout': None, 'strip': None}
-['line'] ['result'] lines.result`,
     },
     c: {
       title: "The run blueprint opens loud up in place" + INT,
@@ -848,12 +945,6 @@ print([i.field.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_
         "When the graph's first run is made or read, conductor walks the compiled graph and every inner graph. It lists the nodes by their full path in a " + CI("RunBlueprint") + ". The " + C("Graph") + " keeps it for every later run.",
         "You see it in " + '<a href="running-and-streaming.html#start"><code>run.progress.nodes</code></a>' + ", which lists the nodes in the blueprint's order. " + C("loud") + " comes right after the nodes inside it. " + C("loud") + "'s count there is the sum of the nodes inside it. The " + '<a href="saved-runs-and-reuse.html#saved">saved run</a>' + "'s " + '<a href="running-and-streaming.html#outcomes">outcomes</a>' + " have only the four function nodes, by path.",
       ],
-      label: "Run it",
-      code: `run = graph.run({"text": " a \\nb "})
-print(list(run.progress.nodes))
-print(list(json.loads(run.to_json())["outcomes"]))`,
-      out: `['lines', 'loud/strip', 'loud/shout', 'loud', 'join']
-['lines', 'loud/strip', 'loud/shout', 'join']`,
     },
   };
   const dia = $("#open-dia");
@@ -864,10 +955,7 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
     const t = $("#state-text");
     t.innerHTML = "<h3>" + v.title + "</h3>" + v.text.map((p, i) => '<p class="' + (i ? "muted" : "") + '">' + p + "</p>").join("");
     const c = $("#state-code");
-    c.innerHTML = '<p class="label">' + v.label + '</p><div class="pair"><pre data-lang="py"></pre><pre class="out"></pre></div>';
-    const pres = c.querySelectorAll("pre");
-    pres[0].textContent = v.code; paint(pres[0]);
-    hang(pres[1], esc(v.out));
+    c.querySelectorAll(".view-code").forEach((b) => { b.hidden = b.dataset.s !== k; });
     if (!reduced) { [t, c].forEach((e) => { e.classList.remove("fade"); void e.offsetWidth; e.classList.add("fade"); }); }
   }
   document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => view(b.dataset.s)));
@@ -875,6 +963,9 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
 
   /* ======================= THE CALL EXPLORER ======================= */
   const LINES = ["a", " ", "c"];
+  /* the waiting ids are the ones the sample under the explorer prints */
+  const printed = $("#review-out").textContent;
+  const waitId = (place) => (printed.match(new RegExp(place.replace(/[.@/]/g, "\\$&") + "~[0-9a-f]+")) || [place])[0];
   const CALLS = {
     lines: {
       name: "lines", path: '("lines",)', indexes: "()", loc: '("lines",)', text: "lines",
@@ -893,7 +984,7 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
   });
   CALLS.check0 = {
     name: "review/check, item 0", path: '("review", "check")', indexes: "(0,)", loc: '("review", 0, "check")', text: "review@0/check",
-    outcome: "waiting: Keep 'a'?", waitid: "review@0/check~cc0e11c8", event: '("review", "check")', saved: '"review/check", position 0, with its prompt in questions and its call fingerprint in fingerprints',
+    outcome: "waiting: Keep 'a'?", waitid: waitId("review@0/check"), event: '("review", "check")', saved: '"review/check", position 0, with its prompt in questions and its call fingerprint in fingerprints',
     note: "[run.with_answers](asking-a-person.html#answering) takes the whole id, or the place before the ~.",
   };
   CALLS.check1 = {
@@ -903,7 +994,7 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
   };
   CALLS.check2 = {
     name: "review/check, item 2", path: '("review", "check")', indexes: "(2,)", loc: '("review", 2, "check")', text: "review@2/check",
-    outcome: "waiting: Keep 'c'?", waitid: "review@2/check~d06812fa", event: '("review", "check")', saved: '"review/check", position 2, with its prompt in questions and its call fingerprint in fingerprints',
+    outcome: "waiting: Keep 'c'?", waitid: waitId("review@2/check"), event: '("review", "check")', saved: '"review/check", position 2, with its prompt in questions and its call fingerprint in fingerprints',
     note: "The fingerprint differs from item 0's, since the call's input and item differ.",
   };
 

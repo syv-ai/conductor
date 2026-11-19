@@ -5,12 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Running and Streaming</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    step-through, the diagrams, code and tables. Sections are separated by
    space and a faint staff of rules, never by boxes.
@@ -34,12 +31,12 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
 
   /* type */
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -61,7 +58,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -71,7 +68,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -225,22 +222,6 @@ td.k-unans { background: var(--slow-soft); }
 td.k-skip { background: repeating-linear-gradient(135deg, var(--rule) 0 2px, transparent 2px 7px); color: var(--ink-2); }
 td.k-none { box-shadow: inset 0 0 0 1.5px var(--ink-3); color: var(--ink-2); }
 
-/* ---------- status decider ---------- */
-.decider { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
-@media (max-width: 820px) { .decider { grid-template-columns: minmax(0, 1fr); } }
-.inputs { display: grid; gap: .9rem; min-width: 0; }
-.inputs label { display: flex; gap: .65rem; align-items: flex-start; cursor: pointer; }
-.inputs input[type="checkbox"] { margin-top: .3rem; accent-color: var(--accent); width: 1rem; height: 1rem; flex: none; }
-.inputs select { font: inherit; font-family: var(--font-mono); font-size: .875rem; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: .35rem .5rem; }
-.inputs .sel { display: grid; gap: .35rem; }
-.verdict { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.4rem; display: grid; gap: .9rem; min-width: 0; }
-.verdict .status { font-family: var(--font-mono); font-size: 1.75rem; color: var(--accent); }
-.rules { margin: 0; padding: 0; list-style: none; display: grid; gap: .35rem; counter-reset: r; }
-.rules li { counter-increment: r; display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: .4rem; font-size: .9rem; color: var(--ink-3); padding: .25rem .4rem; border-radius: 6px; transition: background .25s, color .25s; }
-.rules li::before { content: counter(r); font-family: var(--font-mono); }
-.rules li.hit { background: var(--accent-soft); color: var(--ink); }
-.rules li.passed { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--rule); }
-
 /* ---------- facts list ---------- */
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
 @media (max-width: 820px) { .facts { grid-template-columns: minmax(0, 1fr); } }
@@ -339,8 +320,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="8">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="8">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -399,7 +380,7 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 8 of 11</p>
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; page 8 of 11</p>
   <h1>Running and <em>streaming</em></h1>
   <div class="prose stack">
     <p class="lede">A compiled graph doesn't run by itself. You make a run from it, and the run calls the graph's nodes.</p>
@@ -497,11 +478,35 @@ body { margin: 0; }
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
+<script type="text/x-python">
+import asyncio
+import threading
+import time
+from dataclasses import dataclass
+
+from conductor import (
+    SKIPPED, Ask, ExternalError, Graph, InvalidCallError, NodeError, NodeRegistry, Policy, Run, Series,
+    make_graph, node,
+)
+
+registry = NodeRegistry()
+
+
+@registry.node("shout", title="Shout", description="...")
+def shout(line: str, mark: str = "!") -> str:
+    return line.upper() + mark
+
+
+@registry.node("join", title="Join", description="...")
+def join(texts: Series[str]) -> str:
+    return "+".join(texts)
+</script>
 <pre data-lang="py">@registry.node("lines", title="Lines", description="...",
                policy=Policy(costs_nothing=True))
 def lines(text: str) -> Series[str]:
     return text.splitlines()
 # shout and join as in the README
+graph = Graph.compile(make_graph(lines, shout, join), registry)
 
 run = graph.with_inputs({"text": "a\nb\nc"})
 print(run.status)
@@ -602,7 +607,12 @@ complete {'result': 'A!+B!+C!'}
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
-<pre data-lang="py">def tidy(line: str) -> str | None:        # None for a blank line
+<script type="text/x-python">
+registry = NodeRegistry()
+registry.add(lines)
+</script>
+<pre data-lang="py">@registry.node("tidy", title="Tidy", description="...")
+def tidy(line: str) -> str | None:        # None for a blank line
     return line.strip() or None
 
 @dataclass(frozen=True)
@@ -610,24 +620,32 @@ class Gated:
     keep: str = SKIPPED                    # a branch
     drop: str = SKIPPED                    # a branch
 
+@registry.node("gate", title="Gate", description="...")
 def gate(line: str) -> Gated:              # "skip" goes to drop
     return (Gated(keep=SKIPPED, drop=line) if line == "skip"
             else Gated(keep=line, drop=SKIPPED))
 
-def approve(line: str) -> bool:            # asks=True
+@registry.node("approve", title="Approve", description="...", asks=True)
+def approve(line: str) -> bool:
     if line == "ask":
         raise Ask(f"Approve {line}?")
     return True
 
-# lines -> tidy -> gate.keep -> approve
+graph = Graph.compile(make_graph(lines, tidy, gate, approve, edges=[
+    ("lines.result", "tidy.line"), ("tidy.result", "gate.line"),
+    ("gate.keep", "approve.line")]), registry)
 run = graph.run({"text": "ok\n \nskip\nask"})
 print(run.status, run.results["approve"]["result"])
-print(run.none_input_calls)</pre>
+print(run.results["gate"])
+print(run.none_input_calls)
+print([waiting.loc for waiting in run.waiting])</pre>
 <pre class="out">waiting [True, None, None, None]
-[NoneInputCall(loc=('gate', 1), input='line')]</pre>
+{'keep': ['ok', None, None, 'ask'], 'drop': [None, None, 'skip', None]}
+[NoneInputCall(loc=('gate', 1), input='line')]
+[('approve', 3)]</pre>
     </div>
     <figure>
-      <p class="label">printed from the run's <code class="int" title="Internal">_outcomes</code> <span class="lvl int">Internal</span></p>
+      <p class="label">the outcome of each call <span class="lvl int">Internal</span></p>
       <div class="grid-wrap">
         <table class="og" aria-label="Each call's outcome, by node and item">
           <thead><tr><th></th><th>(0,) "ok"</th><th>(1,) " "</th><th>(2,) "skip"</th><th>(3,) "ask"</th></tr></thead>
@@ -650,38 +668,22 @@ print(run.none_input_calls)</pre>
   <div class="section-head prose">
     <p class="eyebrow">How a run stands</p>
     <h2 id="status-h">The status is read from the outcomes and the last resume <span class="lvl pub">Public</span></h2>
-    <p class="muted"><code>run.status</code> comes from the outcomes and from how the last <code>resume()</code> left the run. <a href="asking-a-person.html#answering"><code>run.with_decline</code></a> stores its own ending in the same place: <code>declined</code>, with <a href="asking-a-person.html#answering"><code>answer_declined</code></a> as its cause. A declined run has ended for good: nothing waits, and <code>resume()</code> and <code>stream()</code> call no node. The first line of the rule that applies wins. Try it.</p>
+    <p class="muted"><code>run.status</code> comes from the outcomes and from how the last <code>resume()</code> left the run. <a href="asking-a-person.html#answering"><code>run.with_decline</code></a> stores its own ending in the same place, <code>declined</code>, with <a href="asking-a-person.html#answering"><code>answer_declined</code></a> as its cause. The one rule, with the order its checks go in, is in the reference: <code>python -m conductor.about running</code>, under "The status".</p>
   </div>
-  <div class="decider">
-    <div class="inputs">
-      <label><input type="checkbox" id="s-running"><span>This is a copy made while a <code>resume()</code> is still going, such as a checkpoint or a run handed back.</span></label>
-      <label><input type="checkbox" id="s-complete"><span>Every call of every node has an outcome, and none of them is waiting.</span></label>
-      <div class="sel">
-        <label for="s-early" style="cursor:default"><span>How the last <code>resume()</code>, or a decline, ended the run:</span></label>
-        <select id="s-early">
-          <option value="">it made every call that was ready</option>
-          <option value="failed">a call failed</option>
-          <option value="declined">a person declined (run.with_decline)</option>
-          <option value="stopped">a series went over max_items</option>
-          <option value="cancelled">the stream was cancelled</option>
-          <option value="timed_out">its timeout passed</option>
-        </select>
-      </div>
-      <label><input type="checkbox" id="s-waiting"><span>A call waits for a person (an <code class="int" title="Internal">Unanswered</code> outcome).</span></label>
-      <div><button class="btn" type="button" id="s-answer">Answer the waiting call</button></div>
-      <p class="small" id="s-note">An answer keeps a failure or an <a href="series-and-tables.html#limit">item limit</a>, since the failed call or the long series is still there. It drops a cancel or a timeout, which belonged to that one resume. A declined run waits on nothing, so it takes no answer.</p>
-    </div>
-    <div class="verdict" aria-live="polite">
-      <p class="eyebrow">run.status</p>
-      <p class="status" id="s-out">ready</p>
-      <ol class="rules" id="s-rules">
-        <li>running, in a copy made while a resume goes on</li>
-        <li>complete, when every node is complete</li>
-        <li>how the last resume, or a decline, ended the run early, with <code>run.cause</code></li>
-        <li>waiting, when a call waits for a person</li>
-        <li>ready, otherwise</li>
-      </ol>
-    </div>
+  <div class="sample" style="max-width:var(--col)">
+    <p class="label">A sample and what it prints &middot; the run above, waiting at <code>approve</code></p>
+<pre data-lang="py">print(run.status)
+answered = run.with_answers(run.waiting[0], True)
+print(answered.status)
+
+declined = run.with_decline(run.waiting[0], reason="Over budget")
+print(declined.status, declined.cause.type, declined.cause.loc)
+print(declined.resume().status, declined.waiting)</pre>
+<pre class="out">waiting
+complete
+declined answer_declined ('approve', 3)
+declined []</pre>
+    <p class="small">An answer is read from the outcomes at once: every call now has one, so the run is <code>complete</code> with no <code>resume()</code>. A decline drops every waiting question, and a declined run stays <code>declined</code>.</p>
   </div>
 </section>
 
@@ -748,44 +750,39 @@ print(run.none_input_calls)</pre>
     <p class="small">Every box is internal, so all are dashed. Two arrows name the <a href="nodes-and-types.html#policy"><code>Policy</code></a> fields you set, <code>retry_delay</code> and <code>attempt_timeout</code>.</p>
   </figure>
 
-  <div class="facts" style="margin-top:2.5rem">
-    <div class="fact">
-      <h3>Who counts the running calls</h3>
-      <p>With <code>concurrency</code> set, the count is shared by the whole process. Two runs that each use <code>fetch</code> in two places still make at most <code>concurrency</code> calls of it at once. With <code>None</code>, each run counts for itself, and separately for each place the graph uses the node.</p>
-    </div>
-    <div class="fact">
-      <h3>Waiting without blocking</h3>
-      <p>While an attempt waits for a place, the scheduler goes on calling other nodes.</p>
-    </div>
-    <div class="fact">
-      <h3 id="retried">Which failures are retried</h3>
-      <p>A call is retried when it raises an <a href="problems.html#failures"><code>ExternalError</code></a>, or an instance of a class in <code>retry_on</code>, and attempts are left (<code>retries</code>). A <a href="problems.html#failures"><code>NodeError</code></a> other than <code>ExternalError</code>, an <a href="asking-a-person.html#walk"><code>Ask</code></a>, and a value a validator refused are not retried, even with <code>retry_on=(Exception,)</code>. A timeout isn't retried either.</p>
-    </div>
-    <div class="fact">
-      <h3>The delay</h3>
-      <p>The first retry waits <code>retry_delay</code> seconds, and each later one waits twice as long as the one before. A call waiting for its retry doesn't count as running, so other calls of the node can start meanwhile.</p>
-    </div>
-  </div>
+  <p class="muted" id="retried" style="margin-top:2.5rem; max-width:var(--col)">Which failures are retried, how long each retry waits, and who counts the running calls are rules of the reference: <code>python -m conductor.about retries-and-timeouts</code> and <code>python -m conductor.about versions-and-policies</code>. The samples below show them at work. In each, <code>chain(...)</code> stands for <code>Graph.compile(make_graph(...), registry)</code> with a registry of those nodes.</p>
 
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
       <p class="label">A sample and what it prints &middot; the second value printed, <code class="int" title="Internal">policy.threaded</code> <span class="lvl int">Internal</span></p>
+<script type="text/x-python">
+def chain(*definitions):
+    nodes = NodeRegistry()
+    for definition in definitions:
+        nodes.add(definition)
+    return Graph.compile(make_graph(*definitions), nodes)
+</script>
 <pre data-lang="py">for policy in (Policy(), Policy(concurrency=4)):
+    seen = set()
+
     @node("slow", title="Slow", description="...", policy=policy)
     def slow(line: str) -> str:
-        seen.add(threading.get_ident())
+        seen.add(threading.current_thread().name)
         time.sleep(0.05)
         return line
-    # lines -> slow, over eight lines
-    run = graph.run({"text": "\n".join("abcdefgh")})
+
+    run = chain(lines, slow).run({"text": "\n".join("abcdefgh")})
     print(policy.concurrency, policy.threaded, run.status,
-          seconds, len(seen), "thread(s)", where)</pre>
-      <p class="small">The times vary by machine and from run to run. On one thread the eight calls of 50 ms take about 0.4 s; four at a time take about a quarter of that.</p>
-<pre class="out">None False complete 0.43s 1 thread(s) main
-4 True complete 0.11s 4 thread(s) pool</pre>
+          "one thread" if len(seen) == 1 else "several threads",
+          "main" if seen == {threading.main_thread().name} else "pool")</pre>
+<pre class="out">None False complete one thread main
+4 True complete several threads pool</pre>
     </div>
     <div class="sample">
       <p class="label">A sample and what it prints</p>
+<script type="text/x-python">
+tries = []
+</script>
 <pre data-lang="py">@node("fetch", title="Fetch", description="...",
       policy=Policy(retries=2, retry_delay=0.01))
 def fetch(line: str) -> str:
@@ -794,10 +791,10 @@ def fetch(line: str) -> str:
         raise ExternalError("the service is busy")
     return line
 
-async for event in graph.with_inputs({"text": "a"}).stream():
+async for event in chain(lines, fetch).with_inputs({"text": "a"}).stream():
     if event.type in ("node_retry", "run_end"):
-        print(event.model_dump(mode="json", exclude=...))</pre>
-      <p class="small">It printed this. The <code>exclude</code> leaves out each cause's <code>msg</code> and <code>ctx</code>, to fit.</p>
+        print(event.model_dump(mode="json", exclude={"cause": {"msg", "ctx"}}))</pre>
+      <p class="small">The <code>exclude</code> leaves out each cause's <code>msg</code> and <code>ctx</code>, to fit.</p>
 <pre class="out">{'loc': ['fetch'], 'type': 'node_retry', 'attempt': 1, 'retries': 2, 'delay': 0.01, 'cause': {'type': 'external_failed', 'loc': ['fetch', 0]}}
 {'loc': ['fetch'], 'type': 'node_retry', 'attempt': 2, 'retries': 2, 'delay': 0.02, 'cause': {'type': 'external_failed', 'loc': ['fetch', 0]}}
 {'type': 'run_end', 'status': 'complete', 'cause': None}</pre>
@@ -812,10 +809,10 @@ def stuck(line: str) -> str:
     time.sleep(0.3)
     return line
 
-run = graph.run({"text": "a"})   # lines -> stuck
+run = chain(lines, stuck).run({"text": "a"})
 print(run.status, run.cause.model_dump(mode="json"))</pre>
 <pre class="out">failed {'type': 'timeout', 'loc': ['stuck', 0], 'msg': "The node didn't return within 0.05 seconds, and a timed-out call isn't retried. Its Policy(attempt_timeout=) sets how long it may take.", 'ctx': {'seconds': 0.05}}</pre>
-    <p class="small">Three retries are allowed, and none is made. The design choices below say why.</p>
+    <p class="small">Three retries are allowed, and none is made. <code>python -m conductor.about retries-and-timeouts</code> says why.</p>
   </div>
 </section>
 
@@ -831,6 +828,11 @@ print(run.status, run.cause.model_dump(mode="json"))</pre>
   <div class="two">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
+<script type="text/x-python">
+def make_and_run(*definitions_and_inputs):
+    *definitions, inputs = definitions_and_inputs
+    return chain(*definitions).run(inputs)
+</script>
 <pre data-lang="py">@node("parse", title="Parse", description="Reads a number.")
 def parse(line: str) -> int:
     return int(line)
@@ -922,6 +924,9 @@ failed {'type': 'too_short', 'loc': ['check', 1], 'msg': 'The line is too short.
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
+<script type="text/x-python">
+graph = chain(lines, shout, join)
+</script>
 <pre data-lang="py">async def follow():
     async for event in graph.with_inputs({"text": "a\nb"}).stream():
         print(event.model_dump(mode="json"))
@@ -945,22 +950,7 @@ asyncio.run(follow())</pre>
     </div>
   </div>
 
-  <div class="ev-wrap" style="margin-top:2.5rem">
-    <table class="ev">
-      <tbody>
-        <tr><td>run_start</td><td>It comes first, with the calls already waiting for a person.</td></tr>
-        <tr><td>node_start</td><td>It comes once per node in a stream, and not again once the node has an outcome. It comes before the node's first call, or with its first outcome that isn't <code class="int" title="Internal">Skipped</code>.</td></tr>
-        <tr><td>node_progress</td><td>It comes for a node inside a <a href="series-and-tables.html#loop">loop</a>, with the node's <code>CallCount</code>, at most four times a second.</td></tr>
-        <tr><td>node_complete</td><td>It comes at most once per node in a run, when every call has an outcome, none waits, and nothing upstream is running. It carries the node's <code>CallCount</code>, as <code>node_progress</code> does, and how many calls this stream <a href="saved-runs-and-reuse.html#again">reused</a>.</td></tr>
-        <tr><td>node_retry</td><td>A call failed and will be tried again. It carries which attempt it was, the delay and the cause.</td></tr>
-        <tr><td>node_failed</td><td>A call failed and won't be retried. It carries the call's <a href="problems.html"><code>Problem</code></a>, and the run then ends.</td></tr>
-        <tr><td>node_waiting</td><td>A call raised <a href="asking-a-person.html#walk"><code>Ask</code></a>. It carries the <a href="asking-a-person.html#host"><code>Waiting</code></a>, whose id <a href="asking-a-person.html#answering"><code>run.with_answers</code></a> and <code>run.with_decline</code> take.</td></tr>
-        <tr><td>run_checkpoint</td><td>It carries a copy of the run to save. It comes with <code>checkpoint_every</code>, and as the last event after <code>hand_back</code>.</td></tr>
-        <tr><td>run_end</td><td>It comes last, with <code>status</code> and <code>cause</code>. A stream handed back has none.</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p class="muted" style="margin-top:1rem; max-width:var(--col)"><code>run_end</code> and <code>run_checkpoint</code> hand the host the run itself as <code>event.run</code>, which isn't part of the event's JSON.</p>
+  <p class="muted" style="margin-top:2.5rem; max-width:var(--col)">The events are the classes of <code>conductor.events</code>, in the order a run reports them. What each one carries, and when it comes, is in the reference: <code>python -m conductor.about events</code>. <code>run_end</code> and <code>run_checkpoint</code> also hand the host the run itself as <code>event.run</code>, which isn't part of the event's JSON.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -976,14 +966,24 @@ asyncio.run(follow())</pre>
   <div class="two">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
+<script type="text/x-python">
+@node("tick", title="Tick", description="...")
+def tick(line: str) -> str:
+    time.sleep(0.03)
+    return line
+
+
+ticking = chain(lines, tick)
+ten_lines = "\n".join("abcdefghij")
+</script>
 <pre data-lang="py"># tick sleeps 30 ms, called once per line of ten
-part = graph.with_inputs({"text": "\n".join("abcdefghij")}).resume(timeout=0.1)
-print(part.status, part.cause.type, part.progress.nodes["tick"].model_dump())
+part = ticking.with_inputs({"text": ten_lines}).resume(timeout=0.1)
+print(part.status, part.cause.type, part.progress.nodes["tick"].finished < 10)
 rest = part.resume()
-print(rest.status, rest.progress.nodes["tick"].model_dump())</pre>
-      <p class="small">How many calls fit in 0.1 seconds depends on the machine. The timeout is checked before each call, so a call that has started finishes.</p>
-<pre class="out">timed_out run_timed_out {'finished': 3, 'waiting': 0, 'skipped': 0, 'none_input': 0, 'known': 10, 'total': 10}
-complete {'finished': 10, 'waiting': 0, 'skipped': 0, 'none_input': 0, 'known': 10, 'total': 10}</pre>
+print(rest.status, rest.progress.nodes["tick"].finished)</pre>
+<pre class="out">timed_out run_timed_out True
+complete 10</pre>
+      <p class="small">How many calls fit in 0.1 seconds depends on the machine. The timeout is checked before each call, so a call that has started finishes, and the next <code>resume()</code> makes only the rest.</p>
     </div>
     <div class="sample">
       <p class="label">A sample and what it prints</p>
@@ -998,22 +998,30 @@ print(big.with_max_items(10).resume().outputs)</pre>
   <div class="two" style="margin-top:2rem">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
-<pre data-lang="py">async for event in graph.with_inputs({"text": ten_lines}).stream(checkpoint_every=0.05):
+<pre data-lang="py">kinds = []
+async for event in ticking.with_inputs({"text": ten_lines}).stream(checkpoint_every=0.05):
     kinds.append(event.type)
     if event.type == "run_checkpoint":
         last = event.run
-print(kinds.count("run_checkpoint"), "checkpoints;", last.status,
-      last.progress.nodes["tick"].finished, "of 10 kept in the last")
-print(Run.from_json(last.to_json(), graph).status)</pre>
-<pre class="out">5 checkpoints; running 10 of 10 kept in the last
+print("run_checkpoint" in kinds, kinds[-1], last.status)
+saved = last.to_json()                 # what a host stores
+print(Run.from_json(saved, ticking).resume().status)</pre>
+<pre class="out">True run_end running
 complete</pre>
-      <p class="small">How many checkpoints come, and how far the last one is, depends on the machine.</p>
+      <p class="small">How many checkpoints come, and how far the last one is, depends on the machine. Whichever it is, the run read back goes on to the end.</p>
     </div>
     <div class="stack">
       <h3 id="checkpoint">What a checkpoint is</h3>
       <p class="muted">With <code>checkpoint_every</code>, the scheduler hands the host a copy of the run after an outcome is recorded, once at least that many seconds have passed since the stream started or since the last copy. One more copy comes when the run stops with calls still on threads, before those calls are back.</p>
       <p class="muted">Read back, a running copy's status is what its outcomes say. If the process dies, a resume of the last saved copy makes only the calls that copy has no outcome for.</p>
-      <p class="muted"><code>max_items</code>, <code>timeout</code> and <code>checkpoint_every</code> are checked at the call, before anything runs. A wrong one is refused. <code>max_items=0</code> is <code>invalid_limit</code>, and <code>timeout=True</code> is <code>invalid_limit_seconds</code>, since <code>True</code> isn't a number of seconds.</p>
+      <p class="muted"><code>max_items</code>, <code>timeout</code> and <code>checkpoint_every</code> are checked at the call, before anything runs. A wrong one is refused, and <code>True</code> isn't a number of seconds:</p>
+<pre data-lang="py">for limits in ({"max_items": 0}, {"timeout": True}):
+    try:
+        ticking.run({"text": "a"}, **limits)
+    except InvalidCallError as refused:
+        print(limits, [problem.type for problem in refused.problems])</pre>
+<pre class="out">{'max_items': 0} ['invalid_limit']
+{'timeout': True} ['invalid_limit_seconds']</pre>
     </div>
   </div>
 </section>
@@ -1025,25 +1033,12 @@ complete</pre>
   <div class="section-head prose">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part</h2>
+    <p class="muted">Why nodes run on the scheduler's own thread unless they ask for threads, why <code>concurrency</code> counts across the whole process, why only failures from outside are retried, why one blueprint serves every run, and why events carry counts and checkpoints come from the stream: the <a href="../design/#the-engine">design guide's engine section</a> and its <a href="../design/#saved-runs-checkpoints-and-events">section on saved runs, checkpoints and events</a> say. Why a node's own exception goes to the log is under <a href="../design/#graph-and-run"><code>Graph</code> and <code>Run</code></a>. The choices below are the rest.</p>
   </div>
   <div class="choices">
     <article class="choice">
       <h3>One scheduler runs a run, with or without a listener.</h3>
       <p>What a test sees with <code>resume()</code> is how a served run calls its nodes.</p>
-    </article>
-    <article class="choice">
-      <h3>Calls run on the scheduler's own thread unless the node asks for threads.<span class="lvl pub">Public</span></h3>
-      <p>A chain of fast nodes then pays no thread hop per call.</p>
-      <p class="cost"><b>Cost:</b> a slow node that doesn't set <code>concurrency</code> runs one item at a time. In the sample above, eight items took about four times as long as with <code>concurrency=4</code>.</p>
-    </article>
-    <article class="choice">
-      <h3><code>concurrency</code> counts across the whole process.<span class="lvl pub">Public</span></h3>
-      <p>A node that calls an outside service can keep to its quota, however many runs in the process use it.</p>
-      <p class="cost"><b>Cost:</b> a node whose function runs a graph that uses the same node can wait forever once the outer calls hold every place.</p>
-    </article>
-    <article class="choice">
-      <h3>Only failures from outside are retried.<span class="lvl pub">Public</span></h3>
-      <p>Calling the same computation again with the same arguments fails the same way. So a <a href="problems.html#failures"><code>NodeError</code></a>, an <a href="asking-a-person.html#walk"><code>Ask</code></a> or a refused output isn't retried, even when <code>retry_on</code> names <code>Exception</code>.</p>
     </article>
     <article class="choice">
       <h3>An attempt past its timeout fails the call without a retry.<span class="lvl pub">Public</span></h3>
@@ -1064,24 +1059,6 @@ complete</pre>
       <h3>A run you hold doesn't change.<span class="lvl pub">Public</span></h3>
       <p><code>resume()</code>, <code>again()</code> and each <code>with_...</code> method (<code>with_answers</code>, <code>with_decline</code>, <code>with_inputs</code>, <code>with_forgotten</code>, <code>with_max_items</code>) return a new <code>Run</code>. A host can keep the run it started from, and a checkpoint's copy is safe to save while the scheduler goes on. Setting an attribute of a <code>Run</code> raises <code>FrozenInstanceError</code>.</p>
       <p class="cost"><b>Cost:</b> each <code>resume()</code> copies the run's outcome dicts, one per node.</p>
-    </article>
-    <article class="choice">
-      <h3>Events carry counts, not results.<span class="lvl pub">Public</span></h3>
-      <p>A node's outputs stay in the run, which a host reads with <code>run.results</code> or takes from <code>run_end</code>. Only what a host acts on comes in an event. That is a <a href="problems.html"><code>Problem</code></a> in <code>node_failed</code>, <code>node_retry</code> and <code>run_end</code>, and a waiting call's prompt and inputs in <code>node_waiting</code> and <code>run_start</code>.</p>
-    </article>
-    <article class="choice">
-      <h3>A node's exception other than a <code>NodeError</code> goes to the log, not the event.<span class="lvl pub">Public</span></h3>
-      <p>Its text may quote a value the run handled, and events go to web pages. The problem names only the exception's class.</p>
-    </article>
-    <article class="choice">
-      <h3>Every run of a graph shares one blueprint.<span class="lvl int">Internal</span></h3>
-      <p>Flattening the <a href="subgraphs.html#open">subgraphs</a> and deciding which edges need a check at run time happen when the graph's first run is made (<code>with_inputs</code> or <code>Run.from_json</code>).</p>
-      <p class="sees">You never see the blueprint. Its work is done once per graph, when the first run is made or read.</p>
-    </article>
-    <article class="choice">
-      <h3>Checkpoints come from the stream, at most every so many seconds.<span class="lvl pub">Public</span></h3>
-      <p>A host that saves each copy keeps what was done if its process dies, without a save after every call.</p>
-      <p class="cost"><b>Cost:</b> a crash repeats the calls made since the last saved copy, and those in flight.</p>
     </article>
   </div>
 </section>
@@ -1109,9 +1086,6 @@ complete</pre>
   </ul>
 </section>
 
-<footer>
-  <p>Every sample imports only conductor's public names, and a block that prints an internal value says so in its label. The step-through is a trace of <code class="int" title="Internal">Scheduler</code>'s own methods, wrapped to log each call, for both of <code>shout</code>'s policies. Times vary by machine.</p>
-</footer>
 
 </div>
 </div>
@@ -1247,39 +1221,6 @@ complete</pre>
   $("#mode-own").addEventListener("click", () => mode(false));
   $("#mode-thr").addEventListener("click", () => mode(true));
   show(0);
-
-  /* ======================= THE STATUS RULE =======================
-     The order of state.py's status_of. A decline removes every waiting
-     call, so a declined run has none, takes no answer, and is never complete:
-     the call it declined has no outcome. */
-  const sRun = $("#s-running"), sComp = $("#s-complete"), sEarly = $("#s-early"), sWait = $("#s-waiting");
-  function decide() {
-    const declined = sEarly.value === "declined";
-    if (declined) { sComp.checked = false; }
-    sComp.disabled = declined;
-    if (sComp.checked || declined) { sWait.checked = false; }
-    sWait.disabled = sComp.checked || declined;
-    $("#s-answer").disabled = declined;
-    let hit, status;
-    if (sRun.checked) { hit = 0; status = "running"; }
-    else if (sComp.checked) { hit = 1; status = "complete"; }
-    else if (sEarly.value) { hit = 2; status = sEarly.value; }
-    else if (sWait.checked) { hit = 3; status = "waiting"; }
-    else { hit = 4; status = "ready"; }
-    $("#s-out").textContent = status;
-    document.querySelectorAll("#s-rules li").forEach((li, i) => {
-      li.classList.toggle("hit", i === hit);
-      li.classList.toggle("passed", i < hit);
-    });
-  }
-  [sRun, sComp, sEarly, sWait].forEach((el) => el.addEventListener("change", decide));
-  $("#s-answer").addEventListener("click", () => {
-    sWait.checked = false;
-    if (sRun.checked) sRun.checked = false;
-    if (sEarly.value === "cancelled" || sEarly.value === "timed_out") sEarly.value = "";
-    decide();
-  });
-  decide();
 })();
 </script>
 

@@ -12,12 +12,17 @@ A few documents need some help to run:
 - A notebook cell may use ``await`` at the top level. Such a cell is wrapped in a coroutine of its own.
 - ``llms.txt`` uses conductor's public names without importing them, so its module starts with a star import of
   ``conductor`` and ``conductor.widgets``.
+
+The illustrated pages in ``docs/explainers/`` are HTML, and each shows what its samples print, so they are read
+apart, by ``explainer_samples``.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 
 from conductor.about import problems_page
@@ -90,3 +95,91 @@ def _doctest_free(block: str) -> str:
 
 def _module_name(path: Path) -> str:
     return "doc_" + re.sub(r"\W", "_", str(path.relative_to(ROOT)))
+
+
+@dataclass
+class ExplainerSample:
+    """One piece of Python on an illustrated page, and what the page shows it prints.
+
+    Attributes:
+        code: The Python, as a reader sees it, or the setup the page hides.
+        line: The line of the page the Python starts on.
+        shown: Each block of output the page shows after the Python, before the next Python. Empty when it shows
+            none.
+        in_order: True when a shown block is only some of the printed lines, in order (``data-check="lines"``).
+            Otherwise it is all of them.
+    """
+
+    code: str
+    line: int
+    shown: list[str] = field(default_factory=list)
+    in_order: bool = False
+
+
+class _ExplainerReader(HTMLParser):
+    """Reads an illustrated page's Python and its shown output, in the order the page has them.
+
+    - ``<pre data-lang="py">`` is a sample. ``data-run="no"`` leaves out one that isn't a whole program.
+    - ``<script type="text/x-python">`` is setup a sample needs and the page doesn't show, such as its imports.
+    - An element whose class has ``out`` is what the Python before it prints. ``data-check="lines"`` on it says
+      it shows only some of the printed lines.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.samples: list[ExplainerSample] = []
+        self._open: str | None = None
+        self._depth = 0
+        self._text: list[str] = []
+        self._line = 0
+        self._lines_only = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._open:
+            self._depth += tag == self._open
+            return
+        attr = dict(attrs)
+        classes = (attr.get("class") or "").split()
+        if tag == "pre" and attr.get("data-lang") == "py" and attr.get("data-run") != "no":
+            self._start("code", tag)
+        elif tag == "script" and attr.get("type") == "text/x-python":
+            self._start("code", tag)
+        elif "out" in classes:
+            self._lines_only = attr.get("data-check") == "lines"
+            self._start("out", tag)
+
+    def _start(self, kind: str, tag: str) -> None:
+        self._kind, self._open, self._depth, self._text = kind, tag, 1, []
+        self._line = self.getpos()[0]
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != self._open:
+            return
+        self._depth -= 1
+        if self._depth:
+            return
+        text = "".join(self._text).strip("\n")
+        self._open = None
+        if not text.strip():
+            return  # filled in by the page's script
+        if self._kind == "code":
+            self.samples.append(ExplainerSample(text, self._line))
+        elif self.samples:
+            self.samples[-1].shown.append(text)
+            self.samples[-1].in_order |= self._lines_only
+        else:
+            raise ValueError(f"line {self._line}: shown output with no Python before it")
+
+    def handle_data(self, data: str) -> None:
+        if self._open:
+            self._text.append(data)
+
+
+def explainer_samples() -> dict[str, list[ExplainerSample]]:
+    """Returns the Python of each illustrated page in ``docs/explainers/``, keyed by a module name."""
+    found: dict[str, list[ExplainerSample]] = {}
+    for path in sorted(ROOT.glob("docs/explainers/*.html")):
+        reader = _ExplainerReader()
+        reader.feed(path.read_text())
+        found[_module_name(path)] = reader.samples
+    return found

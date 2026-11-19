@@ -5,12 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Conductor Standard Nodes</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    palette, the pickers and the diagrams; sections are separated by space
    and a faint staff of rules, never by boxes.
@@ -32,12 +29,12 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
-  --pr107-soft: #dcf1ef;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
+  --pkg-nodes-soft: #dcf1ef;
 
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -58,8 +55,8 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
-    --pr107-soft: #12302e;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+    --pkg-nodes-soft: #12302e;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -69,8 +66,8 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
-  --pr107-soft: #12302e;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+  --pkg-nodes-soft: #12302e;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -117,11 +114,11 @@ section { padding-top: var(--section); }
 
 /* ---------- hero ---------- */
 .hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
-.hero h1 em { font-style: italic; color: var(--pr107); }
+.hero h1 em { font-style: italic; color: var(--pkg-nodes); }
 .idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
 .idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
 .idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
-.idea .term b { font-weight: 400; color: var(--pr107); }
+.idea .term b { font-weight: 400; color: var(--pkg-nodes); }
 @media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---------- code ---------- */
@@ -146,14 +143,14 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
 .d-title { font: 600 11px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
 .d-box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; transition: fill .3s, stroke .3s, opacity .3s; }
-.d-box.on { fill: var(--pr107-soft); stroke: var(--pr107); }
+.d-box.on { fill: var(--pkg-nodes-soft); stroke: var(--pkg-nodes); }
 .d-box.big { fill: var(--accent-soft); stroke: var(--accent); }
 .d-box.off { opacity: .4; }
 .d-edge { stroke: var(--ink-3); stroke-width: 1.5; fill: none; transition: stroke .3s, opacity .3s; }
-.d-edge.on { stroke: var(--pr107); stroke-width: 2; stroke-dasharray: 5 5; animation: flow 1s linear infinite; }
+.d-edge.on { stroke: var(--pkg-nodes); stroke-width: 2; stroke-dasharray: 5 5; animation: flow 1s linear infinite; }
 .d-edge.off { opacity: .25; }
 @keyframes flow { to { stroke-dashoffset: -10; } }
-.d-val { font: 600 11px var(--font-mono); fill: var(--pr107); }
+.d-val { font: 600 11px var(--font-mono); fill: var(--pkg-nodes); }
 .d-skip { font: 600 10px var(--font-mono); fill: var(--ink-3); letter-spacing: .04em; }
 .d-tag { font: 500 11px var(--font-mono); fill: var(--ink-2); }
 
@@ -167,7 +164,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .mod b { font: 500 .9rem var(--font-mono); display: flex; justify-content: space-between; gap: .5rem; }
 .mod b span { color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }
 .mod small { color: var(--ink-3); font-size: .78rem; line-height: 1.35; }
-.mod[aria-pressed="true"] { background: var(--pr107-soft); border-color: var(--pr107); }
+.mod[aria-pressed="true"] { background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
 .picker-side { display: grid; gap: .9rem; min-width: 0; }
 .tally { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
 .tally .n { font-family: var(--font-display); font-size: var(--step-3); line-height: 1; font-variant-numeric: tabular-nums; }
@@ -175,7 +172,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .btn { font: 600 .875rem/1 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .6rem 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: .45rem; }
 .btn:hover { border-color: var(--ink-3); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
-.btn[aria-pressed="true"] { background: var(--pr107-soft); border-color: var(--pr107); }
+.btn[aria-pressed="true"] { background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
 .btn svg { width: 14px; height: 14px; fill: currentColor; }
 .seg { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
 
@@ -184,7 +181,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 @media (max-width: 980px) { .pal { grid-template-columns: minmax(0, 1fr); } }
 .pal-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.25rem; }
 .chipbtn { font: 500 .8125rem/1 var(--font-mono); color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .75rem; cursor: pointer; }
-.chipbtn[aria-pressed="true"] { color: var(--ink); background: var(--pr107-soft); border-color: var(--pr107); }
+.chipbtn[aria-pressed="true"] { color: var(--ink); background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
 .search { font: inherit; font-size: .875rem; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .9rem; min-width: 0; flex: 1 1 12rem; max-width: 18rem; }
 .groups { display: grid; gap: 1.5rem; }
 .group h3 { font-size: .8125rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: .55rem; display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
@@ -196,7 +193,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .ntile small { color: var(--ink-3); font-size: .78rem; }
 .ntile .flags { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .2rem; }
 .flag { font: 500 .68rem/1 var(--font-mono); color: var(--ink-2); background: var(--paper); padding: .2rem .35rem; border-radius: 4px; }
-.ntile[aria-pressed="true"] { background: var(--pr107-soft); border-color: var(--pr107); }
+.ntile[aria-pressed="true"] { background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
 .ntile[aria-pressed="true"] .flag { background: var(--surface); }
 .detail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--bar-h, 0px) + 1rem); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.4rem; display: grid; gap: 1rem; min-width: 0; max-height: calc(100vh - 2rem); overflow-y: auto; }
 @media (max-width: 980px) { .detail { position: static; max-height: none; } }
@@ -231,7 +228,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 @media (max-width: 900px) { .ctrl-row { grid-template-columns: minmax(0, 1fr); } }
 .ctrl-row > * { min-width: 0; }
 .ctrl-row h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
-.ctrl-row code.id { color: var(--pr107); }
+.ctrl-row code.id { color: var(--pkg-nodes); }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .count { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-3); margin-left: .25rem; }
 .results { font-family: var(--font-mono); font-size: .8rem; display: grid; gap: .2rem; }
@@ -244,7 +241,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .wlist > div { min-width: 0; display: grid; gap: .6rem; align-content: start; }
 .pills { display: flex; flex-wrap: wrap; gap: .35rem; }
 .pill { font: 500 .75rem/1 var(--font-mono); padding: .35rem .5rem; border-radius: 5px; background: var(--surface); color: var(--ink); }
-.pill.tx { background: var(--pr107-soft); }
+.pill.tx { background: var(--pkg-nodes-soft); }
 
 /* ---------- facts ---------- */
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.25rem 3rem; }
@@ -264,7 +261,7 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .series { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .5rem 1.5rem; margin-top: 1rem; padding: 0; margin-bottom: 0; }
 .series li { list-style: none; padding: .6rem 0; border-bottom: 1px dashed var(--rule); display: flex; justify-content: space-between; gap: 1rem; font-size: .9375rem; }
 .series li span { color: var(--ink-3); font-size: .8125rem; white-space: nowrap; }
-.series li.here { color: var(--pr107); font-weight: 600; }
+.series li.here { color: var(--pkg-nodes); font-weight: 600; }
 .series li a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .2em; }
 .series li a:hover { color: var(--accent); text-decoration-color: currentColor; }
 footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; }
@@ -335,8 +332,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="10">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="10">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -395,21 +392,21 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; syv-conductor-nodes &middot; page 10 of 11</p>
+  <p class="eyebrow">Conductor &middot; syv-conductor-nodes &middot; page 10 of 11</p>
   <h1>The <em>standard</em> nodes</h1>
   <div class="prose stack">
-    <p class="lede"><code>syv-conductor-nodes</code> is a separate package of 36 ready-made nodes. They work on text, numbers, yes or no, JSON, regular expressions, lists and tables, and three of them choose where a value goes. They work only on the values they're given.</p>
+    <p class="lede"><code>syv-conductor-nodes</code> is a separate package of ready-made nodes. They work on text, numbers, yes or no, JSON, regular expressions, lists and tables, and a few choose where a value goes. They work only on the values they're given.</p>
     <p class="muted">A host adds the ones it wants to its own registry, next to the nodes it writes itself. You import it as <code>conductor_nodes</code>. Every output on this page was printed by the code it shows.</p>
     <p class="crumbs"><a href="overview.html">Back to the overview</a></p>
   </div>
   <div class="idea" aria-label="The three ideas of this page">
     <div>
       <p class="term">A registry <b>per module</b></p>
-      <p class="muted">Each of the eight modules is one category, with a registry of its own. <code>conductor_nodes.registry</code> has all 36 nodes.</p>
+      <p class="muted">Each module is one category, with a registry of its own. <code>conductor_nodes.registry</code> has all their nodes.</p>
     </div>
     <div>
       <p class="term">Nodes written like <b>a host's</b></p>
-      <p class="muted">The package imports eight names, from <code>conductor</code> and <a href="nodes-and-types.html#hint"><code>conductor.widgets</code></a>, and nothing from <a href="overview.html#map"><code class="int" title="Internal">conductor._internal</code></a>.</p>
+      <p class="muted">The package imports a few public names, from <code>conductor</code> and <a href="nodes-and-types.html#hint"><code>conductor.widgets</code></a>, and nothing from <a href="overview.html#map"><code class="int" title="Internal">conductor._internal</code></a>.</p>
     </div>
     <div>
       <p class="term">Types that <b>follow the edge</b></p>
@@ -429,11 +426,11 @@ body { margin: 0; }
   <div class="section-head prose">
     <p class="eyebrow">How it's grouped</p>
     <h2 id="mod-h">Every module is one category</h2>
-    <p class="muted">Each module starts with <a href="nodes-and-types.html#registry"><code>registry = NodeRegistry(category="math")</code></a>, or its own category, and declares its nodes on it with <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>. A node takes the category of the registry it's declared on, so every node in <code>conductor_nodes.math</code> is in <code>math</code>. <code>conductor_nodes.registry</code> then adds the eight registries into one.</p>
+    <p class="muted">Each module starts with <a href="nodes-and-types.html#registry"><code>registry = NodeRegistry(category="math")</code></a>, or its own category, and declares its nodes on it with <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>. A node takes the category of the registry it's declared on, so every node in <code>conductor_nodes.math</code> is in <code>math</code>. <code>conductor_nodes.registry</code> then adds the module registries into one.</p>
   </div>
 
   <div class="diagram" style="margin-bottom:2.5rem">
-    <svg viewBox="0 0 900 300" role="img" aria-label="Eight module registries feed conductor_nodes.registry. A host's registry takes either the whole package registry, a module registry, or a filter of the package registry.">
+    <svg viewBox="0 0 900 300" role="img" aria-label="The module registries feed conductor_nodes.registry. A host's registry takes either the whole package registry, a module registry, or a filter of the package registry.">
       <text class="d-title" x="16" y="20">a registry per module</text>
       <text class="d-title" x="370" y="20">the package</text>
       <text class="d-title" x="640" y="20">a host's registry</text>
@@ -441,7 +438,7 @@ body { margin: 0; }
       <g id="dia-mod-edges"></g>
       <rect class="d-box big" x="350" y="122" width="210" height="56" rx="10"/>
       <text class="d-label" x="455" y="146" text-anchor="middle">conductor_nodes.registry</text>
-      <text class="d-sub" x="455" y="164" text-anchor="middle">36 nodes, eight categories</text>
+      <text class="d-sub" x="455" y="164" text-anchor="middle" id="pkg-sub">every node, a category per module</text>
       <path class="d-edge" d="M560 150 C 600 150, 600 150, 640 150"/>
       <path class="d-edge" id="host-edge" d="M560 150 C 600 150, 600 150, 640 150"/>
       <rect class="d-box on" id="host-box" x="640" y="118" width="244" height="64" rx="10"/>
@@ -459,7 +456,7 @@ body { margin: 0; }
       <div class="mods" id="mods"></div>
     </div>
     <div class="picker-side">
-      <div class="tally"><span class="n" id="tally">36</span><span class="muted" id="tally-txt">nodes in the host's registry</span></div>
+      <div class="tally"><span class="n" id="tally"></span><span class="muted" id="tally-txt">nodes in the host's registry</span></div>
       <div class="quick">
         <button class="btn" type="button" id="all-btn">All of them</button>
         <button class="btn" type="button" id="none-btn">None</button>
@@ -475,6 +472,18 @@ body { margin: 0; }
 
   <div class="two" style="margin-top:2.75rem">
     <div class="sample">
+<script type="text/x-python">
+import io
+from dataclasses import dataclass
+from typing import Annotated, Any
+
+import polars as pl
+
+import conductor_nodes
+from conductor import Graph, NodeDeclarationError, NodeRegistry, make_graph
+from conductor_nodes import control, json_ops, logic, regex_ops, series, tables, text
+from conductor_nodes import math as m
+</script>
       <p class="cap">This takes one module's registry and makes a graph of two of its nodes. <a href="graph-record-and-compiling.html#make"><code>make_graph</code></a> wires the two in order.</p>
       <pre data-lang="py">registry = NodeRegistry()
 registry.add_subregistry(conductor_nodes.text.registry)
@@ -492,7 +501,10 @@ print([d.id for d in math_nodes] == [d.id for d in conductor_nodes.math.registry
 
 twice = NodeRegistry()
 twice.add_subregistry(conductor_nodes.registry)
-twice.add_subregistry(conductor_nodes.text.registry)</pre>
+try:
+    twice.add_subregistry(conductor_nodes.text.registry)
+except NodeDeclarationError as error:
+    print(type(error).__name__, [p.type for p in error.problems])</pre>
       <pre class="out">True
 NodeDeclarationError ['duplicate_node_id']</pre>
     </div>
@@ -505,7 +517,7 @@ NodeDeclarationError ['duplicate_node_id']</pre>
 <section id="palette" aria-labelledby="pal-h">
   <div class="section-head prose">
     <p class="eyebrow">The palette</p>
-    <h2 id="pal-h">All 36 nodes with a real run of each <span class="lvl pub">Public</span></h2>
+    <h2 id="pal-h">Every node with a real run of each <span class="lvl pub">Public</span></h2>
     <p class="muted">Each node is shown as <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> shows it to an editor. Tap one to see its fields and one run. For each run, the node was put in a graph alone and given its first example from <code class="int" title="Internal">tests/test_nodes/test_catalog.py</code> as constants. For <code>control-switch</code> it was given the second. Every run completed.</p>
   </div>
   <div class="pal-tools">
@@ -525,27 +537,27 @@ NodeDeclarationError ['duplicate_node_id']</pre>
 <section id="surface" aria-labelledby="surf-h">
   <div class="section-head prose">
     <p class="eyebrow">What it's built on</p>
-    <h2 id="surf-h">The package imports eight public names <span class="lvl pub">Public</span></h2>
-    <p class="muted">Conductor's rules say the companion packages import only its <a href="overview.html#map">five public modules</a>. <code>conductor_nodes</code> imports these eight names from two of them.</p>
+    <h2 id="surf-h">The package imports only public names <span class="lvl pub">Public</span></h2>
+    <p class="muted">Conductor's rules say the companion packages import only its <a href="overview.html#map">five public modules</a>. <code>conductor_nodes</code> imports these names from two of them.</p>
   </div>
   <div class="two" style="margin-bottom:2.5rem">
     <div class="sample">
       <pre data-lang="py">from conductor import NodeError, NodeRegistry, Param, Policy, SKIPPED, Series, Table
 from conductor.widgets import Textarea</pre>
-      <p class="small">Besides those, the package uses <code>pydantic</code> (for <code>JsonValue</code>), <code>polars</code>, the <code>regex</code> package and <code>typing-extensions</code>, which its <code>pyproject.toml</code> lists with <code>syv-conductor==2.0.0</code>.</p>
+      <p class="small">Besides those, the package uses <code>pydantic</code> (for <code>JsonValue</code>), <code>polars</code>, the <code>regex</code> package and <code>typing-extensions</code>, which its <code>pyproject.toml</code> lists beside <code>syv-conductor</code>.</p>
     </div>
     <p class="muted">Each node is a typed function under <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>, with <a href="nodes-and-types.html#hint"><code>Param</code></a> where a field needs more than its type. The two pages on <a href="nodes-and-types.html">a node and its types</a> and on <a href="series-and-tables.html">Series and tables</a> explain these names.</p>
   </div>
   <div class="uses">
     <div class="use"><h3>NodeRegistry<span>one per module</span></h3><p>A host makes one and adds the package's nodes to it with <a href="nodes-and-types.html#registry"><code>add_subregistry</code></a>. Each node keeps the category of the module it comes from.</p></div>
-    <div class="use"><h3>Series<span>where a loop starts and ends</span></h3><p>A node that returns one starts a <a href="series-and-tables.html#loop">loop</a>: <code>text-split</code>, <code>text-list</code>, <code>regex-extract</code>, <code>series-split</code>, and <code>series-collect</code>, whose list can start a new loop. A node that takes one is called once with every item: <code>text-join</code>, <code>math-min</code>, <code>math-max</code>, <code>series-collect</code>, <code>series-stack</code>.</p></div>
+    <div class="use"><h3>Series<span>where a loop starts and ends</span></h3><p>A node that returns one starts a <a href="series-and-tables.html#loop">loop</a>, such as <code>text-split</code>, and <code>series-collect</code>, whose list can start a new loop. A node that takes one is called once with every item, such as <code>text-join</code> and <code>math-max</code>. The palette marks both with <code>Series</code>.</p></div>
     <div class="use"><h3>Table<span>a whole table as one value</span></h3><p><code>series-split</code> takes <code>Table[T] | list[T]</code> and gives its rows or items. <code>series-stack</code> returns <a href="series-and-tables.html#table"><code>Table[R]</code></a>. <code>table-collect</code> takes a <code>Table</code> and returns one with new columns.</p></div>
     <div class="use"><h3>Param<span>titles, limits, widgets</span></h3><p>It gives output titles such as <code>Sum</code> and <code>Parts</code>. It sets limits that are checked before the node runs, such as <code>ge=0, le=8</code> on <code>json-stringify.indent</code>, <code>ge=0, le=10</code> on <code>math-round.decimals</code>, and <code>min_length=1</code> on <code>text-split.separator</code> and on the <code>needle</code> of <code>text-replace</code> and <code>text-contains</code>.</p></div>
     <div class="use"><h3>Policy<span>calls that cost nothing</span></h3><p>Every node in the package is declared with <code>policy=</code><a href="nodes-and-types.html#policy"><code>Policy(costs_nothing=True)</code></a>, since none touches anything outside the run. So <a href="saved-runs-and-reuse.html#policy"><code>run.resume(only_costs_nothing=True)</code></a> calls all of them, and the totals after <code>text-split</code>, <code>text-list</code>, <code>regex-extract</code> and <code>series-split</code> are known before any node that costs something is called. A node's own error, such as <code>invalid_pattern</code>, can then fail that call.</p></div>
     <div class="use"><h3>SKIPPED<span>a branch not chosen</span></h3><p>A <a href="nodes-and-types.html#outputs">branch</a> is an output whose default is <code>SKIPPED</code>. <code>control-decide</code> gives <code>SKIPPED</code> on the branch not chosen. <code>control-switch</code> returns <code>SKIPPED</code> for every branch but the chosen one.</p></div>
-    <div class="use"><h3>NodeError<span>a failure with a code</span></h3><p>The package raises it with eleven codes, such as <code>division_by_zero</code>, <code>not_json</code>, <code>invalid_pattern</code> and <code>columns_not_aligned</code>. Raised inside a <a href="nodes-and-types.html#hooks">hook</a>, it becomes a <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> <a href="problems.html">problem</a> when the graph is compiled.</p></div>
+    <div class="use"><h3>NodeError<span>a failure with a code</span></h3><p>The package raises it with codes of its own, such as <code>division_by_zero</code>, <code>not_json</code>, <code>invalid_pattern</code> and <code>columns_not_aligned</code>. Raised inside a <a href="nodes-and-types.html#hooks">hook</a>, it becomes a <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> <a href="problems.html">problem</a> when the graph is compiled.</p></div>
     <div class="use"><h3>Textarea<span>the one widget</span></h3><p>It's on the long text inputs only. <a href="#widgets">See below</a>.</p></div>
-    <div class="use"><h3>Hooks<span>keywords of <code>@node</code></span></h3><p><code>control-switch</code> has <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a>. <code>table-collect</code> has <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> and <code>compute_outputs</code>. These are the only two nodes with hooks, and the only two that are set by a constant: <code>cases</code>, <code>columns</code> and <code>constant_columns</code>.</p></div>
+    <div class="use"><h3>Hooks<span>keywords of <code>@node</code></span></h3><p><code>control-switch</code> has <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a>. <code>table-collect</code> has <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> and <code>compute_outputs</code>. These are the nodes with hooks, and the ones set by a constant: <code>cases</code>, <code>columns</code> and <code>constant_columns</code>.</p></div>
   </div>
 </section>
 
@@ -599,7 +611,18 @@ def decision[T](value: T, when: bool) -> Decided[T]:
             <button class="btn" type="button" id="dec-hey" aria-pressed="false">text="hey"</button>
           </span>
         </div>
-        <div class="results" id="dec-results"></div>
+        <p class="cap">The same graph, run with both texts:</p>
+        <pre data-lang="py">graph = Graph.compile(make_graph(text.length, logic.equals, control.decision, text.uppercase,
+    edges=[("text-length.result", "logic-equals.value"),
+           ("logic-equals.result", "control-decide.when"),
+           ("control-decide.if_true", "text-uppercase.text")],
+    constants={"logic-equals.other": 2, "control-decide.value": "pass"},
+    outputs={"result": "text-uppercase.result"}), conductor_nodes.registry)
+for word in ("hi", "hey"):
+    run = graph.run({"text": word})
+    print(word, run.results["control-decide"], run.outputs)</pre>
+        <pre class="out">hi {'if_true': 'pass', 'if_false': None} {'result': 'PASS'}
+hey {'if_true': None, 'if_false': 'pass'} {'result': None}</pre>
         <p class="small">The skipped branch shows as <code>None</code> in <a href="running-and-streaming.html#outcomes"><code>run.results</code></a>, and the graph's output is <code>None</code> when <code>text-uppercase</code> was skipped.</p>
       </div>
     </div>
@@ -610,7 +633,7 @@ def decision[T](value: T, when: bool) -> Decided[T]:
         <h3><code class="id">control-switch</code> has a branch per case and one called <code>other</code></h3>
         <p class="muted">Its outputs are named by <code>cases</code>, a constant written in the graph. Its <a href="nodes-and-types.html#hooks"><code>compute_outputs</code> hook</a> reads it when the graph is compiled. With <code>["invoice", "receipt"]</code> the outputs are <code>invoice</code>, <code>receipt</code> and <code>other</code>. A value whose <code>case</code> is none of them goes down <code>other</code>, so it isn't lost. The hook gets <code>value: type</code>, the type wired into <code>value</code>, and gives each name <code>(value, SKIPPED)</code>, so every branch has that type and the default <code>SKIPPED</code>. The match is exact. To ignore upper and lower case, put <code>text-lowercase</code> in front.</p>
         <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
-        <pre data-lang="py">def _branches(cases: list[str], value: type) -> dict[str, Any]:
+        <pre data-lang="py" data-run="no">def _branches(cases: list[str], value: type) -> dict[str, Any]:
     ...  # refuses a case named "other", and a case given twice
     return {name: (value, SKIPPED) for name in [*cases, "other"]}
 
@@ -619,9 +642,15 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
     taken = case if case in cases else "other"
     return {name: value if name == taken else SKIPPED
             for name in [*cases, "other"]}</pre>
-        <pre class="out">['invoice', 'other']  [('compute_hook_failed', 'case_named_other')]
-['a', 'b', 'a']       [('compute_hook_failed', 'case_given_twice')]</pre>
-        <p class="small">The two refusals are <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a> of a graph compiled with those <code>cases</code>. Since the hook reads <code>cases</code>, the input takes only a constant, and <code>describe()</code> marks it <a href="nodes-and-types.html#hooks"><code>constant_only</code></a>.</p>
+        <p class="cap">Two graphs compiled with <code>cases</code> the hook refuses. Each refusal is a <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a> entry, with the hook's code in its <code>ctx</code>.</p>
+        <pre data-lang="py">for cases in (["invoice", "other"], ["a", "b", "a"]):
+    graph = Graph.compile(make_graph(control.switch,
+        constants={"control-switch.cases": cases},
+        outputs={"result": "control-switch.other"}), conductor_nodes.registry)
+    print(cases, [(p.type, p.ctx["error"]) for p in graph.problems])</pre>
+        <pre class="out">['invoice', 'other'] [('compute_hook_failed', 'case_named_other')]
+['a', 'b', 'a'] [('compute_hook_failed', 'case_given_twice')]</pre>
+        <p class="small"> Since the hook reads <code>cases</code>, the input takes only a constant, and <code>describe()</code> marks it <a href="nodes-and-types.html#hooks"><code>constant_only</code></a>.</p>
       </div>
       <div class="stack">
         <div class="diagram">
@@ -650,7 +679,23 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
           <span class="count" id="sw-count">1 / 4</span>
         </div>
         <p class="muted" id="sw-cap"></p>
-        <div class="results" id="sw-results"></div>
+        <p class="cap">The same graph, run:</p>
+        <pre data-lang="py">items = [{"label": "invoice", "text": "a"}, {"label": "receipt", "text": "b"},
+         {"label": "letter", "text": "c"}]
+graph = Graph.compile(make_graph(series.split, control.switch, text.uppercase, series.collect,
+    edges=[("series-split.result.label", "control-switch.case"),
+           ("series-split.result.text", "control-switch.value"),
+           ("control-switch.invoice", "text-uppercase.text"),
+           ("control-switch.receipt", "text-uppercase.text"),
+           ("control-switch.other", "text-uppercase.text"),
+           ("text-uppercase.result", "series-collect.values")],
+    constants={"control-switch.cases": ["invoice", "receipt"]},
+    outputs={"result": "series-collect.result"}), conductor_nodes.registry)
+run = graph.run({"value": items})
+print(run.results["control-switch"])
+print(run.outputs)</pre>
+        <pre class="out">{'invoice': ['a', None, None], 'receipt': [None, 'b', None], 'other': [None, None, 'c']}
+{'result': ['A', 'B', 'C']}</pre>
       </div>
     </div>
 
@@ -672,7 +717,12 @@ print(graph.run({"value": {"user": {}}}).outputs)
 print(graph.run({"value": {"user": {"name": "Ida"}}}).outputs)</pre>
         <pre class="out">{'result': 'nobody'}
 {'result': 'Ida'}</pre>
-        <p class="cap">With <code>value</code> wired from <code>control-decide.if_true</code> and <code>when</code> false, it is skipped, and its <code>run.results</code> is:</p>
+        <p class="cap">With <code>value</code> wired from <code>control-decide.if_true</code> and <code>when</code> false, it is skipped:</p>
+        <pre data-lang="py">skipped = Graph.compile(make_graph(control.decision, control.default,
+    edges=[("control-decide.if_true", "control-default.value")],
+    constants={"control-decide.when": False, "control-default.fallback": "nobody"},
+    outputs={"result": "control-default.result"}), conductor_nodes.registry)
+print(skipped.run({"value": "Ida"}).results["control-default"])</pre>
         <pre class="out">{'result': None}</pre>
       </div>
     </div>
@@ -691,6 +741,10 @@ print([(f.name, f.type, f.required)
        for f in graph.describe().nodes["control-decide"].outputs])</pre>
         <pre class="out">[('if_true', 'int', False), ('if_false', 'int', False)]</pre>
         <p class="cap">Wire <code>if_true</code> also into <code>text-uppercase.text</code>, and the graph has one <a href="problems.html">problem</a>. Below are its type, its place, and the <code>got</code> and <code>expected</code> of its <code>ctx</code>.</p>
+        <pre data-lang="py">graph = Graph.compile(make_graph(text.length, control.decision, text.uppercase,
+    edges=[("text-length.result", "control-decide.value"),
+           ("control-decide.if_true", "text-uppercase.text")]), conductor_nodes.registry)
+print([(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems])</pre>
         <pre class="out">[('type_mismatch', ('text-uppercase', 'text'), 'int', 'str')]</pre>
       </div>
     </div>
@@ -705,17 +759,17 @@ print([(f.name, f.type, f.required)
     <p class="eyebrow">Widgets</p>
     <h2 id="w-h">The one widget is for long texts <span class="lvl pub">Public</span></h2>
     <p class="muted">A <a href="nodes-and-types.html#hint">widget</a> tells a host's editor how to draw an input. <a href="graph-record-and-compiling.html#compiling">Compiling</a> and running never read one.</p>
-    <p class="muted">The package gives one widget, <code>Textarea()</code>, to 12 inputs. Each is the main text a node works on, which may be long. In <code>describe()</code> it's written <code>{'type': 'textarea', 'rows': 4}</code>.</p>
+    <p class="muted">The package gives one widget, <code>Textarea()</code>, to the inputs below. Each is the main text a node works on, which may be long. In <code>describe()</code> it's written <code>{'type': 'textarea', 'rows': 4}</code>.</p>
   </div>
   <div class="wlist">
     <div>
-      <h3>12 inputs with <code>Textarea()</code></h3>
+      <h3>Inputs with <code>Textarea()</code></h3>
       <div class="pills" id="w-yes"></div>
     </div>
     <div>
       <h3>Inputs with no widget that take text</h3>
       <div class="pills" id="w-no"></div>
-      <p class="small">The first 14 are every input typed <code>str</code> with no widget. The last, <code>text-join.parts</code>, is a <a href="series-and-tables.html#loop"><code>Series[str]</code></a>, a list of texts.</p>
+      <p class="small">Every input typed <code>str</code> with no widget, then those typed <a href="series-and-tables.html#loop"><code>Series[str]</code></a>, a list of texts.</p>
     </div>
   </div>
 </section>
@@ -731,6 +785,11 @@ print([(f.name, f.type, f.required)
   </div>
   <div class="two">
     <div class="sample">
+<script type="text/x-python">
+reg = NodeRegistry()
+reg.add_subregistry(conductor_nodes.series.registry)
+reg.add_subregistry(conductor_nodes.tables.registry)
+</script>
       <pre data-lang="py">@reg.node("read-contacts", title="Read contacts", description="...")
 def read_contacts(csv: str) -> Table:
     return pl.read_csv(io.StringIO(csv))
@@ -762,6 +821,9 @@ print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())</
       <p class="muted">Its output is worked out when the graph is compiled, so <a href="graph-record-and-compiling.html#make"><code>make_graph</code></a> is told the graph returns it, with <code>outputs=</code>.</p>
       <p class="small"><code>series-collect</code> is the plain way back. It gives a list of each item's value. <code>series-stack</code> stacks one table per item into one table.</p>
       <p class="muted">Wire the whole table into <code>greet.name</code> instead, and <a href="graph-record-and-compiling.html#compiling">compiling</a> reports a <a href="problems.html">problem</a>.</p>
+      <pre data-lang="py">whole = Graph.compile(make_graph(read_contacts, greet,
+    edges=[("read-contacts.result", "greet.name")]), reg)
+print([(p.type, p.loc) for p in whole.problems])</pre>
       <pre class="out">[('type_mismatch_whole_table_or_list', ('greet', 'name'))]</pre>
     </div>
   </div>
@@ -779,8 +841,13 @@ print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())</
     <div>
       <h3>A slow pattern fails its node</h3>
       <p class="muted">The regex nodes use the <code>regex</code> package, and every search has a timeout of 2 seconds (<code class="int" title="Internal">regex_ops.TIMEOUT</code>). On <code>(a+)+$</code> against a run of a's and a b, Python's <code>re</code> can run practically forever. The <code>regex</code> package finishes a run of 30. On 5,000 it still runs past the timeout, and the node fails. Here is <code>regex-match</code> on both: the run's status, then its outputs or the code it failed with.</p>
-      <pre class="out">30    complete {'result': False}
-5000  failed   pattern_timeout</pre>
+      <pre data-lang="py">graph = Graph.compile(make_graph(regex_ops.match,
+    constants={"regex-match.pattern": "(a+)+$"}), conductor_nodes.registry)
+for n in (30, 5000):
+    run = graph.run({"text": "a" * n + "b"})
+    print(n, run.status, run.outputs if run.status == "complete" else run.cause.type)</pre>
+      <pre class="out">30 complete {'result': False}
+5000 failed pattern_timeout</pre>
     </div>
     <div>
       <h3>Rounding the way people do</h3>
@@ -843,7 +910,7 @@ print(json_ops.get_path(value, "user.name"), json_ops.get_path(value, "user. nam
     </article>
     <article class="choice">
       <h3>A node for any type is generic and needs a hook only for names.</h3>
-      <p><code>control-decide</code>, <code>control-switch</code>, <code>control-default</code>, <code>logic-equals</code>, <code>series-split</code>, <code>series-collect</code> and <code>series-stack</code> declare a type variable. A node after them is checked against the real type, not <code>Any</code>. Six of them need no <a href="nodes-and-types.html#hooks">hook</a>. <code>control-switch</code> is the exception. Its <a href="nodes-and-types.html#outputs">branch</a> names come from a hook, since <code>cases</code> names them, and their type comes from <code>T</code>.</p>
+      <p>The nodes that pass a value on, such as <code>control-decide</code>, <code>logic-equals</code> and <code>series-split</code>, declare a type variable; the palette marks them <code>T</code>. A node after them is checked against the real type, not <code>Any</code>. They need no <a href="nodes-and-types.html#hooks">hook</a>, except <code>control-switch</code>. Its <a href="nodes-and-types.html#outputs">branch</a> names come from a hook, since <code>cases</code> names them, and their type comes from <code>T</code>.</p>
       <p class="cost"><b>Cost:</b> with no edge into the value, such as a constant, the type stays <code>Any</code>.</p>
     </article>
     <article class="choice">
@@ -866,7 +933,7 @@ print(json_ops.get_path(value, "user.name"), json_ops.get_path(value, "user. nam
     </article>
     <article class="choice">
       <h3>A widget is given only where it adds something.</h3>
-      <p>Without a <a href="nodes-and-types.html#hint">widget</a>, the editor picks a control from the input's type. The 12 inputs that take a long text get a <code>Textarea</code>. The short ones keep the editor's default.</p>
+      <p>Without a <a href="nodes-and-types.html#hint">widget</a>, the editor picks a control from the input's type. The inputs that take a long text get a <code>Textarea</code>. The short ones keep the editor's default.</p>
     </article>
     <article class="choice">
       <h3>A failure has a code of its own.</h3>
@@ -907,32 +974,30 @@ print(json_ops.get_path(value, "user.name"), json_ops.get_path(value, "user. nam
 </div>
 </div>
 
+<!-- The docs build writes every node and one run of it in here, from the code (docs/hooks/explainers.py). -->
+<script type="application/json" id="palette-data">[]</script>
 <script>
-const PALETTE = [{"id":"text-uppercase","title":"Uppercase","description":"Makes every letter in the text a capital letter.","category":"text","module":"text","function":"uppercase","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"}],"outputs":[{"name":"result","title":"Uppercased","type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"hi"},"compiled_inputs":[{"name":"text","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"HI"}},{"id":"text-lowercase","title":"Lowercase","description":"Makes every letter in the text a small letter.","category":"text","module":"text","function":"lowercase","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"}],"outputs":[{"name":"result","title":"Lowercased","type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"HI"},"compiled_inputs":[{"name":"text","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"hi"}},{"id":"text-trim","title":"Trim","description":"Removes spaces and blank lines from the start and end of the text.","category":"text","module":"text","function":"trim","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"}],"outputs":[{"name":"result","title":"Trimmed","type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":" hi "},"compiled_inputs":[{"name":"text","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"hi"}},{"id":"text-length","title":"Length","description":"Counts how many characters the text has.","category":"text","module":"text","function":"length","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"}],"outputs":[{"name":"result","title":"Length","type":"int","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"hi"},"compiled_inputs":[{"name":"text","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"int","series":false}],"status":"complete","results":{"result":2}},{"id":"text-concat","title":"Join two texts","description":"Puts two texts together, with a separator between them if you want one.","category":"text","module":"text","function":"concat","inputs":[{"name":"a","title":null,"type":"str","series":false,"required":true},{"name":"b","title":null,"type":"str","series":false,"required":true},{"name":"separator","title":null,"type":"str","series":false,"required":false,"default":""}],"outputs":[{"name":"result","title":null,"type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"a":"a","b":"b","separator":"-"},"compiled_inputs":[{"name":"a","type":"str","series":false},{"name":"b","type":"str","series":false},{"name":"separator","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"a-b"}},{"id":"text-replace","title":"Replace","description":"Replaces every place a piece of text appears with another text.","category":"text","module":"text","function":"replace","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"},{"name":"needle","title":"Find","type":"str","series":false,"required":true},{"name":"replacement","title":"Replace with","type":"str","series":false,"required":false,"default":""}],"outputs":[{"name":"result","title":null,"type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"a b","needle":"b","replacement":"c"},"compiled_inputs":[{"name":"text","type":"str","series":false},{"name":"needle","type":"str","series":false},{"name":"replacement","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"a c"}},{"id":"text-contains","title":"Contains","description":"Tells whether the text contains another piece of text.","category":"text","module":"text","function":"contains","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"},{"name":"needle","title":null,"type":"str","series":false,"required":true},{"name":"case_sensitive","title":null,"type":"bool","series":false,"required":false,"default":true}],"outputs":[{"name":"result","title":"Contains","type":"bool","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"Hi","needle":"hi","case_sensitive":false},"compiled_inputs":[{"name":"text","type":"str","series":false},{"name":"needle","type":"str","series":false},{"name":"case_sensitive","type":"bool","series":false}],"compiled_outputs":[{"name":"result","type":"bool","series":false}],"status":"complete","results":{"result":true}},{"id":"text-split","title":"Split text","description":"Splits the text wherever the separator appears, so what follows runs once for each part.","category":"text","module":"text","function":"split","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"},{"name":"separator","title":null,"type":"str","series":false,"required":false,"default":"\n"}],"outputs":[{"name":"result","title":"Parts","type":"str","series":true,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"a\nb"},"compiled_inputs":[{"name":"text","type":"str","series":false},{"name":"separator","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":true}],"status":"complete","results":{"result":["a","b"]}},{"id":"text-list","title":"Text list","description":"A list of texts that you enter. Wire a list of items to 'for each' to get the whole list once for each item.","category":"text","module":"text","function":"text_list","inputs":[{"name":"items","title":null,"type":"list[str]","series":false,"required":true},{"name":"for_each","title":null,"type":"Any","series":false,"required":false,"default":null}],"outputs":[{"name":"result","title":"Texts","type":"str","series":true,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"items":["a","b"]},"compiled_inputs":[{"name":"items","type":"list[str]","series":false},{"name":"for_each","type":"Any","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":true}],"status":"complete","results":{"result":["a","b"]}},{"id":"text-join","title":"Join","description":"Joins all the parts into one text, with a separator between them.","category":"text","module":"text","function":"join","inputs":[{"name":"parts","title":null,"type":"str","series":true,"required":true},{"name":"separator","title":null,"type":"str","series":false,"required":false,"default":", "}],"outputs":[{"name":"result","title":"Joined","type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"parts":["a","b"]},"compiled_inputs":[{"name":"parts","type":"str","series":true},{"name":"separator","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"a, b"}},{"id":"text-reverse","title":"Reverse","description":"Writes the text backwards.","category":"text","module":"text","function":"reverse","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"}],"outputs":[{"name":"result","title":"Reversed","type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"ab"},"compiled_inputs":[{"name":"text","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"ba"}},{"id":"math-add","title":"Add","description":"Adds two numbers together.","category":"math","module":"math","function":"add","inputs":[{"name":"a","title":null,"type":"float","series":false,"required":true},{"name":"b","title":null,"type":"float","series":false,"required":true}],"outputs":[{"name":"result","title":"Sum","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"a":1,"b":2},"compiled_inputs":[{"name":"a","type":"float","series":false},{"name":"b","type":"float","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":3.0}},{"id":"math-subtract","title":"Subtract","description":"Takes the second number away from the first.","category":"math","module":"math","function":"subtract","inputs":[{"name":"a","title":null,"type":"float","series":false,"required":true},{"name":"b","title":null,"type":"float","series":false,"required":true}],"outputs":[{"name":"result","title":"Difference","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"a":1,"b":2},"compiled_inputs":[{"name":"a","type":"float","series":false},{"name":"b","type":"float","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":-1.0}},{"id":"math-multiply","title":"Multiply","description":"Multiplies two numbers.","category":"math","module":"math","function":"multiply","inputs":[{"name":"a","title":null,"type":"float","series":false,"required":true},{"name":"b","title":null,"type":"float","series":false,"required":true}],"outputs":[{"name":"result","title":"Product","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"a":2,"b":3},"compiled_inputs":[{"name":"a","type":"float","series":false},{"name":"b","type":"float","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":6.0}},{"id":"math-divide","title":"Divide","description":"Divides the first number by the second. Dividing by zero is an error.","category":"math","module":"math","function":"divide","inputs":[{"name":"a","title":null,"type":"float","series":false,"required":true},{"name":"b","title":null,"type":"float","series":false,"required":true}],"outputs":[{"name":"result","title":"Quotient","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"a":1,"b":4},"compiled_inputs":[{"name":"a","type":"float","series":false},{"name":"b","type":"float","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":0.25}},{"id":"math-modulo","title":"Remainder","description":"Gives what is left over when the first number is divided by the second. Dividing by zero is an error.","category":"math","module":"math","function":"modulo","inputs":[{"name":"a","title":null,"type":"float","series":false,"required":true},{"name":"b","title":null,"type":"float","series":false,"required":true}],"outputs":[{"name":"result","title":"Remainder","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"a":7,"b":4},"compiled_inputs":[{"name":"a","type":"float","series":false},{"name":"b","type":"float","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":3.0}},{"id":"math-round","title":"Round","description":"Rounds a number to the number of decimals you choose, with halves rounded away from zero.","category":"math","module":"math","function":"round_to","inputs":[{"name":"value","title":null,"type":"float","series":false,"required":true},{"name":"decimals","title":null,"type":"int","series":false,"required":false,"default":0}],"outputs":[{"name":"result","title":"Rounded","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"value":3.14159,"decimals":2},"compiled_inputs":[{"name":"value","type":"float","series":false},{"name":"decimals","type":"int","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":3.14}},{"id":"math-min","title":"Smallest","description":"Finds the smallest of the numbers. With no numbers it is an error.","category":"math","module":"math","function":"smallest","inputs":[{"name":"values","title":null,"type":"float","series":true,"required":true}],"outputs":[{"name":"result","title":"Min","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"values":[3,1,2]},"compiled_inputs":[{"name":"values","type":"float","series":true}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":1.0}},{"id":"math-max","title":"Largest","description":"Finds the largest of the numbers. With no numbers it is an error.","category":"math","module":"math","function":"largest","inputs":[{"name":"values","title":null,"type":"float","series":true,"required":true}],"outputs":[{"name":"result","title":"Max","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"values":[3,1,2]},"compiled_inputs":[{"name":"values","type":"float","series":true}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":3.0}},{"id":"math-abs","title":"Absolute value","description":"Gives the number without its minus sign.","category":"math","module":"math","function":"absolute","inputs":[{"name":"value","title":null,"type":"float","series":false,"required":true}],"outputs":[{"name":"result","title":"Absolute","type":"float","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"value":-2},"compiled_inputs":[{"name":"value","type":"float","series":false}],"compiled_outputs":[{"name":"result","type":"float","series":false}],"status":"complete","results":{"result":2.0}},{"id":"logic-not","title":"Not","description":"Turns yes into no and no into yes.","category":"logic","module":"logic","function":"negate","inputs":[{"name":"value","title":null,"type":"bool","series":false,"required":true}],"outputs":[{"name":"result","title":"Negated","type":"bool","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"value":true},"compiled_inputs":[{"name":"value","type":"bool","series":false}],"compiled_outputs":[{"name":"result","type":"bool","series":false}],"status":"complete","results":{"result":false}},{"id":"logic-equals","title":"Equals","description":"Tells whether the value is the same as the other value.","category":"logic","module":"logic","function":"equals","inputs":[{"name":"value","title":null,"type":"Any","series":false,"required":true,"tv":["T"]},{"name":"other","title":null,"type":"Any","series":false,"required":true,"tv":["T"]}],"outputs":[{"name":"result","title":"Equal","type":"bool","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"value":"a","other":"a"},"compiled_inputs":[{"name":"value","type":"Any","series":false},{"name":"other","type":"Any","series":false}],"compiled_outputs":[{"name":"result","type":"bool","series":false}],"status":"complete","results":{"result":true}},{"id":"logic-is-empty","title":"Is empty","description":"Tells whether the value is missing, or is a text, list or table with nothing in it.","category":"logic","module":"logic","function":"is_empty","inputs":[{"name":"value","title":null,"type":"Any","series":false,"required":true}],"outputs":[{"name":"result","title":"Empty","type":"bool","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"value":null},"compiled_inputs":[{"name":"value","type":"Any","series":false}],"compiled_outputs":[{"name":"result","type":"bool","series":false}],"status":"complete","results":{"result":true}},{"id":"json-parse","title":"Read JSON","description":"Reads JSON text into a value. Text that isn't JSON is an error.","category":"json","module":"json_ops","function":"parse","inputs":[{"name":"text","title":"JSON text","type":"str","series":false,"required":true,"widget":"textarea"}],"outputs":[{"name":"result","title":"Parsed","type":"JsonValue","series":false,"required":false,"default":null}],"added_inputs":false,"computes_outputs":false,"example":{"text":"{\"a\": [1, 2]}"},"compiled_inputs":[{"name":"text","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"JsonValue","series":false}],"status":"complete","results":{"result":{"a":[1,2]}}},{"id":"json-stringify","title":"Write JSON","description":"Writes a value out as JSON text.","category":"json","module":"json_ops","function":"stringify","inputs":[{"name":"value","title":null,"type":"JsonValue","series":false,"required":true},{"name":"indent","title":null,"type":"int","series":false,"required":false,"default":0},{"name":"sort_keys","title":null,"type":"bool","series":false,"required":false,"default":false}],"outputs":[{"name":"result","title":"JSON","type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"value":{"b":1,"a":2},"sort_keys":true},"compiled_inputs":[{"name":"value","type":"JsonValue","series":false},{"name":"indent","type":"int","series":false},{"name":"sort_keys","type":"bool","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"{\"a\": 2, \"b\": 1}"}},{"id":"json-get","title":"Get from JSON","description":"Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.","category":"json","module":"json_ops","function":"get_path","inputs":[{"name":"value","title":null,"type":"JsonValue","series":false,"required":true},{"name":"path","title":null,"type":"str","series":false,"required":true}],"outputs":[{"name":"result","title":"Extracted","type":"JsonValue","series":false,"required":false,"default":null}],"added_inputs":false,"computes_outputs":false,"example":{"value":{"items":[{"id":"a"}]},"path":"items.0.id"},"compiled_inputs":[{"name":"value","type":"JsonValue","series":false},{"name":"path","type":"str","series":false}],"compiled_outputs":[{"name":"result","type":"JsonValue","series":false}],"status":"complete","results":{"result":"a"}},{"id":"regex-match","title":"Matches pattern","description":"Tells whether a pattern is found anywhere in the text.","category":"regex","module":"regex_ops","function":"match","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"},{"name":"pattern","title":null,"type":"str","series":false,"required":true},{"name":"ignore_case","title":null,"type":"bool","series":false,"required":false,"default":false}],"outputs":[{"name":"result","title":"Matched","type":"bool","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"a1","pattern":"\\d"},"compiled_inputs":[{"name":"text","type":"str","series":false},{"name":"pattern","type":"str","series":false},{"name":"ignore_case","type":"bool","series":false}],"compiled_outputs":[{"name":"result","type":"bool","series":false}],"status":"complete","results":{"result":true}},{"id":"regex-replace","title":"Replace pattern","description":"Replaces everything in the text that matches a pattern.","category":"regex","module":"regex_ops","function":"replace_all","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"},{"name":"pattern","title":null,"type":"str","series":false,"required":true},{"name":"replacement","title":"Replace with","type":"str","series":false,"required":false,"default":""},{"name":"ignore_case","title":null,"type":"bool","series":false,"required":false,"default":false}],"outputs":[{"name":"result","title":null,"type":"str","series":false,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"a1b2","pattern":"\\d","replacement":"-"},"compiled_inputs":[{"name":"text","type":"str","series":false},{"name":"pattern","type":"str","series":false},{"name":"replacement","type":"str","series":false},{"name":"ignore_case","type":"bool","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":false}],"status":"complete","results":{"result":"a-b-"}},{"id":"regex-extract","title":"Find pattern","description":"Finds every piece of the text that matches a pattern, so what follows runs once for each match.","category":"regex","module":"regex_ops","function":"extract","inputs":[{"name":"text","title":null,"type":"str","series":false,"required":true,"widget":"textarea"},{"name":"pattern","title":null,"type":"str","series":false,"required":true},{"name":"ignore_case","title":null,"type":"bool","series":false,"required":false,"default":false}],"outputs":[{"name":"result","title":"Matches","type":"str","series":true,"required":true}],"added_inputs":false,"computes_outputs":false,"example":{"text":"a1b22","pattern":"\\d+"},"compiled_inputs":[{"name":"text","type":"str","series":false},{"name":"pattern","type":"str","series":false},{"name":"ignore_case","type":"bool","series":false}],"compiled_outputs":[{"name":"result","type":"str","series":true}],"status":"complete","results":{"result":["1","22"]}},{"id":"series-split","title":"Split","description":"Takes a table or a list apart, so what follows runs once for each row or item.","category":"series","module":"series","function":"split","inputs":[{"name":"value","title":null,"type":"Table | list","series":false,"required":true,"tv":["T"]}],"outputs":[{"name":"result","title":null,"type":"Any","series":true,"required":true,"tv":["T"]}],"added_inputs":false,"computes_outputs":false,"example":{"value":["a","b"]},"compiled_inputs":[{"name":"value","type":"Table | list","series":false}],"compiled_outputs":[{"name":"result","type":"Any","series":true}],"status":"complete","results":{"result":["a","b"]}},{"id":"series-collect","title":"Collect","description":"Puts the result of each item into one list, so the next node gets all of them at once.","category":"series","module":"series","function":"collect","inputs":[{"name":"values","title":null,"type":"Any","series":true,"required":true,"tv":["T"]}],"outputs":[{"name":"result","title":null,"type":"Any","series":true,"required":true,"tv":["T"]}],"added_inputs":false,"computes_outputs":false,"example":{"values":["a","b"]},"compiled_inputs":[{"name":"values","type":"Any","series":true}],"compiled_outputs":[{"name":"result","type":"Any","series":true}],"status":"complete","results":{"result":["a","b"]}},{"id":"series-stack","title":"Stack","description":"Puts the table of each item into one table, one under the other.","category":"series","module":"series","function":"stack","inputs":[{"name":"tables","title":null,"type":"Table","series":true,"required":true,"tv":["R"]}],"outputs":[{"name":"result","title":null,"type":"Table","series":false,"required":true,"tv":["R"]}],"added_inputs":false,"computes_outputs":false,"example":{"tables":[[{"name":"Ann"}],[{"name":"Bo"}]]},"compiled_inputs":[{"name":"tables","type":"Table","series":true}],"compiled_outputs":[{"name":"result","type":"Table","series":false}],"status":"complete","results":{"result":{"table":[{"name":"Ann"},{"name":"Bo"}]}}},{"id":"table-collect","title":"Collect into a table","description":"Puts the rows back into one table, with a new column for each result worked out per row.","category":"table","module":"tables","function":"collect","inputs":[{"name":"rows","title":null,"type":"Table","series":false,"required":true},{"name":"columns","title":null,"type":"list[str]","series":false,"required":false,"default":[],"constant_only":true},{"name":"constant_columns","title":null,"type":"list[str]","series":false,"required":false,"default":[],"constant_only":true}],"outputs":[],"added_inputs":true,"computes_outputs":true,"example":{"rows":[{"name":"Ann"}],"constant_columns":["team"],"team":"red"},"compiled_inputs":[{"name":"rows","type":"Table","series":false},{"name":"columns","type":"list[str]","series":false},{"name":"constant_columns","type":"list[str]","series":false},{"name":"team","type":"Any","series":false}],"compiled_outputs":[{"name":"result","type":"Table","series":false}],"status":"complete","results":{"result":{"table":[{"name":"Ann","team":"red"}]}}},{"id":"control-decide","title":"Decision","description":"Sends the value one way when the switch is on and the other way when it is off.","category":"control","module":"control","function":"decision","inputs":[{"name":"value","title":null,"type":"Any","series":false,"required":true,"tv":["T"]},{"name":"when","title":null,"type":"bool","series":false,"required":true}],"outputs":[{"name":"if_true","title":"If true","type":"Any","series":false,"required":false,"tv":["T"]},{"name":"if_false","title":"If false","type":"Any","series":false,"required":false,"tv":["T"]}],"added_inputs":false,"computes_outputs":false,"example":{"value":"x","when":false},"compiled_inputs":[{"name":"value","type":"Any","series":false},{"name":"when","type":"bool","series":false}],"compiled_outputs":[{"name":"if_true","type":"Any","series":false},{"name":"if_false","type":"Any","series":false}],"status":"complete","results":{"if_true":null,"if_false":"x"}},{"id":"control-switch","title":"Switch","description":"Sends the value down the branch named by the case, or down 'other' when no branch has that name.","category":"control","module":"control","function":"switch","inputs":[{"name":"value","title":null,"type":"Any","series":false,"required":true,"tv":["T"]},{"name":"case","title":null,"type":"str","series":false,"required":true},{"name":"cases","title":null,"type":"list[str]","series":false,"required":true,"constant_only":true}],"outputs":[],"added_inputs":false,"computes_outputs":true,"example":{"value":1,"case":"z","cases":["a"]},"compiled_inputs":[{"name":"value","type":"Any","series":false},{"name":"case","type":"str","series":false},{"name":"cases","type":"list[str]","series":false}],"compiled_outputs":[{"name":"a","type":"Any","series":false},{"name":"other","type":"Any","series":false}],"status":"complete","results":{"a":null,"other":1}},{"id":"control-default","title":"Default","description":"Gives the value, or the fallback when the value is missing.","category":"control","module":"control","function":"default","inputs":[{"name":"value","title":null,"type":"Any","series":false,"required":true,"tv":["T"]},{"name":"fallback","title":null,"type":"Any","series":false,"required":true,"tv":["T"]}],"outputs":[{"name":"result","title":null,"type":"Any","series":false,"required":false,"default":null,"tv":["T"]}],"added_inputs":false,"computes_outputs":false,"example":{"value":null,"fallback":"x"},"compiled_inputs":[{"name":"value","type":"Any","series":false},{"name":"fallback","type":"Any","series":false}],"compiled_outputs":[{"name":"result","type":"Any","series":false}],"status":"complete","results":{"result":"x"}}];
-const MODULES = [
-  { mod: "text", cat: "text", n: 11, what: "change, split, join and search text" },
-  { mod: "math", cat: "math", n: 9, what: "arithmetic on float numbers" },
-  { mod: "logic", cat: "logic", n: 3, what: "answer yes or no about a value" },
-  { mod: "json_ops", cat: "json", n: 3, what: "read and write JSON" },
-  { mod: "regex_ops", cat: "regex", n: 3, what: "match, replace and find patterns" },
-  { mod: "series", cat: "series", n: 3, what: "start and end a loop" },
-  { mod: "tables", cat: "table", n: 1, what: "rows of a loop back into a table" },
-  { mod: "control", cat: "control", n: 3, what: "choose where a value goes" },
-];
-/* from samples.out, sections 6 and 7 */
-const DECIDE = {
-  hi:  { results: { if_true: "'pass'", if_false: "None" }, outputs: "{'result': 'PASS'}", when: "True" },
-  hey: { results: { if_true: "None", if_false: "'pass'" }, outputs: "{'result': None}", when: "False" },
+const PALETTE = JSON.parse(document.getElementById("palette-data").textContent);
+/* What each module is for, in words. The modules themselves, their categories and their nodes are read from PALETTE. */
+const WHAT = {
+  text: "change, split, join and search text",
+  math: "arithmetic on float numbers",
+  logic: "answer yes or no about a value",
+  json_ops: "read and write JSON",
+  regex_ops: "match, replace and find patterns",
+  series: "start and end a loop",
+  tables: "rows of a loop back into a table",
+  control: "choose where a value goes",
 };
-const SWITCH = {
-  items: [ { label: "invoice", text: "a" }, { label: "receipt", text: "b" }, { label: "letter", text: "c" } ],
-  results: { invoice: ["'a'", "None", "None"], receipt: ["None", "'b'", "None"], other: ["None", "None", "'c'"] },
-  outputs: "{'result': ['A', 'B', 'C']}",
-};
-const WIDGETS = {
-  yes: ["text-uppercase.text", "text-lowercase.text", "text-trim.text", "text-length.text", "text-replace.text", "text-contains.text", "text-split.text", "text-reverse.text", "json-parse.text", "regex-match.text", "regex-replace.text", "regex-extract.text"],
-  no: ["text-concat.a", "text-concat.b", "text-concat.separator", "text-replace.needle", "text-replace.replacement", "text-contains.needle", "text-split.separator", "text-join.separator", "json-get.path", "regex-match.pattern", "regex-replace.pattern", "regex-replace.replacement", "regex-extract.pattern", "control-switch.case", "text-join.parts"],
-};
+const MODULES = [];
+PALETTE.forEach((n) => {
+  let m = MODULES.find((x) => x.mod === n.module);
+  if (!m) MODULES.push((m = { mod: n.module, cat: n.category, n: 0, what: WHAT[n.module] || "" }));
+  m.n += 1;
+});
+/* the items the switch walk-through steps through: the input of the switch sample beside it */
+const SWITCH_ITEMS = [ { label: "invoice", text: "a" }, { label: "receipt", text: "b" }, { label: "letter", text: "c" } ];
+const EMPTY = "The palette is written into this page when the docs are built. Open the built docs to see every node.";
 
 (function () {
   "use strict";
@@ -985,6 +1050,11 @@ const WIDGETS = {
   function pyNum(v, type) { return typeof v === "number" && type === "float" && Number.isInteger(v) ? v.toFixed(1) : py(v); }
 
   /* ======================= MODULE PICKER ======================= */
+  if (!PALETTE.length) {
+    ["#mods", "#groups", "#w-yes", "#w-no"].forEach((q) => { $(q).innerHTML = '<p class="muted">' + esc(EMPTY) + "</p>"; });
+    $("#pick-code").textContent = EMPTY;
+    $(".tally").hidden = true;
+  }
   const picked = new Set(MODULES.map((m) => m.mod));
   let asFilter = false;
   const modsEl = $("#mods");
@@ -1018,10 +1088,11 @@ const WIDGETS = {
     dEdges.querySelectorAll("path").forEach((p) => p.setAttribute("class", "d-edge" + (picked.has(p.dataset.mod) ? "" : " off")));
     $("#tally").textContent = total;
     $("#tally-txt").textContent = (total === 1 ? "node" : "nodes") + " in the host's registry";
-    $("#host-sub").textContent = total + " of the 36 and the host's own";
+    $("#host-sub").textContent = PALETTE.length ? total + " of the " + PALETTE.length + " and the host's own" : "";
     $("#host-edge").setAttribute("class", "d-edge" + (total ? " on" : " off"));
     $("#as-add").setAttribute("aria-pressed", String(!asFilter));
     $("#as-filter").setAttribute("aria-pressed", String(asFilter));
+    if (!PALETTE.length) return;
     let code = "import conductor_nodes\nfrom conductor import NodeRegistry\n\nregistry = NodeRegistry()\n";
     if (!chosen.length) code += "# no standard nodes, only the host's own\n";
     else if (chosen.length === MODULES.length) code += "registry.add_subregistry(conductor_nodes.registry)\n";
@@ -1038,6 +1109,7 @@ const WIDGETS = {
   $("#as-add").addEventListener("click", () => { asFilter = false; renderPick(); });
   $("#as-filter").addEventListener("click", () => { asFilter = true; renderPick(); });
   renderPick();
+  if (PALETTE.length) $("#pkg-sub").textContent = PALETTE.length + " nodes, " + MODULES.length + " categories";
 
   /* ======================= PALETTE ======================= */
   let cat = "all", query = "", sel = "control-switch";
@@ -1058,6 +1130,7 @@ const WIDGETS = {
     return f;
   }
   function renderPal() {
+    if (!PALETTE.length) return;
     catsEl.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cat === cat)));
     const groups = $("#groups"); groups.innerHTML = "";
     MODULES.forEach((m) => {
@@ -1125,20 +1198,16 @@ const WIDGETS = {
 
   /* ======================= DECIDE ======================= */
   function decide(word) {
-    const d = DECIDE[word];
+    /* logic-equals asks whether the text is 2 characters long */
+    const t = word.length === 2;
     $("#dec-hi").setAttribute("aria-pressed", String(word === "hi"));
     $("#dec-hey").setAttribute("aria-pressed", String(word === "hey"));
     $("#dec-text").textContent = 'text "' + word + '"';
-    $("#dec-when").textContent = "when " + d.when;
-    const t = d.when === "True";
+    $("#dec-when").textContent = "when " + (t ? "True" : "False");
     $("#dec-true").setAttribute("class", "d-edge" + (t ? " on" : " off"));
     $("#dec-false").setAttribute("class", "d-edge" + (t ? " off" : " on"));
     $("#dec-up").setAttribute("class", "d-box" + (t ? " on" : " off"));
-    $("#dec-up-sub").textContent = t ? "gets 'pass'" : "skipped";
-    $("#dec-results").innerHTML =
-      '<div><span>if_true</span><span>' + esc(d.results.if_true) + "</span></div>" +
-      '<div><span>if_false</span><span>' + esc(d.results.if_false) + "</span></div>" +
-      '<div><span>outputs</span><span>' + esc(d.outputs) + "</span></div>";
+    $("#dec-up-sub").textContent = t ? "gets if_true" : "skipped";
   }
   $("#dec-hi").addEventListener("click", () => decide("hi"));
   $("#dec-hey").addEventListener("click", () => decide("hey"));
@@ -1162,7 +1231,7 @@ const WIDGETS = {
     const done = sw === 3;
     const rects = ports.querySelectorAll(".sw-port"), skips = ports.querySelectorAll(".sw-skip");
     if (!done) {
-      const item = SWITCH.items[sw];
+      const item = SWITCH_ITEMS[sw];
       const chosen = BR.includes(item.label) ? item.label : "other";
       const k = BR.indexOf(chosen);
       $("#sw-item").textContent = "item " + sw + ": {'label': '" + item.label + "', 'text': '" + item.text + "'}";
@@ -1192,12 +1261,9 @@ const WIDGETS = {
       $("#sw-in").setAttribute("class", "d-edge");
       $("#sw-out").setAttribute("class", "d-edge on");
       $("#sw-col").setAttribute("class", "d-box on");
-      $("#sw-col-sub").textContent = "['A', 'B', 'C']";
+      $("#sw-col-sub").textContent = "gets every result";
       $("#sw-cap").innerHTML = linked("text-uppercase ran [once per item](series-and-tables.html#loop), each time from the one branch that had a value. series-collect takes a [Series](series-and-tables.html#loop), so it runs once and gets every result, in item order.");
     }
-    const upto = done ? 3 : sw + 1;
-    $("#sw-results").innerHTML = BR.map((b) => "<div><span>" + b + "</span><span>[" + SWITCH.results[b].slice(0, upto).join(", ") + (upto < 3 ? ", …" : "") + "]</span></div>").join("") +
-      (done ? "<div><span>outputs</span><span>" + esc(SWITCH.outputs) + "</span></div>" : "");
     $("#sw-count").textContent = sw + 1 + " / " + SW_STEPS;
   }
   const PLAY = '<path d="M4 2.5v11L13 8z"/>', PAUSE = '<path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/>';
@@ -1213,8 +1279,13 @@ const WIDGETS = {
   swShow(0);
 
   /* ======================= WIDGETS ======================= */
-  $("#w-yes").innerHTML = WIDGETS.yes.map((w) => '<span class="pill tx">' + esc(w) + "</span>").join("");
-  $("#w-no").innerHTML = WIDGETS.no.map((w) => '<span class="pill">' + esc(w) + "</span>").join("");
+  if (PALETTE.length) {
+    const inputs = PALETTE.flatMap((n) => n.inputs.map((i) => ({ ...i, at: n.id + "." + i.name })));
+    const yes = inputs.filter((i) => i.widget === "textarea");
+    const no = [...inputs.filter((i) => !i.widget && i.type === "str" && !i.series), ...inputs.filter((i) => !i.widget && i.type === "str" && i.series)];
+    $("#w-yes").innerHTML = yes.map((i) => '<span class="pill tx">' + esc(i.at) + "</span>").join("");
+    $("#w-no").innerHTML = no.map((i) => '<span class="pill">' + esc(i.at) + "</span>").join("");
+  }
 })();
 </script>
 

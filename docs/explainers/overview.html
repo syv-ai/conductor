@@ -3,14 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Conductor 2.0 Map</title>
+<title>Conductor Map</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    map and the walk-through; sections are separated by space
    and a faint staff of rules, never by boxes.
@@ -24,7 +21,7 @@
   --ink-2: #48566a;          /* secondary text */
   --ink-3: #75839a;          /* captions, axis labels */
   --rule: #dbe1ea;           /* hairlines and the staff */
-  --accent: #2a4fd6;         /* cobalt: 2.0, the selected thing, links */
+  --accent: #2a4fd6;         /* the selected thing, links */
   --accent-soft: #e3e9fc;    /* fill behind ink text, never behind accent text */
   --old: #a3adbb;            /* 1.12.2 in the chart */
   --slow: #b1530b;           /* the one row that got slower */
@@ -34,12 +31,12 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
 
   /* type */
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -61,7 +58,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -71,7 +68,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -154,7 +151,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
   border: 1px solid var(--rule); border-radius: 8px; padding: .55rem .8rem; cursor: pointer;
   display: inline-flex; align-items: center; gap: .5rem; transition: background .2s, border-color .2s, opacity .2s, transform .2s;
 }
-.tile::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--pr); flex: none; }
+.tile::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--pkg); flex: none; }
 .tile:hover { border-color: var(--ink-3); }
 .tile.int { border-style: dashed; border-color: var(--int); }
 .tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
@@ -166,7 +163,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .companions .tile { width: 100%; justify-content: flex-start; flex-wrap: wrap; text-align: left; }
 .companions .tile small { flex-basis: 100%; font-family: var(--font-body); color: var(--ink-3); font-size: .75rem; padding-left: 1.05rem; }
 .legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: var(--step--1); color: var(--ink-2); }
-.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; background: var(--pr); vertical-align: middle; }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; background: var(--pkg); vertical-align: middle; }
 .legend .box { width: 18px; height: 12px; border-radius: 3px; border: 1px solid var(--ink-3); background: none; }
 .legend .box.int { border-style: dashed; border-color: var(--int); }
 .legend .box.below { border-color: var(--accent); background: var(--surface); }
@@ -186,7 +183,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .names-head { font-size: .8125rem; color: var(--ink-2); display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
 .panel .name .lvl { font-size: .6875rem; }
 .pr-tag { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--step--1); font-weight: 600; color: var(--ink); }
-.pr-tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--pr); }
+.pr-tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--pkg); }
 .panel dl { margin: 0; display: grid; gap: .55rem; }
 .panel dt { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
 .panel dd { margin: 0; font-size: .9375rem; color: var(--ink-2); }
@@ -263,11 +260,11 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .prs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
 @media (max-width: 900px) { .prs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .prs { grid-template-columns: minmax(0, 1fr); } }
-.pr { display: grid; gap: .4rem; align-content: start; text-decoration: none; color: var(--ink); padding: 1rem 0 0; border-top: 3px solid var(--pr); min-width: 0; }
-.pr:hover .pr-title { text-decoration: underline; text-underline-offset: 3px; }
-.pr .num { font-family: var(--font-mono); font-size: .875rem; color: var(--ink-3); }
-.pr-title { font-weight: 600; }
-.pr .muted { font-size: .875rem; }
+.pkg { display: grid; gap: .4rem; align-content: start; text-decoration: none; color: var(--ink); padding: 1rem 0 0; border-top: 3px solid var(--pkg); min-width: 0; }
+.pkg:hover .pkg-title { text-decoration: underline; text-underline-offset: 3px; }
+.pkg .num { font-family: var(--font-mono); font-size: .875rem; color: var(--ink-3); }
+.pkg-title { font-weight: 600; }
+.pkg .muted { font-size: .875rem; }
 .series { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .5rem 1.5rem; margin-top: 1rem; counter-reset: s 1; }
 .series li { list-style: none; padding: .6rem 0; border-bottom: 1px dashed var(--rule); display: flex; justify-content: space-between; gap: 1rem; font-size: .9375rem; }
 .series li span { color: var(--ink-3); font-size: .8125rem; white-space: nowrap; }
@@ -342,8 +339,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="1">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="1">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -402,16 +399,21 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; page 1 of 11</p>
-  <h1>Conductor <em>2.0</em></h1>
+  <p class="eyebrow">Conductor &middot; the overview</p>
+  <h1><em>Conductor</em></h1>
   <div class="prose" style="display:grid;gap:1rem">
     <p class="lede">Conductor is a Python library that runs graphs of typed nodes. You write Python functions. Someone else wires them together in an editor, and the graph reaches you as JSON. Conductor checks that graph, tells you what's wrong with it, and runs it.</p>
     <p class="muted" id="host">It needs only pydantic, polars and typing-extensions. It has no web framework, database or login, and it uses none of a host's words. Those belong to the application that uses it, which conductor calls the host.</p>
   </div>
-  <div class="idea" aria-label="The one idea of 2.0">
+  <div class="idea" aria-label="The one idea">
     <div>
       <p class="term">A node is a <b>typed function</b>.</p>
       <p class="muted">Its parameters are its inputs and its <a href="nodes-and-types.html#outputs">return type</a> is its outputs. Nothing is declared twice.</p>
+      <script type="text/x-python">
+from typing import TypedDict
+
+from conductor import Ask, Graph, NodeRegistry, Run, Series, node, make_graph
+</script>
       <pre data-lang="py">@node("shout", title="Shout", description="…")
 def shout(line: str) -> str:
     return line.upper()</pre>
@@ -419,7 +421,10 @@ def shout(line: str) -> str:
     <div>
       <p class="term">A graph is a <b>JSON record</b>.</p>
       <p class="muted">An editor saves it, and code writes the same record with <a href="graph-record-and-compiling.html#make"><code>make_graph</code></a>. You <a href="graph-record-and-compiling.html#compiling">compile</a> it against a registry.</p>
-      <pre data-lang="json">{
+      <script type="text/x-python">
+print(make_graph(shout).model_dump_json(indent=2))
+</script>
+      <pre data-lang="json" class="out">{
   "nodes": {
     "shout": {
       "node": "shout",
@@ -441,6 +446,17 @@ def shout(line: str) -> str:
     <div>
       <p class="term">A run is <b>JSON</b> you save and resume.</p>
       <p class="muted">It can wait days for a person, then go on in another process. A call that's finished in the <a href="saved-runs-and-reuse.html#saved">saved run</a> isn't made again.</p>
+      <script type="text/x-python">
+@node("check", title="Check", description="Asks a person whether a line may go out.", asks=True)
+def check(line: str) -> bool:
+    raise Ask(f"Send {line!r}?")
+
+
+hero = NodeRegistry()
+hero.add(check)
+graph = Graph.compile(make_graph(check), hero)
+run = graph.run({"line": "hello"})
+</script>
       <pre data-lang="py">saved = run.to_json()
 # days later, anywhere
 run = Run.from_json(saved, graph)
@@ -460,8 +476,8 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
 <section id="map" aria-labelledby="map-h">
   <div class="section-head prose">
     <p class="eyebrow">The map</p>
-    <h2 id="map-h">Five public modules in front of twelve internal layers</h2>
-    <p class="muted">A host imports only the five public modules on top. The engine behind them is the packages under <code class="int" title="Internal">conductor._internal</code>, in layers that an import-linter contract in <code>pyproject.toml</code> declares. A package imports only from the layers below it. The one exception is <code class="int" title="Internal">graph/type.py</code>, which imports <code class="int" title="Internal">run</code>. Packages on one line import none of each other. Tap a package to see its job, its main names and the distribution it ships in.</p>
+    <h2 id="map-h">The public modules in front of the engine's layers</h2>
+    <p class="muted">A host imports only the public modules on top. The engine behind them is the packages under <code class="int" title="Internal">conductor._internal</code>, in the layers that the import-linter contract in <code>pyproject.toml</code> declares: that contract is the source of this map, and a test checks the code against it. A package imports only from the layers below it, and packages on one line import none of each other. Tap a package to see where it is, where it is described and the package it ships in.</p>
   </div>
 
   <div class="map">
@@ -484,9 +500,9 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
       </div>
 
       <div class="legend" aria-label="Legend">
-        <span><i style="--pr:var(--pr106)"></i>The core, syv-conductor</span>
-        <span><i style="--pr:var(--pr107)"></i>syv-conductor-nodes</span>
-        <span><i style="--pr:var(--pr108)"></i>syv-conductor-providers</span>
+        <span><i style="--pkg:var(--pkg-core)"></i>The core, syv-conductor</span>
+        <span><i style="--pkg:var(--pkg-nodes)"></i>syv-conductor-nodes</span>
+        <span><i style="--pkg:var(--pkg-providers)"></i>syv-conductor-providers</span>
         <span><i class="box below"></i>an accent outline marks what the selected package may import</span>
       </div>
       <p class="small">A solid outline is public and a dashed one is internal.</p>
@@ -503,7 +519,7 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
   <div class="section-head prose">
     <p class="eyebrow">One run from start to finish</p>
     <h2 id="walk-h">Approving invoices with a pause for a person<span class="lvl pub">Public</span></h2>
-    <p class="muted">This is the README's invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write or read back. Every output shown is what this code prints.</p>
+    <p class="muted">This is the README's invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write and what it prints.</p>
   </div>
 
   <div class="walk">
@@ -550,6 +566,132 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
       <div class="progress" aria-hidden="true"><i id="bar"></i></div>
     </div>
   </div>
+  <!-- The walk-through's steps: each step shows the elements with its data-step, in order. They are here, and not in
+       the script, so that the page's sample test runs each step's code and checks what it prints. -->
+  <div class="walk-src" hidden>
+<pre data-lang="py" data-step="0">def approve(name: str, amount: int) -&gt; bool:
+    if amount &lt; 1000:
+        return True
+    raise Ask(f"Approve {name}, {amount} kr.?")</pre>
+<pre data-lang="py" data-step="1">registry = NodeRegistry()
+
+@registry.node("approve", title="Approve",
+               description="Approves an invoice, or asks a person to.",
+               asks=True)
+def approve(name: str, amount: int) -&gt; bool:
+    if amount &lt; 1000:
+        return True
+    raise Ask(f"Approve {name}, {amount} kr.?")
+
+print(approve("Ida", 100))  # calling it is its unit test</pre>
+<pre class="out" data-step="1">True</pre>
+<script type="text/x-python">
+class Invoice(TypedDict):
+    name: str
+    amount: int
+
+
+@registry.node("read", title="Read", description="Reads invoices from a CSV text.")
+def read(csv: str) -> Series[Invoice]:
+    found = [line.split(",") for line in csv.splitlines()[1:]]
+    return [Invoice(name=name, amount=int(amount)) for name, amount in found]
+
+
+@registry.node("summary", title="Summary", description="Tells how many invoices were approved.")
+def summary(approved: Series[bool]) -> str:
+    return f"{sum(approved)} of {len(approved)} approved"
+</script>
+<pre data-lang="py" data-step="2">record = """{
+  "nodes": {
+    "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
+    "approve": {"node": "approve", "inputs": {
+      "name": {"sources": [{"node": "read", "output": "result", "field": "name"}]},
+      "amount": {"sources": [{"node": "read", "output": "result", "field": "amount"}]}
+    }},
+    "summary": {"node": "summary", "inputs": {"approved": {"sources": [{"node": "approve", "output": "result"}]}}}
+  },
+  "outputs": {"summary": {"node": "summary", "output": "result"}}
+}"""</pre>
+<pre data-lang="py" data-step="3">graph = Graph.compile(record, registry)
+
+print(graph.problems)
+print(list(graph.inputs))
+print(graph.describe().nodes["approve"].per_item_of)</pre>
+<pre class="out" data-step="3">[]
+['csv']
+read.result</pre>
+<pre data-lang="py" data-step="4">csv = "name,amount\nIda,100\nBo,5000\n"
+run = graph.run({"csv": csv})</pre>
+<pre data-lang="py" data-step="5">print(run.status)
+print(run.waiting[0].id)
+print(run.waiting[0].prompt)</pre>
+<pre class="out" data-step="5">waiting
+approve@1~3d112d01
+Approve Bo, 5000 kr.?</pre>
+<pre data-lang="py" data-step="6">saved = run.to_json()</pre>
+<script type="text/x-python">
+import json
+
+
+def dumps(text):
+    """The saved run as the page shows it: a mapping one key a line, a list on one line unless it holds lists."""
+
+    def written(value, indent):
+        pad = " " * (indent + 2)
+        if isinstance(value, dict) and value:
+            keys = [f"{pad}{json.dumps(key)}: {written(item, indent + 2)}" for key, item in value.items()]
+            return "{\n" + ",\n".join(keys) + "\n" + " " * indent + "}"
+        if isinstance(value, list) and any(isinstance(item, list) for item in value):
+            items = [pad + json.dumps(item, separators=(", ", ": ")) for item in value]
+            return "[\n" + ",\n".join(items) + "\n" + " " * indent + "]"
+        return json.dumps(value, separators=(", ", ": "))
+
+    return written(json.loads(text), 0)
+
+
+print(dumps(saved))
+</script>
+<pre data-lang="json" class="out" data-step="6">{
+  "graph": "96d522e165790468",
+  "ended_early": null,
+  "max_items": null,
+  "inputs": {
+    "csv": "name,amount\nIda,100\nBo,5000\n"
+  },
+  "outcomes": {
+    "read": {
+      "states": ["done"],
+      "outputs": {
+        "result": [
+          [{"name": "Ida", "amount": 100}, {"name": "Bo", "amount": 5000}]
+        ]
+      },
+      "fingerprints": ["814ba30cd97cd61c1d3389dd"]
+    },
+    "approve": {
+      "states": ["done", null],
+      "outputs": {
+        "result": [true, null]
+      },
+      "fingerprints": ["b577d5d1eb0995656a60fdb9", "8899f4d7480adc0e6377c5fd"],
+      "questions": {
+        "1": {
+          "prompt": "Approve Bo, 5000 kr.?"
+        }
+      }
+    }
+  },
+  "reusable": {},
+  "complete": ["read"]
+}</pre>
+<pre data-lang="py" data-step="7">run = Run.from_json(saved, Graph.compile(record, registry))
+run = run.with_answers(run.waiting[0], True).resume()
+
+print(run.status)
+print(run.outputs)</pre>
+<pre class="out" data-step="7">complete
+{'summary': '2 of 2 approved'}</pre>
+  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -560,115 +702,69 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
 <section id="choices" aria-labelledby="choices-h">
   <div class="section-head prose">
     <p class="eyebrow">Why it's built this way</p>
-    <h2 id="choices-h">Twelve design choices and the reason for each</h2>
-    <p class="muted">The full case, with what each choice costs, is in <code>docs/design.md</code>.</p>
+    <h2 id="choices-h">The design choices</h2>
+    <p class="muted">The reason for each, and what it costs, is in <a href="../design/">the design guide</a> (<code>docs/design.md</code>). Here each one points to the page that shows it.</p>
   </div>
   <div class="choices">
 
     <article class="choice">
       <h3>A node is a typed function, and its signature is its interface.<span class="lvl pub">Public</span></h3>
-      <p>The engine, the checks and the editor all read the one signature, so nothing is declared twice. A node is still callable like its function, which makes calling it its unit test.</p>
-      <details><summary>More</summary><div>
-        <p><a href="nodes-and-types.html#signature"><code>@node</code></a> registers nothing. It returns a frozen definition that can go into any registry, so what a host offers is written in one place. See <a href="nodes-and-types.html">A node and its types</a>.</p>
-        <p class="cost"><b>Cost:</b> nobody can find a node until it's added to a registry.</p>
-      </div></details>
+      <p><a href="nodes-and-types.html">A node and its types</a> shows one.</p>
     </article>
 
     <article class="choice">
       <h3>A graph is data, and there's no <code>@graph</code>.<span class="lvl pub">Public</span></h3>
-      <p>Most graphs are drawn in an editor, and a graph built in code is the same <a href="graph-record-and-compiling.html#record">record</a> the editor saves. Two ways to define a graph would mean two sets of rules.</p>
-      <details><summary>More</summary><div>
-        <p><a href="graph-record-and-compiling.html#compiling">Each input gets exactly one thing</a>: a <code>constant</code>, a <a href="graph-record-and-compiling.html#record"><code>graph_input</code></a>, or the <code>sources</code> of its edges. No rule has to say which one wins. See <a href="graph-record-and-compiling.html">The graph record and compiling</a>.</p>
-      </div></details>
+      <p><a href="graph-record-and-compiling.html">The graph record and compiling</a> shows the record.</p>
     </article>
 
     <article class="choice">
       <h3>Compiling reports problems instead of raising.<span class="lvl pub">Public</span></h3>
-      <p>Each fault is a <a href="problems.html"><code>Problem</code></a> with a stable <code>type</code>, tied to a place in the graph, so an editor can mark it where it is. A half-finished graph still compiles. <a href="graph-record-and-compiling.html#compiling">Compiling</a> raises only when it isn't given a graph record at all (<a href="graph-record-and-compiling.html#walls"><code>invalid_record</code></a>). Running a graph that isn't runnable raises.</p>
-      <details><summary>More</summary><div>
-        <p>The same <code>Problem</code> is in <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a>, on a <a href="running-and-streaming.html#stream"><code>node_failed</code></a> event, in a run's <a href="running-and-streaming.html#status"><code>cause</code></a> and on every error conductor raises (<a href="problems.html#moments"><code>InvalidCallError</code></a>, <a href="nodes-and-types.html#faults"><code>NodeDeclarationError</code></a>). A host translates it by <code>type</code>. See <a href="problems.html">Problems</a>.</p>
-      </div></details>
+      <p><a href="problems.html">Problems</a> shows what a problem holds.</p>
     </article>
 
     <article class="choice">
       <h3>The types decide one or many.<span class="lvl pub">Public</span></h3>
-      <p>A <a href="series-and-tables.html#loop"><code>Series[T]</code></a> output wired to an input of one <code>T</code> runs that node once per item. A <code>Series</code> input collects them again. A "loop over this" flag would say what the types already say.</p>
-      <details><summary>More</summary><div>
-        <p>A caller's list never starts a loop, so an editor can show in advance how often a node runs. See <a href="series-and-tables.html">Series and tables</a>.</p>
-        <p class="cost"><b>Cost:</b> a list sent to a <code>str</code> input is refused where it could have looped, and a <a href="series-and-tables.html#table">table</a> needs a <a href="standard-nodes.html#loops">Split</a> node before anything runs per row.</p>
-      </div></details>
+      <p><a href="series-and-tables.html">Series and tables</a> shows a loop.</p>
     </article>
 
     <article class="choice">
       <h3>Behaviour is a value, not a flag.<span class="lvl pub">Public</span></h3>
-      <p>A branch not chosen returns <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a>. A node that needs a person raises <a href="asking-a-person.html#walk"><code>Ask</code></a>, and its <code>@node</code> says <a href="asking-a-person.html#walk"><code>asks=True</code></a>.</p>
-      <details><summary>More</summary><div>
-        <p>The <a href="nodes-and-types.html#outputs">return type</a> says what the answer is, and the answer becomes the node's outputs, as if it had returned them. See <a href="asking-a-person.html">Asking a person</a>.</p>
-        <p class="cost"><b>Cost:</b> the signature alone doesn't say a node may ask. <code>asks=True</code> does, and <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> shows it on each node.</p>
-      </div></details>
+      <p><a href="asking-a-person.html">Asking a person</a> shows <code>Ask</code>, and <a href="nodes-and-types.html#outputs">A node and its types</a> <code>SKIPPED</code>.</p>
     </article>
 
     <article class="choice">
       <h3 id="checked-once">A value from outside is checked once, where it comes in.</h3>
-      <p>Each place a value comes in has its own check: a graph record, a caller's inputs, an answer, what a node returns. Past those places the engine trusts what it has. The one check inside is an edge whose input demands more than its source declares.</p>
-      <p class="sees">You see a bad value refused at the place it comes in.</p>
-      <p class="cost"><b>Cost:</b> an edge whose input demands more than its source declares has each value it carries checked as the run goes.</p>
-      <details><summary>More</summary><div>
-        <p><span class="lvl int">Internal</span> Each check is a <code class="int" title="Internal">Validator</code> in its package's <code class="int" title="Internal">validator.py</code>. A <a href="saved-runs-and-reuse.html#saved">saved run</a> is read by its <a href="saved-runs-and-reuse.html#codec">codec</a> in <code class="int" title="Internal">run/json/</code>.</p>
-      </div></details>
+      <p><a href="problems.html">Problems</a> shows a refused value at its door.</p>
     </article>
 
     <article class="choice">
       <h3>One scheduler runs a run, with or without a listener.</h3>
-      <p><a href="running-and-streaming.html#start"><code>run.resume()</code></a> and <a href="running-and-streaming.html#stream"><code>run.stream()</code></a> call the nodes the same way. Streaming only adds the events. So what a test sees with <code>resume()</code> is what a served run does.</p>
-      <p class="sees">You see <code>resume()</code>, <code>stream()</code> and a node's <a href="nodes-and-types.html#context"><code>Policy</code></a>.</p>
-      <details><summary>More</summary><div>
-        <p>Nodes run on the <a href="running-and-streaming.html#pass">scheduler</a>'s own thread by default. A node asks for threads by setting <a href="running-and-streaming.html#policy"><code>concurrency</code></a> above 1 or an <code>attempt_timeout</code>, since threads by default would surprise code that isn't thread-safe. See <a href="running-and-streaming.html">Running and streaming</a>.</p>
-        <p class="cost"><b>Cost:</b> a host whose slow nodes forget <code>concurrency</code> runs them one at a time within a run.</p>
-      </div></details>
+      <p><a href="running-and-streaming.html">Running and streaming</a> shows <code>resume()</code> and <code>stream()</code>.</p>
     </article>
 
     <article class="choice">
       <h3>Retries belong to the node's <code>Policy</code>.<span class="lvl pub">Public</span></h3>
-      <p>Only an <a href="problems.html#failures"><code>ExternalError</code></a>, or a class the node's <code>retry_on</code> names, is <a href="running-and-streaming.html#policy">retried</a>. A <a href="problems.html#failures"><code>NodeError</code></a> other than <code>ExternalError</code>, and a <a href="nodes-and-types.html#outputs">refused output</a>, never are, since calling again would give the same result.</p>
-      <details><summary>More</summary><div>
-        <p>Retry <code>n</code> waits <code>retry_delay * 2 ** (n - 1)</code>. See <a href="running-and-streaming.html">Running and streaming</a>.</p>
-      </div></details>
+      <p><a href="running-and-streaming.html#policy">Running and streaming</a> shows a retry.</p>
     </article>
 
     <article class="choice">
       <h3>A run is one JSON text.<span class="lvl pub">Public</span></h3>
-      <p><a href="saved-runs-and-reuse.html#saved"><code>run.to_json()</code></a> writes it and <code>Run.from_json(saved, graph)</code> reads it back, refusing a run of another graph by its <a href="saved-runs-and-reuse.html#keys">fingerprint</a>. So a run can wait for days and pick up again in another process.</p>
-      <details><summary>More</summary><div>
-        <p>With <a href="running-and-streaming.html#limits"><code>stream(checkpoint_every=)</code></a>, a process that dies repeats the calls in flight and those recorded since the last checkpoint. See <a href="saved-runs-and-reuse.html">Saved runs and reuse</a>.</p>
-      </div></details>
+      <p>The <a href="#walk">walk-through</a> above saves one, and <a href="saved-runs-and-reuse.html">Saved runs and reuse</a> reads it.</p>
     </article>
 
     <article class="choice">
       <h3>Running again reuses by content.<span class="lvl pub">Public</span></h3>
-      <p>A call that gets exactly the arguments a call of the same node got before, under the same version and code, <a href="saved-runs-and-reuse.html#again">reuses</a> that <a href="running-and-streaming.html#outcomes">outcome</a>. Add one line to a CSV of 5,000, and a node that runs per line is called for the new one only.</p>
-      <details><summary>More</summary><div>
-        <p>It works across an edit of the graph too, with <a href="saved-runs-and-reuse.html#edits"><code>with_inputs(previous=old_run)</code></a>. See <a href="saved-runs-and-reuse.html">Saved runs and reuse</a>.</p>
-        <p class="cost"><b>Cost:</b> the <a href="saved-runs-and-reuse.html#matched-by">code in the key</a> is the node function's own, so a change to a helper it calls isn't noticed. A node that depends on more than its inputs sets <a href="saved-runs-and-reuse.html#policy"><code>Policy(reuse_when_inputs_match=False)</code></a>.</p>
-      </div></details>
+      <p><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> shows it.</p>
     </article>
 
     <article class="choice">
       <h3>The core stands alone.</h3>
-      <p>Fitting it to one platform would make it narrower and the code no better.</p>
-      <p class="sees">You bring your own storage and login.</p>
-      <details><summary>More</summary><div>
-        <p>With <a href="serving-runs.html#pieces">conductor-providers</a>, <a href="serving-runs.html#the-store"><code>RunStore</code></a> is six async methods the host writes. See <a href="serving-runs.html">Serving runs</a>.</p>
-        <p class="cost"><b>Cost:</b> shipping no store means every host writes one, on storage it already has.</p>
-      </div></details>
+      <p><a href="serving-runs.html">Serving runs</a> shows the store a host writes.</p>
     </article>
 
     <article class="choice">
       <h3 id="reference">A rule is written once in the reference.<span class="lvl pub">Public</span></h3>
-      <p><code>llms.txt</code>, printed by <code>python -m conductor.about</code>, is the one complete reference. The other pages teach by example and point there, so each rule has one place to change.</p>
-      <details><summary>More</summary><div>
-        <p><span class="lvl int">Internal</span> The reference keeps no hand-written copy of what the code declares. Its list of public names is written in from each module's <code>__all__</code> and docstrings, and the <a href="problems.html#page">problems page</a> is written from the function that declares each <a href="problems.html#kinds">kind of problem</a>.</p>
-      </div></details>
+      <p><code>python -m conductor.about</code> prints it.</p>
     </article>
 
   </div>
@@ -680,13 +776,13 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
 <section id="next" aria-labelledby="next-h">
   <div class="section-head prose">
     <p class="eyebrow">Where to go next</p>
-    <h2 id="next-h">Three packages</h2>
-    <p class="muted">They ship together, at one version. The two companions import only the core's five public modules.</p>
+    <h2 id="next-h">The packages</h2>
+    <p class="muted">They ship together, at one version. The companions import only the core's public modules.</p>
   </div>
   <div class="prs">
-    <a class="pr" style="--pr:var(--pr106)" href="nodes-and-types.html"><span class="num">syv-conductor</span><span class="pr-title">The core</span><span class="muted">The engine under <code>packages/conductor</code>, imported as <code>conductor</code>.</span></a>
-    <a class="pr" style="--pr:var(--pr107)" href="standard-nodes.html"><span class="num">syv-conductor-nodes</span><span class="pr-title">The standard nodes</span><span class="muted">36 nodes that only compute. Each module has its own registry.</span></a>
-    <a class="pr" style="--pr:var(--pr108)" href="serving-runs.html"><span class="num">syv-conductor-providers</span><span class="pr-title">Serving runs</span><span class="muted">The FastAPI router and the worker that serve runs.</span></a>
+    <a class="pkg" style="--pkg:var(--pkg-core)" href="nodes-and-types.html"><span class="num">syv-conductor</span><span class="pkg-title">The core</span><span class="muted">The engine under <code>packages/conductor</code>, imported as <code>conductor</code>.</span></a>
+    <a class="pkg" style="--pkg:var(--pkg-nodes)" href="standard-nodes.html"><span class="num">syv-conductor-nodes</span><span class="pkg-title">The standard nodes</span><span class="muted">Nodes that only compute. Each module has its own registry.</span></a>
+    <a class="pkg" style="--pkg:var(--pkg-providers)" href="serving-runs.html"><span class="num">syv-conductor-providers</span><span class="pkg-title">Serving runs</span><span class="muted">The FastAPI router and the worker that serve runs.</span></a>
   </div>
 
   <h3 style="margin-top:3.5rem">The rest of this series</h3>
@@ -752,13 +848,14 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
     }).join("");
   }
   function paint(pre) { hang(pre, highlight(pre.textContent, pre.dataset.lang)); }
-  document.querySelectorAll("pre[data-lang]").forEach(paint);
+  /* The walk-through's own pres stay plain text: a step paints the copy it shows. */
+  document.querySelectorAll("pre[data-lang]").forEach((pre) => { if (!pre.closest(".walk-src")) paint(pre); });
 
   /* ======================= THE MAP ======================= */
-  const DIST = { core: "var(--pr106)", nodes: "var(--pr107)", providers: "var(--pr108)" };
+  const DIST = { core: "var(--pkg-core)", nodes: "var(--pkg-nodes)", providers: "var(--pkg-providers)" };
   const DIST_NAME = { core: "The core, syv-conductor", nodes: "syv-conductor-nodes", providers: "syv-conductor-providers" };
-  /* The panel's "Read it with" and note are written as HTML: i() marks an internal name, page() links a page of the series. */
-  const i = (t) => '<code class="int" title="Internal">' + t + "</code>";
+  /* The panel's "Read it with" is written as HTML: page() links a page of the series. What each package does and
+     which names it has are not copied here; the panel says where they are written. */
   const PAGES = {
     "A node and its types": "nodes-and-types.html",
     "The graph record and compiling": "graph-record-and-compiling.html",
@@ -772,38 +869,41 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
     "Serving runs": "serving-runs.html",
   };
   const page = (t) => '<a href="' + PAGES[t] + '">' + t + "</a>";
+  const about = (slug) => "<code>python -m conductor.about" + (slug ? " " + slug : "") + "</code>";
   const PUBLIC = [
-    { id: "conductor", job: "Everything a node author and a host call. That covers writing nodes, the registry, graphs, runs and [problems](problems.html).", names: ["node", "Param", "Series", "Table", "SKIPPED", "Ask", "NodeRegistry", "GraphRecord", "make_graph", "Graph", "Run", "Waiting", "Problem", "InvalidCallError", "JSON_CONFIG"], dist: "core", read: "Start here.", where: "conductor/__init__.py" },
-    { id: "conductor.widgets", job: "The controls an editor shows for an input. Conductor never reads a [widget](nodes-and-types.html#hint) when it compiles or when it runs.", names: ["Widget", "TextInput", "Textarea", "Dropdown", "NumberInput", "Slider", "Switch", "DatePicker", "FileUpload", "ListInput"], dist: "core", read: page("A node and its types") + ".", where: "conductor/widgets.py", note: "A host subclasses Widget for a control of its own." },
-    { id: "conductor.events", job: "What a run reports as it goes. The first [event](running-and-streaming.html#stream) is RunStart and the last is RunEnd.", names: ["Event", "RunStart", "NodeStart", "NodeProgress", "NodeComplete", "NodeFailed", "NodeRetry", "NodeWaiting", "RunCheckpoint", "RunEnd"], dist: "core", read: page("Running and streaming") + ".", where: "conductor/events.py" },
-    { id: "conductor.testing", job: "One test for a whole registry. It finds the faults that only show when a node is used.", names: ["check_registry", "REGISTRY_CHECK_PROBLEMS"], dist: "core", read: page("A node and its types") + ". Its problems are in " + page("Problems") + ".", where: "conductor/testing/" },
-    { id: "conductor.about", job: "The full reference. It ships in the package, and python -m conductor.about prints it.", names: ["llms.txt", "problems.md"], dist: "core", read: "Read llms.txt early. It's the quickest way to see what 2.0 promises.", where: "conductor/about/", note: "It exports no names." },
+    { id: "conductor", dist: "core", where: "conductor/__init__.py", read: "Start here.", told: "Its names, each with its docstring: " + about("conductor") + "." },
+    { id: "conductor.widgets", dist: "core", where: "conductor/widgets.py", read: page("A node and its types") + ".", told: "Its names, each with its docstring: " + about("conductor-widgets") + "." },
+    { id: "conductor.events", dist: "core", where: "conductor/events.py", read: page("Running and streaming") + ".", told: "Its names, each with its docstring: " + about("conductor-events") + "." },
+    { id: "conductor.testing", dist: "core", where: "conductor/testing/", read: page("A node and its types") + ". Its problems are in " + page("Problems") + ".", told: "Its names, each with its docstring: " + about("conductor-testing") + "." },
+    { id: "conductor.about", dist: "core", where: "conductor/about/", read: "Read the reference early. It's the quickest way to see what conductor promises.", told: "It is the reference: " + about() + " prints it, and " + about("sections") + " lists its sections." },
   ];
+  /* The layers, top first, as the import-linter contract in pyproject.toml declares them; that contract is the
+     source, and tests/test_core/test_layers.py checks the code against it. */
   const LAYERS = [
     ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "field", "context"],
     ["validation"], ["table"], ["types"], ["problem"], ["base"], ["utils"],
   ];
   const ENGINE = {
-    make_graph: { job: "Writes a [graph record](graph-record-and-compiling.html#record) from Python. You list the nodes, and the edges if they aren't a simple chain. It fills in the rest.", names: ["make_graph", "ArgumentsValidator"], read: page("The graph record and compiling") + ".", note: "It's the one place that reads a " + '<a href="graph-record-and-compiling.html#places">place in a graph</a>' + " from dotted text." },
-    registry: { job: "The set of nodes a host offers. It's much like a FastAPI router's routes. A graph is [compiled](graph-record-and-compiling.html#compiling) against it.", names: ["NodeRegistry", "add_subregistry", "filter", "describe", "upgrade", "RegistryDescription", "TypeDescription"], read: page("The graph record and compiling") + ".", note: "It sits above graph because " + '<a href="nodes-and-types.html#registry">describe()</a>' + " compiles each " + '<a href="subgraphs.html#open">subgraph</a>' + " to show its inputs and outputs." },
-    run: { job: "One run of a compiled graph. The package has the [outcome](running-and-streaming.html#outcomes) of every call, the [scheduler](running-and-streaming.html#pass) that makes the calls and [the run as JSON](saved-runs-and-reuse.html#saved).", names: ["Run", "RunBlueprint", "Scheduler", "Done", "Unanswered", "Skipped", "NoneInput", "Waiting", "SavedRun", "RunProgress"], read: page("Running and streaming") + ", " + page("Saved runs and reuse") + ", " + page("Asking a person") + ", " + page("Series and tables") + " and " + page("Subgraphs") + " each read a part of it.", note: "Read " + i("scheduler.py") + ", " + i("run/type.py") + " and " + i("graph/compile.py") + " last, since each carries several features." },
-    graph: { job: "A [graph record](graph-record-and-compiling.html#record) [compiled](graph-record-and-compiling.html#compiling) against the nodes it uses. A host keeps the Graph and starts runs from it.", names: ["Graph", "Graph.compile", "Compiler", "ConstantInput", "GraphInput", "EdgeInput", "CollectingInput", "MissingInput", "InputsValidator", "LimitsValidator"], read: page("The graph record and compiling") + ", then " + page("Subgraphs") + ".", note: "The one import up a layer is from " + i("graph/type.py") + " to " + i("run") + ". A graph starts runs, and a run reads the graph's nodes." },
-    node: { job: "Node definitions. The package has [@node](nodes-and-types.html#signature) and [subgraph()](subgraphs.html#open), the [Policy](nodes-and-types.html#context) a node runs under and the check of what a node returns.", names: ["node", "subgraph", "FunctionDefinition", "SubgraphDefinition", "Policy", "Deprecation", "Upgrade", "ReturnValidator", "HookValidator", "RunningCalls"], read: page("A node and its types") + "." },
-    ask: { job: "[Ask](asking-a-person.html#walk) is what a node raises to ask a person. The package also checks the Ask and the answer.", names: ["Ask", "AskValidator", "AnswerValidator", "DeclineValidator", "as_asked"], read: page("Asking a person") + "." },
-    record: { job: "The [graph record](graph-record-and-compiling.html#record) is a graph written down as plain data, the way a host saves it.", names: ["GraphRecord", "NodeRecord", "InputEntry", "read_json", "RecordValidator", "WrittenValuesValidator"], read: page("The graph record and compiling") + "." },
-    series: { job: "[Series](series-and-tables.html#loop)[T] is a list of items. A node wired to one item of it gets one call per item.", names: ["Series", "SeriesType", "StoredSeries", "SeriesItems", "SeriesRows"], read: page("Series and tables") + ".", note: '<a href="series-and-tables.html#stored">' + i("SeriesRows") + "</a> keeps a Series of rows as the table a node returned, so an edge can read one column without building every row." },
-    field: { job: "Field is one input or output of a node, read from its type hint. [FieldDescription](nodes-and-types.html#signature) is the same as JSON for an editor.", names: ["Field", "FieldDescription", "outputs_schema", "DeclaredInputValidator", "DeclaredOutputValidator"], read: page("A node and its types") + "." },
-    context: { job: "The [run's context](nodes-and-types.html#context) is one object a host passes for a run. A node takes it as its first parameter by declaring Context[X].", names: ["Context", "ContextValidator"], read: page("A node and its types") + "." },
-    table: { job: "[Table](series-and-tables.html#table)[R] is a whole table as one value. Inside a node it's a plain polars.DataFrame.", names: ["Table", "TableType"], read: page("Series and tables") + "." },
-    validation: { job: "What every validator shares, the Validator base class, and the one strict reader of a value that comes into a graph from outside: a caller's input, a person's answer, a constant or a node's default.", names: ["Validator", "read_as_json", "json_data"], read: page("A node and its types") + ".", note: "It sits above table, since a frame is read as it is where the type is a table." },
-    types: { job: "One type hint as conductor reads it. The package also says whether [an edge may join two types](graph-record-and-compiling.html#fit), and has the rules every type's values are held to.", names: ["Type", "Param", "Choice", "host_type", "field_of", "fit"], read: page("A node and its types") + "." },
-    problem: { job: "The package has [Problem](problems.html), every [kind of problem](problems.html#kinds) conductor writes and the exceptions.", names: ["Problem", "PROBLEMS", "DECLARATION_PROBLEMS", "NodeError", "ExternalError", "InvalidCallError", "NodeDeclarationError"], read: page("Problems") + "." },
-    base: { job: "Building blocks with no idea of how a graph runs. They are the base class of every model a host saves or sends, [places in a graph](graph-record-and-compiling.html#places), the rules of JSON and hashing.", names: ["ConductorModel", "SKIPPED", "REQUIRED", "Source", "Name", "JSON_CONFIG", "canonical_json", "json_hash"], read: page("A node and its types") + "." },
-    utils: { job: "Small helpers with no idea of a graph. Most are the English that messages are written with.", names: ["comma_separated", "plural", "qualified_name"], read: "Read it with problem, whose messages use it most." },
+    make_graph: { read: page("The graph record and compiling") + "." },
+    registry: { read: page("The graph record and compiling") + "." },
+    run: { read: page("Running and streaming") + ", " + page("Saved runs and reuse") + ", " + page("Asking a person") + ", " + page("Series and tables") + " and " + page("Subgraphs") + " each read a part of it." },
+    graph: { read: page("The graph record and compiling") + ", then " + page("Subgraphs") + "." },
+    node: { read: page("A node and its types") + "." },
+    ask: { read: page("Asking a person") + "." },
+    record: { read: page("The graph record and compiling") + "." },
+    series: { read: page("Series and tables") + "." },
+    field: { read: page("A node and its types") + "." },
+    context: { read: page("A node and its types") + "." },
+    table: { read: page("Series and tables") + "." },
+    validation: { read: page("A node and its types") + "." },
+    types: { read: page("A node and its types") + "." },
+    problem: { read: page("Problems") + "." },
+    base: { read: page("A node and its types") + "." },
+    utils: { read: "Read it with problem, whose messages use it most." },
   };
   const COMPANIONS = [
-    { id: "conductor-nodes", pkg: "syv-conductor-nodes, import conductor_nodes", job: "The 36 [standard nodes](standard-nodes.html#modules). They only compute, and each module has a registry of its own.", names: ["conductor_nodes.registry", "text", "math", "logic", "json_ops", "regex_ops", "series", "tables", "control"], dist: "nodes", read: page("The nodes") + ", after the core.", where: "packages/conductor-nodes/", note: "A graph names a node by id, so an id changes only in a major release." },
-    { id: "conductor-providers", pkg: "syv-conductor-providers, import conductor_providers", job: "[run_router](serving-runs.html#routes) makes the FastAPI routes that serve runs over a [Worker](serving-runs.html#pieces). Any number of workers can share one store, which the host writes.", names: ["run_router", "Worker", "RunStore", "StoredRun", "RunChanges", "RunView", "SERVING_PROBLEMS", "check_run_store"], dist: "providers", read: page("Serving runs") + ". Its files read best in this order: " + i("store.py") + " and " + i("state.py") + ", then " + i("worker.py") + " and " + i("held_run.py") + ", then " + i("router.py") + " and " + i("bodies.py") + ".", where: "packages/conductor-providers/" },
+    { id: "conductor-nodes", pkg: "syv-conductor-nodes, import conductor_nodes", dist: "nodes", where: "packages/conductor-nodes/", read: page("The nodes") + ", after the core.", told: "Its nodes, module by module: <code>packages/conductor-nodes/README.md</code>." },
+    { id: "conductor-providers", pkg: "syv-conductor-providers, import conductor_providers", dist: "providers", where: "packages/conductor-providers/", read: page("Serving runs") + ".", told: "How it serves runs: " + about("serving-runs") + ". Its files: <code>AGENTS.md</code>, the Layout section." },
   ];
 
   const all = {};
@@ -834,22 +934,10 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
     $("#row-companions").append(t);
   });
 
-  /* The engine's names that a host reaches through conductor: each is in conductor's __all__,
-     or is a method of a class that is. Every other engine name is internal. */
-  const PUBLIC_NAMES = new Set(["NodeRegistry", "add_subregistry", "filter", "describe", "upgrade", "RegistryDescription", "TypeDescription",
-    "Run", "Waiting", "RunProgress", "Graph", "Graph.compile", "make_graph", "node", "subgraph", "FunctionDefinition", "SubgraphDefinition",
-    "Policy", "Deprecation", "Upgrade", "Ask", "GraphRecord", "NodeRecord", "InputEntry", "read_json", "Series", "FieldDescription", "Context",
-    "Table", "Param", "Choice", "host_type", "Problem", "PROBLEMS", "DECLARATION_PROBLEMS", "NodeError", "ExternalError", "InvalidCallError",
-    "NodeDeclarationError", "SKIPPED", "Source", "JSON_CONFIG"]);
   const LVL = { pub: '<span class="lvl pub">Public</span>', int: '<span class="lvl int">Internal</span>' };
-  const chips = (names, k) => '<div class="chips">' + names.map((n) =>
-    k === "int" ? '<code class="chip int" title="Internal">' + esc(n) + "</code>" : '<code class="chip">' + esc(n) + "</code>").join("") + "</div>";
-  function namesHtml(p) {
-    if (p.kind !== "engine") return chips(p.names, "pub");
-    const pub = p.names.filter((n) => PUBLIC_NAMES.has(n)), int = p.names.filter((n) => !PUBLIC_NAMES.has(n));
-    return (pub.length ? '<div class="names"><p class="names-head">' + LVL.pub + "what you reach through <code>conductor</code></p>" + chips(pub, "pub") + "</div>" : "") +
-      (int.length ? '<div class="names"><p class="names-head">' + LVL.int + "the engine's own</p>" + chips(int, "int") + "</div>" : "");
-  }
+  const told = (p) => p.kind === "engine"
+    ? "What it does: <code>AGENTS.md</code>, the Layout section. Its surface is the <code>__all__</code> of its <code>__init__.py</code>."
+    : p.told;
 
   const panel = $("#panel");
   function select(id) {
@@ -869,153 +957,49 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
     if (p.kind === "engine") {
       const below = Object.values(all).filter((q) => q.kind === "engine" && q.layer > p.layer).map((q) => q.id);
       imports = below.length ? "May import " + below.join(", ") + "." : "Imports nothing of conductor's. Every other package may use it.";
-      if (id === "graph") imports += " It also imports run, inside three methods and for its type annotations.";
+      if (id === "graph") imports += " The contract also lets graph/type.py import run (its ignore_imports).";
     } else if (p.kind === "public") imports = (id === "conductor" || id === "conductor.events")
       ? "Re-exports names from the engine's packages, each from the package that defines it."
       : id === "conductor.about" ? "Re-exports none of the engine's names. It serves its own pages."
       : "Defines its own names.";
-    else imports = "Imports only conductor's five public modules.";
+    else imports = "Imports only conductor's public modules.";
     panel.innerHTML =
       '<div><p class="name">' + esc(p.id) + (p.kind === "engine" ? LVL.int : LVL.pub) + "</p>" +
       '<p class="where">' + (p.kind === "engine" ? '<code class="int" title="Internal">' + esc(p.where) + "</code>" : esc(p.where)) + "</p></div>" +
-      '<p class="job">' + linked(p.job) + "</p>" +
-      namesHtml(p) +
+      '<p class="job">' + told(p) + "</p>" +
       "<dl>" +
-      '<div><dt>Ships in</dt><dd><span class="pr-tag" style="--pr:' + DIST[p.dist] + '"><i></i>' + DIST_NAME[p.dist] + "</span></dd></div>" +
+      '<div><dt>Ships in</dt><dd><span class="pr-tag" style="--pkg:' + DIST[p.dist] + '"><i></i>' + DIST_NAME[p.dist] + "</span></dd></div>" +
       "<div><dt>Read it with</dt><dd>" + p.read + "</dd></div>" +
       "<div><dt>Imports</dt><dd>" + esc(imports) + "</dd></div>" +
-      "</dl>" +
-      (p.note ? '<p class="note">' + p.note + "</p>" : "");
+      "</dl>";
   }
   select("graph");
 
   /* ======================= THE WALK-THROUGH ======================= */
-  const RECORD = `{
-  "nodes": {
-    "read": {
-      "node": "read",
-      "inputs": {
-        "csv": {
-          "graph_input": "csv"
-        }
-      }
-    },
-    "approve": {
-      "node": "approve",
-      "inputs": {
-        "name": {
-          "sources": [{"node": "read", "output": "result", "field": "name"}]
-        },
-        "amount": {
-          "sources": [{"node": "read", "output": "result", "field": "amount"}]
-        }
-      }
-    },
-    "summary": {
-      "node": "summary",
-      "inputs": {
-        "approved": {
-          "sources": [{"node": "approve", "output": "result"}]
-        }
-      }
-    }
-  },
-  "outputs": {
-    "summary": {
-      "node": "summary",
-      "output": "result"
-    }
-  }
-}`;
-  const SAVED = `{
-  "graph": "96d522e165790468",
-  "ended_early": null,
-  "max_items": null,
-  "inputs": {
-    "csv": "name,amount\\nIda,100\\nBo,5000\\n"
-  },
-  "outcomes": {
-    "read": {
-      "states": ["done"],
-      "outputs": {
-        "result": [
-          [{"name": "Ida", "amount": 100}, {"name": "Bo", "amount": 5000}]
-        ]
-      },
-      "fingerprints": ["3bf4995346deeaa28821ddf2"]
-    },
-    "approve": {
-      "states": ["done", null],
-      "outputs": {
-        "result": [true, null]
-      },
-      "fingerprints": ["b577d5d1eb0995656a60fdb9", "8899f4d7480adc0e6377c5fd"],
-      "questions": {
-        "1": {
-          "prompt": "Approve Bo, 5000 kr.?"
-        }
-      }
-    }
-  },
-  "reusable": {},
-  "complete": ["read"]
-}`;
   const STEPS = [
     { short: "a function", title: "Write a Python function",
       cap: "Its parameters are its inputs and its [return type](nodes-and-types.html#outputs) is its one output, named result. The bool also says that a person's answer is a yes or no.",
-      lang: "py", code: `def approve(name: str, amount: int) -> bool:
-    if amount < 1000:
-        return True
-    raise Ask(f"Approve {name}, {amount} kr.?")`,
       d: { reg: [], graph: false, doc: ["graph not compiled yet", ""] } },
     { short: "@node", title: "Declare it into a registry",
       cap: "[@registry.node](nodes-and-types.html#signature) returns a definition you can still call. [asks=True](asking-a-person.html#walk) says up front that it may stop for a person. read and summary go into the registry the same way.", more: ["A node and its types", "nodes-and-types.html"],
-      lang: "py", code: `registry = NodeRegistry()
-
-@registry.node("approve", title="Approve",
-               description="Approves an invoice, or asks a person to.",
-               asks=True)
-def approve(name: str, amount: int) -> bool:
-    if amount < 1000:
-        return True
-    raise Ask(f"Approve {name}, {amount} kr.?")
-
-print(approve("Ida", 100))  # True: calling it is its unit test`,
       d: { reg: ["read", "approve", "summary"], graph: false, doc: ["registry: read, approve, summary", "nothing is compiled or run yet"] } },
     { short: "the record", title: "The graph is a JSON record",
       cap: "This is what an editor saves. A [source](graph-record-and-compiling.html#places) with field: 'name' reads the name of each invoice that read returns.", more: ["The graph record and compiling", "graph-record-and-compiling.html"],
-      lang: "json", code: RECORD,
       d: { reg: ["read", "approve", "summary"], graph: "ghost", doc: ["a GraphRecord: 3 nodes, 1 output", "plain data, nothing checked yet"] } },
     { short: "compile", title: "Compile it against the registry",
       cap: "[Compiling](graph-record-and-compiling.html#compiling) checks every node, edge and constant, and works out from the types alone that approve [runs once per invoice](series-and-tables.html#loop). A fault would be a [Problem](problems.html) in [graph.problems](graph-record-and-compiling.html#walls), never an exception.",
-      lang: "py", code: `graph = Graph.compile(record, registry)
-
-graph.problems                                 # []
-list(graph.inputs)                             # ['csv']
-graph.describe().nodes["approve"].per_item_of  # 'read.result'`,
-      d: { reg: ["read", "approve", "summary"], graph: "on", doc: ["Graph: runnable, takes csv, returns summary", "approve runs per item of read.result"] } },
+      d: { reg: ["read", "approve", "summary"], graph: "on", doc: ["Graph: runnable, takes csv, returns summary", "approve runs once per invoice"] } },
     { short: "run", title: "Run it",
       cap: "read returns a [Series](series-and-tables.html#loop) of two invoices, so approve is called once per item. Bo's 5000 kr. raises [Ask](asking-a-person.html#walk).", more: ["Series and tables", "series-and-tables.html"],
-      lang: "py", code: `csv = "name,amount\\nIda,100\\nBo,5000\\n"
-run = graph.run({"csv": csv})`,
       d: { reg: ["read", "approve", "summary"], graph: "run", doc: ["running: read done, approve@0 done", "approve@1 raised Ask"] } },
     { short: "Ask waits", title: "One call waits for a person",
       cap: "Bo's call waits, and so does summary, since it [collects every answer](series-and-tables.html#loop). The part after ~ in the [waiting id](asking-a-person.html#ids) is a fingerprint of the call: its inputs, its item and the [node's code](saved-runs-and-reuse.html#matched-by), version, fields, loops and whether it asks. It stays the same on every run of the same graph and code, and changes when any of those change.", more: ["Asking a person", "asking-a-person.html"],
-      lang: "py", code: `run.status              # 'waiting'
-run.waiting[0].id       # 'approve@1~3d112d01'
-run.waiting[0].prompt   # 'Approve Bo, 5000 kr.?'`,
       d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["status: waiting", "1 waiting call: approve@1"] } },
     { short: "to_json", title: "Save the run as JSON",
       cap: "Only nodes that were called are in it, so summary isn't. Each call keeps its fingerprint, which a later run [reuses its outcome by](saved-runs-and-reuse.html#matched-by). It's shown reformatted here, and [to_json()](saved-runs-and-reuse.html#saved) writes it on one line.", more: ["Saved runs and reuse", "saved-runs-and-reuse.html"],
-      lang: "json", pre: "saved = run.to_json()", code: SAVED,
-      d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["saved: one JSON text, 506 characters", "any store works, Postgres jsonb included"] } },
+      d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["saved: one JSON text", "any store works, Postgres jsonb included"] } },
     { short: "answer, resume", title: "Load it later, answer and resume",
       cap: "In another process, [compile](graph-record-and-compiling.html#compiling) the same record and load the run. [resume()](running-and-streaming.html#start) goes on from where it stopped, and no node is called twice for the same invoice.",
-      lang: "py", code: `run = Run.from_json(saved, Graph.compile(record, registry))
-run = run.with_answers(run.waiting[0], True).resume()
-
-run.status    # 'complete'
-run.outputs   # {'summary': '2 of 2 approved'}`,
       d: { reg: ["read", "approve", "summary"], graph: "done", doc: ["status: complete", "summary: '2 of 2 approved'"] } },
   ];
 
@@ -1058,11 +1042,13 @@ run.outputs   # {'summary': '2 of 2 approved'}`,
       '<p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
       "<h3>" + esc(s.title) + "</h3>" +
       '<p class="cap">' + linked(s.cap) + (s.more ? ' See <a href="' + s.more[1] + '">' + esc(s.more[0]) + "</a>." : "") + "</p>" +
-      (s.pre ? '<pre data-lang="py"></pre>' : "") +
-      '<pre data-lang="' + s.lang + '"></pre>';
-    const pres = text.querySelectorAll("pre");
-    if (s.pre) { pres[0].textContent = s.pre; pres[1].textContent = s.code; } else pres[0].textContent = s.code;
-    pres.forEach(paint);
+      "";
+    document.querySelectorAll('.walk-src [data-step="' + cur + '"]').forEach((el) => {
+      const shown = el.cloneNode(true);
+      shown.removeAttribute("data-step");
+      text.append(shown);
+      if (shown.dataset.lang) paint(shown);
+    });
     if (!reduced) { text.classList.remove("fade"); void text.offsetWidth; text.classList.add("fade"); }
     rail.querySelectorAll("button").forEach((b, j) => {
       if (j === cur) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");

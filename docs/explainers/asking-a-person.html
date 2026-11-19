@@ -5,12 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Asking a Person</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    walk-through and the explorers; sections are separated by space
    and a faint staff of rules, never by boxes.
@@ -32,11 +29,11 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
 
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -57,7 +54,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -67,7 +64,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -325,8 +322,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="5">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="5">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -386,7 +383,7 @@ body { margin: 0; }
 <!-- ============================ HERO ============================ -->
 <header class="hero">
   <p class="back"><a href="overview.html">&larr; The overview</a> &middot; part of the core, <code>syv-conductor</code></p>
-  <p class="eyebrow">Conductor 2.0 &middot; page 5 of 11</p>
+  <p class="eyebrow">Conductor &middot; page 5 of 11</p>
   <h1>Asking a <em>person</em></h1>
   <div class="prose-flow">
     <p class="lede">Some nodes can't finish on their own. They need a person to approve something, pick an option or type a reason. Such a node raises <code>Ask</code>. Its call stops and waits, the rest of the run goes on, and the person's answer becomes the node's outputs, as if the function had returned them.</p>
@@ -420,6 +417,115 @@ body { margin: 0; }
     <h2 id="walk-h">A run where one of three lines is too long <span class="lvl pub">Public</span></h2>
     <p class="muted"><code>lines</code> splits a text, <code>approve</code> runs once per line, and <code>count</code> collects the answers. A short line is approved by the node. A long one is asked about. Every output here is printed by this code.</p>
   </div>
+<script type="text/x-python">
+import json
+from dataclasses import dataclass
+from typing import Annotated
+
+from conductor import SKIPPED, Ask, Choice, Graph, InvalidCallError, NodeRegistry, Param, Run, Series, make_graph, node, subgraph
+
+
+def dumps(value, indent=0):
+    """Writes JSON in the series' layout: two spaces of indent, and a short list on one line."""
+    pad = "  " * indent
+    if isinstance(value, list) and len(json.dumps(value)) <= 72:
+        return json.dumps(value)
+    if isinstance(value, dict) and value:
+        items = [f"{pad}  {json.dumps(key)}: {dumps(item, indent + 1)}" for key, item in value.items()]
+        return "{\n" + ",\n".join(items) + "\n" + pad + "}"
+    if isinstance(value, list):
+        items = [f"{pad}  {dumps(item, indent + 1)}" for item in value]
+        return "[\n" + ",\n".join(items) + "\n" + pad + "]"
+    return json.dumps(value)
+
+
+def refused(call):
+    """Calls call, and prints each problem of the InvalidCallError it raises."""
+    try:
+        call()
+    except InvalidCallError as error:
+        for problem in error.problems:
+            print(problem.type, problem.loc)
+            print(" ", problem.msg)
+            print("  ctx:", problem.ctx)
+
+
+def run_alone(definition, **inputs):
+    """Runs a graph of one node, in a registry of its own."""
+    own = NodeRegistry()
+    own.add(definition)
+    return Graph.compile(make_graph(definition), own).run(inputs)
+
+
+def questions(definition, *, leave_out=(), **inputs):
+    """The questions a graph of one node asks, with the fields the explorer leaves out to save room."""
+    hidden = {"title", "description", "widget", "type_variables", "loops", "constant_only", *leave_out}
+    asked = [
+        {key: item for key, item in question.items() if key not in hidden}
+        for question in run_alone(definition, **inputs).waiting[0].model_dump(mode="json")["questions"]
+    ]
+    return asked[0] if len(asked) == 1 else asked
+</script>
+  <!-- each step's code and what it prints; the walk-through's script shows one at a time -->
+  <template id="walk-0"><pre data-lang="py">registry = NodeRegistry()
+
+@registry.node("lines", title="Lines", description="Splits a text into lines.")
+def lines(text: str) -&gt; Series[str]:
+    return text.splitlines()
+
+@registry.node("approve", title="Approve",
+               description="Asks a person to approve a long line.", asks=True)
+def approve(line: str) -&gt; bool:
+    if len(line) &lt; 5:
+        return True
+    raise Ask(f"Approve {line!r}?")
+
+@registry.node("count", title="Count", description="Counts the approved lines.")
+def count(approved: Series[bool]) -&gt; str:
+    return f"{sum(approved)} of {len(approved)} approved"
+
+graph = Graph.compile(make_graph(lines, approve, count, edges=[
+    ("lines.result", "approve.line"), ("approve.result", "count.approved")]), registry)</pre></template>
+  <template id="walk-1"><pre data-lang="py">run = graph.run({"text": "ok\nthis is long\nfine"})</pre></template>
+  <template id="walk-2"><pre data-lang="py">print(run.status)
+print(run.results)</pre><pre class="out">waiting
+{'lines': {'result': ['ok', 'this is long', 'fine']}, 'approve': {'result': [True, None, True]}, 'count': {'result': None}}</pre></template>
+  <template id="walk-3"><pre data-lang="py">print(dumps(run.waiting[0].model_dump(mode="json")))  # the series' JSON layout</pre><pre data-lang="json" class="out">{
+  "id": "approve@1~23c82614",
+  "loc": ["approve", 1],
+  "prompt": "Approve 'this is long'?",
+  "questions": [
+    {
+      "name": "result",
+      "title": null,
+      "description": null,
+      "is_series": false,
+      "type": "bool",
+      "type_variables": [],
+      "json_schema": {
+        "type": "boolean"
+      },
+      "required": true,
+      "choices": null,
+      "widget": null,
+      "constant_only": false,
+      "loops": []
+    }
+  ],
+  "inputs": {
+    "line": "this is long"
+  }
+}</pre></template>
+  <template id="walk-4"><pre data-lang="py">answered = run.with_answers(run.waiting[0], True)
+print(answered.status, answered.waiting)
+print(run.status)</pre><pre class="out">ready []
+waiting</pre></template>
+  <template id="walk-5"><pre data-lang="py">done = answered.resume()
+print(done.status, done.outputs)</pre><pre class="out">complete {'result': '3 of 3 approved'}</pre></template>
+  <template id="walk-6"><pre data-lang="py">loaded = Run.from_json(run.to_json(), graph)
+print(loaded.with_answers(loaded.waiting[0].id, False).resume().outputs)
+print(run.with_answers("approve@1", True).resume().outputs)</pre><pre class="out">{'result': '2 of 3 approved'}
+{'result': '3 of 3 approved'}</pre></template>
   <div class="walk">
     <nav class="rail" id="rail" aria-label="Steps"></nav>
     <div class="stage">
@@ -526,17 +632,189 @@ body { margin: 0; }
     <div class="tabs" role="tablist" id="q-tabs" aria-label="Return types"></div>
     <div class="ex-body">
       <div>
-        <p class="eyebrow">The node</p>
-        <pre data-lang="py" id="q-code"></pre>
+        <p class="eyebrow">The node, and an answer to it</p>
+        <div id="q-code"></div>
         <p class="ex-note" id="q-note"></p>
       </div>
       <div>
         <p class="eyebrow">The question, as <code>run.waiting</code> writes it</p>
-        <pre data-lang="json" id="q-json"></pre>
-        <p class="small">Printed from <code>model_dump(mode="json")</code> in the series' JSON layout (two-space indent, a short list on one line), with <code>title</code>, <code>description</code>, <code>widget</code>, <code>type_variables</code>, <code>loops</code> and <code>constant_only</code> left out to save room. A node with several questions prints them as a list.</p>
+        <div id="q-json"></div>
+        <p class="small">Printed from <code>model_dump(mode="json")</code> in the series' JSON layout (two-space indent, a short list on one line), with <code>title</code>, <code>description</code>, <code>widget</code>, <code>type_variables</code>, <code>loops</code> and <code>constant_only</code> left out to save room. A node with several questions prints them as a list. <code>run_alone(node, ...)</code> runs a graph of that one node.</p>
       </div>
     </div>
   </div>
+  <!-- each tab's node, the question it asks and an answer to it; the explorer's script shows one tab at a time -->
+  <template id="q-0"><pre data-lang="py" data-slot="code">@node("confirm", title="Confirm", description="...", asks=True)
+def confirm(ticket: str) -&gt; bool:
+    raise Ask(f"Close {ticket}?")</pre><script type="text/x-python">print(dumps(questions(confirm, ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">{
+  "name": "result",
+  "is_series": false,
+  "type": "bool",
+  "json_schema": {
+    "type": "boolean"
+  },
+  "required": true,
+  "choices": null
+}</pre></template>
+  <template id="q-1"><pre data-lang="py" data-slot="code">@node("urgency", title="Urgency", description="...", asks=True)
+def urgency(ticket: str) -&gt; Annotated[str, Param(choices=[
+        Choice("low", "Low"), Choice("high", "High")])]:
+    raise Ask(f"How urgent is {ticket}?")</pre><script type="text/x-python">print(dumps(questions(urgency, ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">{
+  "name": "result",
+  "is_series": false,
+  "type": "str",
+  "json_schema": {
+    "enum": ["low", "high"],
+    "type": "string"
+  },
+  "required": true,
+  "choices": [{"id": "low", "title": "Low"}, {"id": "high", "title": "High"}]
+}</pre></template>
+  <template id="q-2"><pre data-lang="py" data-slot="code">@node("assign", title="Assign", description="...", asks=True)
+def assign(ticket: str) -&gt; str:
+    raise Ask(f"Who takes {ticket}?",
+              choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")],
+              default="bo")</pre><script type="text/x-python">print(dumps(questions(assign, ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">{
+  "name": "result",
+  "is_series": false,
+  "type": "str",
+  "json_schema": {
+    "enum": ["ida", "bo"],
+    "type": "string"
+  },
+  "required": true,
+  "default": "bo",
+  "choices": [{"id": "ida", "title": "Ida B."}, {"id": "bo", "title": "Bo K."}]
+}</pre><pre data-lang="py" data-slot="code">assigning = run_alone(assign, ticket="T1")
+refused(lambda: assigning.with_answers("assign", None))
+refused(lambda: assigning.with_answers("assign", {}))</pre><pre class="out" data-slot="code">invalid_answer ('assign',)
+  That isn't a valid answer: Input should be a valid string.
+  ctx: {'waiting_id': 'assign', 'reason': 'Input should be a valid string', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}
+invalid_answer ('assign',)
+  That isn't a valid answer: Input should be a valid string.
+  ctx: {'waiting_id': 'assign', 'reason': 'Input should be a valid string', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}</pre></template>
+  <template id="q-3"><pre data-lang="py" data-slot="code">@node("people", title="People", description="...", asks=True)
+def people(ticket: str) -&gt; Series[str]:
+    raise Ask(f"Who reviews {ticket}?", choices=[
+        Choice("ida", "Ida B."), Choice("bo", "Bo K."), Choice("eva", "Eva L.")])</pre><script type="text/x-python">print(dumps(questions(people, ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">{
+  "name": "result",
+  "is_series": true,
+  "type": "str",
+  "json_schema": {
+    "enum": ["ida", "bo", "eva"],
+    "type": "string"
+  },
+  "required": true,
+  "choices": [
+    {
+      "id": "ida",
+      "title": "Ida B."
+    },
+    {
+      "id": "bo",
+      "title": "Bo K."
+    },
+    {
+      "id": "eva",
+      "title": "Eva L."
+    }
+  ]
+}</pre><pre data-lang="py" data-slot="code">picking = run_alone(people, ticket="T1")
+print(picking.with_answers("people", ["eva", "ida"]).resume().outputs)
+refused(lambda: picking.with_answers("people", ["ida", "ida"]))</pre><pre class="out" data-slot="code">{'result': ['eva', 'ida']}
+invalid_answer ('people',)
+  That isn't a valid answer: a choice is picked twice.
+  ctx: {'waiting_id': 'people', 'reason': 'a choice is picked twice', 'errors': [{'type': 'picked_twice', 'loc': [], 'msg': 'a choice is picked twice'}]}</pre></template>
+  <template id="q-4"><pre data-lang="py" data-slot="code">@node("note", title="Note", description="...", asks=True)
+def note(ticket: str) -&gt; str | None:
+    raise Ask(f"A note on {ticket}?")</pre><script type="text/x-python">print(dumps(questions(note, ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">{
+  "name": "result",
+  "is_series": false,
+  "type": "str",
+  "json_schema": {
+    "anyOf": [{"type": "string"}, {"type": "null"}]
+  },
+  "required": true,
+  "default": null,
+  "choices": null
+}</pre><pre data-lang="py" data-slot="code">noting = run_alone(note, ticket="T1")
+print(noting.with_answers("note", None).resume().outputs)
+refused(lambda: noting.with_answers("note", {}))</pre><pre class="out" data-slot="code">{'result': None}
+invalid_answer ('note',)
+  That isn't a valid answer: Input should be a valid string.
+  ctx: {'waiting_id': 'note', 'reason': 'Input should be a valid string', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}</pre></template>
+  <template id="q-5"><pre data-lang="py" data-slot="code">@dataclass(frozen=True)
+class Closing:
+    reason: str
+    hours: float = 1.0
+    comment: str | None = None
+    escalate_to: str = SKIPPED
+
+@node("close", title="Close", description="...", asks=True)
+def close(ticket: str) -&gt; Closing:
+    raise Ask(f"Close {ticket}", choices={"escalate_to": ["ida", "bo"]})</pre><script type="text/x-python">print(dumps(questions(close, leave_out=("is_series", "type", "json_schema"), ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">[
+  {
+    "name": "reason",
+    "required": true,
+    "choices": null
+  },
+  {
+    "name": "hours",
+    "required": false,
+    "default": 1.0,
+    "choices": null
+  },
+  {
+    "name": "comment",
+    "required": false,
+    "default": null,
+    "choices": null
+  },
+  {
+    "name": "escalate_to",
+    "required": false,
+    "choices": [{"id": "ida", "title": "ida"}, {"id": "bo", "title": "bo"}]
+  }
+]</pre></template>
+  <template id="q-6"><pre data-lang="py" data-slot="code">@dataclass(frozen=True)
+class Route:
+    keep: str = SKIPPED
+    drop: str = SKIPPED
+
+@node("route", title="Route", description="...", asks=True)
+def route(ticket: str) -&gt; Route:
+    raise Ask(f"Keep or drop {ticket}?")</pre><script type="text/x-python">print(dumps(questions(route, ticket="T1")))</script><pre data-lang="json" class="out" data-slot="json">[
+  {
+    "name": "keep",
+    "is_series": false,
+    "type": "str",
+    "json_schema": {
+      "type": "string"
+    },
+    "required": false,
+    "choices": null
+  },
+  {
+    "name": "drop",
+    "is_series": false,
+    "type": "str",
+    "json_schema": {
+      "type": "string"
+    },
+    "required": false,
+    "choices": null
+  }
+]</pre><pre data-lang="py" data-slot="code">routing = run_alone(route, ticket="T1")
+print(routing.with_answers("route", {"keep": "yes"}).resume().outputs)
+print(routing.with_answers("route", {}).resume().outputs)
+refused(lambda: routing.with_answers("route", {"keep": "yes", "drop": "no"}))</pre><pre class="out" data-slot="code">{'drop': None, 'keep': 'yes'}
+{'drop': None, 'keep': None}
+invalid_answer ('route',)
+  That isn't a valid answer: 'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node.
+  ctx: {'waiting_id': 'route', 'reason': "'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node", 'errors': [{'type': 'several_branches_given', 'loc': [], 'msg': "'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node", 'ctx': {'given': ['keep', 'drop']}}]}</pre></template>
+  <template id="q-7"><pre data-lang="py" data-slot="code">@node("ack", title="Ack", description="...", asks=True)
+def ack(text: str) -&gt; None:
+    raise Ask(f"Seen {text}?")</pre><script type="text/x-python">print(dumps(questions(ack, text="x")))</script><pre data-lang="json" class="out" data-slot="json">[]</pre><pre data-lang="py" data-slot="code">print(run_alone(ack, text="x").with_answers("ack", None).resume().status)</pre><pre class="out" data-slot="code">complete</pre></template>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -593,66 +871,86 @@ class Closing:
     escalate_to: str = SKIPPED
 
 @node("close", title="Close", description="...", asks=True)
-def close(ticket: str) -> Closing:
+def close(ticket: str) -&gt; Closing:
     raise Ask(f"Close {ticket}",
-              choices={"escalate_to": ["ida", "bo"]})</pre>
+              choices={"escalate_to": ["ida", "bo"]})
+
+closing = run_alone(close, ticket="T-7")</pre>
       <div class="answers" id="answers"></div>
       <div class="verdict" id="verdict" aria-live="polite"></div>
     </div>
   </div>
+  <!-- each answer the checker offers, and what it prints; the checker's script shows one at a time -->
+  <template class="answer" id="answer-0" data-answer='{"reason": "fixed"}' data-taken="yes"><pre data-lang="py">print(closing.with_answers("close", {"reason": "fixed"}).resume().outputs)</pre><pre class="out">{'comment': None, 'escalate_to': None, 'hours': 1.0, 'reason': 'fixed'}</pre><p class="small">hours gets its default, comment gets None, and escalate_to is <a href="nodes-and-types.html#outputs">a branch not chosen</a>, shown as None.</p></template>
+  <template class="answer" id="answer-1" data-answer='{"reason": "fixed", "hours": 2, "escalate_to": "bo"}' data-taken="yes"><pre data-lang="py">print(closing.with_answers("close", {"reason": "fixed", "hours": 2, "escalate_to": "bo"}).resume().outputs)</pre><pre class="out">{'comment': None, 'escalate_to': 'bo', 'hours': 2.0, 'reason': 'fixed'}</pre><p class="small">The float reads 2 as 2.0, and bo is one of the Ask's choices.</p></template>
+  <template class="answer" id="answer-2" data-answer='{"reason": "fixed", "escalate_to": "carl"}' data-taken="no"><pre data-lang="py">refused(lambda: closing.with_answers("close", {"reason": "fixed", "escalate_to": "carl"}))</pre><pre class="out">invalid_answer ('close',)
+  That isn't a valid answer to 'escalate_to': the value is not "ida" or "bo".
+  ctx: {'waiting_id': 'close', 'reason': 'the value is not "ida" or "bo"', 'errors': [{'type': 'not_a_choice', 'loc': [], 'msg': 'the value is not "ida" or "bo"'}], 'question': 'escalate_to'}</pre></template>
+  <template class="answer" id="answer-3" data-answer='{"reason": "fixed", "hours": "2"}' data-taken="no"><pre data-lang="py">refused(lambda: closing.with_answers("close", {"reason": "fixed", "hours": "2"}))</pre><pre class="out">invalid_answer ('close',)
+  That isn't a valid answer to 'hours': Input should be a valid number.
+  ctx: {'waiting_id': 'close', 'reason': 'Input should be a valid number', 'errors': [{'type': 'float_type', 'loc': [], 'msg': 'Input should be a valid number'}], 'question': 'hours'}</pre><p class="small">Read from its JSON form, a number in quotes is text.</p></template>
+  <template class="answer" id="answer-4" data-answer='{"hours": "two", "colour": "red"}' data-taken="no"><pre data-lang="py">refused(lambda: closing.with_answers("close", {"hours": "two", "colour": "red"}))</pre><pre class="out">invalid_answer ('close',)
+  That isn't a valid answer to 'reason': Field required.
+  ctx: {'waiting_id': 'close', 'reason': 'Field required', 'errors': [{'type': 'missing', 'loc': [], 'msg': 'Field required'}], 'question': 'reason'}
+invalid_answer ('close',)
+  That isn't a valid answer to 'hours': Input should be a valid number.
+  ctx: {'waiting_id': 'close', 'reason': 'Input should be a valid number', 'errors': [{'type': 'float_type', 'loc': [], 'msg': 'Input should be a valid number'}], 'question': 'hours'}
+invalid_answer ('close',)
+  That isn't a valid answer to 'colour': Extra inputs are not permitted.
+  ctx: {'waiting_id': 'close', 'reason': 'Extra inputs are not permitted', 'errors': [{'type': 'extra_forbidden', 'loc': [], 'msg': 'Extra inputs are not permitted'}], 'question': 'colour'}</pre><p class="small">Every fault comes back at once, and nothing is answered.</p></template>
+  <template class="answer" id="answer-5" data-answer='"fixed"' data-taken="no"><pre data-lang="py">refused(lambda: closing.with_answers("close", "fixed"))</pre><pre class="out">invalid_answer ('close',)
+  That isn't a valid answer: Input should be a valid dictionary.
+  ctx: {'waiting_id': 'close', 'reason': 'Input should be a valid dictionary', 'errors': [{'type': 'dict_type', 'loc': [], 'msg': 'Input should be a valid dictionary'}]}</pre><p class="small">A node of several questions is answered with a mapping by question name. This fault is about the answer as a whole, so it names no question.</p></template>
 
-  <div class="rules" style="margin-top:2.5rem">
-    <div class="rule">
-      <h3>An answer is read as its JSON text would be</h3>
-      <p>For <code>-&gt; bool</code>, <code>True</code> is taken and <code>"yes"</code>, <code>1</code> and <code>"true"</code> are each refused with <code>Input should be a valid boolean</code>. A <code>date</code> takes its ISO text, such as <code>"2026-11-20"</code>.</p>
+  <div class="two" style="margin-top:2.5rem">
+    <div>
+      <h3 id="answer-group">An answer is read as its JSON text would be</h3>
+      <pre data-lang="py">confirming = run_alone(confirm, ticket="T1")
+refused(lambda: confirming.with_answers("confirm", "yes"))</pre>
+      <pre class="out">invalid_answer ('confirm',)
+  That isn't a valid answer: Input should be a valid boolean.
+  ctx: {'waiting_id': 'confirm', 'reason': 'Input should be a valid boolean', 'errors': [{'type': 'bool_type', 'loc': [], 'msg': 'Input should be a valid boolean'}]}</pre>
     </div>
-    <div class="rule">
-      <h3>Every fault is reported at once, and nothing is answered</h3>
-      <p>One <a href="problems.html#moments"><code>InvalidCallError</code></a> carries a <a href="problems.html">problem</a> per fault, across every call in the mapping. Each <code>invalid_answer</code> from <code>run.with_answers</code> has <code>ctx.waiting_id</code>, <code>ctx.reason</code> (the first error's message) and <code>ctx.errors</code> (pydantic's codes, such as <code>bool_type</code>, <code>missing</code> or <code>not_a_choice</code>, each with a <code>loc</code> inside the question's value), and <code>ctx.question</code> when the fault is about one question of several. They come in the order of the questions, then the names that aren't questions, then the answer as a whole. One call answered twice in one mapping, under its whole id and its short id, is <code>answer_given_twice</code>. <a href="problems.html#choices">No message quotes</a> an answer's value.</p>
-    </div>
-    <div class="rule">
-      <h3 id="answer-group">A node's branches take at most one answer</h3>
-      <p>Outputs whose default is <code>SKIPPED</code> are <a href="nodes-and-types.html#outputs">branches</a>, and a call gives a value to at most one of them. A person is held to the same rule as a returning node. Answering <code>{"keep": "yes"}</code> and resuming gives <code>{'drop': None, 'keep': 'yes'}</code> as the outputs. Answering neither skips both. Answering both is refused: <code>'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node</code>.</p>
-    </div>
-    <div class="rule">
-      <h3>An <code>Ask</code>'s defaults fill one branch at most</h3>
-      <p>An <code>Ask</code> may propose a default for one branch, such as <code>default={"keep": "yes"}</code>. An answer that leaves out both branches then gives <code>{'drop': None, 'keep': 'yes'}</code>. Defaults for two branches fail the node with <code>invalid_ask</code>: <code>the default is wrong ('keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node)</code>. The defaults fill in one answer, and one answer gives a value to one branch at most.</p>
-    </div>
-    <div class="rule">
-      <h3>A pick of several picks each once</h3>
-      <p>An answer to a <a href="series-and-tables.html#loop"><code>Series</code></a> output whose items have choices may not pick one twice: <code>a choice is picked twice</code>. A person's answer, and an <code>Ask</code>'s default, are held to that. A node may return a <code>Series</code> that has a value twice.</p>
-    </div>
-    <div class="rule">
+    <div>
       <h3>The <code>Ask</code> is checked when it is raised</h3>
-      <p>Conductor checks the choices and default against the outputs before the call waits. <code>Ask("Who?", choices=[1, 2])</code> on <code>-&gt; str</code> fails the node: <code>the choices for 'result' are wrong (Input should be a valid string)</code>. So does an empty list of choices, one given twice, a name that isn't an output, and a default a person couldn't give. Every fault is in <code>ctx.errors</code>, each <code>loc</code> starting with <code>choices</code> or <code>default</code>, then the output's name. A key that is no output is written <code>"[key]"</code> there, never quoted.</p>
+      <pre data-lang="py">@node("who", title="Who", description="...", asks=True)
+def who(ticket: str) -&gt; str:
+    raise Ask(f"Who takes {ticket}?", choices=[1, 2])
+
+stopped = run_alone(who, ticket="T1")
+print(stopped.status, stopped.cause.type)
+print(stopped.cause.msg)</pre>
+      <pre class="out">failed invalid_ask
+The node's Ask doesn't fit its outputs: the choices for 'result' are wrong (Input should be a valid string). Fix the Ask.</pre>
     </div>
   </div>
+  <p class="small" style="margin-top:.75rem">The rules an answer and an <code>Ask</code> are held to are in <code>python -m conductor.about asking-a-person</code>, and every problem they give, with its <code>ctx</code>, is on the <a href="../problems/">problems page</a>.</p>
 
   <div class="two" id="declining" style="margin-top:2.5rem">
     <div>
       <p class="eyebrow">Declining the walk-through's question</p>
       <pre data-lang="py">declined = run.with_decline(run.waiting[0], reason="Too long to judge")
-declined.status, declined.cause.type, declined.cause.loc
-<span class="tk-c"># ('declined', 'answer_declined', ('approve', 1))</span>
-declined.cause.msg
-<span class="tk-c"># 'A person declined to answer, so the run ended here. The calls made before keep their results. Call run.again() to start a new run that asks again.'</span>
-declined.cause.ctx
-<span class="tk-c"># {'reason': 'Too long to judge'}</span>
-declined.waiting, declined.resume().status
-<span class="tk-c"># ([], 'declined')</span>
-[w.id for w in declined.again().waiting]
-<span class="tk-c"># ['approve@1~23c82614']</span>
-run.with_decline(run.waiting[0], reason=123)
-<span class="tk-c"># invalid_decline_reason ('approve', 1)</span>
-<span class="tk-c">#   The reason for declining must be text that can be written as JSON. Give a str, or leave the reason out.</span>
-<span class="tk-c">#   ctx: {'waiting_id': 'approve@1~23c82614', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}</span>
-run.status
-<span class="tk-c"># 'waiting'</span></pre>
+print(declined.status, declined.cause.type, declined.cause.loc)
+print(declined.cause.msg)
+print(declined.cause.ctx)
+print(declined.waiting, declined.resume().status)
+print([w.id for w in declined.again().waiting])</pre>
+      <pre class="out">declined answer_declined ('approve', 1)
+A person declined to answer, so the run ended here. The calls made before keep their results. Call run.again() to start a new run that asks again.
+{'reason': 'Too long to judge'}
+[] declined
+['approve@1~23c82614']</pre>
+      <pre data-lang="py">refused(lambda: run.with_decline(run.waiting[0], reason=123))
+print(run.status)</pre>
+      <pre class="out">invalid_decline_reason ('approve', 1)
+  The reason for declining must be text that can be written as JSON. Give a str, or leave the reason out.
+  ctx: {'waiting_id': 'approve@1~23c82614', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}
+waiting</pre>
     </div>
     <div>
       <h3>A decline ends the run for good, and <code>again()</code> asks again</h3>
-      <p class="muted">A decline is not an answer: a person said no. The run is <code>declined</code>, with <code>answer_declined</code> as its <code>cause</code>. Every call made before keeps its <a href="running-and-streaming.html#outcomes">outcome</a>, so <code>run.results</code> shows what ran. To reject one item and let the run go on, answer it instead.</p>
-      <p class="muted">Nothing waits any more, so <code>with_answers</code> and <code>with_decline</code> refuse every id as <code>not_waiting</code>, and <a href="running-and-streaming.html#start"><code>resume()</code></a> calls no node. A saved run reads back the same. <code>run.again()</code> or <code>run.with_inputs()</code> starts a new run that reuses what this one ran and calls the declined node again, so it asks again, under the same id while its inputs and code are the same. The reason is checked as its JSON text would be: text, or <code>None</code>.</p>
+      <p class="muted">A decline is not an answer: a person said no. The run is <code>declined</code>, with <code>answer_declined</code> as its <code>cause</code>, and nothing waits any more. Every call made before keeps its <a href="running-and-streaming.html#outcomes">outcome</a>. To reject one item and let the run go on, answer it instead.</p>
+      <p class="muted"><code>run.again()</code> starts a new run that reuses what this one ran and calls the declined node again, so it asks again, under the same id. A reason that isn't text is refused, and the run is left as it was. The rules are under "Declining" in <code>python -m conductor.about asking-a-person</code>.</p>
     </div>
   </div>
 </section>
@@ -664,8 +962,19 @@ run.status
   <div class="section-head prose">
     <p class="eyebrow">The waiting id</p>
     <h2 id="id-h">An id names the call and the question <span class="lvl pub">Public</span></h2>
-    <p class="muted">A host stores the id and sends it back with the answer, maybe days later. Tap a part. The id below is real. It is the inner <code>approve</code> of a <a href="subgraphs.html#open">subgraph</a> <code>check</code>, for the second line of the second document.</p>
+    <p class="muted">A host stores the id and sends it back with the answer, maybe days later. The id below is the inner <code>approve</code> of a <a href="subgraphs.html#open">subgraph</a> <code>check</code>, for the second line of the second document. Tap a part.</p>
   </div>
+
+  <pre data-lang="py">@registry.node("docs", title="Docs", description="Splits a text into documents.")
+def docs(text: str) -&gt; Series[str]:
+    return text.split("\n---\n")
+
+check = subgraph("check", title="Check", description="Asks about each long line of a document.")(
+    make_graph(lines, approve, edges=[("lines.result", "approve.line")]))
+registry.add(check)
+checking = Graph.compile(make_graph(docs, check, edges=[("docs.result", "check.text")]), registry)
+print([w.id for w in checking.run({"text": "ok\nfine\n---\nyes\nthis is long"}).waiting])</pre>
+  <pre class="out">['check@1/approve@1~a8e00c69']</pre>
 
   <div class="anatomy">
     <div class="idline" id="idline" aria-label="check@1/approve@1~a8e00c69"></div>
@@ -679,15 +988,44 @@ run.status
     <div class="ex-body">
       <div>
         <p class="eyebrow">The host's code</p>
-        <pre data-lang="py" id="id-code"></pre>
+        <div id="id-code"></div>
         <p class="ex-note" id="id-note"></p>
       </div>
       <div>
         <p class="eyebrow">Printed</p>
-        <pre class="out" id="id-out"></pre>
+        <div id="id-out"></div>
       </div>
     </div>
   </div>
+  <!-- each tab's code and what it prints; the explorer's script shows one tab at a time -->
+  <template id="id-case-0"><pre data-lang="py" data-slot="code">first = graph.run({"text": "a long line\nok"})
+same = graph.run({"text": "a long line\nok"})
+print([w.id for w in first.waiting], [w.id for w in same.waiting])</pre><pre class="out" data-slot="out">['approve@0~0451ee1e'] ['approve@0~0451ee1e']</pre></template>
+  <template id="id-case-1"><pre data-lang="py" data-slot="code">moved = first.again({"text": "ok\na long line"})
+print([w.id for w in moved.waiting])
+refused(lambda: moved.with_answers("approve@0~0451ee1e", True))</pre><pre class="out" data-slot="out">['approve@1~0451ee1e']
+not_waiting ('approve', 0)
+  The id 'approve@0~0451ee1e' waits on nothing. The run is waiting. run.waiting lists the questions that are waiting.
+  ctx: {'waiting_id': 'approve@0~0451ee1e', 'status': 'waiting', 'moved_to': 'approve@1~0451ee1e'}</pre></template>
+  <template id="id-case-2"><pre data-lang="py" data-slot="code">changed = first.again({"text": "another long line\nok"})
+print([w.id for w in changed.waiting])
+refused(lambda: changed.with_answers("approve@0~0451ee1e", True))</pre><pre class="out" data-slot="out">['approve@0~848a1d59']
+answer_stale ('approve', 0)
+  The call 'approve@0~0451ee1e' names now waits under 'approve@0~848a1d59', since its inputs or its node's code changed after that id was written. Use that id instead.
+  ctx: {'waiting_id': 'approve@0~0451ee1e', 'current': 'approve@0~848a1d59'}</pre></template>
+  <template id="id-case-3"><pre data-lang="py" data-slot="code">refused(lambda: first.with_answers({"approve@00": True, "nope": True}))</pre><pre class="out" data-slot="out">not_waiting ('approve',)
+  The id 'approve@00' waits on nothing. The run is waiting. run.waiting lists the questions that are waiting.
+  ctx: {'waiting_id': 'approve@00', 'status': 'waiting'}
+not_waiting ('nope',)
+  The id 'nope' waits on nothing. The run is waiting. run.waiting lists the questions that are waiting.
+  ctx: {'waiting_id': 'nope', 'status': 'waiting'}</pre></template>
+  <template id="id-case-4"><pre data-lang="py" data-slot="code">refused(lambda: first.with_answers({"approve@0~0451ee1e": True, "approve@0": False}))</pre><pre class="out" data-slot="out">answer_given_twice ('approve', 0)
+  The call 'approve@0' names is answered twice in one run.with_answers. Give it one answer.
+  ctx: {'waiting_id': 'approve@0'}</pre></template>
+  <template id="id-case-5"><pre data-lang="py" data-slot="code">finished = first.with_answers("approve@0~0451ee1e", True).resume()
+refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre class="out" data-slot="out">not_waiting ('approve', 0)
+  The id 'approve@0~0451ee1e' waits on nothing. The run is complete. run.waiting lists the questions that are waiting.
+  ctx: {'waiting_id': 'approve@0~0451ee1e', 'status': 'complete'}</pre></template>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -701,22 +1039,21 @@ run.status
   </div>
   <div class="two labelled">
     <div>
-      <p class="eyebrow">The <code>approve</code> part of the walk-through's <code>run.to_json()</code>, under <code>outcomes</code></p>
-      <pre data-lang="json">{
-  "approve": {
-    "states": ["done", null, "done"],
-    "outputs": {
-      "result": [true, null, true]
-    },
-    "fingerprints": [
-      "c5b6a33f42206cc1bc1aa6e1",
-      "145d4e9d8315203ed03511c4",
-      "b7714f28e7c9e1e4f908c9be"
-    ],
-    "questions": {
-      "1": {
-        "prompt": "Approve 'this is long'?"
-      }
+      <p class="eyebrow">The <code>approve</code> part of the walk-through's <code>run.to_json()</code></p>
+      <pre data-lang="py">print(dumps(json.loads(run.to_json())["outcomes"]["approve"]))</pre>
+      <pre data-lang="json" class="out">{
+  "states": ["done", null, "done"],
+  "outputs": {
+    "result": [true, null, true]
+  },
+  "fingerprints": [
+    "c5b6a33f42206cc1bc1aa6e1",
+    "145d4e9d8315203ed03511c4",
+    "b7714f28e7c9e1e4f908c9be"
+  ],
+  "questions": {
+    "1": {
+      "prompt": "Approve 'this is long'?"
     }
   }
 }</pre>
@@ -725,24 +1062,28 @@ run.status
     <div>
       <p class="eyebrow">Load, answer, resume</p>
       <pre data-lang="py">loaded = Run.from_json(run.to_json(), graph)
-[w.id for w in loaded.waiting]
-<span class="tk-c"># ['approve@1~23c82614']</span>
-loaded.with_answers(loaded.waiting[0].id, False).resume().outputs
-<span class="tk-c"># {'result': '2 of 3 approved'}</span></pre>
+print([w.id for w in loaded.waiting])
+print(loaded.with_answers(loaded.waiting[0].id, False).resume().outputs)</pre>
+      <pre class="out">['approve@1~23c82614']
+{'result': '2 of 3 approved'}</pre>
       <p class="muted">The call's arguments aren't saved with it, only their fingerprint. <code>run.waiting</code> works the arguments out again from the <a href="running-and-streaming.html#outcomes">outcomes</a> upstream that the call read, and those don't change while it waits. The id is hashed from the saved fingerprint and the node's code fingerprint now. So the question a loaded run shows is the one first asked, id included, while the node's code is the same.</p>
     </div>
   </div>
 
-  <div class="rules" style="margin-top:2.5rem">
-    <div class="rule">
-      <h3>The status after an answer</h3>
-      <p>Once every waiting call is answered, a run is <code>ready</code> if calls are left to make and <code>complete</code> if none is. A <code>failed</code> or <code>stopped</code> run stays that way until a <a href="running-and-streaming.html#start"><code>resume()</code></a> tries again, since the failed call or the long series is still there. A <code>cancelled</code> or <a href="running-and-streaming.html#status"><code>timed_out</code></a> belonged to that one resume, so an answer drops it. A <code>declined</code> run takes no answer at all.</p>
-    </div>
-    <div class="rule">
+  <div class="two" style="margin-top:2.5rem">
+    <div>
       <h3>Running again keeps the answers</h3>
-      <p>A node that may ask <a href="saved-runs-and-reuse.html#asks">reuses its earlier outcomes</a> in item order. Answer <code>False</code> about <code>"a long line"</code>, then run again with a line put in front: <code>again({"text": "new\na long line\nok"})</code> is <code>complete</code> with <code>[True, False, True]</code>, and nothing is asked.</p>
+      <p class="muted">A node that may ask <a href="saved-runs-and-reuse.html#asks">reuses its earlier outcomes</a> in item order. Answer <code>False</code> about <code>"a long line"</code>, then run again with a line put in front. Nothing is asked.</p>
+    </div>
+    <div>
+      <pre data-lang="py">before = graph.run({"text": "a long line\nok"})
+before = before.with_answers(before.waiting[0], False).resume()
+after = before.again({"text": "new\na long line\nok"})
+print(after.status, after.results["approve"], after.waiting)</pre>
+      <pre class="out">complete {'result': [True, False, True]} []</pre>
     </div>
   </div>
+  <p class="small" style="margin-top:.75rem">What status a run has after an answer is under "The status" in <code>python -m conductor.about running</code>, and what a later run reuses is in <code>python -m conductor.about running-again</code>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -756,35 +1097,36 @@ loaded.with_answers(loaded.waiting[0].id, False).resume().outputs
   <div class="rules">
     <div class="rule">
       <h3>Before a run, <code>registry.describe()</code> says which nodes may ask</h3>
-      <p>Each node in <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> says whether it may ask, and so does a definition's own <code>describe()</code>. For a compiled graph, <code>graph.asks</code> says whether any node of it may ask. A <a href="subgraphs.html#open">subgraph</a> asks when a node inside it does, however deep. From the id sample: <code>{'lines': False, 'approve': True, 'docs': False, 'check': True}</code>.</p>
+      <p>So does a definition's own <code>describe()</code>, and <code>graph.asks</code> for a compiled graph. A <a href="subgraphs.html#open">subgraph</a> asks when a node inside it does.</p>
+      <pre data-lang="py">print({described.id: described.asks for described in registry.describe().nodes})
+print(graph.asks, checking.asks)</pre>
+      <pre class="out">{'lines': False, 'approve': True, 'count': False, 'docs': False, 'check': True}
+True True</pre>
     </div>
     <div class="rule">
       <h3>During a stream, the <code>node_waiting</code> event says a call waits</h3>
-      <p>A stream sends <a href="running-and-streaming.html#stream"><code>NodeWaiting</code></a> as soon as the <a href="running-and-streaming.html#outcomes">outcome</a> is written, with the <code>Waiting</code> inside. For a graph of the <code>confirm</code> node <a href="#questions">above</a>, given the ticket <code>"T1"</code>, it printed <code>run_start</code>, <code>node_start</code>, <code>node_waiting confirm~18ccd40e</code>, <code>run_end waiting</code>. The node that asked gets no <code>node_complete</code> in that stream.</p>
+      <p>A stream sends <a href="running-and-streaming.html#stream"><code>NodeWaiting</code></a> as soon as the <a href="running-and-streaming.html#outcomes">outcome</a> is written, with the <code>Waiting</code> inside.</p>
+      <pre data-lang="py">async for event in graph.with_inputs({"text": "ok\nthis is long\nfine"}).stream():
+    print(event.type, event.waiting.id if event.type == "node_waiting" else "")</pre>
+      <pre class="out">run_start
+node_start
+node_start
+node_progress
+node_waiting approve@1~23c82614
+node_complete
+node_progress
+run_end</pre>
     </div>
     <div class="rule">
       <h3 id="run-waiting">After a run, <code>run.waiting</code> lists every waiting call</h3>
-      <p>Each is a <code>Waiting</code>, in node order and then item order. A <code>Waiting</code> has <code>id</code>, <a href="subgraphs.html#places"><code>loc</code></a>, <code>prompt</code>, <code>questions</code> and <code>inputs</code>. It is a pydantic model, so a host sends it with <code>model_dump_json()</code> and draws it with no graph loaded. A call inside a subgraph is listed where its subgraph node is.</p>
+      <p>Each is a <code>Waiting</code>, a pydantic model, so a host sends it with <code>model_dump_json()</code> and draws it with no graph loaded.</p>
+      <pre data-lang="py">waiting = run.waiting[0]
+print(waiting.id, waiting.loc, waiting.prompt, waiting.inputs)</pre>
+      <pre class="out">approve@1~23c82614 ('approve', 1) Approve 'this is long'? {'line': 'this is long'}</pre>
     </div>
   </div>
   <h3 id="ask-problems" style="margin-top:2rem">The problems</h3>
-  <div class="table-scroll" style="margin-top:1rem">
-    <table class="probs">
-      <thead><tr><th>type</th><th>when</th><th>where it shows</th></tr></thead>
-      <tbody>
-        <tr><td>ask_not_declared</td><td>A node raised <code>Ask</code> without <code>asks=True</code>, from a function it calls or in another way <code>@node</code> can't see in its source. (A <code>raise Ask(...)</code> in the function's own body is refused by <code>@node</code> already, as <code>ask_not_declared_in_source</code>.) The message: <code>The node asked a person, but its @node doesn't say it may. Add asks=True to its @node.</code></td><td>the run's <code>cause</code>. The run is <code>failed</code>.</td></tr>
-        <tr><td>invalid_ask</td><td>The <code>Ask</code>'s choices or default don't fit the outputs. <code>ctx.reason</code> says which part first, and <code>ctx.errors</code> has every fault.</td><td>the run's <code>cause</code></td></tr>
-        <tr><td>question_unwritable</td><td>The call's inputs have no JSON form, so a person couldn't be shown them. <code>ctx.input</code> names the input, and <code>ctx.error</code> is the class of the exception writing it raised.</td><td>the run's <code>cause</code></td></tr>
-        <tr><td>answer_declined</td><td>A host declined the question with <code>run.with_decline</code>. <code>ctx.reason</code> is the host's reason, left out when it gave none.</td><td>the run's <code>cause</code>. The run is <code>declined</code>, for good.</td></tr>
-        <tr><td>invalid_answer</td><td>An answer its question refuses. <code>ctx.reason</code> is the first error's message, and <code>ctx.errors</code> has every fault. The run is left as it was.</td><td>raised by <code>run.with_answers</code></td></tr>
-        <tr><td>answer_given_twice</td><td>One call answered twice in one <code>with_answers</code>, under its whole id and its id without the <code>~</code> part. <code>ctx.waiting_id</code> is the second. Neither answer is taken.</td><td>raised by <code>run.with_answers</code></td></tr>
-        <tr><td>invalid_decline_reason</td><td>A decline's reason that isn't text JSON can write. <code>ctx.errors</code> says why without the reason (<code>string_type</code>, <code>no_json_form</code>). The run is left as it was.</td><td>raised by <code>run.with_decline</code></td></tr>
-        <tr><td>not_waiting</td><td>The id names no waiting call. <code>ctx.status</code> is the run's status, and <code>ctx.moved_to</code> is there when the question now waits on another call.</td><td>raised by <code>run.with_answers</code> or <code>run.with_decline</code></td></tr>
-        <tr><td>answer_stale</td><td>The call still waits but now asks another question. <code>ctx.current</code> is the question waiting there now, and <code>ctx.moved_to</code> is there when the old question now waits on another call.</td><td>raised by <code>run.with_answers</code> or <code>run.with_decline</code></td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p class="small" style="margin-top:.75rem">An <code>Ask</code> is not <a href="running-and-streaming.html#policy">retried</a>, whatever the node's <a href="nodes-and-types.html#context"><code>Policy.retry_on</code></a> names. Calling again would only raise the same thing.</p>
+  <p class="muted" style="margin-top:.5rem">A node that asks wrongly ends its run with a problem as the <code>cause</code>, and an answer or a decline the run can't take is refused with one. Every kind, with its <code>ctx</code> and an example, is on the <a href="../problems/">problems page</a> (<code>python -m conductor.about problems</code>). The samples above show <code>invalid_answer</code>, <code>invalid_ask</code>, <code>invalid_decline_reason</code>, <code>not_waiting</code>, <code>answer_stale</code> and <code>answer_given_twice</code> as they print.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -793,41 +1135,10 @@ loaded.with_answers(loaded.waiting[0].id, False).resume().outputs
 <section id="choices" aria-labelledby="c-h">
   <div class="section-head prose">
     <p class="eyebrow">Why it's built this way</p>
-    <h2 id="c-h">Eight design choices <span class="lvl pub">Public</span></h2>
-    <p class="muted">The longer case is in <code>docs/design.md</code>, under "Asking a person". The full rules are in <a href="overview.html#choices"><code>python -m conductor.about asking-a-person</code></a>.</p>
+    <h2 id="c-h">The design choices <span class="lvl pub">Public</span></h2>
+    <p class="muted">Why the return type is the answer's type, why a node says <code>asks=True</code>, why the answer becomes the outputs, why <code>Ask</code> is a <code>BaseException</code>, and what the waiting id guards: each is argued, with what it costs, under "Asking a person" in the <a href="../design/#asking-a-person">design guide</a>. The full rules are in <code>python -m conductor.about asking-a-person</code>.</p>
   </div>
   <div class="choices">
-    <article class="choice">
-      <h3>The return type is the answer's type.</h3>
-      <p>The node already declares what its outputs are, and the answer fills them. An <code>AskBool</code> class or a <code>type=</code> argument would say it a second time.</p>
-    </article>
-    <article class="choice">
-      <h3>A node that asks says so with <code>asks=True</code>.</h3>
-      <p>A host needs to know, before a run, whether a call may wait for a person. <code>@node</code> refuses a function whose own body raises <code>Ask</code> without it (<code>ask_not_declared_in_source</code>), and any other <code>Ask</code> without it fails as <code>ask_not_declared</code>, so <code>asks</code> in <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> can be trusted.</p>
-      <p class="cost"><b>Cost:</b> the signature alone doesn't say everything the node does.</p>
-    </article>
-    <article class="choice">
-      <h3>The answer becomes the outputs. A node that needs it reads an edge.</h3>
-      <p>"Approve, then pay" is two nodes: <code>approval(invoice) -&gt; bool</code> asks, and <code>pay(invoice, ok: bool)</code> reads <code>approval.result</code>. The answer then has one shape and one place where it is kept, saved and <a href="saved-runs-and-reuse.html#again">reused</a>.</p>
-      <p class="cost"><b>Cost:</b> the question shows on <code>approval</code>, not on the step a person thinks of. A host can wrap the two in a <a href="subgraphs.html#open">subgraph</a> to offer them as one node.</p>
-    </article>
-    <article class="choice">
-      <h3>A question is the output's own description.</h3>
-      <p>A question is the <a href="nodes-and-types.html#signature"><code>FieldDescription</code></a> that <code>describe()</code> gives the output, with the <code>Ask</code>'s choices and default. So a host draws a question with the code that draws an input, and how it looks comes from the type's <a href="nodes-and-types.html#hint"><code>Param</code></a>. <code>Ask</code> takes no <a href="nodes-and-types.html#hint"><code>widget=</code></a>.</p>
-    </article>
-    <article class="choice">
-      <h3><code>Ask</code> is a <code>BaseException</code>.</h3>
-      <p>So a node's <code>except Exception</code> doesn't swallow the pause and carry on with a wrong value. An <code>except BaseException</code> or a bare <code>except:</code> still would.</p>
-    </article>
-    <article class="choice">
-      <h3>An answer is read strictly, and refused whole.</h3>
-      <p>Reading from the JSON form makes an answer from Python and one over HTTP the same. Reporting every fault in one error lets a form mark all its fields at once, and nothing half-answered is left in the run.</p>
-    </article>
-    <article class="choice">
-      <h3>The id carries a fingerprint of the question.</h3>
-      <p>It hashes the call's fingerprint, the one reuse matches calls by, and the node's <a href="saved-runs-and-reuse.html#matched-by">code fingerprint</a> now. The call's fingerprint is taken once, when the call is made, from the code fingerprint, the call's inputs and the call's item in every <a href="series-and-tables.html#loop">loop</a> it is inside, and the run keeps it with the call. The code fingerprint covers the node's code, version, input and output types, which outputs are branches, its loops and <code>asks</code>. Another input, new code or a new version gives another id, so a deploy that changes the node's code changes the id of a call already waiting. An answer meant for a question that has changed since is refused rather than given to the new one. The prompt, choices and default aren't in it.</p>
-      <p class="cost"><b>Cost:</b> an id without its <code>~</code> part answers whatever waits at that call. That short form is for a person typing about the run in front of them. A host stores the full id.</p>
-    </article>
     <article class="choice">
       <h3>A waiting call shows and fingerprints what it was given.</h3>
       <p>A person is shown the call's inputs, and the waiting id hashes them, so an answer is tied to what was asked.</p>
@@ -889,95 +1200,42 @@ loaded.with_answers(loaded.waiting[0].id, False).resume().outputs
   const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
 
   /* ======================= THE WALK-THROUGH ======================= */
-  const NODES = `registry = NodeRegistry()
-
-@registry.node("lines", title="Lines", description="Splits a text into lines.")
-def lines(text: str) -> Series[str]:
-    return text.splitlines()
-
-@registry.node("approve", title="Approve",
-               description="Asks a person to approve a long line.", asks=True)
-def approve(line: str) -> bool:
-    if len(line) < 5:
-        return True
-    raise Ask(f"Approve {line!r}?")
-
-@registry.node("count", title="Count", description="Counts the approved lines.")
-def count(approved: Series[bool]) -> str:
-    return f"{sum(approved)} of {len(approved)} approved"
-
-graph = Graph.compile(make_graph(lines, approve, count, edges=[
-    ("lines.result", "approve.line"), ("approve.result", "count.approved")]), registry)`;
-  const WAITING_JSON = `{
-  "id": "approve@1~23c82614",
-  "loc": ["approve", 1],
-  "prompt": "Approve 'this is long'?",
-  "questions": [
-    {
-      "name": "result",
-      "title": null,
-      "description": null,
-      "is_series": false,
-      "type": "bool",
-      "type_variables": [],
-      "json_schema": {
-        "type": "boolean"
-      },
-      "required": true,
-      "choices": null,
-      "widget": null,
-      "constant_only": false,
-      "loops": []
-    }
-  ],
-  "inputs": {
-    "line": "this is long"
+  /* The code and printed output each widget shows sit in <template>s in the page, where the samples' test runs
+     them and checks what they print. fill() copies a template's samples and outputs into a widget: each child
+     goes to the element its data-slot names inside the widget, or to the target itself. */
+  function fill(target, id, slots) {
+    const tpl = document.getElementById(id);
+    tpl.content.childNodes.forEach((n) => {
+      if (n.nodeType !== 1 || n.tagName === "SCRIPT") return;
+      const el = n.cloneNode(true);
+      const into = slots && el.dataset.slot ? slots[el.dataset.slot] : target;
+      into.append(el);
+      if (el.tagName !== "PRE") return;
+      if (el.dataset.lang) paint(el); else hang(el, esc(el.textContent));
+    });
   }
-}`;
+
   const STEPS = [
     { short: "the nodes", title: "A node that may ask says so",
       cap: "approve returns a bool, so the question it asks is a yes or no. asks=True on its [@node](nodes-and-types.html#signature) tells conductor, and any host reading the registry, that a call may stop for a person.",
-      lang: "py", code: NODES,
       d: { s: "idle", doc: "compiled: lines once, approve per line, count collects" } },
     { short: "raise Ask", title: "The long line raises Ask",
       cap: "For the second line the function raises Ask. Conductor checks that the call's arguments have a JSON form and that the Ask fits the outputs. Then it stores the call as waiting, with the prompt and any choices and default.",
-      lang: "py", code: `run = graph.run({"text": "ok\\nthis is long\\nfine"})`,
       d: { s: "ask", doc: "approve@1 waits: \"Approve 'this is long'?\"" } },
     { short: "the run waits", title: "Only that call waits",
       cap: "approve@0 and approve@2 returned True. count reads every item, so it waits for the answer. The run stops with status waiting, and results shows None for the value that isn't there yet.",
-      lang: "py", code: `run.status
-# 'waiting'
-run.results
-# {'lines': {'result': ['ok', 'this is long', 'fine']},
-#  'approve': {'result': [True, None, True]},
-#  'count': {'result': None}}`,
       d: { s: "wait", doc: "status: waiting" } },
     { short: "run.waiting", title: "What a host is shown",
       cap: "run.waiting lists one Waiting per waiting call. Its questions are one per output, each the same FieldDescription describe() gives that output. inputs are the arguments the call got.",
-      lang: "json", pre: "dumps(run.waiting[0].model_dump(mode=\"json\"))  # the series' JSON layout", code: WAITING_JSON,
       d: { s: "shown", doc: "1 waiting: approve@1~23c82614" } },
     { short: "answer", title: "The answer is checked, and nothing runs",
       cap: "run.with_answers reads the answer with the question's type and choices. A bad one raises [InvalidCallError](problems.html#moments) and changes nothing. A good one returns a new run in which the call is done, with the answer as its outputs. The run you called it on still waits.",
-      lang: "py", code: `answered = run.with_answers(run.waiting[0], True)
-answered.status, answered.waiting
-# ('ready', [])
-run.status
-# 'waiting'`,
       d: { s: "answered", doc: "approve@1 answered {'result': True}, status ready" } },
     { short: "resume", title: "resume() goes on from there",
       cap: "Only what waited on the answer runs. Here that is count, once. approve isn't called again for the line it asked about.",
-      lang: "py", code: `done = answered.resume()
-done.status, done.outputs
-# ('complete', {'result': '3 of 3 approved'})`,
       d: { s: "done", doc: "status: complete" } },
     { short: "later", title: "Or save it, and answer days later",
       cap: "A waiting run is JSON like any other. A host keeps it, loads it in another process with the same graph, and answers by id. The short id, without its ~ part, also works. It answers whatever waits at that call.",
-      lang: "py", code: `loaded = Run.from_json(run.to_json(), graph)
-loaded.with_answers(loaded.waiting[0].id, False).resume().outputs
-# {'result': '2 of 3 approved'}
-
-run.with_answers("approve@1", True).resume().outputs
-# {'result': '3 of 3 approved'}`,
       d: { s: "saved", doc: "saved, loaded, answered by id" } },
   ];
 
@@ -1021,12 +1279,8 @@ run.with_answers("approve@1", True).resume().outputs
     text.innerHTML =
       '<p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
       "<h3>" + esc(s.title) + "</h3>" +
-      '<p class="cap">' + linked(s.cap) + "</p>" +
-      (s.pre ? '<pre data-lang="py"></pre>' : "") +
-      '<pre data-lang="' + s.lang + '"></pre>';
-    const pres = text.querySelectorAll("pre");
-    if (s.pre) { pres[0].textContent = s.pre; pres[1].textContent = s.code; } else pres[0].textContent = s.code;
-    pres.forEach(paint);
+      '<p class="cap">' + linked(s.cap) + "</p>";
+    fill(text, "walk-" + cur);
     if (!reduced) { text.classList.remove("fade"); void text.offsetWidth; text.classList.add("fade"); }
     rail.querySelectorAll("button").forEach((b, j) => {
       if (j === cur) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
@@ -1051,184 +1305,29 @@ run.with_answers("approve@1", True).resume().outputs
   /* ======================= QUESTION EXPLORER ======================= */
   const Q = [
     { tab: "-> bool",
-      code: `@node("confirm", title="Confirm", description="...", asks=True)
-def confirm(ticket: str) -> bool:
-    raise Ask(f"Close {ticket}?")`,
-      json: `{
-  "name": "result",
-  "is_series": false,
-  "type": "bool",
-  "json_schema": {
-    "type": "boolean"
-  },
-  "required": true,
-  "choices": null
-}`,
       note: "It asks a yes or no. It is required and has no default, so an answer must give it." },
     { tab: "-> Param(choices=)",
-      code: `@node("urgency", title="Urgency", description="...", asks=True)
-def urgency(ticket: str) -> Annotated[str, Param(choices=[
-        Choice("low", "Low"), Choice("high", "High")])]:
-    raise Ask(f"How urgent is {ticket}?")`,
-      json: `{
-  "name": "result",
-  "is_series": false,
-  "type": "str",
-  "json_schema": {
-    "enum": ["low", "high"],
-    "type": "string"
-  },
-  "required": true,
-  "choices": [{"id": "low", "title": "Low"}, {"id": "high", "title": "High"}]
-}`,
       note: "Choices you know when you write the node go on the return type, in [Param(choices=)](nodes-and-types.html#hint), where each can have a title. A Literal or an enum class gives choices too, but without titles. The json_schema's enum lists their ids, and so it does for an Ask's choices." },
     { tab: "Ask(choices=, default=)",
-      code: `@node("assign", title="Assign", description="...", asks=True)
-def assign(ticket: str) -> str:
-    raise Ask(f"Who takes {ticket}?",
-              choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")],
-              default="bo")`,
-      json: `{
-  "name": "result",
-  "is_series": false,
-  "type": "str",
-  "json_schema": {
-    "enum": ["ida", "bo"],
-    "type": "string"
-  },
-  "required": true,
-  "default": "bo",
-  "choices": [{"id": "ida", "title": "Ida B."}, {"id": "bo", "title": "Bo K."}]
-}`,
-      note: "Choices only the run knows, such as who is on the team today, go on the Ask. run.with_answers(\"assign\", None) and run.with_answers(\"assign\", {}) are both refused with \"Input should be a valid string\"." },
+      note: "Choices only the run knows, such as who is on the team today, go on the Ask. On a node of one output the question stays required, even with a default: the default is what a host fills the answer in with, and an answer still gives a value." },
     { tab: "-> Series[str]",
-      code: `@node("people", title="People", description="...", asks=True)
-def people(ticket: str) -> Series[str]:
-    raise Ask(f"Who reviews {ticket}?", choices=[
-        Choice("ida", "Ida B."), Choice("bo", "Bo K."), Choice("eva", "Eva L.")])`,
-      json: `{
-  "name": "result",
-  "is_series": true,
-  "type": "str",
-  "json_schema": {
-    "enum": ["ida", "bo", "eva"],
-    "type": "string"
-  },
-  "required": true,
-  "choices": [
-    {
-      "id": "ida",
-      "title": "Ida B."
-    },
-    {
-      "id": "bo",
-      "title": "Bo K."
-    },
-    {
-      "id": "eva",
-      "title": "Eva L."
-    }
-  ]
-}`,
-      note: "A [Series](series-and-tables.html#loop) is a pick of several. ['eva', 'ida'] gives {'result': ['eva', 'ida']}. ['ida', 'ida'] is refused: a choice is picked twice." },
+      note: "A [Series](series-and-tables.html#loop) is a pick of several, and an answer picks each choice once." },
     { tab: "-> str | None",
-      code: `@node("note", title="Note", description="...", asks=True)
-def note(ticket: str) -> str | None:
-    raise Ask(f"A note on {ticket}?")`,
-      json: `{
-  "name": "result",
-  "is_series": false,
-  "type": "str",
-  "json_schema": {
-    "anyOf": [{"type": "string"}, {"type": "null"}]
-  },
-  "required": true,
-  "default": null,
-  "choices": null
-}`,
-      note: "A question whose type takes None and that has no choices has the default None. run.with_answers(\"note\", None) gives {'result': None}, and {} is refused with \"Input should be a valid string\". With choices, from the type or the Ask, it has no default. In JSON, a default of null means None, and no default key means none at all." },
+      note: "A question whose type takes None and that has no choices has the default None. With choices, from the type or the Ask, it has no default. In JSON, a default of null means None, and no default key means none at all." },
     { tab: "a dataclass",
-      code: `@dataclass(frozen=True)
-class Closing:
-    reason: str
-    hours: float = 1.0
-    comment: str | None = None
-    escalate_to: str = SKIPPED
-
-@node("close", title="Close", description="...", asks=True)
-def close(ticket: str) -> Closing:
-    raise Ask(f"Close {ticket}", choices={"escalate_to": ["ida", "bo"]})`,
-      json: `[
-  {
-    "name": "reason",
-    "required": true,
-    "choices": null
-  },
-  {
-    "name": "hours",
-    "required": false,
-    "default": 1.0,
-    "choices": null
-  },
-  {
-    "name": "comment",
-    "required": false,
-    "default": null,
-    "choices": null
-  },
-  {
-    "name": "escalate_to",
-    "required": false,
-    "choices": [{"id": "ida", "title": "ida"}, {"id": "bo", "title": "bo"}]
-  }
-]`,
       note: "It asks one question per field. A field's own default is proposed. A field whose default is SKIPPED proposes nothing. Left out, it is [a branch not chosen](nodes-and-types.html#outputs). On several outputs, the Ask's choices and default go by output name. To save room, this tab also leaves out is_series, type and json_schema." },
     { tab: "branches",
-      code: `@dataclass(frozen=True)
-class Route:
-    keep: str = SKIPPED
-    drop: str = SKIPPED
-
-@node("route", title="Route", description="...", asks=True)
-def route(ticket: str) -> Route:
-    raise Ask(f"Keep or drop {ticket}?")`,
-      json: `[
-  {
-    "name": "keep",
-    "is_series": false,
-    "type": "str",
-    "json_schema": {
-      "type": "string"
-    },
-    "required": false,
-    "choices": null
-  },
-  {
-    "name": "drop",
-    "is_series": false,
-    "type": "str",
-    "json_schema": {
-      "type": "string"
-    },
-    "required": false,
-    "choices": null
-  }
-]`,
       note: "keep and drop default to SKIPPED, so they are branches. Both questions are not required and have no default. At most one of them is answered, and the other is SKIPPED. An answer that gives neither skips both." },
     { tab: "-> None",
-      code: `@node("ack", title="Ack", description="...", asks=True)
-def ack(text: str) -> None:
-    raise Ask(f"Seen {text}?")`,
-      json: `[]`,
-      note: "A node with no outputs asks no question. Its answer is None, and the person only says to go on. run.with_answers(\"ack\", None).resume().status prints 'complete'." },
+      note: "A node with no outputs asks no question. Its answer is None, and the person only says to go on." },
   ];
   const qTabs = $("#q-tabs");
   function showQ(i) {
-    const q = Q[i];
     qTabs.querySelectorAll(".tab").forEach((t, j) => t.setAttribute("aria-selected", String(j === i)));
-    setCode($("#q-code"), q.code);
-    setCode($("#q-json"), q.json);
-    $("#q-note").innerHTML = linked(q.note);
+    $("#q-code").replaceChildren();
+    $("#q-json").replaceChildren();
+    fill(null, "q-" + i, { code: $("#q-code"), json: $("#q-json") });
+    $("#q-note").innerHTML = linked(Q[i].note);
   }
   Q.forEach((q, i) => {
     const b = document.createElement("button");
@@ -1239,38 +1338,19 @@ def ack(text: str) -> None:
   showQ(0);
 
   /* ======================= ANSWER CHECKER ======================= */
-  const ANSWERS = [
-    { a: `{"reason": "fixed"}`, ok: `{'comment': None, 'escalate_to': None, 'hours': 1.0, 'reason': 'fixed'}`,
-      why: "hours gets its default, comment gets None, and escalate_to is [a branch not chosen](nodes-and-types.html#outputs), shown as None." },
-    { a: `{"reason": "fixed", "hours": 2, "escalate_to": "bo"}`, ok: `{'comment': None, 'escalate_to': 'bo', 'hours': 2.0, 'reason': 'fixed'}`,
-      why: "The float reads 2 as 2.0, and bo is one of the Ask's choices." },
-    { a: `{"reason": "fixed", "escalate_to": "carl"}`, faults: ["That isn't a valid answer to 'escalate_to': the value is not \"ida\" or \"bo\". (not_a_choice)"] },
-    { a: `{"reason": "fixed", "hours": "2"}`, faults: ["That isn't a valid answer to 'hours': Input should be a valid number. (float_type)"],
-      why: "Read from its JSON form, a number in quotes is text." },
-    { a: `{"hours": "two", "colour": "red"}`, faults: [
-      "That isn't a valid answer to 'reason': Field required. (missing)",
-      "That isn't a valid answer to 'hours': Input should be a valid number. (float_type)",
-      "That isn't a valid answer to 'colour': Extra inputs are not permitted. (extra_forbidden)"],
-      why: "The questions come first, in their order, then the names that aren't questions." },
-    { a: `"fixed"`, faults: ["That isn't a valid answer: Input should be a valid dictionary. (dict_type)"],
-      why: "A node of several questions is answered with a mapping by question name. This fault is about the answer as a whole, so it names no question." },
-  ];
+  const ANSWERS = [...document.querySelectorAll("template.answer")];
   const answersEl = $("#answers"), verdict = $("#verdict");
   function showA(i) {
-    const x = ANSWERS[i];
+    const t = ANSWERS[i];
     answersEl.querySelectorAll(".answer-btn").forEach((b, j) => b.setAttribute("aria-pressed", String(j === i)));
-    let html = "";
-    if (x.ok) {
-      html += '<p class="tag ok">Taken</p><p class="out">run.with_answers("close", ...).resume().outputs<br>' + esc(x.ok) + "</p>";
-    } else {
-      html += '<p class="tag no">Refused: invalid_answer, nothing answered</p>' + x.faults.map((f) => '<p class="fault">' + esc(f) + "</p>").join("");
-    }
-    if (x.why) html += '<p class="small">' + linked(x.why) + "</p>";
-    verdict.innerHTML = html;
+    verdict.innerHTML = t.dataset.taken === "yes"
+      ? '<p class="tag ok">Taken</p>'
+      : '<p class="tag no">Refused: invalid_answer, nothing answered</p>';
+    fill(verdict, t.id);
   }
-  ANSWERS.forEach((x, i) => {
+  ANSWERS.forEach((t, i) => {
     const b = document.createElement("button");
-    b.type = "button"; b.className = "answer-btn"; b.textContent = x.a; b.setAttribute("aria-pressed", "false");
+    b.type = "button"; b.className = "answer-btn"; b.textContent = t.dataset.answer; b.setAttribute("aria-pressed", "false");
     b.addEventListener("click", () => showA(i));
     answersEl.append(b);
   });
@@ -1282,7 +1362,7 @@ def ack(text: str) -> None:
     { t: "@1", d: "This is the call of check for the second item of the series it runs [per item](series-and-tables.html#loop) of (the second document). Each index is written as a plain whole number, so @01 names nothing." },
     { t: "/", sep: true, d: "Node ids are joined by /, from the outside in." },
     { t: "approve", d: "The node that asked, inside the subgraph." },
-    { t: "@1", d: "This is the call of approve for the second line of that document. A node called once has no @ part, like confirm~18ccd40e." },
+    { t: "@1", d: "This is the call of approve for the second line of that document. A node called once has no @ part: its id is the node id, ~ and the fingerprint." },
     { t: "~", sep: true, d: "Where the call ends and the fingerprint starts. Leave off ~ and what follows, and the id names only the call." },
     { t: "a8e00c69", d: "Eight hex digits hashed from the call's fingerprint and the node's [code fingerprint](saved-runs-and-reuse.html#matched-by) now. The call's fingerprint is taken once, when the call is made, from the code fingerprint, the call's inputs as JSON, and the call's item in every loop it is inside, and the run keeps it with the call. The code fingerprint covers the node's code, version, input and output types, which outputs are branches, its loops and asks. The same node asked about the same line of the same document, in another run or at another index, has the same fingerprint. Another input, new code or a new version gives another." },
   ];
@@ -1302,59 +1382,25 @@ def ack(text: str) -> None:
 
   const ID_CASES = [
     { tab: "a new run, same inputs",
-      code: `first = graph.run({"text": "a long line\\nok"})
-same = graph.run({"text": "a long line\\nok"})
-[w.id for w in first.waiting], [w.id for w in same.waiting]`,
-      out: `(['approve@0~0451ee1e'], ['approve@0~0451ee1e'])`,
       note: "The fingerprint comes from what was asked. Two runs of the same inputs wait under the same id." },
     { tab: "the item moved",
-      code: `moved = first.again({"text": "ok\\na long line"})
-[w.id for w in moved.waiting]
-moved.with_answers("approve@0~0451ee1e", True)`,
-      out: `['approve@1~0451ee1e']
-not_waiting ('approve', 0)
-  The id 'approve@0~0451ee1e' waits on nothing. The run is waiting. run.waiting lists the questions that are waiting.
-  ctx: {'waiting_id': 'approve@0~0451ee1e', 'status': 'waiting', 'moved_to': 'approve@1~0451ee1e'}`,
       note: "The same question now waits at item 1, and item 0 is done. The answer is refused, and ctx.moved_to says where the question went." },
     { tab: "the input changed",
-      code: `changed = first.again({"text": "another long line\\nok"})
-[w.id for w in changed.waiting]
-changed.with_answers("approve@0~0451ee1e", True)`,
-      out: `['approve@0~848a1d59']
-answer_stale ('approve', 0)
-  The call 'approve@0~0451ee1e' names now waits under 'approve@0~848a1d59', since its inputs or its node's code changed after that id was written. Use that id instead.
-  ctx: {'waiting_id': 'approve@0~0451ee1e', 'current': 'approve@0~848a1d59'}`,
       note: "Item 0 still waits, but about another line. The old answer was meant for a question no one is asking any more, so it is refused." },
     { tab: "another spelling",
-      code: `first.with_answers({"approve@00": True, "nope": True})`,
-      out: `not_waiting ('approve',)
-  The id 'approve@00' waits on nothing. The run is waiting. run.waiting lists the questions that are waiting.
-  ctx: {'waiting_id': 'approve@00', 'status': 'waiting'}
-not_waiting ('nope',)
-  The id 'nope' waits on nothing. The run is waiting. run.waiting lists the questions that are waiting.
-  ctx: {'waiting_id': 'nope', 'status': 'waiting'}`,
       note: "An id has one spelling. Both faults come back in one error." },
     { tab: "one call twice",
-      code: `first.with_answers({"approve@0~0451ee1e": True, "approve@0": False})`,
-      out: `answer_given_twice ('approve', 0)
-  The call 'approve@0' names is answered twice in one run.with_answers. Give it one answer.
-  ctx: {'waiting_id': 'approve@0'}`,
       note: "The whole id and the id without its ~ part name the same call. Neither answer is taken, since it isn't clear which one is meant." },
     { tab: "the run is complete",
-      code: `done = first.with_answers("approve@0~0451ee1e", True).resume()
-done.with_answers("approve@0~0451ee1e", True)`,
-      out: `not_waiting ('approve', 0)
-  The id 'approve@0~0451ee1e' waits on nothing. The run is complete. run.waiting lists the questions that are waiting.
-  ctx: {'waiting_id': 'approve@0~0451ee1e', 'status': 'complete'}`,
       note: "An answer is given once. The message names the run's status, so a host can tell the person why." },
   ];
   const idTabs = $("#id-tabs");
   function showId(i) {
-    const c = ID_CASES[i];
     idTabs.querySelectorAll(".tab").forEach((t, j) => t.setAttribute("aria-selected", String(j === i)));
-    setCode($("#id-code"), c.code);
-    hang($("#id-out"), esc(c.out));
-    $("#id-note").textContent = c.note;
+    $("#id-code").replaceChildren();
+    $("#id-out").replaceChildren();
+    fill(null, "id-case-" + i, { code: $("#id-code"), out: $("#id-out") });
+    $("#id-note").textContent = ID_CASES[i].note;
   }
   ID_CASES.forEach((c, i) => {
     const b = document.createElement("button");

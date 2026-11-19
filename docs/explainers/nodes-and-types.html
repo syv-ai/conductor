@@ -5,12 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Nodes and Types</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 68ch) that widens to 1120px for the
    map, the walk-through and the chart; sections are separated by space
    and a faint staff of rules, never by boxes.
@@ -24,7 +21,7 @@
   --ink-2: #48566a;          /* secondary text */
   --ink-3: #75839a;          /* captions, axis labels */
   --rule: #dbe1ea;           /* hairlines and the staff */
-  --accent: #2a4fd6;         /* cobalt: 2.0, the selected thing, links */
+  --accent: #2a4fd6;         /* the selected thing, links */
   --accent-soft: #e3e9fc;    /* fill behind ink text, never behind accent text */
   --old: #a3adbb;            /* 1.12.2 in the chart */
   --slow: #b1530b;           /* the one row that got slower */
@@ -34,12 +31,12 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
 
   /* type */
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -61,7 +58,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -71,7 +68,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -326,8 +323,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="2">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="2">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -386,7 +383,7 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 2 of 11</p>
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; page 2 of 11</p>
   <h1>A node and <em>its types</em></h1>
   <div class="prose">
     <p class="lede">A node is a plain Python function under <code>@node</code>. Conductor reads the function's typed signature once, when the decorator runs, and turns its parameters into inputs and its return type into outputs.</p>
@@ -418,11 +415,59 @@ body { margin: 0; }
   <div class="section-head prose">
     <p class="eyebrow">What <code>@node</code> reads</p>
     <h2 id="sig-h">The signature is read once</h2>
-    <p class="muted">Tap a part of the node to see what conductor makes from that part.</p>
+    <p class="muted">Tap a part of the node to read what conductor makes from it. The code under the node runs it and prints the result.</p>
   </div>
   <div class="explorer">
     <div class="sig" id="sig" role="group" aria-label="The repeat node, part by part"></div>
     <aside class="panel" id="sig-panel" aria-live="polite"></aside>
+  </div>
+  <div class="pair" style="margin-top:2rem">
+    <div>
+<script type="text/x-python">
+from dataclasses import FrozenInstanceError, dataclass
+from typing import Annotated, Any, Literal, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from conductor import (
+    SKIPPED, Choice, Context, Graph, GraphRecord, NodeDeclarationError, NodeRegistry, Param, Policy, Series,
+    Upgrade, host_type, make_graph, node,
+)
+from conductor.widgets import Dropdown, Textarea, TextInput
+</script>
+      <p class="label">The node above, declared and called. <code class="int" title="Internal">repeat.inputs</code> and <code class="int" title="Internal">.outputs</code> are internal <span class="lvl int">Internal</span></p>
+<pre data-lang="py">@node("repeat", title="Repeat", description="Repeats a text.")
+def repeat(
+    text: str,
+    times: Annotated[int, Param(title="Times", ge=1, le=10)] = 2,
+    joiner: Annotated[str, Param(choices=["", " ", "-"], widget=Dropdown())] = " ",
+) -&gt; str:
+    return joiner.join([text] * times)
+
+
+print(type(repeat).__name__, repr(repeat("ab", 3)))
+print(list(repeat.inputs), list(repeat.outputs))
+registry = NodeRegistry()
+print("repeat" in registry)
+registry.add(repeat)
+print("repeat" in registry)</pre>
+<pre class="out">FunctionDefinition 'ab ab ab'
+['text', 'times', 'joiner'] ['result']
+False
+True</pre>
+      <p class="muted">A definition is frozen:</p>
+      <pre data-lang="py">repeat.title = "Shout"</pre>
+<pre class="out">dataclasses.FrozenInstanceError: cannot assign to field 'title'</pre>
+    </div>
+    <div>
+      <p class="label">What <code>describe()</code> hands an editor, one <code>FieldDescription</code> per input and output</p>
+<pre data-lang="py">for field in [*repeat.describe().inputs, *repeat.describe().outputs]:
+    print(field.model_dump_json(exclude_defaults=True))</pre>
+<pre class="out">{"name":"text","is_series":false,"type":"str","json_schema":{"type":"string"},"required":true}
+{"name":"times","title":"Times","is_series":false,"type":"int","json_schema":{"maximum":10,"minimum":1,"type":"integer"},"required":false,"default":2}
+{"name":"joiner","is_series":false,"type":"str","json_schema":{"enum":[""," ","-"],"type":"string"},"required":false,"default":" ","choices":[{"id":"","title":""},{"id":" ","title":" "},{"id":"-","title":"-"}],"widget":{"type":"dropdown"}}
+{"name":"result","is_series":false,"type":"str","json_schema":{"type":"string"},"required":true}</pre>
+    </div>
   </div>
 </section>
 
@@ -498,7 +543,7 @@ body { margin: 0; }
   <div class="pair" style="margin-top:3rem">
     <div>
       <p class="label">Params stack, and the later one wins</p>
-      <p class="muted">For each argument, the last <code>Param</code> that sets it wins, and <code>None</code> counts as not set.</p>
+      <p class="muted">An alias can be wrapped in another <code>Param</code>. How the two merge is in the reference: <code>python -m conductor.about the-node-contract</code>.</p>
       <pre data-lang="py">Line = Annotated[str, Param(widget=TextInput(), title="Line")]
 
 @node("split", title="Split", description="Splits a text.")
@@ -543,10 +588,79 @@ literal str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}</pre
   <div class="section-head prose">
     <p class="eyebrow">The return type</p>
     <h2 id="out-h">Four shapes of output <span class="lvl pub">Public</span></h2>
-    <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. The outputs listed are what <code>describe()</code> printed for each node.</p>
+    <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. Each prints its <code>outputs_dataclass</code>, <code>describe()</code>'s <code>computes_outputs</code>, and its outputs as <code>describe()</code> lists them.</p>
   </div>
   <div class="tabs" role="tablist" id="shape-tabs" aria-label="Shapes of output"></div>
-  <div class="shape" id="shape" role="tabpanel"></div>
+  <div class="shape" id="shape" role="tabpanel" aria-labelledby="shape-tab-0" data-tab="one value">
+    <div>
+      <pre data-lang="py">@node("upper", title="Upper", description="Capitals.")
+def upper(text: str) -&gt; str:
+    return text.upper()
+
+
+print(upper.outputs_dataclass, upper.describe().computes_outputs)
+print([(f.name, f.type, f.required) for f in upper.describe().outputs])</pre>
+<pre class="out">None False
+[('result', 'str', True)]</pre>
+    </div>
+    <div><dl class="facts"><div><dt>each call returns</dt><dd>One value of the type, as the type's own check gives it. Only a value of exactly one of Python's own classes, like a str for str, is kept as it is without a check. The check is strict, so "12" is never an int.</dd></div></dl></div>
+  </div>
+  <div class="shape" id="shape-1" role="tabpanel" aria-labelledby="shape-tab-1" hidden data-tab="dataclass">
+    <div>
+      <pre data-lang="py">@dataclass
+class Routed:
+    large: int = SKIPPED
+    small: int = SKIPPED
+
+
+@node("route", title="Route", description="Sends an amount one of two ways.")
+def route(amount: int) -&gt; Routed:
+    if amount &gt;= 1000:
+        return Routed(large=amount)
+    return Routed(small=amount)
+
+
+print(route.outputs_dataclass.__name__, route.describe().computes_outputs)
+print([(f.name, f.type, f.required) for f in route.describe().outputs])
+print(route(5))</pre>
+<pre class="out">Routed False
+[('large', 'int', False), ('small', 'int', False)]
+Routed(large=SKIPPED, small=5)</pre>
+    </div>
+    <div><dl class="facts"><div><dt>each call returns</dt><dd>An instance of the dataclass, one output per field. A dataclass with @host_type is one value instead, not a dataclass of outputs. A field whose default is SKIPPED is a branch. A call gives a value to at most one branch, and the others stay SKIPPED, so route(5) gives small 5 and skips large. Two branches with a value fail the call as invalid_output. Returning SKIPPED itself skips every output.</dd></div></dl></div>
+  </div>
+  <div class="shape" id="shape-2" role="tabpanel" aria-labelledby="shape-tab-2" hidden data-tab="hook's mapping">
+    <div>
+      <pre data-lang="py">def by_name(names: list[str]) -&gt; dict[str, type]:
+    return {name: str for name in names}
+
+
+@node("cells", title="Cells", description="One output per name.", compute_outputs=by_name)
+def cells(line: str, names: list[str]) -&gt; dict[str, str]:
+    return dict(zip(names, line.split(",")))
+
+
+print(cells.outputs_dataclass, cells.describe().computes_outputs)
+print([(f.name, f.type, f.required) for f in cells.describe().outputs])</pre>
+<pre class="out">None True
+[]</pre>
+    </div>
+    <div><dl class="facts"><div><dt>each call returns</dt><dd>A mapping by output name, with every output the hook gave and no others. The definition declares no outputs. Each compiled node gets them from its hook.</dd></div></dl></div>
+  </div>
+  <div class="shape" id="shape-3" role="tabpanel" aria-labelledby="shape-tab-3" hidden data-tab="nothing">
+    <div>
+      <pre data-lang="py">@node("log", title="Log", description="Writes a line to a log.")
+def log(line: str) -&gt; None:
+    return None
+
+
+print(log.outputs_dataclass, log.describe().computes_outputs)
+print([(f.name, f.type, f.required) for f in log.describe().outputs])</pre>
+<pre class="out">None False
+[]</pre>
+    </div>
+    <div><dl class="facts"><div><dt>each call returns</dt><dd>None, or SKIPPED. Any other value fails the call as invalid_output.</dd></div></dl></div>
+  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -604,20 +718,23 @@ celsius      Celsius        accepted_as=['temperature', 'celsius']</pre>
 class Unnamed:
     kroner: int
 
-def total(values: list[Unnamed]) -> int: ...
+
+def total(values: list[Unnamed]) -&gt; int: ...
+
 
 try:
     node("total", title="Total", description="Adds up amounts.")(total)
 except NodeDeclarationError as error:
-    print(error.problems[0].type)
-    print(error)</pre>
-      <pre class="out">type_not_named
-total (version 1).values: __main__.Unnamed is the type of a field, and it has no @host_type. Write @host_type("unnamed", title="Unnamed") above the class.</pre>
+    problem = error.problems[0]
+    print(problem.type, problem.loc)
+    print(problem.ctx["suggested_id"], problem.ctx["suggested_title"])</pre>
+      <pre class="out">type_not_named ('total', 'values')
+unnamed Unnamed</pre>
+      <p class="muted">The message names the class and suggests a declaration from its name, kept in <code>ctx.suggested_id</code> and <code>ctx.suggested_title</code>.</p>
     </div>
     <div>
       <p class="label">What <code>@host_type</code> checks</p>
-      <p class="muted">It checks its arguments when the class statement ends. The id is one word and not one of conductor's own, the title isn't empty, and <code>accepts</code> holds only classes. Pydantic must be able to check the class. A subclass of a builtin, like <code>class Email(str)</code>, is checked as the builtin and then made the subclass.</p>
-      <p class="muted"><code>registry.types</code> holds the classes its nodes' fields name, by id, and any it is given as <code>types=</code>. Two classes under one id on one registry raise <code>duplicate_type_id</code>.</p>
+      <p class="muted">It checks its arguments when the class statement ends, and a class it can't take raises a <code>NodeDeclarationError</code>. What it checks, and which classes <code>registry.types</code> holds, is in the reference: <code>python -m conductor.about types</code>.</p>
     </div>
   </div>
 </section>
@@ -708,14 +825,21 @@ frozenset({'names'})
 {'result': 6.5}</pre>
     </div>
     <div>
-      <p class="label">What a hook's parameter gets</p>
-      <dl class="facts">
-        <div><dt>a plain parameter</dt><dd>The constant of the input with the same name, or else its declared default.</dd></div>
-        <div><dt>a parameter annotated <code>type</code></dt><dd>The type an edge brings to that input, or <code>Any</code> until one does. Only <code>compute_outputs</code> may ask for it, since added inputs are worked out before any edge is read.</dd></div>
-        <div><dt><code>**added: type</code></dt><dd>On <code>compute_outputs</code> of a node that also adds inputs: the type arriving on each added input.</dd></div>
-      </dl>
-      <p class="muted">A hook returns <code>{name: type hint}</code>, or <code>{name: (type hint, default)}</code>. A default of <code>SKIPPED</code> makes an output a branch, as <code>branches</code> does. Each field is held to the rules <code>@node</code> holds a declared field to. A hook that raises doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes the <a href="problems.html">problem</a> <code>compute_hook_raised</code> on its node, with only the exception's class in <code>ctx.error</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. A hook that raises a <a href="problems.html#failures"><code>NodeError</code></a> is <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> instead, with the error's message in <code>ctx.reason</code> and its code in <code>ctx.error</code>. A hook that returns a field <code>@node</code> would refuse, or a name a field can't have, is <code>compute_hook_returned_invalid</code>, whose <code>ctx.errors</code> says what is wrong.</p>
-      <pre class="out">[('compute_hook_raised', ('bad',), 'ValueError')]</pre>
+      <p class="muted">What each parameter of a hook gets, and what a hook returns, is in the reference: <code>python -m conductor.about field-hooks</code>. A hook that fails doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes a <a href="problems.html">problem</a> on its node. A hook that raises any exception but a <code>NodeError</code> is <code>compute_hook_raised</code>, with only the exception's class in <code>ctx</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. The <a href="problems.html">problems page</a> has the other ways a hook fails.</p>
+      <pre data-lang="py">def failing(names: str) -&gt; dict[str, type]:
+    raise ValueError("no names")
+
+
+@registry.node("fragile", title="Fragile", description="Has a hook that fails.",
+               compute_outputs=failing)
+def fragile(names: str) -&gt; dict[str, str]: ...
+
+
+record = GraphRecord.model_validate(
+    {"nodes": {"f": {"node": "fragile", "inputs": {"names": {"constant": "a"}}}}})
+for problem in Graph.compile(record, registry).problems:
+    print(problem.type, problem.loc, problem.ctx)</pre>
+<pre class="out">compute_hook_raised ('f',) {'error': 'ValueError'}</pre>
     </div>
   </div>
 
@@ -737,40 +861,44 @@ frozenset({'names'})
       <h3>The context is one object from the host</h3>
       <p class="muted">A host often has things many nodes need, like the person running the graph or an HTTP client. It passes them as one object, <code>context=</code>, when it starts or resumes a run. A node takes it as its first parameter, typed <code>Context[X]</code>. That parameter isn't an input.</p>
       <p class="muted">A node may name the registry's class, a base of it, or a <code>Protocol</code>, which is how a pre-built node asks for only the members it uses. <a href="graph-record-and-compiling.html#compiling">Compiling</a> checks a <code>Protocol</code>'s members by name only. Their types are the host's type checker's job. Below, <code>lookup</code> asks for a <code>Protocol</code> the registry's class doesn't meet.</p>
-      <pre data-lang="py">registry = NodeRegistry(context_type=HostContext)
+      <pre data-lang="py">@dataclass(frozen=True)
+class HostContext:
+    caller: str
+
+
+class HasDatabase(Protocol):
+    @property
+    def database(self) -&gt; Any: ...
+
+
+registry = NodeRegistry(context_type=HostContext)
+
 
 @registry.node("sign", title="Sign", description="Signs a text.")
-def sign(ctx: Context[HostContext], text: str) -> str:
+def sign(ctx: Context[HostContext], text: str) -&gt; str:
     return f"{text}, {ctx.caller}"
 
+
 @registry.node("lookup", title="Lookup", description="Looks a key up.")
-def lookup(ctx: Context[HasDatabase], key: str) -> str: ...
+def lookup(ctx: Context[HasDatabase], key: str) -&gt; str: ...
+
 
 print(sign(HostContext("Ida"), "Done"))
-print(list(sign.inputs), sign.context)
-g = Graph.compile(make_graph(lookup), registry)
-for p in g.problems:
-    print(p.type, p.loc, p.msg)</pre>
-      <p class="label">printed &middot; the second line, <code class="int" title="Internal">sign.inputs</code> and <code class="int" title="Internal">sign.context</code> <span class="lvl int">Internal</span></p>
+print(list(sign.inputs), sign.context.name)
+for problem in Graph.compile(make_graph(lookup), registry).problems:
+    print(problem.type, problem.loc, problem.msg)</pre>
+      <p class="label">printed &middot; the second line, <code class="int" title="Internal">sign.inputs</code> and <code class="int" title="Internal">sign.context.name</code> <span class="lvl int">Internal</span></p>
       <pre class="out">Done, Ida
-['text'] ContextParameter(name='ctx', cls=&lt;class '__main__.HostContext'&gt;)
+['text'] ctx
 context_does_not_fit_missing_member ('lookup', 'ctx') 'lookup' asks for the run's context as HasDatabase, but the registry's context class, HostContext, has no database. Add what the node reads to HostContext, or change what the node asks for.</pre>
     </div>
     <div>
       <h3 id="policy">A <code>Policy</code> says how the engine calls the node</h3>
       <p class="muted">The engine reads a node's <code>Policy</code> when it calls the node, as <a href="running-and-streaming.html">Running and streaming</a> shows. A <a href="subgraphs.html#open">subgraph</a> has none, since its inner nodes run by their own.</p>
-      <div class="tbl-wrap"><table class="plain">
-        <thead><tr><th>field</th><th>default</th><th>what it says</th></tr></thead>
-        <tbody>
-          <tr><td><a href="running-and-streaming.html#policy">concurrency</a></td><td>None</td><td>Most calls at once in the whole process, at least 1.</td></tr>
-          <tr><td><a href="running-and-streaming.html#policy">retries</a></td><td>0</td><td>How many more times a failed call is tried.</td></tr>
-          <tr><td>retry_delay</td><td>1.0</td><td>Seconds before the first retry. Each later one waits twice as long.</td></tr>
-          <tr><td>attempt_timeout</td><td>None</td><td>Seconds one attempt may take.</td></tr>
-          <tr><td>retry_on</td><td>()</td><td>Exception classes to retry besides <a href="problems.html#failures"><code>ExternalError</code></a>.</td></tr>
-          <tr><td><a href="saved-runs-and-reuse.html#policy">reuse_when_inputs_match</a></td><td>True</td><td>Whether a run made from another (<a href="saved-runs-and-reuse.html#again"><code>run.again</code></a>, <code>run.with_inputs</code>, <a href="saved-runs-and-reuse.html#kept"><code>run.with_forgotten</code></a>) may <a href="saved-runs-and-reuse.html#again">reuse</a> a result.</td></tr>
-          <tr><td><a href="saved-runs-and-reuse.html#policy">costs_nothing</a></td><td>False</td><td>Whether <code>resume(only_costs_nothing=True)</code> may call it.</td></tr>
-        </tbody>
-      </table></div>
+      <p class="muted">Each field and its default:</p>
+      <pre data-lang="py">print(Policy())</pre>
+<pre class="out">Policy(concurrency=None, retries=0, retry_delay=1.0, attempt_timeout=None, retry_on=(), reuse_when_inputs_match=True, costs_nothing=False)</pre>
+      <p class="muted">What each field means is in the reference: <code>python -m conductor.about versions-and-policies</code>, with retries in <code>retries-and-timeouts</code>, reuse in <code>running-again</code> and <code>costs_nothing</code> in <code>running</code>. <a href="running-and-streaming.html#policy">Running and streaming</a> and <a href="saved-runs-and-reuse.html#policy">Saved runs and reuse</a> show them at work.</p>
       <p class="muted"><code>Policy</code> is a frozen pydantic dataclass read strictly, so a wrong value raises where it is written. So does a keyword it doesn't have. A node whose <code>concurrency</code> is 2 or more, or that has an <code>attempt_timeout</code>, is called on threads. Any other is called on the scheduler's own thread, retries included. <code class="int" title="Internal">Policy.threaded</code> says which.</p>
       <pre data-lang="py">p = Policy(concurrency=4, retries=2)
 print(p.threaded, Policy().threaded, Policy(attempt_timeout=5).threaded)
@@ -801,7 +929,10 @@ for bad in ({"retries": "2"}, {"concurrency": 0}, {"retries": True}, {"retry": 2
 
   <div class="pair">
     <div>
-      <pre data-lang="py">@node("greet", title="Greet", description="Greets a person by name.")
+      <pre data-lang="py">registry = NodeRegistry()
+
+
+@node("greet", title="Greet", description="Greets a person by name.")
 def greet_v1(name: str) -> str:
     return f"Hello {name}"
 
@@ -827,7 +958,30 @@ print(Graph.compile(saved, registry).run().outputs)</pre>
     </div>
     <div>
       <nav class="rail" id="ver-rail" aria-label="Upgrade steps"></nav>
-      <div id="ver-text" aria-live="polite" style="display:grid;gap:.6rem"></div>
+      <div id="ver-text" aria-live="polite" style="display:grid;gap:.6rem">
+        <div class="ver-step" data-short="saved" data-v="1" style="display:grid;gap:.6rem">
+          <h3>The record as it was saved</h3>
+          <p class="muted">The record names version 1 and gives name a constant. Compiled as it is, it runs version 1, which is still in the chain.</p>
+          <pre data-lang="py">print(saved.nodes["greet"].version, saved.nodes["greet"].inputs)</pre>
+<pre class="out">1 {'name': InputEntry(constant='Ida Berg')}</pre>
+        </div>
+        <div class="ver-step" data-short="to=2" data-v="2" style="display:grid;gap:.6rem" hidden>
+          <h3>Version 2's Upgrade renames an input</h3>
+          <p class="muted">renamed_inputs carries what the input got, here its constant, over to the new name.</p>
+          <pre data-lang="py">step = registry.upgrade(saved, "greet", to=2)
+print(step.nodes["greet"].version, step.nodes["greet"].inputs)</pre>
+<pre class="out">2 {'person': InputEntry(constant='Ida Berg')}</pre>
+        </div>
+        <div class="ver-step" data-short="newest" data-v="3" style="display:grid;gap:.6rem" hidden>
+          <h3>Version 3's Upgrade rewrites the values</h3>
+          <p class="muted">The rewrite gets the node's constants and defaults as one dict and returns them for the newer version. It pops person, since every key it returns is written.</p>
+          <pre data-lang="py">moved = registry.upgrade(saved, "greet")
+print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)
+print(Graph.compile(moved, registry).run().outputs)</pre>
+<pre class="out">3 {'first': InputEntry(constant='Ida'), 'last': InputEntry(constant='Berg')}
+{'result': 'Hello Ida Berg'}</pre>
+        </div>
+      </div>
       <figure>
       <div class="diagram" style="padding:.75rem">
         <svg viewBox="0 0 420 210" role="img" aria-label="Three versions of greet. Version 3 replaces version 2, which replaces version 1. Only version 3 is on the registry. The highlighted version is the one the record names at this step." id="chain" class="small-dia">
@@ -863,11 +1017,167 @@ print(Graph.compile(saved, registry).run().outputs)</pre>
   <div class="section-head prose">
     <p class="eyebrow">Declaration faults</p>
     <h2 id="faults-h">A mistake in a node fails where it is written <span class="lvl pub">Public</span></h2>
-    <p class="muted"><code>@node</code>, <a href="subgraphs.html#open"><code>subgraph</code></a>, <code>@host_type</code>, <code>Param</code> and <code>NodeRegistry</code> raise <code>NodeDeclarationError</code>, which is a <code>TypeError</code>. <a href="problems.html#catalogues"><code>DECLARATION_PROBLEMS</code></a> has 62 kinds, each with a code of its own. Here are 14 of them, each as it was raised by running it.</p>
+    <p class="muted"><code>@node</code>, <a href="subgraphs.html#open"><code>subgraph</code></a>, <code>@host_type</code>, <code>Param</code> and <code>NodeRegistry</code> raise <code>NodeDeclarationError</code>, which is a <code>TypeError</code>. <a href="problems.html#catalogues"><code>DECLARATION_PROBLEMS</code></a> holds every kind, each with a code of its own, on the <a href="problems.html">problems page</a> (<code>python -m conductor.about problems</code>). Here are some of them, each run here: the code, then the message.</p>
   </div>
   <div class="gallery">
     <div class="faults" id="fault-list" role="group" aria-label="Faults"></div>
-    <div class="fault-view" id="fault-view" aria-live="polite"></div>
+    <div class="fault-views">
+    <div class="fault-view" id="fault-view" aria-live="polite" data-label="an async def">
+      <pre data-lang="py">try:
+    @node("fetch", title="Fetch", description="Fetches a page.")
+    async def fetch(url: str) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">async_run
+fetch (version 1): a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-1" hidden data-label="an input with no hint">
+      <pre data-lang="py">try:
+    @node("echo", title="Echo", description="Hands the text back.")
+    def echo(text) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">input_without_type
+echo (version 1).text: the input has no type hint. Give it one, since the hint says what the input takes.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-2" hidden data-label="no return type">
+      <pre data-lang="py">try:
+    @node("echo", title="Echo", description="Hands the text back.")
+    def echo(text: str): ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">output_without_type
+echo (version 1): the node has no return type. Write one, or -&gt; None for no outputs.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-3" hidden data-label="a default of the wrong type">
+      <pre data-lang="py">try:
+    @node("count", title="Count", description="Counts.")
+    def count(number: int = "many") -&gt; int: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">default_invalid
+count (version 1).number: the default 'many' isn't a value of int that can be written as JSON: Input should be a valid integer. Give a default that is.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-4" hidden data-label="a limit the type can't take">
+      <pre data-lang="py">try:
+    @node("short", title="Short", description="Shortens a text.")
+    def short(text: Annotated[str, Param(ge=0)]) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">param_limit_not_supported
+short (version 1).text: pydantic has no rule for ge on str. Remove it from the hint, or check the value in the node instead.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-5" hidden data-label="pydantic's Field in a hint">
+      <pre data-lang="py">try:
+    @node("stretch", title="Stretch", description="Repeats a text.")
+    def stretch(text: str, times: Annotated[int, Field(ge=0)] = 1) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">pydantic_field_in_hint
+stretch (version 1).times: the hint uses pydantic's Field(...). An input or output takes its title, description and limits from Param, so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)].</pre>
+    </div>
+    <div class="fault-view" id="fault-view-6" hidden data-label="a widget beside the type">
+      <pre data-lang="py">try:
+    @node("note", title="Note", description="Keeps a note.")
+    def note(text: Annotated[str, Textarea()]) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">widget_outside_param
+note (version 1).text: the widget is written in Annotated next to the type, where it is ignored. Put it on Param: Annotated[..., Param(widget=...)].</pre>
+    </div>
+    <div class="fault-view" id="fault-view-7" hidden data-label="a set">
+      <pre data-lang="py">try:
+    @node("tags", title="Tags", description="Tags a text.")
+    def tags(names: set[str]) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">type_not_supported_set
+tags (version 1).names: a set has no order, so set[str] has no JSON form that keeps it the same. Declare a list or a tuple instead.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-8" hidden data-label="a Series of Series">
+      <pre data-lang="py">try:
+    @node("wrap", title="Wrap", description="Wraps a text.")
+    def wrap(text: str) -&gt; Series[Series[str]]: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">nested_series
+wrap (version 1).result: a Series of Series isn't allowed, since a Series has one level of items. Use one Series, and let the next node make the next level.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-9" hidden data-label="Context not first">
+      <pre data-lang="py">try:
+    @node("later", title="Later", description="Signs a text.")
+    def later(text: str, ctx: Context[HostContext]) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">context_misplaced
+later (version 1).ctx: Context[...] must be the whole of the node's first parameter, like def sign(ctx: Context[HostContext], text: str). Anywhere else, a caller would have to give its value.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-10" hidden data-label="costs_nothing with a context">
+      <pre data-lang="py">try:
+    @node("stamp", title="Stamp", description="Stamps a text.",
+          policy=Policy(costs_nothing=True))
+    def stamp(ctx: Context[HostContext], text: str) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">costs_nothing_takes_context
+stamp (version 1).ctx: the node takes the run's context, so it uses the host's objects and its call isn't free. Drop costs_nothing from its Policy, or give the node what it needs as an input.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-11" hidden data-label="**kwargs with no hook">
+      <pre data-lang="py">try:
+    @node("loose", title="Loose", description="Joins texts.")
+    def loose(**values: str) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">var_keyword_without_hook
+loose (version 1): the node takes a ** parameter, but has no compute_added_inputs hook to fill it. Remove the ** parameter, or add compute_added_inputs=.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-12" hidden data-label="a type variable only in the return">
+      <pre data-lang="py">try:
+    @node("make", title="Make", description="Makes a list.")
+    def make[T](text: str) -&gt; list[T]: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">type_variable_only_in_return
+make (version 1).result: the type variable T is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-13" hidden data-label="a dot in the id">
+      <pre data-lang="py">try:
+    @node("a.b", title="Echo", description="Hands the text back.")
+    def echo(text: str) -&gt; str: ...
+except NodeDeclarationError as error:
+    print(error.problems[0].type)
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">invalid_node_id
+@node got 'a.b' as an id it can't take. A node's id can't be empty, and can't contain any of '.', '/', '@', '~', since those mean something in sources and waiting ids. A type's id is one word of letters, digits, '_', '.' or '-', and isn't one of conductor's own, since it is written inside other ids. Pick another.</pre>
+    </div>
+    </div>
   </div>
   <div class="prose" style="margin-top:2.5rem">
     <p class="muted">A fault in a graph is a <code>Problem</code> in <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a> instead, as <a href="problems.html">Problems</a> shows.</p>
@@ -889,10 +1199,10 @@ print(Graph.compile(saved, registry).run().outputs)</pre>
 
 @text.node("upper", title="Uppercase", description="Capitals.",
            tags=["case"], extra={"icon": "A"})
-def upper(value: str) -> str: ...
+def upper(value: str) -&gt; str: ...
 
 @node("lower", title="Lowercase", description="Small letters.", category="Case")
-def lower(value: str) -> str: ...
+def lower(value: str) -&gt; str: ...
 
 host = NodeRegistry(tags=["core"])
 host.add_subregistry(text)
@@ -901,13 +1211,12 @@ for d in host:
     print(d.id, repr(d.category), d.tags, dict(d.extra))
 print(lower.tags, upper.tags)
 
-def shout(value: str) -> str: ...
+def shout(value: str) -&gt; str: ...
 
 try:
     host.add(node("upper", title="Upper again", description="Capitals.")(shout))
 except NodeDeclarationError as error:
-    print(error.problems[0].type)
-    print(error)
+    print(error.problems[0].type, error.problems[0].ctx["id"])
 try:
     host["uper"]
 except KeyError as error:
@@ -918,19 +1227,12 @@ print([d.id for d in free], len(host))</pre>
       <pre class="out">upper 'Text' ('core', 'acme', 'case') {'tier': 'free', 'icon': 'A'}
 lower 'Case' ('core',) {}
 () ('acme', 'case')
-duplicate_node_id
-upper (version 1): two nodes have the id 'upper': __main__.upper and __main__.shout. Give one of them another id, or swap the old one for the new one with registry.replace(...).
+duplicate_node_id upper
 KeyError "'uper' is not registered here; the ids are upper, lower"
 ['upper'] 2</pre>
     </div>
     <div>
-      <dl class="facts">
-        <div><dt>Defaults</dt><dd>A node that comes in gets the registry's defaults. The registry's tags come first, then the node's own. A node's own <code>category</code> wins, and <code>extra</code> merges key by key, the node's keys winning. A subregistry's defaults are applied first, then the outer registry's.</dd></div>
-        <div><dt>Copies</dt><dd>The definition <code>lower</code> keeps its own empty tags. The registry holds a copy with its defaults. The name <code>upper</code>, made by <code>@text.node</code>, is bound to the copy <code>text</code> holds.</dd></div>
-        <div><dt>One way to swap</dt><dd><code>add</code> raises on an id that is already there. <code>replace</code> and <code>remove</code> are explicit. A registry isn't a <code>Mapping</code>, so there is no <code>get</code> that answers a misspelt id with <code>None</code>.</dd></div>
-        <div><dt><code>context_type</code></dt><dd><code>NodeRegistry(context_type=X)</code> names the class of the run's context, and is a <code>NodeRegistry[X]</code> to a type checker. A subregistry must name the same class or none.</dd></div>
-        <div><dt><code>describe()</code></dt><dd>A <code>RegistryDescription</code>. It has a <code>NodeDescription</code> per node and a <code>TypeDescription</code> per type.</dd></div>
-      </dl>
+      <p class="muted">A node that comes in gets the registry's defaults, and the registry holds a copy, so <code>lower</code> keeps its own empty tags. <code>add</code> raises on an id that is already there, and a misspelt id raises too. How defaults merge, and why there is one way to add and swap a node, is in <a href="../design/">the design guide</a>, under "The front door and the registry". Every method is in the reference: <code>python -m conductor.about conductor</code>.</p>
     </div>
   </div>
 </section>
@@ -943,48 +1245,16 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part <span class="lvl pub">Public</span></h2>
   </div>
+  <div class="prose"><p class="muted">Why a definition is frozen and registers nothing, why <code>Param</code> is the one spelling of a limit, why a class's id is declared, why <code>@host_type</code> is a decorator with a list of <code>accepts</code>, and why compiling never upgrades, is in <a href="../design/">the design guide</a>: "The front door and the registry", "The graph record and <code>make_graph</code>" and "Where conductor meets pydantic". Three more choices are this page's own.</p></div>
   <div class="choices">
-    <article class="choice">
-      <h3>The signature is the node's interface.</h3>
-      <p>The engine, the checks and the editor all read the one signature. So an input is declared in one place, and a node stays callable like its function, which makes calling it its unit test.</p>
-    </article>
-    <article class="choice">
-      <h3><code>@node</code> returns a frozen definition and registers nothing.</h3>
-      <p>A definition belongs to no registry, so it can go into any of them, and what a host offers is written in one place, the registry.</p>
-      <p class="cost"><b>Cost:</b> nobody can find a node until it is added to a registry.</p>
-    </article>
     <article class="choice">
       <h3>A declaration fault raises at import, and a graph fault becomes a <code>Problem</code></h3>
       <p>Only the node's developer meets a fault in a declaration, so it fails when the module loads, with a message written for them. A fault in a graph is met by whoever drew it, so it is reported on its node and <a href="graph-record-and-compiling.html#compiling">compiling</a> goes on.</p>
     </article>
     <article class="choice">
-      <h3><code>Param</code> is where a field's title, limits and choices go.</h3>
-      <p>Pydantic's <code>Field(...)</code> is refused in a node's hint, so a limit isn't written with both <code>Field</code> and <code>Param</code>. <code>Param</code> is pydantic metadata, so the same limits work in a host's own model.</p>
-      <p class="cost"><b>Cost:</b> a pydantic user writes <code>Param</code> where they would reach for <code>Field</code>. The error names the <code>Param</code> to write.</p>
-    </article>
-    <article class="choice">
-      <h3>A class's id and title are declared, not read from its name.</h3>
-      <p>The id is what an editor and a saved graph call the type, and the title is what a person reads. So both are written on purpose, and checked when the class is defined.</p>
-      <p class="cost"><b>Cost:</b> every class of the host's on a field, except a <code>TypedDict</code>, needs <code>@host_type</code>, and a subclass needs its own.</p>
-    </article>
-    <article class="choice">
-      <h3><code>@host_type</code> is a decorator, not a base class.</h3>
-      <p>A base class's hook runs before <code>@dataclass</code> has made the class, so it can't check a dataclass, and a library's class can't be given one.</p>
-    </article>
-    <article class="choice">
-      <h3><code>accepts</code> is a list of classes.</h3>
-      <p>A list is data an editor can show before anything runs, in <code>accepted_as</code>.</p>
-      <p class="cost"><b>Cost:</b> a rule that isn't a list of classes can't be said.</p>
-    </article>
-    <article class="choice">
       <h3>Hooks run when a graph is compiled.</h3>
       <p>A hook reads constants and the types edges bring, so every node's fields are known before a run, and <a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a> shows them.</p>
       <p class="cost"><b>Cost:</b> a node's fields can't follow a value that arrives at run time. A type that follows an edge needs no run-time value, since a <a href="standard-nodes.html#control">type variable</a> or a hook parameter annotated <code>type</code> can say it.</p>
-    </article>
-    <article class="choice">
-      <h3>Compiling never upgrades.</h3>
-      <p>A saved graph runs the version it names. Moving it is a call the host makes, <a href="graph-record-and-compiling.html#upgrade"><code>registry.upgrade</code></a>, and the result is a record to show the graph's author.</p>
-      <p class="cost"><b>Cost:</b> old versions stay in the code, as plain <code>@node</code> definitions, for as long as saved graphs use them.</p>
     </article>
     <article class="choice">
       <h3>The run's context isn't an input.</h3>
@@ -1064,35 +1334,22 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
   const PARTS = [
     { id: "deco", text: '@node("repeat", title="Repeat", description="Repeats a text.")',
       name: "@node(id, title=, description=)",
-      job: "The id is what a [graph record](graph-record-and-compiling.html#record) names the node by. It can't be empty or contain . / @ or ~, since those are used to write sources and [waiting ids](asking-a-person.html#ids). The title and description are what a person reads in a palette, and both are required. The function's docstring is for developers and is never shown. @node registers nothing. It returns a frozen FunctionDefinition.",
-      code: "print(type(repeat).__name__)\ntry:\n    repeat.title = \"Shout\"\nexcept FrozenInstanceError as error:\n    print(\"FrozenInstanceError:\", error)\n\nregistry = NodeRegistry()\nprint(\"repeat\" in registry)\nregistry.add(repeat)\nprint(\"repeat\" in registry)",
-      out: "FunctionDefinition\nFrozenInstanceError: cannot assign to field 'title'\nFalse\nTrue" },
+      job: "The id is what a [graph record](graph-record-and-compiling.html#record) names the node by. It can't be empty or contain . / @ or ~, since those are used to write sources and [waiting ids](asking-a-person.html#ids). The title and description are what a person reads in a palette, and both are required. The function's docstring is for developers and is never shown. @node registers nothing. It returns a frozen FunctionDefinition." },
     { id: "text", text: "text: str", indent: "    ", tail: ",",
       name: "an input with no default",
-      job: "A parameter is an input, by its name. Its hint is its type. With no default, an edge, a constant or a [graph input](graph-record-and-compiling.html#record) must give it a value, so its description says required. A parameter with no hint fails here, with input_without_type.",
-      out: "{\n  \"name\": \"text\",\n  \"is_series\": false,\n  \"type\": \"str\",\n  \"json_schema\": {\n    \"type\": \"string\"\n  },\n  \"required\": true\n}" },
+      job: "A parameter is an input, by its name. Its hint is its type. With no default, an edge, a constant or a [graph input](graph-record-and-compiling.html#record) must give it a value, so its description says required. A parameter with no hint fails here, with input_without_type." },
     { id: "times", text: 'times: Annotated[int, Param(title="Times", ge=1, le=10)] = 2', indent: "    ", tail: ",",
       name: "a Param and a default",
-      job: 'The Param\'s title goes to the description, and its limits go into the schema. The default 2 is checked against the type and its limits when @node runs, and must be writable as JSON. A default the type refuses fails here, with default_invalid.',
-      code: 'print(repeat.inputs["times"])',
-      label: 'printed &middot; the <code class="int" title="Internal">Field</code> <span class="lvl int">Internal</span>, then its FieldDescription',
-      out: "Field(name='times', default=2, is_output=False, type=Type(typing.Annotated[int, Ge(ge=1), Le(le=10)]))\n\n" +
-        "{\n  \"name\": \"times\",\n  \"title\": \"Times\",\n  \"is_series\": false,\n  \"type\": \"int\",\n  \"json_schema\": {\n    \"maximum\": 10,\n    \"minimum\": 1,\n    \"type\": \"integer\"\n  },\n  \"required\": false,\n  \"default\": 2\n}" },
+      job: 'The Param\'s title goes to the description, and its limits go into the schema. The default 2 is checked against the type and its limits when @node runs, and must be writable as JSON. A default the type refuses fails here, with default_invalid.' },
     { id: "joiner", text: 'joiner: Annotated[str, Param(choices=["", " ", "-"], widget=Dropdown())] = " "', indent: "    ", tail: ",",
       name: "choices, with a widget",
-      job: "Param(choices=) gives the field its choices, each titled by its text, and its schema lists them as an enum. The field takes no other value. The widget is handed to the editor as JSON. Conductor never reads it, when it compiles or when it runs.",
-      out: "{\n  \"name\": \"joiner\",\n  \"is_series\": false,\n  \"type\": \"str\",\n  \"json_schema\": {\n    \"enum\": [\"\", \" \", \"-\"],\n    \"type\": \"string\"\n  },\n  \"required\": false,\n  \"default\": \" \",\n  \"choices\": [\n    {\n      \"id\": \"\",\n      \"title\": \"\"\n    },\n    {\n      \"id\": \" \",\n      \"title\": \" \"\n    },\n    {\n      \"id\": \"-\",\n      \"title\": \"-\"\n    }\n  ],\n  \"widget\": {\n    \"type\": \"dropdown\"\n  }\n}" },
+      job: "Param(choices=) gives the field its choices, each titled by its text, and its schema lists them as an enum. The field takes no other value. The widget is handed to the editor as JSON. Conductor never reads it, when it compiles or when it runs." },
     { id: "ret", text: ") -> str:",
       name: "the return type",
-      job: "A return type that is one value is one output, named result. A function with no return type fails here, with output_without_type.",
-      code: "print(list(repeat.inputs), list(repeat.outputs))",
-      label: 'printed &middot; <code class="int" title="Internal">repeat.inputs</code> and <code class="int" title="Internal">.outputs</code> <span class="lvl int">Internal</span>',
-      out: "['text', 'times', 'joiner'] ['result']\n\n" + "{\n  \"name\": \"result\",\n  \"is_series\": false,\n  \"type\": \"str\",\n  \"json_schema\": {\n    \"type\": \"string\"\n  },\n  \"required\": true\n}" },
+      job: "A return type that is one value is one output, named result. A function with no return type fails here, with output_without_type." },
     { id: "body", text: "return joiner.join([text] * times)", indent: "    ",
       name: "the body",
-      job: "Calling the definition calls the function, so a node is tested by calling it. Declaring the node doesn't run the body.",
-      code: 'print(repeat("ab", 3))',
-      out: "ab ab ab" },
+      job: "Calling the definition calls the function, so a node is tested by calling it. Declaring the node doesn't run the body." },
   ];
   const sig = $("#sig");
   const lines = [
@@ -1118,58 +1375,26 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
     sig.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === id)));
     panel.innerHTML =
       '<p class="name">' + esc(p.name) + "</p>" +
-      '<p class="job">' + linked(p.job) + "</p>" +
-      (p.code ? '<pre data-lang="py">' + esc(p.code) + "</pre>" : "") +
-      '<p class="label">' + (p.label || (p.code ? "printed" : "its FieldDescription, printed")) + "</p>" +
-      '<pre class="out">' + esc(p.out) + "</pre>";
-    panel.querySelectorAll("pre").forEach(paint);
+      '<p class="job">' + linked(p.job) + "</p>";
     fade(panel);
   }
   pick("times");
 
   /* ======================= OUTPUT SHAPES ======================= */
-  const SHAPES = [
-    { tab: "one value", code: '@node("upper", title="Upper", description="Capitals.")\ndef upper(text: str) -> str:\n    return text.upper()',
-      outs: ["result: str, required"],
-      returns: "One value of the type, as the type's own check gives it. Only a value of exactly one of Python's own classes, like a str for str, is kept as it is without a check. The check is strict, so \"12\" is never an int.",
-      dataclass: "None" },
-    { tab: "dataclass", code: '@dataclass\nclass Routed:\n    large: int = SKIPPED\n    small: int = SKIPPED\n\n@node("route", title="Route", description="Sends an amount one of two ways.")\ndef route(amount: int) -> Routed:\n    if amount >= 1000:\n        return Routed(large=amount)\n    return Routed(small=amount)',
-      outs: ["large: int, a branch, not required", "small: int, a branch, not required"],
-      returns: "An instance of the dataclass, one output per field. A dataclass with @host_type is one value instead, not a dataclass of outputs. A field whose default is SKIPPED is a branch. A call gives a value to at most one branch, and the others stay SKIPPED, so route(5) gives small 5 and skips large. Two branches with a value fail the call as invalid_output. Returning SKIPPED itself skips every output.",
-      dataclass: "Routed" },
-    { tab: "hook's mapping", code: 'def by_name(names: list[str]) -> dict[str, type]:\n    return {name: str for name in names}\n\n@node("cells", title="Cells", description="One output per name.",\n      compute_outputs=by_name)\ndef cells(line: str, names: list[str]) -> dict[str, str]:\n    return dict(zip(names, line.split(",")))',
-      outs: ["(none until a graph is compiled)"],
-      returns: "A mapping by output name, with every output the hook gave and no others. The definition declares no outputs. Each compiled node gets them from its hook.",
-      dataclass: "None" },
-    { tab: "nothing", code: '@node("log", title="Log", description="Writes a line to a log.")\ndef log(line: str) -> None:\n    return None',
-      outs: ["(no outputs)"],
-      returns: "None, or SKIPPED. Any other value fails the call as invalid_output.",
-      dataclass: "None" },
-  ];
-  const PRINTED = "upper  outputs_dataclass=None    computes_outputs=False [('result', 'str', True)]\nroute  outputs_dataclass=Routed  computes_outputs=False [('large', 'int', False), ('small', 'int', False)]\ncells  outputs_dataclass=None    computes_outputs=True  []\nlog    outputs_dataclass=None    computes_outputs=False []";
-  const tabs = $("#shape-tabs"), shape = $("#shape");
-  SHAPES.forEach((s, i) => {
+  /* each shape is a pane in the page, with its sample and printed output; a tab shows one */
+  const tabs = $("#shape-tabs");
+  const shapes = Array.from(document.querySelectorAll("#outputs .shape"));
+  shapes.forEach((pane, i) => {
     const b = document.createElement("button");
     b.type = "button"; b.className = "tab"; b.setAttribute("role", "tab"); b.id = "shape-tab-" + i;
-    b.textContent = s.tab;
+    b.textContent = pane.dataset.tab;
     b.addEventListener("click", () => showShape(i));
     tabs.append(b);
   });
   function showShape(i) {
-    const s = SHAPES[i];
     tabs.querySelectorAll(".tab").forEach((b, j) => b.setAttribute("aria-selected", String(j === i)));
-    shape.setAttribute("aria-labelledby", "shape-tab-" + i);
-    const line = PRINTED.split("\n")[i];
-    shape.innerHTML =
-      '<div><pre data-lang="py">' + esc(s.code) + "</pre></div>" +
-      '<div><dl class="facts">' +
-      "<div><dt>outputs</dt><dd><div class=\"chips\">" + s.outs.map((o) => '<span class="chip">' + esc(o) + "</span>").join("") + "</div></dd></div>" +
-      "<div><dt>outputs_dataclass</dt><dd><code>" + esc(s.dataclass) + "</code></dd></div>" +
-      "<div><dt>each call returns</dt><dd>" + esc(s.returns) + "</dd></div>" +
-      "<div><dt>printed</dt><dd><pre class=\"out\">" + esc(line) + "</pre></dd></div>" +
-      "</dl></div>";
-    shape.querySelectorAll("pre").forEach(paint);
-    fade(shape);
+    shapes.forEach((pane, j) => { pane.hidden = j !== i; });
+    fade(shapes[i]);
   }
   showShape(0);
 
@@ -1197,84 +1422,37 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
   pickRow("celsius");
 
   /* ======================= UPGRADE STEPPER ======================= */
-  const VSTEPS = [
-    { short: "saved", v: 1, title: "The record as it was saved",
-      cap: "The record names version 1 and gives name a constant. Compiled as it is, it runs version 1, which is still in the chain.",
-      code: "print(saved.nodes[\"greet\"].version, saved.nodes[\"greet\"].inputs)",
-      out: "1 {'name': InputEntry(constant='Ida Berg')}" },
-    { short: "to=2", v: 2, title: "Version 2's Upgrade renames an input",
-      cap: "renamed_inputs carries what the input got, here its constant, over to the new name.",
-      code: "step = registry.upgrade(saved, \"greet\", to=2)\nprint(step.nodes[\"greet\"].version, step.nodes[\"greet\"].inputs)",
-      out: "2 {'person': InputEntry(constant='Ida Berg')}" },
-    { short: "newest", v: 3, title: "Version 3's Upgrade rewrites the values",
-      cap: "The rewrite gets the node's constants and defaults as one dict and returns them for the newer version. It pops person, since every key it returns is written.",
-      code: "moved = registry.upgrade(saved, \"greet\")\nprint(moved.nodes[\"greet\"].version, moved.nodes[\"greet\"].inputs)\nprint(Graph.compile(moved, registry).run().outputs)",
-      out: "3 {'first': InputEntry(constant='Ida'), 'last': InputEntry(constant='Berg')}\n{'result': 'Hello Ida Berg'}" },
-  ];
-  const vrail = $("#ver-rail"), vtext = $("#ver-text"), chain = $("#chain");
-  VSTEPS.forEach((s, i) => {
+  /* each step is a pane in the page, with its sample and printed output */
+  const vrail = $("#ver-rail"), chain = $("#chain");
+  const vsteps = Array.from(document.querySelectorAll("#ver-text .ver-step"));
+  vsteps.forEach((step, i) => {
     const b = document.createElement("button");
-    b.type = "button"; b.innerHTML = "<b>" + (i + 1) + "</b>" + esc(s.short);
+    b.type = "button"; b.innerHTML = "<b>" + (i + 1) + "</b>" + esc(step.dataset.short);
     b.addEventListener("click", () => showV(i));
     vrail.append(b);
   });
   function showV(i) {
-    const s = VSTEPS[i];
     vrail.querySelectorAll("button").forEach((b, j) => { if (j === i) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
-    chain.querySelectorAll(".d-node").forEach((g) => g.classList.toggle("on", Number(g.dataset.v) === s.v));
-    vtext.innerHTML = "<h3>" + esc(s.title) + "</h3>" + '<p class="muted">' + esc(s.cap) + "</p>" +
-      '<pre data-lang="py">' + esc(s.code) + "</pre>" + '<pre class="out">' + esc(s.out) + "</pre>";
-    vtext.querySelectorAll("pre").forEach(paint);
-    fade(vtext);
+    chain.querySelectorAll(".d-node").forEach((g) => g.classList.toggle("on", g.dataset.v === vsteps[i].dataset.v));
+    vsteps.forEach((step, j) => { step.hidden = j !== i; });
+    fade(vsteps[i]);
   }
   showV(0);
 
   /* ======================= FAULT GALLERY ======================= */
-  const FAULTS = [
-    { label: "an async def", code: "async def fetch(url: str) -> str: ...", type: "async_run",
-      text: "fetch (version 1): a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads." },
-    { label: "an input with no hint", code: "def echo(text) -> str: ...", type: "input_without_type",
-      text: "echo (version 1).text: the input has no type hint. Give it one, since the hint says what the input takes." },
-    { label: "no return type", code: "def echo(text: str): ...", type: "output_without_type",
-      text: "echo (version 1): the node has no return type. Write one, or -> None for no outputs." },
-    { label: "a default of the wrong type", code: 'def count(number: int = "many") -> int: ...', type: "default_invalid",
-      text: "count (version 1).number: the default 'many' isn't a value of int that can be written as JSON: Input should be a valid integer. Give a default that is." },
-    { label: "a limit the type can't take", code: "def short(text: Annotated[str, Param(ge=0)]) -> str: ...", type: "param_limit_not_supported",
-      text: "short (version 1).text: pydantic has no rule for ge on str. Remove it from the hint, or check the value in the node instead." },
-    { label: "pydantic's Field in a hint", code: "def repeat(text: str, times: Annotated[int, Field(ge=0)] = 1) -> str: ...", type: "pydantic_field_in_hint",
-      text: "repeat (version 1).times: the hint uses pydantic's Field(...). An input or output takes its title, description and limits from Param, so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]." },
-    { label: "a widget beside the type", code: "def note(text: Annotated[str, Textarea()]) -> str: ...", type: "widget_outside_param",
-      text: "note (version 1).text: the widget is written in Annotated next to the type, where it is ignored. Put it on Param: Annotated[..., Param(widget=...)]." },
-    { label: "a set", code: "def tags(names: set[str]) -> str: ...", type: "type_not_supported_set",
-      text: "tags (version 1).names: a set has no order, so set[str] has no JSON form that keeps it the same. Declare a list or a tuple instead." },
-    { label: "a Series of Series", code: "def wrap(text: str) -> Series[Series[str]]: ...", type: "nested_series",
-      text: "wrap (version 1).result: a Series of Series isn't allowed, since a Series has one level of items. Use one Series, and let the next node make the next level." },
-    { label: "Context not first", code: "def later(text: str, ctx: Context[HostContext]) -> str: ...", type: "context_misplaced",
-      text: "later (version 1).ctx: Context[...] must be the whole of the node's first parameter, like def sign(ctx: Context[HostContext], text: str). Anywhere else, a caller would have to give its value." },
-    { label: "costs_nothing with a context", code: "@node(..., policy=Policy(costs_nothing=True))\ndef stamp(ctx: Context[HostContext], text: str) -> str: ...", type: "costs_nothing_takes_context",
-      text: "stamp (version 1).ctx: the node takes the run's context, so it uses the host's objects and its call isn't free. Drop costs_nothing from its Policy, or give the node what it needs as an input." },
-    { label: "**kwargs with no hook", code: "def loose(**values: str) -> str: ...", type: "var_keyword_without_hook",
-      text: "loose (version 1): the node takes a ** parameter, but has no compute_added_inputs hook to fill it. Remove the ** parameter, or add compute_added_inputs=." },
-    { label: "a type variable only in the return", code: "def make[T](text: str) -> list[T]: ...", type: "type_variable_only_in_return",
-      text: "make (version 1).result: the type variable T is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs." },
-    { label: "a dot in the id", code: 'node("a.b", title="Echo", description="Hands the text back.")(echo)', type: "invalid_node_id",
-      text: "@node got 'a.b' as an id it can't take. A node's id can't be empty, and can't contain any of '.', '/', '@', '~', since those mean something in sources and waiting ids. A type's id is one word of letters, digits, '_', '.' or '-', and isn't one of conductor's own, since it is written inside other ids. Pick another." }
-  ];
-  const flist = $("#fault-list"), fview = $("#fault-view");
-  FAULTS.forEach((f, i) => {
+  /* each fault is a pane in the page, with its sample and what it printed */
+  const flist = $("#fault-list");
+  const fpanes = Array.from(document.querySelectorAll("#faults .fault-view"));
+  fpanes.forEach((pane, i) => {
     const b = document.createElement("button");
-    b.type = "button"; b.textContent = f.label; b.setAttribute("aria-pressed", "false");
+    b.type = "button"; b.textContent = pane.dataset.label; b.setAttribute("aria-pressed", "false");
     b.addEventListener("click", () => showFault(i));
     flist.append(b);
   });
   function showFault(i) {
-    const f = FAULTS[i];
     flist.querySelectorAll("button").forEach((b, j) => b.setAttribute("aria-pressed", String(j === i)));
-    fview.innerHTML = '<pre data-lang="py">' + esc(f.code) + "</pre>" +
-      '<p class="label">raised at import</p>' +
-      '<div class="err"><b>NodeDeclarationError</b>, problems[0].type == <b>' + esc(f.type) + "</b>\n\n" + esc(f.text) + "</div>";
-    fview.querySelectorAll("pre").forEach(paint);
-    fade(fview);
+    fpanes.forEach((pane, j) => { pane.hidden = j !== i; });
+    fade(fpanes[i]);
   }
   showFault(0);
 })();

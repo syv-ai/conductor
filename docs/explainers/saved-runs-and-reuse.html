@@ -5,14 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Saved Runs and Reuse</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
-   diagrams, samples and the reuse player, two columns where a sample or a
+   diagrams and samples, two columns where a sample or a
    diagram sits beside its text. Sections are separated by space and a
    faint staff of rules, never by boxes.
    ===================================================================== */
@@ -34,11 +31,11 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6;
+  --pkg-core: #2a4fd6;
 
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -59,7 +56,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --ok-soft: #12291f; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff;
+    --pkg-core: #8aa2ff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -69,7 +66,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --ok-soft: #12291f; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff;
+  --pkg-core: #8aa2ff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -121,6 +118,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .tk-s { color: var(--code-str); }
 .tk-c { color: var(--code-com); font-style: italic; }
 .tk-d { color: var(--ink-2); }
+pre.out { color: var(--ink); }
 .out { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-2); white-space: pre-wrap; word-break: break-word; }
 .lvl-key { display: flex; flex-wrap: wrap; gap: .5rem 2rem; font-size: .9375rem; color: var(--ink-2); }
 .lvl-key .lvl { margin-left: 0; margin-right: .5rem; }
@@ -159,45 +157,6 @@ figcaption { font-size: .9375rem; color: var(--ink-2); max-width: var(--col); }
 .key code.k { font-size: .875rem; color: var(--accent); }
 .key p { color: var(--ink-2); font-size: .9375rem; }
 @media (max-width: 620px) { .key { grid-template-columns: minmax(0, 1fr); } }
-
-/* ---------- the reuse player ---------- */
-.player { display: grid; grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); gap: 2rem; align-items: start; }
-@media (max-width: 900px) { .player { grid-template-columns: minmax(0, 1fr); } }
-.controls { display: grid; gap: 1.25rem; min-width: 0; }
-.ctl { display: grid; gap: .45rem; }
-.ctl label, .ctl .lbl { font-size: .8125rem; font-weight: 600; color: var(--ink-2); }
-textarea { font: 500 .875rem/1.5 var(--font-mono); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: .6rem .75rem; resize: vertical; min-height: 7.5rem; width: 100%; }
-.presets { display: flex; flex-wrap: wrap; gap: .4rem; }
-.chipbtn { font: 500 .8125rem/1 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .75rem; cursor: pointer; }
-.chipbtn:hover { border-color: var(--ink-3); }
-.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 3px; gap: 3px; flex-wrap: wrap; }
-.seg button { font: 500 .8125rem/1.2 var(--font-mono); color: var(--ink-2); background: none; border: 0; border-radius: 6px; padding: .4rem .6rem; cursor: pointer; }
-.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); }
-.btn { font: 600 .875rem/1 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .65rem 1.1rem; cursor: pointer; }
-.btn:hover { border-color: var(--ink-3); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
-.btnrow { display: flex; flex-wrap: wrap; gap: .5rem; }
-
-.board { display: grid; gap: 1.25rem; min-width: 0; }
-.lanes { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.25rem; display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) 9rem; gap: 1rem; align-items: center; }
-@media (max-width: 620px) { .lanes { grid-template-columns: minmax(0, 1fr); } }
-.lane { display: grid; gap: .5rem; min-width: 0; }
-.lane .name { font: 600 .75rem var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
-.calls { display: flex; flex-wrap: wrap; gap: .4rem; }
-.call { font: 500 .8125rem/1.25 var(--font-mono); padding: .45rem .6rem; border-radius: 7px; background: var(--paper); color: var(--ink); display: grid; gap: .1rem; min-width: 4.2rem; transition: background .3s; }
-.call small { font-family: var(--font-body); font-size: .6875rem; color: var(--ink-2); }
-.call.reused { background: var(--accent-soft); }
-.call.called { background: var(--slow-soft); }
-.call.empty { background: none; color: var(--ink-3); padding-inline: 0; }
-.pop { animation: pop .35s ease both; }
-@keyframes pop { from { transform: scale(.94); opacity: .4; } to { transform: none; opacity: 1; } }
-.tally { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: baseline; }
-.tally b { font-family: var(--font-display); font-size: var(--step-2); font-weight: 400; }
-.tally span { color: var(--ink-2); font-size: .9375rem; }
-.legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: var(--step--1); color: var(--ink-2); }
-.legend i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; margin-right: .4rem; vertical-align: middle; }
-.why { font-size: .9375rem; color: var(--ink-2); display: grid; gap: .35rem; }
-.hist { font-size: var(--step--1); color: var(--ink-3); }
 
 /* ---------- choices ---------- */
 .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
@@ -274,8 +233,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="7">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="7">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -334,15 +293,36 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; saved runs and reuse</p>
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; saved runs and reuse</p>
   <h1>Save a run and run it <em>again</em></h1>
   <div class="beside">
     <div class="prose">
       <p class="lede">A run is one JSON text. You can store it, load it in another process and go on. When you run a graph again with one thing changed, a call whose arguments conductor has seen before, under the same code, takes its earlier <a href="running-and-streaming.html#outcomes">outcome</a> instead of running.</p>
       <p class="muted">Saving is <code>run.to_json()</code> and <code>Run.from_json(saved, graph)</code>. Running again is <code>run.again(...)</code> and <a href="running-and-streaming.html#start"><code>graph.with_inputs(previous=run)</code></a>.</p>
       <p class="muted">The examples use one small graph. <code>lines</code> splits a text into lines, <code>shout</code> runs once per line, and <code>join</code> gets all of shout's results back as one list.</p>
-      <p class="muted">Where a sample prints the calls made, it ran a copy of these nodes that also records each call. The hashes on this page come from the nodes exactly as shown.</p>
+      <p class="muted">Where a sample prints the calls made, it ran a copy of these nodes that also records each call, and <code>took()</code> returns the calls made since it was last asked. The hashes on this page come from the nodes exactly as shown.</p>
     </div>
+<script type="text/x-python">
+import json
+
+from conductor import Ask, Graph, InvalidCallError, NodeRegistry, Policy, Run, Series, make_graph
+
+registry = NodeRegistry()
+
+
+def dumps(value, indent=0):
+    """JSON indented by 2, with a list that fits on one line kept on one line."""
+    one = json.dumps(value, ensure_ascii=False)
+    if not isinstance(value, (dict, list)) or not value:
+        return one
+    if isinstance(value, list) and not any(isinstance(item, dict) for item in value) and len(one) + indent < 110:
+        return one
+    pad = " " * (indent + 2)
+    if isinstance(value, list):
+        return "[\n" + ",\n".join(pad + dumps(item, indent + 2) for item in value) + "\n" + " " * indent + "]"
+    parts = (pad + json.dumps(key) + ": " + dumps(item, indent + 2) for key, item in value.items())
+    return "{\n" + ",\n".join(parts) + "\n" + " " * indent + "}"
+</script>
     <pre data-lang="py">@registry.node("lines", title="Lines", description="The lines of a text.")
 def lines(text: str) -> Series[str]:
     return text.splitlines()
@@ -420,12 +400,14 @@ graph = Graph.compile(record, registry)</pre>
   <div class="two" style="margin-top:3rem">
     <div class="stack">
       <h3>The finished run as saved</h3>
-      <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line, 547 characters. The sample prints it with <code>dumps</code>, a small helper that indents by 2 and keeps a list that fits on one line on one line. Each entry under <code>fingerprints</code> is a call's fingerprint, taken when the call was made: a hash of the node's code fingerprint and the call's arguments. The code fingerprint hashes the node's id, version, fields, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source, so it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
+      <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line; the sample prints its length first. The sample prints it with <code>dumps</code>, a small helper that indents by 2 and keeps a list that fits on one line on one line. Each entry under <code>fingerprints</code> is a call's fingerprint, taken when the call was made: a hash of the node's code fingerprint and the call's arguments. The code fingerprint hashes the node's id, version, fields, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source, so it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 saved = run.to_json()
+print(len(saved))
 print(dumps(json.loads(saved)))</pre>
     </div>
-    <pre data-lang="json">{
+    <pre data-lang="json" class="out">547
+{
   "graph": "c96702e39729ef2d",
   "ended_early": null,
   "max_items": null,
@@ -470,8 +452,22 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
     </div>
     <div class="stack">
       <h3>A call that isn't done</h3>
-      <p class="muted">A call with no outputs has <code>null</code> in every list. Only a done or a waiting call can have a fingerprint. A waiting call says why under <code>questions</code>, which holds what its <a href="asking-a-person.html#walk"><code>Ask</code></a> said. The <a href="asking-a-person.html">page on asking a person</a> shows one. A call not made because an input got <code>None</code> says why under <code>none_inputs</code>. A skipped call has the state <code>"skipped"</code>. A failed call has only the nulls, and <code>ended_early</code> holds the <a href="problems.html">problem</a>. Here <code>strip</code> returned <code>None</code> for the blank second part of <code>"a, ,c"</code>, and <code>up(line: str)</code> doesn't take <code>None</code>, so it wasn't called for it. Below is the value of <code>outcomes.up</code>.</p>
-      <pre data-lang="json">{
+      <p class="muted">A call with no outputs has <code>null</code> in every list. Only a done or a waiting call can have a fingerprint. A waiting call says why under <code>questions</code>, which holds what its <a href="asking-a-person.html#walk"><code>Ask</code></a> said. The <a href="asking-a-person.html">page on asking a person</a> shows one. A call not made because an input got <code>None</code> says why under <code>none_inputs</code>. A skipped call has the state <code>"skipped"</code>. A failed call has only the nulls, and <code>ended_early</code> holds the <a href="problems.html">problem</a>. Here <code>strip</code> returned <code>None</code> for the blank second part of <code>"a, ,c"</code>, and <code>up(line: str)</code> doesn't take <code>None</code>, so it wasn't called for it.</p>
+      <pre data-lang="py">@registry.node("parts", title="Parts", description="The parts of a text, split at commas.")
+def parts(text: str) -> Series[str]:
+    return text.split(",")
+
+@registry.node("strip", title="Strip", description="A part without spaces, or None when it is blank.")
+def strip(part: str) -> str | None:
+    return part.strip() or None
+
+@registry.node("up", title="Up", description="A line in capitals.")
+def up(line: str) -> str:
+    return line.upper()
+
+blanks = Graph.compile(make_graph(parts, strip, up), registry).run({"text": "a, ,c"})
+print(dumps(json.loads(blanks.to_json())["outcomes"]["up"]))</pre>
+      <pre data-lang="json" class="out">{
   "states": ["done", null, "done"],
   "outputs": {
     "result": ["A", null, "C"]
@@ -485,16 +481,7 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
   </div>
 
   <h3 id="keys" style="margin-top:3rem">Every key of a saved run</h3>
-  <p class="muted" style="margin:.5rem 0 1.25rem;max-width:var(--col)">A key that isn't declared is refused, not dropped. A key that has a default (<code>questions</code>, <code>none_inputs</code>, <code>skipped</code>, <code>skipped_items</code>, and in a reusable entry <code>item_indexes</code>) is left out when it is empty. The top-level keys are always written.</p>
-  <div class="keys">
-    <div class="key"><code class="k">graph</code><p>It is the graph's fingerprint, <code>graph.fingerprint</code>. It hashes the <a href="graph-record-and-compiling.html#record">graph record</a> without each node's <a href="graph-record-and-compiling.html#record"><code>display</code></a>, and each <a href="subgraphs.html#open">subgraph</a>'s fingerprint. A saved run of another graph is refused by it.</p></div>
-    <div class="key"><code class="k">ended_early</code><p>It says how the last <a href="running-and-streaming.html#start"><code>resume()</code></a> ended the run early. It holds the <a href="running-and-streaming.html#status">status</a> and the problem. It is <code>null</code> when it didn't. A copy made while a resume is still going is saved with <code>null</code> here.</p></div>
-    <div class="key"><code class="k">max_items</code><p>The run's <a href="series-and-tables.html#limit">item limit</a>.</p></div>
-    <div class="key"><code class="k">inputs</code><p>The <a href="graph-record-and-compiling.html#record">graph inputs</a> the caller gave, by name.</p></div>
-    <div class="key"><code class="k">outcomes</code><p>It holds the lists above for each function node that has an outcome: <code>states</code>, <code>outputs</code> and <code>fingerprints</code>, then the keys that say why a call isn't done. A node inside a subgraph is named by its path, <a href="subgraphs.html#places"><code>loud/shout</code></a>. A subgraph node is never called, so it has no key.</p></div>
-    <div class="key"><code class="k">reusable</code><p>It holds the previous run's outcomes this run may still reuse, by node. Each outcome is written once, in the same lists as under <code>outcomes</code>, with the fingerprint its call was made with, and the item indexes the call had beside it. It has entries in a run made from a previous run, for the nodes that aren't complete yet.</p></div>
-    <div class="key"><code class="k">complete</code><p>The nodes that were complete when the run last stopped, so going on doesn't report them complete again.</p></div>
-  </div>
+  <p class="muted" style="margin:.5rem 0 0;max-width:var(--col)">The saved run printed above is the example: it has every top-level key, and each node's <code>states</code>, <code>outputs</code> and <code>fingerprints</code>. What each key holds, which keys are left out when empty, and how a saved run is read back are written out once, in <code>python -m conductor.about saving-a-run</code>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -555,7 +542,8 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
     <div class="stack">
       <h3>A value of the wrong type</h3>
       <p class="muted">Put <code>7</code> where shout's second result was. shout's <code>result</code> is declared a <code>str</code>.</p>
-      <pre data-lang="py">data["outcomes"]["shout"]["outputs"]["result"][1] = 7
+      <pre data-lang="py">data = json.loads(saved)
+data["outcomes"]["shout"]["outputs"]["result"][1] = 7
 try:
     Run.from_json(json.dumps(data), graph)
 except InvalidCallError as e:
@@ -565,9 +553,13 @@ except InvalidCallError as e:
     <div class="stack">
       <h3>A call too many</h3>
       <p class="muted">Add a fourth entry to each of shout's lists. Each value is fine on its own, and the lists agree with each other, but <code>lines</code> returned three lines, so shout has three calls. A fault conductor finds in the lists, not pydantic, has the error <code>saved_lists_disagree</code>.</p>
-      <pre data-lang="py">shout = data["outcomes"]["shout"]
-shout["states"].append("done"); shout["outputs"]["result"].append("D!"); shout["fingerprints"].append(None)
-# then from_json and print as on the left</pre>
+      <pre data-lang="py">data = json.loads(saved)
+entry = data["outcomes"]["shout"]
+entry["states"].append("done"); entry["outputs"]["result"].append("D!"); entry["fingerprints"].append(None)
+try:
+    Run.from_json(json.dumps(data), graph)
+except InvalidCallError as e:
+    print(e.problems[0].type, e.problems[0].ctx)</pre>
       <p class="out">saved_run_unreadable {'where': 'outcomes.shout', 'reason': 'its lists have 4 entries, but the saved series give the node 3 calls', 'errors': [{'type': 'saved_lists_disagree', 'loc': [], 'msg': 'its lists have 4 entries, but the saved series give the node 3 calls'}]}</p>
     </div>
   </div>
@@ -581,78 +573,25 @@ shout["states"].append("done"); shout["outputs"]["result"].append("D!"); shout["
 
 <div class="staff" aria-hidden="true"></div>
 
-<!-- ============================ REUSE PLAYER ============================ -->
+<!-- ============================ RUNNING AGAIN ============================ -->
 <section id="again" aria-labelledby="again-h">
   <div class="section-head">
     <p class="eyebrow">Running again</p>
     <h2 id="again-h">A call is reused when it gets the same arguments</h2>
-    <p class="muted"><code>run.again({"text": ...})</code> runs the graph again with some inputs changed and the rest as before.</p>
-    <p class="muted">Change the lines or edit a node below to see which calls would run. Press <b>Run it</b> to make that the previous run.</p>
+    <p class="muted"><code>run.again({"text": ...})</code> runs the graph again with some inputs changed and the rest as before. The rules for what is reused are in <code>python -m conductor.about running-again</code>; the samples below show them on the three nodes.</p>
   </div>
 
-  <div class="player">
-    <div class="controls">
-      <div class="ctl">
-        <label for="text">The graph input <code>text</code> has one line per line</label>
-        <textarea id="text" spellcheck="false">a
-b
-c</textarea>
-        <div class="presets" aria-label="Quick changes">
-          <button class="chipbtn" type="button" data-preset="add">Add a line</button>
-          <button class="chipbtn" type="button" data-preset="first">Put a line first</button>
-          <button class="chipbtn" type="button" data-preset="change">Change line 2</button>
-          <button class="chipbtn" type="button" data-preset="reverse">Reverse</button>
-          <button class="chipbtn" type="button" data-preset="dup">Repeat line 1</button>
-        </div>
-      </div>
-      <div class="ctl">
-        <span class="lbl">shout's code</span>
-        <div class="seg" id="seg-code"><button type="button" data-v="0">+ mark</button><button type="button" data-v="1">+ mark + mark</button></div>
-      </div>
-      <div class="ctl">
-        <span class="lbl">shout's constant <code>mark</code></span>
-        <div class="seg" id="seg-mark"><button type="button" data-v="!">"!"</button><button type="button" data-v="?">"?"</button></div>
-      </div>
-      <div class="ctl">
-        <span class="lbl">join's constant <code>sep</code></span>
-        <div class="seg" id="seg-sep"><button type="button" data-v="+">"+"</button><button type="button" data-v=" ">" "</button></div>
-      </div>
-      <div class="ctl">
-        <span class="lbl">shout's <code>Policy(reuse_when_inputs_match=...)</code></span>
-        <div class="seg" id="seg-reuse"><button type="button" data-v="1">True</button><button type="button" data-v="0">False</button></div>
-      </div>
-      <div class="btnrow">
-        <button class="btn primary" type="button" id="commit">Run it</button>
-        <button class="btn" type="button" id="reset">Start over</button>
-      </div>
-    </div>
-
-    <div class="board" aria-live="polite">
-      <div class="tally" id="tally"></div>
-      <div class="lanes">
-        <div class="lane"><span class="name">lines</span><div class="calls" id="lane-lines"></div></div>
-        <div class="lane"><span class="name">shout runs once per line</span><div class="calls" id="lane-shout"></div></div>
-        <div class="lane"><span class="name">join</span><div class="calls" id="lane-join"></div></div>
-      </div>
-      <div class="legend"><span><i style="background:var(--accent-soft)"></i>reused from the previous run</span><span><i style="background:var(--slow-soft)"></i>called</span></div>
-      <pre data-lang="py" id="call-code"></pre>
-      <div class="why" id="why"></div>
-      <p class="hist" id="hist"></p>
-    </div>
-  </div>
-  <p class="small" style="margin-top:1.25rem;max-width:var(--col)">The player works the rule out in the page. Its rule was checked against the real engine on 40 random chains of six runs each, 240 runs in all, mixing every control above. It agreed on every call made and on every output.</p>
-
-  <div class="two" style="margin-top:3.5rem">
+  <div class="two">
     <div class="stack">
-      <h3>The same thing in code</h3>
-      <p class="muted"><a href="running-and-streaming.html#start"><code>run.with_inputs(...)</code></a> is the new run before it starts. <code>again</code> is that plus <a href="running-and-streaming.html#start"><code>resume()</code></a>. The new run already holds what it may reuse under <code>reusable</code>: each <a href="running-and-streaming.html#outcomes">outcome</a> in the same lists as under <code>outcomes</code>, with the fingerprint its call was made with, and the item indexes the call had. The sample prints <code>ready</code>, then shout's entry under <code>reusable</code>, on the right.</p>
+      <h3>The new run before it starts</h3>
+      <p class="muted"><a href="running-and-streaming.html#start"><code>run.with_inputs(...)</code></a> is the new run before it starts. <code>again</code> is that plus <a href="running-and-streaming.html#start"><code>resume()</code></a>. The new run already holds what it may reuse under <code>reusable</code>: each <a href="running-and-streaming.html#outcomes">outcome</a> in the same lists as under <code>outcomes</code>, with the fingerprint its call was made with, and the item indexes the call had. The sample prints <code>ready</code>, then shout's entry under <code>reusable</code>.</p>
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 fresh = run.with_inputs({"text": "a\nb\nd"})
 print(fresh.status)
 print(dumps(json.loads(fresh.to_json())["reusable"]["shout"]))</pre>
-      <p class="out">ready</p>
     </div>
-    <pre data-lang="json">{
+    <pre data-lang="json" class="out">ready
+{
   "states": ["done", "done", "done"],
   "outputs": {
     "result": ["A!", "B!", "C!"]
@@ -665,24 +604,78 @@ print(dumps(json.loads(fresh.to_json())["reusable"]["shout"]))</pre>
   }
 }</pre>
   </div>
+<script type="text/x-python">
+# A copy of the three nodes that also records each call, and "other": shout with other code.
+made = []
+
+
+def took():
+    calls = list(made)
+    made.clear()
+    return calls
+
+
+def recording(double):
+    nodes = NodeRegistry()
+
+    @nodes.node("lines", title="Lines", description="The lines of a text.")
+    def lines(text: str) -> Series[str]:
+        made.append(("lines",))
+        return text.splitlines()
+
+    if double:
+        @nodes.node("shout", title="Shout", description="Shouts a line.")
+        def shout(line: str, mark: str = "!") -> str:
+            made.append(("shout", line))
+            return line.upper() + mark + mark
+    else:
+        @nodes.node("shout", title="Shout", description="Shouts a line.")
+        def shout(line: str, mark: str = "!") -> str:
+            made.append(("shout", line))
+            return line.upper() + mark
+
+    @nodes.node("join", title="Join", description="Joins every text it is given.")
+    def join(texts: Series[str], sep: str = "+") -> str:
+        made.append(("join",))
+        return sep.join(texts)
+
+    return nodes
+
+
+registry, other = recording(False), recording(True)
+graph = Graph.compile(record, registry)
+</script>
 
   <div class="two" style="margin-top:2.5rem">
     <div class="stack">
-      <h3>Running it twice more</h3>
-      <p class="muted">In the third run, every line was a call last time. <code>d</code> and <code>a</code> have moved, and <code>b</code> is there twice. Each takes an earlier outcome.</p>
-      <pre data-lang="py">second = fresh.resume()
-print(took())   # the calls the recording copy made
-print(second.outputs)
+      <h3>Change a line, then move and repeat them</h3>
+      <p class="muted">The second run changes the last line, so only <code>shout("d")</code> is new. In the third, every line was a call last time: <code>d</code> and <code>a</code> have moved, and <code>b</code> is there twice. Each takes an earlier outcome. <code>lines</code> and <code>join</code> got a new text and a new list, so they are called each time. Once every node is complete, nothing is left under <code>reusable</code>.</p>
+      <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
+print(took())
+second = run.again({"text": "a\nb\nd"})
+print(took(), second.outputs)
 print(json.loads(second.to_json())["reusable"])
 third = second.again({"text": "d\nb\nb\na"})
-print(took())
-print(third.outputs)</pre>
-      <p class="out">[('lines',), ('shout', 'd'), ('join',)]
-{'result': 'A!+B!+D!'}
+print(took(), third.outputs)</pre>
+      <p class="out">[('lines',), ('shout', 'a'), ('shout', 'b'), ('shout', 'c'), ('join',)]
+[('lines',), ('shout', 'd'), ('join',)] {'result': 'A!+B!+D!'}
 {}
-[('lines',), ('join',)]
-{'result': 'D!+B!+B!+A!'}</p>
+[('lines',), ('join',)] {'result': 'D!+B!+B!+A!'}</p>
     </div>
+    <div class="stack">
+      <h3>Change a constant</h3>
+      <p class="muted">Give <code>shout</code> the <a href="graph-record-and-compiling.html#record">constant</a> <code>mark="?"</code>. The mark is one of shout's arguments, so every call of shout gets new arguments and is made again, the repeated <code>b</code> too. <code>lines</code> got the same text, so it is reused. An edited record is a new graph, so the run is made with <code>previous=</code>.</p>
+      <pre data-lang="py">data = json.loads(record.model_dump_json())
+data["nodes"]["shout"]["inputs"]["mark"] = {"constant": "?"}
+asking = Graph.compile(data, registry)
+fourth = asking.with_inputs(third.inputs, previous=third).resume()
+print(took(), fourth.outputs)</pre>
+      <p class="out">[('shout', 'd'), ('shout', 'b'), ('shout', 'b'), ('shout', 'a'), ('join',)] {'result': 'D?+B?+B?+A?'}</p>
+      <p class="muted">Editing a node's code is shown <a href="#edits">across an edit</a> below, and a node that is never reused under <a href="#policy"><code>Policy</code></a>.</p>
+    </div>
+  </div>
+
+  <div class="two" style="margin-top:2.5rem">
     <div class="stack">
       <h3 id="matched-by">What a call is matched by</h3>
       <ul class="plain muted">
@@ -691,30 +684,30 @@ print(third.outputs)</pre>
         <li>An argument with no JSON form gets no fingerprint. That call is made again, and the run doesn't fail.</li>
         <li>Input types are part of the code fingerprint, limits and <a href="nodes-and-types.html#hint">choices</a> too. So a node whose input's limit changed is called again, since its input may refuse the same value.</li>
       </ul>
-      <figure>
-        <div class="diagram">
-          <svg viewBox="0 0 560 300" style="min-width:560px" role="img" aria-label="The code fingerprint hashes the node's id, version, function code, field types, loops and asks. The call fingerprint hashes the code fingerprint with the call's arguments as JSON with sorted keys. A call looks up that fingerprint among the previous run's outcomes.">
-            <defs><marker id="ch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs>
-            <text class="d-title" x="16" y="22">what the call is matched by · the node's code</text>
-            <rect class="d-box" x="16" y="32" width="528" height="56" rx="8"/>
-            <text class="d-sub" x="30" y="54">id · version · the function's parsed source (no name, comments or docstrings)</text>
-            <text class="d-sub" x="30" y="72">its inputs' and outputs' types, and which outputs are branches · its loops · asks</text>
-            <path class="d-edge" d="M130 92 L 130 120" marker-end="url(#ch)"/>
-            <text class="d-title" x="16" y="140">call fingerprint · 24 hex · kept on the outcome</text>
-            <rect class="d-box int" x="16" y="150" width="528" height="56" rx="8"/>
-            <text class="d-label" x="30" y="172">hash([code fingerprint, arguments])</text>
-            <text class="d-sub" x="30" y="192">arguments as JSON with every dict's keys sorted, such as {"line": "b", "mark": "!"}</text>
-            <path class="d-edge" d="M130 210 L 130 238" marker-end="url(#ch)"/>
-            <text class="d-title" x="150" y="234">a node that never asks</text>
-            <rect class="d-box" x="16" y="244" width="528" height="44" rx="8"/>
-            <text class="d-sub" x="30" y="264">1. the previous call at the same item indexes, if its fingerprint is the same</text>
-            <text class="d-sub" x="30" y="280">2. else the first earlier call, in item order, with this fingerprint</text>
-          </svg>
-        </div>
-        <p class="small">The solid boxes are public. The dashed box is how conductor hashes them.</p>
-        <figcaption>The two steps are for a node that never asks. For a node that may ask, the call fingerprint also hashes the call's item in every loop it is inside. Its earlier outcomes are kept in item order, grouped by that fingerprint, and each is taken once (see below).</figcaption>
-      </figure>
     </div>
+    <figure>
+      <div class="diagram">
+        <svg viewBox="0 0 560 300" style="min-width:560px" role="img" aria-label="The code fingerprint hashes the node's id, version, function code, field types, loops and asks. The call fingerprint hashes the code fingerprint with the call's arguments as JSON with sorted keys. A call looks up that fingerprint among the previous run's outcomes.">
+          <defs><marker id="ch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs>
+          <text class="d-title" x="16" y="22">what the call is matched by · the node's code</text>
+          <rect class="d-box" x="16" y="32" width="528" height="56" rx="8"/>
+          <text class="d-sub" x="30" y="54">id · version · the function's parsed source (no name, comments or docstrings)</text>
+          <text class="d-sub" x="30" y="72">its inputs' and outputs' types, and which outputs are branches · its loops · asks</text>
+          <path class="d-edge" d="M130 92 L 130 120" marker-end="url(#ch)"/>
+          <text class="d-title" x="16" y="140">call fingerprint · 24 hex · kept on the outcome</text>
+          <rect class="d-box int" x="16" y="150" width="528" height="56" rx="8"/>
+          <text class="d-label" x="30" y="172">hash([code fingerprint, arguments])</text>
+          <text class="d-sub" x="30" y="192">arguments as JSON with every dict's keys sorted, such as {"line": "b", "mark": "!"}</text>
+          <path class="d-edge" d="M130 210 L 130 238" marker-end="url(#ch)"/>
+          <text class="d-title" x="150" y="234">a node that never asks</text>
+          <rect class="d-box" x="16" y="244" width="528" height="44" rx="8"/>
+          <text class="d-sub" x="30" y="264">1. the previous call at the same item indexes, if its fingerprint is the same</text>
+          <text class="d-sub" x="30" y="280">2. else the first earlier call, in item order, with this fingerprint</text>
+        </svg>
+      </div>
+      <p class="small">The solid boxes are public. The dashed box is how conductor hashes them.</p>
+      <figcaption>The two steps are for a node that never asks. For a node that may ask, the call fingerprint also hashes the call's item in every loop it is inside. Its earlier outcomes are kept in item order, grouped by that fingerprint, and each is taken once (see below).</figcaption>
+    </figure>
   </div>
 </section>
 
@@ -740,11 +733,11 @@ def approve(name: str) -> bool:
     raise Ask(f"Approve {name}?")
 
 g = Graph.compile(make_graph(names, approve), r)
-run = g.run({"text": "bo,bo"})
-run = run.with_answers({w.id: v for w, v in zip(run.waiting, (True, False))}).resume()
-print(run.results["approve"]["result"])
-again = run.again({"text": "eva,bo,bo"})
-print(again.results["approve"]["result"], [w.id for w in again.waiting])</pre>
+asked = g.run({"text": "bo,bo"})
+asked = asked.with_answers({w.id: v for w, v in zip(asked.waiting, (True, False))}).resume()
+print(asked.results["approve"]["result"])
+moved = asked.again({"text": "eva,bo,bo"})
+print(moved.results["approve"]["result"], [w.id for w in moved.waiting])</pre>
       <p class="out">[True, False]
 [None, True, False] ['approve@0~9976b740']</p>
     </div>
@@ -768,7 +761,11 @@ print(again.results["approve"]["result"], [w.id for w in again.waiting])</pre>
     <div class="stack">
       <h3>After an edit to the record, loading is refused and reuse goes on</h3>
       <p class="muted">Give <code>join</code> the <a href="graph-record-and-compiling.html#record">constant</a> <code>sep=" "</code>. The <a href="graph-record-and-compiling.html#record">record</a> changed, so the fingerprint changed, and the old saved run won't load into the edited graph. A change to a node's <a href="graph-record-and-compiling.html#record"><code>display</code></a> is left out of the fingerprint, so a saved run still loads after one.</p>
-      <pre data-lang="py">edited = Graph.compile(data, registry)   # join.sep is now " "
+      <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
+took()   # set the first run's calls aside
+data = json.loads(record.model_dump_json())
+data["nodes"]["join"]["inputs"]["sep"] = {"constant": " "}
+edited = Graph.compile(data, registry)
 print(graph.fingerprint, edited.fingerprint)
 try:
     Run.from_json(run.to_json(), edited)
@@ -785,10 +782,10 @@ print(took(), again.outputs)</pre>
     </div>
     <div class="stack">
       <h3>After an edit to a node's code, loading works and the node runs again</h3>
-      <p class="muted">Declare <code>shout</code> again under the same id and version, with other code, in a new <a href="nodes-and-types.html#registry">registry</a>. The record is the same, so the graph fingerprint is the same, and the saved run loads. Shout's saved fingerprints were taken with the old code, so no call of the new code matches them. Shout's outcomes stay in the run, but they won't be reused. In the new run, <code>lines</code> is not called. <code>join</code> is, because shout's new results are new arguments for it.</p>
-      <pre data-lang="py">g2 = Graph.compile(record, other)   # shout returns line.upper() + mark + mark
+      <p class="muted">Declare <code>shout</code> again under the same id and version, with other code, in a new <a href="nodes-and-types.html#registry">registry</a>, <code>other</code>. Load <code>run</code>, the run on the left, saved. The record is the same, so the graph fingerprint is the same, and the saved run loads. Shout's saved fingerprints were taken with the old code, so no call of the new code matches them. Shout's outcomes stay in the run, but they won't be reused. In the new run, <code>lines</code> is not called. <code>join</code> is, because shout's new results are new arguments for it.</p>
+      <pre data-lang="py">g2 = Graph.compile(record, other)   # other's shout returns line.upper() + mark + mark
 print(graph.fingerprint == g2.fingerprint)
-back = Run.from_json(saved, g2)
+back = Run.from_json(run.to_json(), g2)
 print(back.status, back.results["shout"]["result"])
 again = back.again({"text": "a\nb\nc"})
 print(took(), again.outputs)</pre>
@@ -800,7 +797,7 @@ complete ['A!', 'B!', 'C!']
 
   <div class="prose" style="margin-top:2.5rem">
     <h3 id="kept">What is kept of a previous run</h3>
-    <p class="muted">A run made from a previous one keeps a function node's previous outcomes under <code>reusable</code>. It keeps them only when the new graph has a node at the same path, with the same code fingerprint, and a <a href="nodes-and-types.html#context"><code>Policy</code></a> that allows reuse.</p>
+    <p class="muted">The rules are in <code>python -m conductor.about running-again</code>. In short: a run made from a previous one keeps a function node's previous outcomes under <code>reusable</code>. It keeps them only when the new graph has a node at the same path, with the same code fingerprint, and a <a href="nodes-and-types.html#context"><code>Policy</code></a> that allows reuse.</p>
     <ul class="plain muted">
       <li>It keeps the calls that were made: their results, and a <a href="asking-a-person.html#questions">question</a> still waiting. A skipped call, or one not made because an input got <code>None</code>, has nothing to reuse.</li>
       <li>It also carries on what the previous run could have reused and didn't, for each node that isn't complete. When a node is complete, its unused reusable outcomes are dropped.</li>
@@ -865,18 +862,9 @@ print(calls)</pre>
   <div class="section-head">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part</h2>
+    <p class="muted">Why a saved run keeps a list per output and no item indexes, why reuse goes by content, why the code in the key is the function's own, and why unused outcomes are dropped once a node is complete are in the design guide, <a href="../design/">docs/design.md</a>, under "<code>Graph</code> and <code>Run</code>" and "Saved runs, checkpoints and events". Two choices the guide doesn't cover:</p>
   </div>
   <div class="choices">
-    <article class="choice">
-      <h3>A saved run has a list per output, not a record per call.<span class="lvl pub">Public</span></h3>
-      <p>Pydantic checks a whole list in one go, where a record per call would cost a check each. Each output's name is written once. And a call too many or too few makes a list of the wrong length, which reading refuses.</p>
-      <p class="cost"><b>Cost:</b> one call's <a href="running-and-streaming.html#outcomes">outcome</a> is spread across several lists (its states, outputs and fingerprints), and the extra keys (<code>questions</code>, <code>none_inputs</code>, <code>skipped</code>, <code>skipped_items</code>) point back into them by call number.</p>
-    </article>
-    <article class="choice">
-      <h3>Item indexes aren't saved.<span class="lvl pub">Public</span></h3>
-      <p>Reading works them out from the lengths of the <a href="series-and-tables.html#loop">series</a> upstream, so a saved run can't name a call the graph wouldn't make.</p>
-      <p class="cost"><b>Cost:</b> reading goes node by node, in the order a run tries them, since each node's calls depend on the nodes before it.</p>
-    </article>
     <article class="choice">
       <h3>Each graph gets its own codec.<span class="lvl int">Internal</span></h3>
       <p>The node names, output names and value types are fields of one pydantic model, so a single pass checks every key and value, and an error comes with the place it is in. What you see of it is the place a <code>saved_run_unreadable</code> names.</p>
@@ -884,28 +872,8 @@ print(calls)</pre>
     </article>
     <article class="choice">
       <h3>Loading checks the graph and reuse checks the node.<span class="lvl pub">Public</span></h3>
-      <p>A saved run only makes sense against the graph it ran on, so the graph fingerprint gates <code>from_json</code>. Work is worth keeping across an edit, so reuse is decided per node by its code fingerprint, through <code>previous=</code>.</p>
+      <p>A saved run only makes sense against the graph it ran on, so the graph fingerprint gates <code>from_json</code>. Work is worth keeping across an edit, so reuse is decided per call by its fingerprint, through <code>previous=</code>.</p>
       <p class="cost"><b>Cost:</b> any edit to the <a href="graph-record-and-compiling.html#record">record</a> other than <a href="graph-record-and-compiling.html#record"><code>display</code></a> means a new run. The saved run of the old graph can't be loaded into it.</p>
-    </article>
-    <article class="choice">
-      <h3>Reuse goes by content, not by place.<span class="lvl pub">Public</span></h3>
-      <p>Insert a line, reorder the lines, or repeat one, and the calls that see a value they saw before take its outcome.</p>
-      <p class="cost"><b>Cost:</b> every call's arguments are written as JSON and hashed when the call is made, since its outcome keeps the fingerprint. A call with an argument that has no JSON form isn't reused.</p>
-    </article>
-    <article class="choice">
-      <h3>The code in the key is the function's own.<span class="lvl pub">Public</span></h3>
-      <p>The code fingerprint takes the function's source as Python parses it, without its name, decorators, comments and docstrings. So a docstring edit keeps the outcomes, and so does a new Python version. Hashing all the code a node can reach would be slow, and would still miss the outside world.</p>
-      <p class="cost"><b>Cost:</b> a change to anything the function reads from outside its own source isn't noticed: a module constant such as a prompt template, a helper it calls, a method of a type it uses, a data file it opens. To call the node again, make the run with <code>run.with_forgotten("node")</code>, or declare a new version of the node and move the graph to it with <code>registry.upgrade</code>. A node whose result depends on more than its inputs on every call sets <code>reuse_when_inputs_match=False</code>. A function whose source conductor can't read is hashed by its bytecode: a lambda, a function made by <code>exec</code>, or one defined where Python keeps no source. A def's bytecode includes its docstring. Bytecode changes with the Python version, so after a new one nothing of such a node is reused, answers included, and its <a href="asking-a-person.html#ids">waiting calls' ids</a> change.</p>
-    </article>
-    <article class="choice">
-      <h3>The context is not in the key.<span class="lvl pub">Public</span></h3>
-      <p><a href="nodes-and-types.html#context">The context</a> is the host's objects for one run. It is never saved, so it can't be compared with the previous run's.</p>
-      <p class="cost"><b>Cost:</b> a node whose result depends on the context still has its outcome reused when its arguments match, unless its <a href="nodes-and-types.html#context">policy</a> says no.</p>
-    </article>
-    <article class="choice">
-      <h3>Unused outcomes are dropped once a node is complete.<span class="lvl pub">Public</span></h3>
-      <p>Without the drop, a saved run would grow with every edit. A test edits one row of a 10,000-row input five times, and the saved run's size varies by less than 100 characters. A node that isn't complete keeps them, such as one with a <a href="asking-a-person.html#questions">question</a> still waiting, so an answer survives an edit and its revert.</p>
-      <p class="cost"><b>Cost:</b> undoing an edit in the next run calls the node again for the items the edit took out. Going from a,b,c to a,b,d and back to a,b,c calls <code>shout("c")</code> again.</p>
     </article>
   </div>
 </section>
@@ -955,135 +923,8 @@ print(calls)</pre>
   }
   function paint(pre) { hang(pre, highlight(pre.textContent, pre.dataset.lang)); }
   document.querySelectorAll("pre[data-lang]").forEach(paint);
-  document.querySelectorAll(".out").forEach((o) => hang(o, esc(o.textContent)));
+  document.querySelectorAll(".out:not(pre[data-lang])").forEach((o) => hang(o, esc(o.textContent)));
 
-  /* ======================= THE REUSE PLAYER =======================
-     The rule for lines -> shout -> join after a complete run: a call is reused when the previous
-     run had a call of the same node, under the same code fingerprint and a Policy that allows
-     reuse, with the same arguments (as JSON). Checked against the engine on 240 runs.
-     ================================================================= */
-  function step(prev, s) {
-    const items = s.text === "" ? [] : s.text.split("\n");
-    const shoutOut = (line) => line.toUpperCase() + s.mark + (s.code ? s.mark : "");
-    const res = { state: s, lines: null, shout: [], join: null, keys: {}, why: {} };
-    // lines
-    const lk = prev ? prev.keys.lines : new Set(), lkey = JSON.stringify(s.text);
-    res.lines = lk.has(lkey) ? "reused" : "called";
-    res.keys.lines = new Set([lkey]);
-    // shout
-    const codeSame = prev && prev.state.code === s.code;
-    const sk = prev && codeSame && s.reuse ? prev.keys.shout : new Set();
-    res.why.shout = !prev ? "first" : !codeSame ? "code" : !s.reuse ? "policy" : null;
-    res.keys.shout = new Set();
-    const outs = items.map((line) => {
-      const k = JSON.stringify([line, s.mark]);
-      res.shout.push({ line, how: sk.has(k) ? "reused" : "called", out: shoutOut(line) });
-      res.keys.shout.add(k);
-      return shoutOut(line);
-    });
-    const jk = prev ? prev.keys.join : new Set(), jkey = JSON.stringify([outs, s.sep]);
-    res.join = jk.has(jkey) ? "reused" : "called";
-    res.keys.join = new Set([jkey]);
-    res.output = outs.join(s.sep);
-    return res;
-  }
-
-  const START = { text: "a\nb\nc", code: 0, mark: "!", sep: "+", reuse: true };
-  let prev, cfg, history;
-  const textEl = $("#text");
-
-  function reset() {
-    prev = step(null, Object.assign({}, START));
-    cfg = Object.assign({}, START);
-    history = ['run = graph.run({"text": "a\\nb\\nc"})  # first run: every call made'];
-    textEl.value = cfg.text;
-    sync(); render(true);
-  }
-  function sync() {
-    const set = (id, v) => document.querySelectorAll(id + " button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
-    set("#seg-code", cfg.code); set("#seg-mark", cfg.mark); set("#seg-sep", cfg.sep); set("#seg-reuse", cfg.reuse ? 1 : 0);
-  }
-  const pyText = (t) => JSON.stringify(t);
-
-  function render(animate) {
-    cfg.text = textEl.value.replace(/\r/g, "").replace(/\n+$/, "");
-    const r = step(prev, cfg);
-    const cell = (label, how, sub) =>
-      '<div class="call ' + how + (animate && !reduced ? " pop" : "") + '">' + esc(label) + "<small>" + (how === "reused" ? "reused" : "called") + (sub ? " · " + esc(sub) : "") + "</small></div>";
-    $("#lane-lines").innerHTML = cell("lines", r.lines, r.shout.length + (r.shout.length === 1 ? " line" : " lines"));
-    $("#lane-shout").innerHTML = r.shout.length
-      ? r.shout.map((c) => cell(JSON.stringify(c.line), c.how, c.out)).join("")
-      : '<div class="call empty">no calls: lines returned []</div>';
-    $("#lane-join").innerHTML = cell("join", r.join, JSON.stringify(r.output));
-    const all = [r.lines, ...r.shout.map((c) => c.how), r.join];
-    const made = all.filter((h) => h === "called").length;
-    $("#tally").innerHTML = "<b>" + made + "</b><span>" + (made === 1 ? "call made" : "calls made") + "</span><b>" + (all.length - made) + "</b><span>reused</span>";
-
-    // the code a host would write for this step
-    const p = prev.state;
-    const graphEdited = p.mark !== cfg.mark || p.sep !== cfg.sep;
-    const nodeEdited = p.code !== cfg.code || p.reuse !== cfg.reuse;
-    let code;
-    if (graphEdited || nodeEdited) {
-      const what = [];
-      if (nodeEdited) what.push("the registry has the new shout");
-      if (graphEdited) what.push("the record has the new constant");
-      code = "# " + what.join(", and ") + "\nedited = Graph.compile(record, registry)\nrun = edited.with_inputs({\"text\": " + pyText(cfg.text) + "}, previous=run).resume()";
-    } else {
-      code = "run = run.again({\"text\": " + pyText(cfg.text) + "})";
-    }
-    const pre = $("#call-code"); pre.textContent = code; paint(pre);
-
-    // why
-    const why = [];
-    if (r.why.shout === "code") why.push("shout's code changed, so none of its earlier outcomes is offered. Every call of shout is made.");
-    else if (r.why.shout === "policy") why.push("shout's policy says reuse_when_inputs_match=False, so every call of shout is made.");
-    else {
-      const re = r.shout.filter((c) => c.how === "reused").length;
-      if (r.shout.length) why.push(re === r.shout.length ? "Every line, with the mark " + JSON.stringify(cfg.mark) + ", was a call of shout last time, at the same place or another." : re ? "Shout is called only for the lines it hasn't seen with this mark." : "No line got these arguments last time, so shout is called for each.");
-    }
-    if (p.mark !== cfg.mark) why.push("The mark is one of shout's arguments, so a new mark is a new argument for every call.");
-    why.push(r.lines === "reused" ? "lines got the same text, so its outcome is reused." : "lines got a new text, so it is called.");
-    why.push(r.join === "reused" ? "join got the same list of texts and the same sep, so it is reused." : p.sep !== cfg.sep ? "join got a new sep, so it is called." : "join got a list of texts it hasn't seen, so it is called.");
-    $("#why").innerHTML = why.map((w) => "<p>" + esc(w) + "</p>").join("");
-    $("#hist").textContent = "Runs so far: " + history.length + ". The previous run had the text " + JSON.stringify(p.text) + ".";
-    return r;
-  }
-
-  document.querySelectorAll(".seg").forEach((seg) => {
-    seg.addEventListener("click", (e) => {
-      const b = e.target.closest("button"); if (!b) return;
-      const v = b.dataset.v;
-      if (seg.id === "seg-code") cfg.code = Number(v);
-      if (seg.id === "seg-mark") cfg.mark = v;
-      if (seg.id === "seg-sep") cfg.sep = v;
-      if (seg.id === "seg-reuse") cfg.reuse = v === "1";
-      sync(); render(true);
-    });
-  });
-  textEl.addEventListener("input", () => render(false));
-  const NEW = ["d", "e", "f", "g", "h", "x", "y", "z"];
-  const fresh = (ls) => NEW.find((n) => !ls.includes(n)) || "new";
-  document.querySelectorAll("[data-preset]").forEach((b) => b.addEventListener("click", () => {
-    const ls = textEl.value.replace(/\n+$/, "") === "" ? [] : textEl.value.replace(/\n+$/, "").split("\n");
-    const k = b.dataset.preset;
-    if (k === "add") ls.push(fresh(ls));
-    if (k === "first") ls.unshift(fresh(ls));
-    if (k === "change") { if (ls.length > 1) ls[1] = fresh(ls); else ls.push(fresh(ls)); }
-    if (k === "reverse") ls.reverse();
-    if (k === "dup") { if (ls.length) ls.push(ls[0]); }
-    textEl.value = ls.join("\n");
-    render(true);
-  }));
-  $("#commit").addEventListener("click", () => {
-    const r = render(false);
-    prev = r;
-    cfg = Object.assign({}, r.state);
-    history.push(cfg.text);
-    render(true);
-  });
-  $("#reset").addEventListener("click", reset);
-  reset();
 })();
 </script>
 

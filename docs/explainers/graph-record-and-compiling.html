@@ -5,12 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Graph Record and Compiling</title>
 <style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor series.
    Layout: one reading column (about 68ch) that widens to 1120px for the
    figures and the break-it bench; sections are separated by space and
    a faint staff of rules, never by boxes.
@@ -33,11 +30,11 @@
   --code-key: #2a4fd6;
   --code-str: #1d7a4e;
   --code-com: #7b8798;
-  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
 
-  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
-  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --step--1: 0.8125rem;
   --step-0: 1rem;
   --step-1: 1.1875rem;
@@ -58,7 +55,7 @@
     --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
     --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --ok-soft: #12291f; --code-bg: #111821;
     --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
     color-scheme: dark;
   }
@@ -68,7 +65,7 @@
   --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
   --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --ok-soft: #12291f; --code-bg: #111821;
   --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
-  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
   color-scheme: dark;
 }
@@ -145,6 +142,9 @@ figure { margin: 0; display: grid; gap: .8rem; min-width: 0; }
 .fig svg { width: 100%; height: auto; display: block; }
 @media (max-width: 900px) { .fig svg { min-width: 560px; } }
 .out.labelled::before { display: none; }
+/* a JSON block a hidden step prints, so it is checked, shown as any JSON block is */
+pre.out.record { color: var(--ink); background: var(--code-bg); padding: .9rem 1rem; border-left: 0; border-radius: 8px; }
+pre.out.record::before { display: none; }
 .ln { display: block; }
 figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
 .d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
@@ -311,8 +311,8 @@ body { margin: 0; }
 </style>
 </head>
 <body>
-<nav class="sbar" aria-label="Conductor 2.0 series" data-page="3">
-  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+<nav class="sbar" aria-label="Conductor series" data-page="3">
+  <a class="sbar-home" href="overview.html">Conductor</a>
   <div class="sbar-order">
     <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
     <ol class="sbar-list" id="sbar-list" hidden></ol>
@@ -371,7 +371,7 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 3 of 11</p>
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; page 3 of 11</p>
   <h1>The graph record and <em>compiling</em></h1>
   <div class="prose">
     <p class="lede">A graph reaches conductor as data. It is a small JSON record that says which nodes there are and what each of their inputs gets. Compiling checks that record against the nodes a registry has, works out how the graph will run, and lists whatever is wrong with it. The result is a <code>Graph</code>, which a host keeps and starts runs from.</p>
@@ -410,6 +410,31 @@ body { margin: 0; }
     <p class="muted">The example graph on this page has the three nodes in the first sample.</p>
   </div>
 
+  <script type="text/x-python">
+import json
+from typing import Any, TypedDict, TypeVar
+
+from conductor import (
+    SKIPPED, Graph, GraphRecord, InvalidCallError, NodeRegistry, Series, Upgrade, make_graph, node, read_json,
+)
+
+
+def dumps(value, depth=0, head=""):
+    """Lays JSON out as these pages do: two spaces of indent, one key per line, a list on one line if it fits."""
+    pad = "  " * depth
+    if isinstance(value, dict) and value:
+        inner = ",\n".join(dumps(v, depth + 1, json.dumps(k) + ": ") for k, v in value.items())
+        return pad + head + "{\n" + inner + "\n" + pad + "}"
+    if isinstance(value, list) and value:
+        one = json.dumps(value)
+        if len(pad + head) + len(one) + 1 <= 80:
+            return pad + head + one
+        return pad + head + "[\n" + ",\n".join(dumps(v, depth + 1) for v in value) + "\n" + pad + "]"
+    return pad + head + json.dumps(value)
+
+
+registry = NodeRegistry()
+  </script>
   <div class="pair">
     <div class="stack">
       <pre data-lang="py">@registry.node("lines", title="Lines", description="Splits a text into lines.")
@@ -423,7 +448,14 @@ def shout(line: str, mark: str = "!") -> str:
 @registry.node("join", title="Join", description="Joins texts with a plus.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)</pre>
-      <pre data-lang="json">{
+      <script type="text/x-python">
+record = make_graph(lines, shout, join, constants={"shout.mark": "?"})
+data = json.loads(record.model_dump_json())
+for entry in data["nodes"].values():  # make_graph doesn't keep an order of a node's inputs, so show them by name
+    entry["inputs"] = dict(sorted(entry["inputs"].items()))
+print(dumps(data))
+      </script>
+      <pre data-lang="json" class="out record">{
   "nodes": {
     "lines": {
       "node": "lines",
@@ -462,9 +494,9 @@ def join(texts: Series[str]) -> str:
 }</pre>
     </div>
     <div class="stack">
-      <p>A <code>GraphRecord</code> has two fields. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
+      <p>This record is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>nodes</code> and <code>outputs</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
       <p>A <code>NodeRecord</code> names the node it uses in <code>node</code>, its <code>version</code> (1 unless it says otherwise), its <code>inputs</code>, and <code>display</code>. That last one is the host's own data, like a position on a canvas. Conductor saves it and doesn't read it, and it's left out of the <a href="saved-runs-and-reuse.html#keys">graph's fingerprint</a>.</p>
-      <p>Each input's <code>InputEntry</code> is one of three kinds:</p>
+      <p>Each input's <code>InputEntry</code> is one of these kinds (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
       <ul class="muted" style="display:grid;gap:.4rem;padding-left:1.1rem">
         <li><code>{"constant": "?"}</code>: the same value on every call of every run.</li>
         <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. Add <code>"default"</code> for a value to use when the caller gives none. Several inputs may name one graph input and share its value.</li>
@@ -530,7 +562,7 @@ def join(texts: Series[str]) -> str:
     <div class="kind"><b>lines.result</b><span class="mode">Source("lines", "result")</span><p>It is an output of a node, written as its id, a dot and the output's name. This is where an edge or a graph output reads from.</p></div>
     <div class="kind"><b>read.result.email</b><span class="mode">Source("read", "result", "email")</span><p>It is one field of the value an output returns. A field's name may itself have dots, as in <code>"Amount in USD."</code>, but it can't start with one.</p></div>
     <div class="kind"><b>loud/shout</b><span class="mode">("loud", "shout")</span><p>A <a href="subgraphs.html#places">node path</a> names the node <code>shout</code> inside the <a href="subgraphs.html#open">subgraph node</a> <code>loud</code>. Only the engine and its problems write one. A graph record never does.</p></div>
-    <div class="kind"><b>a name</b><span class="mode">^[^./@~]+$</span><p>Every node id, input, output, graph input and graph output in a record is a name. A name isn't empty and has none of <code>.</code> <code>/</code> <code>@</code> <code>~</code>. Those are the characters places are written with.</p></div>
+    <div class="kind"><b>a name</b><span class="mode">"shout", "text-split"</span><p>Every node id, input, output, graph input and graph output in a record is a name. <code>"a.b"</code> and <code>"loud/shout"</code> aren't names, since places are written with those characters. The rule is in <code>python -m conductor.about the-graph-record</code>.</p></div>
   </div>
   <p class="prose muted" style="margin-top:1.75rem"><code>make_graph</code> is the one place that reads a place written as dotted text. A record stores a source as separate fields, <code>{"node", "output", "field"}</code>, so nothing parses it there. A graph output must be a whole output. One with a <code>field</code> is refused as <code>invalid_record</code>, and the one error in its <code>ctx.errors</code> is <code>output_has_field</code>.</p>
 </section>
@@ -615,9 +647,13 @@ invalid_record ('record',) repeated_key</pre>
     </div>
     <div class="stack">
       <h3>A shape fault and a graph fault</h3>
-      <pre data-lang="py">Graph.compile({"nodes": {"s": {"node": "shout", "inputs": {
-    "line": {"constant": "a", "graph_input": "line"}}}}}, registry)
-# raises InvalidCallError:</pre>
+      <pre data-lang="py">try:
+    Graph.compile({"nodes": {"s": {"node": "shout", "inputs": {
+        "line": {"constant": "a", "graph_input": "line"}}}}}, registry)
+except InvalidCallError as error:
+    (p,) = error.problems
+    print(p.type, p.loc, p.ctx["errors"][0]["type"])
+    print(p.msg)</pre>
       <pre class="out">invalid_record ('record', 'nodes', 's', 'inputs', 'line') one_of_constant_graph_input_sources
 This isn't a valid graph record. At 'nodes.s.inputs.line': an input must get exactly one of a constant, a graph input or sources. Fix the record's JSON.</pre>
       <pre data-lang="py">half = Graph.compile({"nodes": {"s": {"node": "shout"}, "j": {"node": "join",
@@ -625,11 +661,15 @@ This isn't a valid graph record. At 'nodes.s.inputs.line': an input must get exa
 print(half)
 for p in half.problems:
     print(p.type, p.loc, p.msg)
-half.run()   # raises InvalidCallError: ['input_has_no_value', 'type_mismatch_series_given_one_value']</pre>
+try:
+    half.run()
+except InvalidCallError as error:
+    print([p.type for p in error.problems])</pre>
       <p class="label">printed &middot; the first line is <code>Graph</code>'s repr <span class="lvl int">Internal</span></p>
       <pre class="out labelled">&lt;Graph of 2 nodes, 2 problems&gt;
 input_has_no_value ('s', 'line') 'line' gets no value. Wire an edge into it, give it a constant, or make it a graph input.
-type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call of 'j' one str, but 'j.texts' takes a Series of str. To give it every item of a loop, collect them first in a node outside the loop that takes a Series. Else make it an input that takes one str.</pre>
+type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call of 'j' one str, but 'j.texts' takes a Series of str. To give it every item of a loop, collect them first in a node outside the loop that takes a Series. Else make it an input that takes one str.
+['input_has_no_value', 'type_mismatch_series_given_one_value']</pre>
     </div>
   </div>
   <p class="prose muted" style="margin-top:1.5rem">The half-drawn graph has two problems, and each is true of it as drawn. With no edge into <code>s.line</code>, <code>s</code> is in no <a href="series-and-tables.html#loop">loop</a>. So it gives <code>j</code> one value, and <code>j.texts</code> takes a <code>Series</code>.</p>
@@ -642,7 +682,7 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
   <div class="section-head prose">
     <p class="eyebrow">Try it</p>
     <h2 id="bench-h">Break the record and see what compiling says <span class="lvl pub">Public</span></h2>
-    <p class="muted">Each button changes one thing in the example record. The drawing is the graph as <code>describe()</code> shows it. In the drawing, a node outlined in orange has a <a href="problems.html">problem</a>, a faded orange node with its id struck through didn't compile, and a dashed orange edge leads into an input whose source is <code>missing</code>, into a node that didn't compile, or to a graph output that isn't there. Every result was printed by compiling that record against the three nodes above and <code>count</code>. The page only shows it.</p>
+    <p class="muted">Each button changes one thing in the example record. The drawing is the graph as <code>describe()</code> shows it. In the drawing, a node outlined in orange has a <a href="problems.html">problem</a>, a faded orange node with its id struck through didn't compile, and a dashed orange edge leads into an input whose source is <code>missing</code>, into a node that didn't compile, or to a graph output that isn't there. Every result was printed by compiling that record against the three nodes above and <code>count</code>, which <a href="#fit">the section on edges</a> defines. The page keeps these results as data and doesn't run them.</p>
   </div>
   <div class="bench">
     <div class="picks" id="picks"></div>
@@ -670,16 +710,16 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
     <div>
     <div class="steps-head">
       <p class="label">The steps of the <code class="int" title="Internal">Compiler</code> <span class="lvl int">Internal</span></p>
-      <p class="small">Under each step are the <a href="problems.html">problems</a> it can find. Step 1's is raised. The others go in <code>graph.problems</code>.</p>
+      <p class="small">A wrong shape in step 1 raises. Every fault found after it goes in <code>graph.problems</code>. The kinds of problem each step can find, each with an example, are in the <a href="../problems/">problems page</a>'s section on compiling a graph (<code>python -m conductor.about compiling-a-graph</code>).</p>
     </div>
     <ol class="steps">
-      <li><div><p><b>Check the shape.</b> <code class="int" title="Internal">RecordValidator</code> turns the input into a <code>GraphRecord</code>, or raises.</p><p class="codes">invalid_record</p></div></li>
-      <li><div><p><b>Put the nodes in order.</b> Each node comes after the nodes its edges come from, with ties broken by id. Every node on a cycle gets a problem, and compiling goes on from the first of them by id.</p><p class="codes">cycle</p></div></li>
-      <li><div><p><b>Find each node's definition</b> in the registry, at the version the record names.</p><p class="codes">unknown_node &middot; unknown_version &middot; <a href="subgraphs.html#compile">subgraph_contains_itself</a></p></div></li>
-      <li><div><p><b>Check the node's context</b>, then each constant and default by its input's type. Then call <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a>, if the node has it, with those constants. The inputs it returns join the node's own.</p><p class="codes"><a href="nodes-and-types.html#context">context_does_not_fit</a> &middot; invalid_value &middot; <a href="nodes-and-types.html#hooks">input_takes_only_a_constant</a> &middot; input_has_no_value_constant_only &middot; compute_hook_failed &middot; compute_hook_raised &middot; compute_hook_returned_invalid</p></div></li>
-      <li><div><p><b>Give each input a compiled input</b>, and check that each edge's type fits the input. The loops a node is in follow from its inputs.</p><p class="codes">unknown_input &middot; edge_names_missing_node &middot; unknown_output &middot; type_mismatch &middot; type_mismatch_series_given_one_value &middot; type_mismatch_series_into_list &middot; input_has_no_value &middot; several_edges_into_one_input &middot; graph_input_used_two_ways &middot; <a href="series-and-tables.html#inputs">series_not_nested</a> &middot; ...</p></div></li>
-      <li><div><p><b>Call <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a></b>, if the node has it, with the constants and the types the edges carry. What it returns replaces the outputs the node declares.</p><p class="codes">compute_hook_failed &middot; compute_hook_raised &middot; compute_hook_returned_invalid</p></div></li>
-      <li><div><p><b>Check the graph outputs.</b> Each must name an output of a node the graph has.</p><p class="codes">graph_output_not_found &middot; graph_output_names_missing_node</p></div></li>
+      <li><div><p><b>Check the shape.</b> <code class="int" title="Internal">RecordValidator</code> turns the input into a <code>GraphRecord</code>, or raises.</p></div></li>
+      <li><div><p><b>Put the nodes in order.</b> Each node comes after the nodes its edges come from, with ties broken by id. Every node on a cycle gets a problem, and compiling goes on from the first of them by id.</p></div></li>
+      <li><div><p><b>Find each node's definition</b> in the registry, at the version the record names.</p></div></li>
+      <li><div><p><b>Check the node's context</b>, then each constant and default by its input's type. Then call <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a>, if the node has it, with those constants. The inputs it returns join the node's own.</p></div></li>
+      <li><div><p><b>Give each input a compiled input</b>, and check that each edge's type fits the input. The loops a node is in follow from its inputs.</p></div></li>
+      <li><div><p><b>Call <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a></b>, if the node has it, with the constants and the types the edges carry. What it returns replaces the outputs the node declares.</p></div></li>
+      <li><div><p><b>Check the graph outputs.</b> Each must name an output of a node the graph has.</p></div></li>
     </ol>
     </div>
     <div class="stack">
@@ -690,7 +730,7 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
   </div>
 
   <h3 id="input-kinds" style="margin-top:3.5rem">Where each input gets its value</h3>
-  <p class="prose muted" style="margin-top:.5rem">Inside, each input of a compiled node is one of five frozen dataclasses in <code class="int" title="Internal">graph/input.py</code>. Each says where the value comes from. You see them in <code>describe()</code>, as the <code>mode</code> of the input's <code>InputSource</code>. Each card names the dataclass and the modes it shows as.</p>
+  <p class="prose muted" style="margin-top:.5rem">Inside, each input of a compiled node is one of the frozen dataclasses in <code class="int" title="Internal">graph/input.py</code>. Each says where the value comes from. You see them in <code>describe()</code>, as the <code>mode</code> of the input's <code>InputSource</code>. Each card names the dataclass and the modes it shows as.</p>
   <div class="kinds five" style="margin-top:1.5rem">
     <div class="kind"><b><code class="int" title="Internal">ConstantInput</code></b><span class="mode">mode: constant</span><p>It is the record's constant, checked by the input's type when compiling, or else the node's own default, as for <code>shout.mark</code>.</p></div>
     <div class="kind"><b><code class="int" title="Internal">GraphInput</code></b><span class="mode">mode: graph_input</span><p>The caller gives it, by the graph input's name, as for <code>lines.text</code>.</p></div>
@@ -758,33 +798,73 @@ shout lines.result [('line', 'item', 'lines.result'), ('mark', 'constant', None)
     <h2 id="fit-h">Whether an edge's types fit <span class="lvl pub">Public</span></h2>
     <p class="muted">Compiling checks whether a value of an edge's output type can go to its input's type, from the declared types alone. An edge that doesn't fit is the <a href="problems.html">problem</a> <code>type_mismatch</code>, before anything runs. A few common mistakes have a <a href="problems.html#kinds">kind of their own</a>, whose message says the fix.</p>
   </div>
-  <div class="fit" role="table" aria-label="Examples of what fits">
-    <div class="fit-row" role="row"><code>int</code><span aria-hidden="true">&rarr;</span><code>float</code><span><b class="yes">fits.</b> An <code>int</code> is widened to a <code>float</code>.</span></div>
-    <div class="fit-row" role="row"><code>bool</code><span aria-hidden="true">&rarr;</span><code>float</code><span><b class="no">type_mismatch.</b> A yes or no isn't a number, though Python's <code>bool</code> is an <code>int</code>.</span></div>
-    <div class="fit-row" role="row"><code>int</code><span aria-hidden="true">&rarr;</span><code>str</code><span><b class="no">type_mismatch.</b> The classes don't match and nothing widens one to the other.</span></div>
-    <div class="fit-row" role="row"><code>anything</code><span aria-hidden="true">&rarr;</span><code>Any</code><span><b class="yes">fits.</b> An <code>Any</code> output fits any input too.</span></div>
-    <div class="fit-row" role="row"><code>list[int]</code><span aria-hidden="true">&rarr;</span><code>list[T]</code><span><b class="yes">fits</b>, and binds <code>T</code> to <code>int</code> for that node.</span></div>
-    <div class="fit-row" role="row"><code>Series[str]</code><span aria-hidden="true">&rarr;</span><code>list[str]</code><span><b class="no">type_mismatch_series_into_list.</b> The edge gives one item per call. Declaring the input <code>Series[str]</code> takes every item as one list.</span></div>
-    <div class="fit-row" role="row"><code>TypedDict</code><span aria-hidden="true">&rarr;</span><code>TypedDict</code><span><b class="yes">fits</b> by keys. Every key the input names is there, with a type that fits.</span></div>
-  </div>
-  <div class="pair" style="margin-top:2rem">
-    <pre data-lang="py">@node("half", title="Half", description="Halves a number.")
-def half(n: float) -> float: ...
+  <div class="pair">
+    <pre data-lang="py">@registry.node("count", title="Count", description="Counts the characters of a text.")
+def count(text: str) -> int:
+    return len(text)
+
+T = TypeVar("T")
+
+class Person(TypedDict):
+    name: str
+    email: str
+
+class Named(TypedDict):
+    name: str
 
 @node("flag", title="Flag", description="Says yes.")
 def flag(text: str) -> bool: ...
 
-print([p.type for p in Graph.compile(make_graph(count, half), r).problems])
-print([p.msg for p in Graph.compile(make_graph(flag, half), r).problems])
+@node("numbers", title="Numbers", description="Gives some numbers.")
+def numbers() -> list[int]: ...
+
+@node("person", title="Person", description="Gives a person.")
+def person() -> Person: ...
+
+@node("half", title="Half", description="Halves a number.")
+def half(n: float) -> float: ...
+
+@node("anything", title="Anything", description="Takes any value.")
+def anything(value: Any) -> Any: ...
+
+@node("first", title="First", description="Gives the first item of a list.")
+def first(items: list[T]) -> T: ...
 
 @node("joinlist", title="Join list", description="Joins a list of texts.")
 def joinlist(texts: list[str]) -> str: ...
 
-print([(p.type, p.msg) for p in Graph.compile(make_graph(lines, joinlist), r).problems])</pre>
-    <pre class="out">[]
-["'flag.result' gives bool, but 'half.n' takes float. Wire an output that gives float, or convert the value in a node in between."]
-[('type_mismatch_series_into_list', "'lines.result' gives Series[str], but 'joinlist.texts' takes list[str]. To take every item as one list, declare the input Series[str] in place of list[str].")]</pre>
+@node("greet", title="Greet", description="Greets a person by name.")
+def greet(who: Named) -> str: ...
+
+r = NodeRegistry()
+r.add(count, flag, numbers, person, lines, shout, half, anything, first, joinlist, greet)
+edges = {
+    "int -> float": (count, half),
+    "bool -> float": (flag, half),
+    "int -> str": (count, shout),
+    "str -> Any": (shout, anything),
+    "Any -> float": (anything, half),
+    "list[int] -> list[T]": (numbers, first),
+    "Series[str] -> list[str]": (lines, joinlist),
+    "Person -> Named": (person, greet),
+}
+problems = {label: Graph.compile(make_graph(*pair), r).problems for label, pair in edges.items()}
+for label, found in problems.items():
+    print(label, [p.type for p in found])
+print(problems["bool -> float"][0].msg)
+print(problems["Series[str] -> list[str]"][0].msg)</pre>
+    <pre class="out">int -&gt; float []
+bool -&gt; float ['type_mismatch']
+int -&gt; str ['type_mismatch']
+str -&gt; Any []
+Any -&gt; float []
+list[int] -&gt; list[T] []
+Series[str] -&gt; list[str] ['type_mismatch_series_into_list']
+Person -&gt; Named []
+'flag.result' gives bool, but 'half.n' takes float. Wire an output that gives float, or convert the value in a node in between.
+'lines.result' gives Series[str], but 'joinlist.texts' takes list[str]. To take every item as one list, declare the input Series[str] in place of list[str].</pre>
   </div>
+  <p class="prose muted" style="margin-top:1.5rem">An empty list means the edge fits. An <code>int</code> is widened to a <code>float</code>, but a yes or no isn't a number. <code>Any</code> fits either way. <code>list[int]</code> binds <code>T</code> to <code>int</code> for that node, and a <code>TypedDict</code> fits by its keys. A <code>Series</code> into a <code>list</code> has a kind of its own, whose message says the fix. The rules are in <code>python -m conductor.about types</code>, under "What lands where".</p>
   <p class="prose muted" style="margin-top:1.5rem">An input can ask for more than its source promises, such as a limit on the input. Then the value is checked when it arrives at run time. That check is on <a href="running-and-streaming.html">the running and streaming page</a>. An edge whose source already satisfies its input isn't checked at all.</p>
 </section>
 
@@ -806,13 +886,16 @@ print(Graph.compile(record, registry).run({"text": "a\nb"}).outputs)
 
 print(list(make_graph(lines, shout, shout, join).nodes))
 
-wired = make_graph(people, shout, edges=[("people.result.email", "shout.line")])
+wired = make_graph(person, shout, edges=[("person.result.email", "shout.line")])
 print(dumps(json.loads(wired.nodes["shout"].inputs["line"].model_dump_json())))
 
 renamed = make_graph(shout, inputs={"m": "shout.mark"})
 print(dumps(json.loads(renamed.nodes["shout"].inputs["mark"].model_dump_json())))
 
-make_graph(lines, shout, edges=[("lines", "shout.line")])   # raises:</pre>
+try:
+    make_graph(lines, shout, edges=[("lines", "shout.line")])
+except InvalidCallError as error:
+    print([(p.type, p.loc) for p in error.problems])</pre>
       <pre class="out">{
   "nodes": {
     "lines": {
@@ -850,7 +933,7 @@ make_graph(lines, shout, edges=[("lines", "shout.line")])   # raises:</pre>
 {'result': 'A!+B!'}
 ['lines', 'shout-1', 'shout-2', 'join']
 {
-  "sources": [{"node": "people", "output": "result", "field": "email"}]
+  "sources": [{"node": "person", "output": "result", "field": "email"}]
 }
 {
   "graph_input": "m",
@@ -878,14 +961,18 @@ make_graph(lines, shout, edges=[("lines", "shout.line")])   # raises:</pre>
     <p class="muted">A node can have a <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a> or <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> <a href="nodes-and-types.html#hooks">hook</a>. Compiling calls it with the constant, or else the declared default, of each input it names. For a parameter annotated <code>type</code>, <code>compute_outputs</code> gets the type the edge into that input carries. A hook that raises an exception is a <a href="problems.html">problem</a> on its node, not an exception from <code>Graph.compile</code>. The hooks themselves are on <a href="nodes-and-types.html">the page about nodes</a>.</p>
   </div>
   <div class="pair">
-    <pre data-lang="py">def branch_outputs(names: str, value: type) -> dict[str, Any]:
+    <pre data-lang="py">calls = []
+
+def branch_outputs(names: str, value: type) -> dict[str, Any]:
     calls.append((names, value))
     if not names:
         raise ValueError("names is empty")
     return {name: (value, SKIPPED) for name in names.split(",")}
 
-@registry.node("route", ..., compute_outputs=branch_outputs)
-def route(value: Any, names: str, chosen: str) -> dict[str, Any]: ...
+@registry.node("route", title="Route", description="Gives the value to the output it names.",
+               compute_outputs=branch_outputs)
+def route(value: Any, names: str, chosen: str) -> dict[str, Any]:
+    return {chosen: value}
 
 graph = Graph.compile(make_graph(count, route,
     edges=[("count.result", "route.value")], constants={"route.names": "small,big"},
@@ -923,19 +1010,27 @@ False</pre>
     <p class="muted">A record names each node's version, and compiling uses that version. To move it, a host calls <code>registry.upgrade(record, node_id, *, to=None)</code>, which runs each newer version's <a href="nodes-and-types.html#versions"><code>Upgrade</code></a> in turn and returns a new record. It compiles nothing.</p>
   </div>
   <div class="pair">
-    <pre data-lang="py">@node("shout", ..., replaces=shout_v1,       # v1 took `text`
+    <pre data-lang="py">@node("shout", title="Shout", description="Shouts one text.")
+def shout_v1(text: str, mark: str = "!") -> str:
+    return text.upper() + mark
+
+@node("shout", title="Shout", description="Shouts one line.", replaces=shout_v1,
       upgrade=Upgrade(renamed_inputs={"text": "line"}))
-def shout(line: str, mark: str = "!") -> str: ...
+def shout_v2(line: str, mark: str = "!") -> str:
+    return line.upper() + mark
+
+versions = NodeRegistry()   # a registry with shout at version 2
+versions.add(shout_v2)
 
 saved = GraphRecord.model_validate({"nodes": {"s": {"node": "shout", "inputs": {
     "text": {"graph_input": "text"}, "mark": {"constant": "?"}}}},
     "outputs": {"result": {"node": "s", "output": "result"}}})
-graph = Graph.compile(saved, registry)
+graph = Graph.compile(saved, versions)
 print(graph.problems == [], graph.run({"text": "hi"}).outputs)
-moved = registry.upgrade(saved, "s")
+moved = versions.upgrade(saved, "s")
 print(dumps(json.loads(moved.model_dump_json())))
-print(Graph.compile(moved, registry).run({"text": "hi"}).outputs)
-print(registry.upgrade(moved, "s") is moved)</pre>
+print(Graph.compile(moved, versions).run({"text": "hi"}).outputs)
+print(versions.upgrade(moved, "s") is moved)</pre>
     <div class="stack">
       <pre class="out">True {'result': 'HI?'}
 {
@@ -980,59 +1075,7 @@ True</pre>
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part</h2>
   </div>
-  <div class="choices">
-    <article class="choice">
-      <h3>A graph is data. There's no <code>@graph</code>.<span class="lvl pub">Public</span></h3>
-      <p>Most graphs are drawn in an editor, and a graph built in code is the same record the editor saves. Two ways to define a graph would mean two sets of rules.</p>
-    </article>
-    <article class="choice">
-      <h3>Each input's entry is exactly one kind.<span class="lvl pub">Public</span></h3>
-      <p>It is a constant, a graph input, or the sources of its edges. So a record can't give one input a constant and an edge at once.</p>
-    </article>
-    <article class="choice">
-      <h3>An edge is stored on the input it leads into.<span class="lvl pub">Public</span></h3>
-      <p>Several sources on one input are alternatives from different <a href="nodes-and-types.html#outputs">branches</a>, never a list to join. The record sorts them, so two records that list them in another order are equal and save the same.</p>
-    </article>
-    <article class="choice">
-      <h3>A graph declares its inputs and outputs.<span class="lvl pub">Public</span></h3>
-      <p>They are like a function's parameters and return value. Working them out from the first and last nodes would change what a graph returns when someone adds a node at the end.</p>
-      <p class="cost"><b>Cost:</b> a record has to list its outputs. <code>make_graph</code> writes them for you.</p>
-    </article>
-    <article class="choice">
-      <h3>Compiling reports problems, but a wrong shape raises.<span class="lvl pub">Public</span></h3>
-      <p>An editor shows a half-drawn graph with each fault on its node. The shape of the record is the caller's job, so a wrong shape raises <code>invalid_record</code>.</p>
-      <p class="cost"><b>Cost:</b> a script that only writes a record with <code>make_graph</code> hears about a wrong graph when it compiles it, not when it writes it.</p>
-    </article>
-    <article class="choice">
-      <h3>Values in a record are JSON.<span class="lvl pub">Public</span></h3>
-      <p>Constants, defaults and <code>display</code> are stored as JSON, so a record equals its own JSON read back, and its <a href="saved-runs-and-reuse.html#keys">fingerprint</a> survives a store that reorders keys.</p>
-      <p class="cost"><b>Cost:</b> a value with no JSON form, such as a polars frame, can't be a constant. A table goes in as a list of rows.</p>
-    </article>
-    <article class="choice">
-      <h3>A name has no <code>.</code>, <code>/</code>, <code>@</code> or <code>~</code>.<span class="lvl pub">Public</span></h3>
-      <p>Places are written with those characters. With none of them in a name, a place written as text is cut into its parts without guessing.</p>
-    </article>
-    <article class="choice">
-      <h3><code>make_graph</code>'s chain never matches by name.<span class="lvl pub">Public</span></h3>
-      <p>If an output and an input happened to share a name, a chain that matched by name would wire them silently and leave the input you meant empty.</p>
-    </article>
-    <article class="choice">
-      <h3>The types decide the loops when a graph is compiled.<span class="lvl pub">Public</span></h3>
-      <p>Which <a href="series-and-tables.html#loop">loops</a> each node is in follows from the types, worked out when compiling (a <a href="nodes-and-types.html#hooks">hook</a>'s types included), never from values a run makes. An editor can show it before any run.</p>
-    </article>
-    <article class="choice">
-      <h3>Compiling never upgrades.<span class="lvl pub">Public</span></h3>
-      <p>A record pinned to an old version runs that version, so adding a newer version (declared with <a href="nodes-and-types.html#versions"><code>replaces=</code></a>) doesn't change what a saved graph runs. <code>registry.upgrade</code> moves a node when asked.</p>
-      <p class="cost"><b>Cost:</b> a host decides when to upgrade, and calls it once per node.</p>
-    </article>
-    <article class="choice">
-      <h3>A compiled graph keeps its own definitions.<span class="lvl pub">Public</span></h3>
-      <p>A later change to the registry can't break a <code>Graph</code> a host already holds. Compiling the record again picks up the change.</p>
-    </article>
-    <article class="choice">
-      <h3>Conductor answers "do these types fit?" itself.<span class="lvl int">Internal</span></h3>
-      <p>Pydantic checks values, not pairs of types. <code class="int" title="Internal">types/fit.py</code> walks the two hints, so a wrong edge is found when compiling, without a value.</p>    </article>
-  </div>
+  <p class="prose">The reasons behind the record's shape, <code>make_graph</code> and compiling, each with what it costs, are in the design guide: <a href="../design/#the-graph-record-and-make_graph">The graph record and <code>make_graph</code></a>, <a href="../design/#graph-and-run"><code>Graph</code> and <code>Run</code></a>, and, for how the types decide the loops when a graph is compiled, <a href="../design/#one-or-many">One or many</a>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -1110,7 +1153,7 @@ const BREAKS = [{"key": "base", "label": "Nothing broken", "record": {"nodes": {
     }).join("");
   }
   document.querySelectorAll("pre[data-lang]").forEach((pre) => hang(pre, highlight(pre.textContent, pre.dataset.lang)));
-  document.querySelectorAll("pre.out").forEach((pre) => hang(pre, esc(pre.textContent)));
+  document.querySelectorAll("pre.out:not([data-lang])").forEach((pre) => hang(pre, esc(pre.textContent)));
 
   /* ---------- the bench ---------- */
   const NOTES = {
