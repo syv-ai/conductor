@@ -1033,7 +1033,7 @@ def test_the_failure_of_an_output_says_which_check_refused_and_the_limit_it_brok
     ]
 
 
-def test_a_record_field_is_named_in_the_failure_of_an_output():
+def test_a_field_of_a_model_is_named_in_the_failure_of_an_output():
     cause = _returning({"counts": {SECRET: "many"}}, ByPerson).cause
 
     assert [tuple(error["loc"]) for error in cause.ctx["errors"]] == [("counts",)]

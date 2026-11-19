@@ -73,10 +73,10 @@ Write a choice between more than two outcomes, or a check that raises one of sev
 Why: a chain of conditional expressions is read right to left and inside out, so a reader has to unpick it before they can tell which case wins.
 
 ```python
-return "written" if isinstance(value, Mapping) else "records" if isinstance(value, list) else None   # bad
+return "written" if isinstance(value, Mapping) else "rows" if isinstance(value, list) else None      # bad
 if isinstance(value, Mapping):                                                                      # good
     return "written"
 if isinstance(value, list):
-    return "records"
+    return "rows"
 return None
 ```

@@ -779,13 +779,13 @@ class Type:
         """
         start = len(under)
         pairs = [
-            (free, raw)
-            for free, raw in zip(value_free_errors(error), error.errors(), strict=True)
+            (value_free_error, raw)
+            for value_free_error, raw in zip(value_free_errors(error), error.errors(), strict=True)
             if (raw["loc"] if exactly else raw["loc"][:start]) == under
         ]
-        value_free = [free for free, _ in pairs]
+        value_free = [value_free_error for value_free_error, _ in pairs]
         columns: list[str] = []
-        for free, raw in pairs:
+        for value_free_error, raw in pairs:
             at, kept, column, owner = self, list[int | str](), None, self
             in_cell: tuple[int | str, ...] = ()
             steps = raw["loc"][start:]
@@ -799,16 +799,16 @@ class Type:
                 at = inside
                 if is_a_place:
                     kept.append(step)
-            free["loc"] = kept
+            value_free_error["loc"] = kept
             if column is not None:
                 columns.append(column)
-                free["type"], free["msg"] = owner._fault_in(
-                    column, raw["type"], free["msg"], in_cell
+                value_free_error["type"], value_free_error["msg"] = owner._fault_in(
+                    column, raw["type"], value_free_error["msg"], in_cell
                 )
             # an error conductor raised about a whole column of a frame; a host's error may put anything in its ctx
             elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
                 columns.append(whole)
-                free["loc"] = [whole]
+                value_free_error["loc"] = [whole]
         refusal = TypeRefusal(
             reason=self._own_class_refused(pairs[0][1], value_free[0]["msg"], start)
             or value_free[0]["msg"],

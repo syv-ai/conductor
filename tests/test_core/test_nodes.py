@@ -825,7 +825,7 @@ def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in
     assert graph.run({"cells": [{"value": 1}]}).outputs["result"].columns == ["value"]
 
 
-def test_a_record_field_written_as_text_that_names_nothing_is_a_declaration_problem():
+def test_a_typed_dict_field_written_as_text_that_names_nothing_is_a_declaration_problem():
     class Unknown(TypedDict):
         x: "Missing"  # type: ignore[name-defined]  # noqa: F821
 

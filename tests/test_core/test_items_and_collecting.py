@@ -80,7 +80,7 @@ def contacts(text: str) -> Table[Contact]:
     )
 
 
-@node("records", title="Records", description="A table of contacts, split into its records.")
+@node("records", title="Records", description="A table of contacts, split into its rows.")
 def records(table: Table[Contact]) -> Series[Contact]:
     return table.to_dicts()
 
