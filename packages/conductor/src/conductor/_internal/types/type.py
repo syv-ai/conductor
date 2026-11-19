@@ -52,7 +52,6 @@ from conductor._internal.base import (
     JSON_CORE_CONFIG,
     canonical_json,
     plain_json,
-    validate_as_json,
 )
 from conductor._internal.problem import (
     NodeDeclarationError,
@@ -62,7 +61,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.utils import qualified_name
 
-from .choice import Choice, declared_choices, read_choices
+from .choice import Choice, declared_choices
 from .fit import fit
 from .hint import (
     READ_AS,
@@ -370,10 +369,8 @@ class Type:
             for limit in sorted(LIMITS)
             if (value := getattr(param, limit)) is not None
         ]
-        if param.choices is not None:
-            held.append(
-                f"choices={[choice.id for choice in read_choices(param.choices, functools.partial(validate_as_json, self.argument_validator), self.to_json)]!r}"
-            )
+        if param.choices is not None and self.choices is not None:
+            held.append(f"choices={[choice.id for choice in self.choices]!r}")
         held += [_written_metadata(other) for other in others]
         return f"{_written(bare)}{held}" if held else _written(bare)
 

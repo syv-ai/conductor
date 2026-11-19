@@ -363,6 +363,22 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
         assert raised.value.problems[0].type == "pydantic_field_in_hint", returned
 
 
+def test_choices_a_converting_check_moves_off_are_refused_when_the_node_is_declared() -> None:
+    """A check that converts a value, like one that adds ``"!"``, would make every choice refuse itself, so the
+    choices are read through the type's whole check and refused at ``@node``, not at every call."""
+
+    def shouted(value: str) -> str:
+        return value + "!"
+
+    for hint in (
+        Annotated[str, AfterValidator(shouted), Param(choices=["a"])],
+        Annotated[str, Param(choices=["a"]), AfterValidator(shouted)],
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("count", title="Count", description="For a test.")(_returning_its_input(hint))
+        assert raised.value.problems[0].type == "choices_invalid", hint
+
+
 def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discriminator_to_write() -> (
     None
 ):
