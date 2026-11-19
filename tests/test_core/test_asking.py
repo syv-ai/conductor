@@ -1462,9 +1462,9 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     ("ask", "error"),
     [
         (lambda: Ask("?", default="a"), ("dict_type", ["default"])),
-        (lambda: Ask("?", default={"stay": "a"}), ("extra_forbidden", ["default", "stay"])),
+        (lambda: Ask("?", default={"stay": "a"}), ("extra_forbidden", ["default", "[key]"])),
         (lambda: Ask("?", choices=["a"]), ("dict_type", ["choices"])),
-        (lambda: Ask("?", choices={"stay": ["a"]}), ("extra_forbidden", ["choices", "stay"])),
+        (lambda: Ask("?", choices={"stay": ["a"]}), ("extra_forbidden", ["choices", "[key]"])),
     ],
 )
 def test_a_node_of_several_outputs_asks_by_output_name(ask, error):
@@ -1474,6 +1474,31 @@ def test_a_node_of_several_outputs_asks_by_output_name(ask, error):
 
     cause = _once(wrong)[1].cause
     assert [(e["type"], e["loc"]) for e in cause.ctx["errors"]] == [error]
+
+
+@pytest.mark.parametrize(
+    "ask",
+    [
+        lambda: Ask("?", choices={"keep": ["a"], "ida@example.com": ["x"]}),
+        lambda: Ask("?", default={"keep": "a", "ida@example.com": "x"}),
+        lambda: Ask("?", choices={"keep": ["a"], 424242: ["x"]}),  # type: ignore[dict-item]
+    ],
+    ids=["choices", "default", "int-key"],
+)
+def test_a_key_of_an_asks_mapping_that_is_no_output_is_never_quoted(ask):
+    """A node may build the keys of its ``Ask``'s ``choices=`` or ``default=`` from data, such as an e-mail address.
+    So a key that is no output is refused at ``"[key]"``, as a returned mapping's is, and a key that isn't text too."""
+
+    @node("keyed", title="Keyed", description="For a test.", asks=True)
+    def keyed() -> Route:
+        raise ask()
+
+    cause = _once(keyed)[1].cause
+    assert (
+        "ida@example.com" not in cause.model_dump_json() and "424242" not in cause.model_dump_json()
+    )
+    assert cause.type == "invalid_ask"
+    assert [e["loc"][1:] for e in cause.ctx["errors"]] == [["[key]"]]
 
 
 def test_an_answer_reports_every_fault_of_every_question_and_the_branch_rule_in_one_pass():
@@ -1579,7 +1604,7 @@ def test_an_ask_with_several_faults_reports_every_one_in_ctx_errors():
     )
     assert [(e["type"], e["loc"]) for e in cause.ctx["errors"]] == [
         ("string_type", ["choices", "keep", 1]),
-        ("extra_forbidden", ["choices", "stay"]),
+        ("extra_forbidden", ["choices", "[key]"]),
         ("string_type", ["default", "keep"]),
         ("several_branches_given", ["default"]),
     ]

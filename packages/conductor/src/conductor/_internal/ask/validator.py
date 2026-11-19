@@ -184,17 +184,22 @@ def _ask_faults(
     """Returns the faults in one argument of an ``Ask``, as ``ctx.errors`` holds them, each ``loc`` written from the
     argument down: ``["choices", "result", 1]``.
 
+    A key of a mapping that isn't one of the node's outputs may be built from data, so it is never quoted: its fault
+    is at ``"[key]"``, ``["choices", "[key]"]``, as a key that isn't text is named wherever conductor reads a mapping.
+
     Args:
         argument: ``"choices"`` or ``"default"``.
         error: What the argument's schema raised.
         outputs: The node's outputs, by name.
         items: Whether the argument is the choices, a list per output.
     """
-    return [
-        {**fault, "loc": [argument, *place, *fault["loc"]]}
-        for place, refusal in _refusals(error, outputs, items=items)
-        for fault in refusal["errors"]
-    ]
+    faults: list[dict[str, Any]] = []
+    for place, refusal in _refusals(error, outputs, items=items):
+        named = place if not place or str(place[0]) in outputs else ("[key]",)
+        faults += [
+            {**fault, "loc": [argument, *named, *fault["loc"]]} for fault in refusal["errors"]
+        ]
+    return faults
 
 
 class AnswerValidator(Validator[Any, dict[str, Any]]):
