@@ -469,6 +469,67 @@ def test_a_return_that_skips_an_output_that_is_not_a_branch_is_refused():
     )
 
 
+@host_type("skip-parcel", title="Parcel")
+@dataclass(frozen=True)
+class Parcel:
+    weight: float
+    fragile: bool
+
+
+@host_type("skip-box", title="Box")
+@dataclass(frozen=True)
+class Box:
+    value: Any
+
+
+@dataclass(frozen=True)
+class Inner:
+    count: int = SKIPPED
+
+
+@host_type("skip-outer", title="Outer")
+@dataclass(frozen=True)
+class Outer:
+    inner: Inner
+
+
+@pytest.mark.parametrize(
+    ("returned", "return_type"),
+    [
+        (Parcel(1.0, SKIPPED), Parcel),
+        (Box(SKIPPED), Box),
+        (Outer(Inner()), Outer),
+        ([1, [2, SKIPPED]], Series[Any]),
+        ({"a": SKIPPED}, dict[str, Any]),
+    ],
+    ids=["a-field", "an-any-field", "a-nested-default", "inside-a-series-item", "a-dict-value"],
+)
+def test_skipped_inside_a_returned_value_is_refused_at_the_call(returned, return_type):
+    """``SKIPPED`` is an output's whole value or an item of a ``Series``, never inside a value: it has no JSON form,
+    so the run would complete and then fail to save. A model's or dataclass's instance is taken without its fields
+    checked again, so a field built as ``SKIPPED`` reaches here, and so does a default of a nested dataclass."""
+    run = _returning(returned, return_type)
+
+    assert (run.cause.type, run.cause.ctx["output"], run.cause.ctx["reason"]) == (
+        "invalid_output",
+        "result",
+        "SKIPPED is inside the value, where it has no JSON form: only an output's whole value, or an item of a "
+        "Series, may be SKIPPED",
+    )
+
+
+def test_skipped_as_a_branch_and_as_a_series_item_is_still_taken():
+    """The walk looks below an output's whole value and a ``Series``'s items, so a branch and a skipped item stay as
+    they were, and a table's cells aren't walked."""
+    assert _returning(Routed(long="a"), Routed).results["g"] == {
+        "count": 0,
+        "long": "a",
+        "short": None,
+    }
+    assert _returning([1, SKIPPED, 3], Series[int]).outputs == {"result": [1, None, 3]}
+    assert _returning(pl.DataFrame({"a": [1, 2]}), Table).status == "complete"
+
+
 def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values():
     """When both branches have a value, that is the problem reported.
 

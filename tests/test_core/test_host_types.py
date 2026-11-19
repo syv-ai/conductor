@@ -18,7 +18,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from conductor import (
-    SKIPPED,
     Ask,
     Graph,
     NodeDeclarationError,
@@ -552,6 +551,37 @@ def test_a_node_returning_a_declared_dataclass_has_one_output_an_edge_reads_whol
     assert outer.run({"name": "home"}).outputs == {"result": "1.5,2.5"}
 
 
+def test_an_undeclared_subclass_of_a_declared_dataclass_is_refused_on_a_return_as_on_an_input() -> (
+    None
+):
+    """A subclass doesn't inherit its parent's declaration, and a dataclass with a declaration anywhere among its
+    parents is a type, not a dataclass of outputs, so returning one is ``type_not_named`` with the parent named, as
+    taking one is."""
+
+    @dataclasses.dataclass
+    class Point3(Point):
+        z: float = 0.0
+
+    def returning() -> None:
+        @node("locate", title="Locate", description="For a test.")
+        def locate(name: str) -> Point3:
+            return Point3(1.0, 2.0)
+
+    def taking() -> None:
+        @node("plot", title="Plot", description="For a test.")
+        def plot(point: Point3) -> str:
+            return "here"
+
+    returned, taken = _refused(returning), _refused(taking)
+
+    assert [(each.type, each.ctx["parent"]) for each in returned.problems] == [
+        ("type_not_named", "Point")
+    ]
+    assert [(each.type, each.ctx["parent"]) for each in taken.problems] == [
+        ("type_not_named", "Point")
+    ]
+
+
 def test_a_node_returning_a_declared_dataclass_is_answered_with_one_value() -> None:
     """A node that asks for a declared dataclass asks one question, ``result``, answered with the value or its
     fields as a mapping, and a queued answer is kept through a saved run."""
@@ -573,32 +603,3 @@ def test_a_node_returning_a_declared_dataclass_is_answered_with_one_value() -> N
         "result": Point(3, 4)
     }
     assert Run.from_json(queued.to_json(), graph).resume().outputs == {"result": Point(3, 4)}
-
-
-def _skipped_dataclass() -> type:
-    @dataclasses.dataclass(frozen=True)
-    class Parcel:
-        weight: float
-        fragile: bool = SKIPPED
-
-    return Parcel
-
-
-def _skipped_model() -> type:
-    class Parcel(BaseModel):
-        weight: float
-        fragile: bool = SKIPPED
-
-    return Parcel
-
-
-@pytest.mark.parametrize("made", [_skipped_dataclass, _skipped_model], ids=["dataclass", "model"])
-def test_a_declared_class_whose_field_defaults_to_skipped_is_refused_at_the_class_statement(
-    made: Any,
-) -> None:
-    """A declared class is one value, so its fields aren't branches, and ``SKIPPED`` in one would leave a value with
-    no JSON form that the run couldn't save."""
-    refused = _refused(lambda: host_type("parcel", title="Parcel")(made()))
-
-    assert refused.problems[0].type == "default_skipped_on_type_field"
-    assert refused.problems[0].ctx == {"id": "parcel", "field": "fragile"}

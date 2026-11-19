@@ -471,7 +471,7 @@ graph = Graph.compile(make_graph(locate, hemisphere, edges=[("locate.result.lat"
 print(graph.run({"city": "Aarhus"}).outputs)  # {'result': 'north'}
 ```
 
-A declared class is one value, so its fields aren't branches: a field that defaults to `SKIPPED` is refused when the class is declared (`default_skipped_on_type_field`).
+A declared class is one value, so its fields aren't branches: `SKIPPED` inside a returned value fails the call (`invalid_output`).
 
 ## A node for any type
 

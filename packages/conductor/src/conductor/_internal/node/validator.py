@@ -5,9 +5,10 @@
 instead, the call fails with an ``invalid_output`` problem on the output ``result``.
 
 Values are checked strictly. A value that already has the right class is kept as it is, a dict becomes a model,
-but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass with no ``@host_type``, or a mapping when a
-``compute_outputs`` hook gave its outputs. Its whole return is checked in one go: first the shape, then each value.
-Only the first fault is reported.
+but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass with no ``@host_type``, or
+a mapping when a ``compute_outputs`` hook gave its outputs. Its whole return is checked in one go: first the shape,
+then each value. Only the first fault is reported. ``SKIPPED`` may be an output's whole value, or an item of a
+``Series``, but nowhere inside a value, where it has no JSON form.
 
 ``HookValidator`` checks what a ``compute_added_inputs`` or ``compute_outputs`` hook returns, and turns it into
 fields. Say a node's ``compute_outputs`` hook, given ``names="a,b"``, returns ``{"a": str, "b": (int, 0)}``. The
@@ -48,7 +49,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator
+from conductor._internal.validation import Validator, holds_skipped
 
 from .type import HookName
 
@@ -71,9 +72,9 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
     ) -> None:
         """Builds the validator for one node.
 
-        A function returns its outputs in one of four shapes. It returns a frozen dataclass if it declares one with no ``@host_type``, a
-        mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none. Otherwise it returns
-        one value, the output ``result``.
+        A function returns its outputs in one of four shapes. It returns a frozen dataclass if it declares one with
+        no ``@host_type``, a mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none.
+        Otherwise it returns one value, the output ``result``.
 
         Args:
             outputs_dataclass: The frozen dataclass the function returns its outputs in, or ``None``.
@@ -81,6 +82,7 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             outputs: The node's outputs, by name.
         """
         self._names = tuple(outputs)
+        self._outputs = outputs
         self._read: Callable[[Any], dict[str, Any]]
         if outputs_dataclass is not None:
             self._read = _several_outputs(
@@ -101,7 +103,25 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
         """
         if returned is SKIPPED:
             return dict.fromkeys(self._names, SKIPPED)
-        return self._read(returned)
+        read = self._read(returned)
+        for name, value in read.items():
+            if _skipped_inside(self._outputs[name], value):
+                raise InvalidCallError(
+                    [
+                        run_problems.invalid_output(
+                            reason="SKIPPED is inside the value, where it has no JSON form: only an output's whole "
+                            "value, or an item of a Series, may be SKIPPED",
+                            output=name,
+                        )
+                    ]
+                )
+        return read
+
+
+def _skipped_inside(field: Field, value: Any) -> bool:
+    """Whether an output's value has ``SKIPPED`` inside it, below the output's whole value and a ``Series``'s items."""
+    items = value if field.is_series and isinstance(value, list) else [value]
+    return any(holds_skipped(item) for item in items if item is not SKIPPED)
 
 
 def _no_outputs(returned: Any) -> dict[str, Any]:

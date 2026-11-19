@@ -248,8 +248,10 @@ def invalid_output(
     dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``.
 
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
-    branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. The reference has
-    the rule under "Branches" (``python -m conductor.about the-node-contract``).
+    branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. ``SKIPPED`` is an
+    output's whole value or one item of a ``Series``, never inside a value, such as a field of a returned model or
+    dataclass or an item of a list: it has no JSON form, so the run couldn't be saved. The reference has the rule
+    under "Branches" (``python -m conductor.about the-node-contract``).
 
     To fix it, make the node return what it declares. Outputs that may each have a value on one call aren't branches:
     type them ``X | None``, and return ``None`` for one that has no value. To make an output a branch, give it the

@@ -1164,34 +1164,6 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def default_skipped_on_type_field(*, id: str, field: str) -> str:
-    """A class declared with ``@host_type`` has a field whose default is ``SKIPPED``.
-
-    A declared class is a type, and a node that returns one has one output, ``result``, holding the whole value. So
-    its fields aren't the node's outputs, and a field that defaults to ``SKIPPED`` isn't a branch: it would leave
-    ``SKIPPED`` inside a value, which has no JSON form, so the run couldn't be saved. Only the fields of a dataclass
-    with no ``@host_type``, returned to list a node's outputs, may default to ``SKIPPED``.
-
-    To fix it, drop ``@host_type`` if the fields are the node's outputs and the ``SKIPPED`` ones its branches. If the
-    class is one value, type the field ``X | None`` and default it to ``None``.
-
-    Args:
-        id: The id given.
-        field: The first field that defaults to ``SKIPPED``.
-
-    Example:
-        @dataclass(frozen=True)
-        class Parcel:
-            weight: float
-            fragile: bool = SKIPPED
-
-
-        declaration_refused(lambda: host_type("parcel", title="Parcel")(Parcel))
-    """
-    return f"@host_type({id!r}) is on a class whose field '{field}' defaults to SKIPPED, but a declared class is one value, so its fields aren't branches. Drop @host_type to make the fields the node's outputs, or type the field with | None and default it to None."
-
-
-@DECLARATION_PROBLEMS.problem
 def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
     """``@host_type`` is put above something that isn't a class it can name, such as a function or a ``TypedDict``.
 

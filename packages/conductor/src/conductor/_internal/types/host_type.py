@@ -15,12 +15,11 @@ checks the declaration right away and stores it on the class, where ``declaratio
 
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import re
 import typing
 from collections import deque
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from decimal import Decimal
 from fractions import Fraction
 from ipaddress import (
@@ -42,7 +41,6 @@ from pydantic import (
     AnyHttpUrl,
     AnyUrl,
     AnyWebsocketUrl,
-    BaseModel,
     ByteSize,
     ClickHouseDsn,
     CockroachDsn,
@@ -68,7 +66,6 @@ from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import MultiHostUrl, Url, core_schema
 
-from conductor._internal.base import SKIPPED
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.utils import qualified_name
 
@@ -149,6 +146,9 @@ NAMES: Mapping[Any, tuple[str, str]] = {
 #: their packages are imported.
 OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()} | {"record"}
 
+#: The attribute ``@host_type`` stores a class's ``TypeDeclaration`` in, read only by ``_own_declaration``.
+_DECLARATION = "__conductor_type__"
+
 
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True, "strict": True})
 class TypeDeclaration:
@@ -212,8 +212,7 @@ def host_type[C: type](
         NodeDeclarationError: Right away, when the class is defined. ``type_declaration_invalid`` if the id isn't
             one word or is one of conductor's own, the title is empty, ``accepts`` has something that isn't a
             class, or the class is one conductor names itself. ``type_declaration_not_on_a_class`` if it isn't put
-            above a class it can name, ``default_skipped_on_type_field`` if a field of the class defaults to
-            ``SKIPPED``, ``type_declaration_not_writable`` if the class can't take a new attribute, and
+            above a class it can name, ``type_declaration_not_writable`` if the class can't take a new attribute, and
             ``host_type_not_supported`` if pydantic can't check values of the class.
     """
     try:
@@ -239,11 +238,6 @@ def host_type[C: type](
                     faults=f"{cls.__qualname__} is one of conductor's own types; declare a subclass of it to give it an id of your own",
                 )
             )
-        skipped = next((name for name, default in _field_defaults(cls) if default is SKIPPED), None)
-        if skipped is not None:
-            raise NodeDeclarationError(
-                declaration_problems.default_skipped_on_type_field(id=id, field=skipped)
-            )
         try:
             TypeAdapter(cls)
         except PydanticSchemaGenerationError:
@@ -259,7 +253,7 @@ def host_type[C: type](
             )
             cls.__get_pydantic_core_schema__ = validated_as_parent  # type: ignore[attr-defined]  # pydantic's hook for a class's schema
         try:
-            cls.__conductor_type__ = stored  # type: ignore[attr-defined]  # declaration_of looks here
+            setattr(cls, _DECLARATION, stored)  # _own_declaration reads it
         except TypeError:  # a class written in C, such as int
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_not_writable(id=id, cls=cls.__qualname__)
@@ -267,17 +261,6 @@ def host_type[C: type](
         return cls
 
     return declare
-
-
-def _field_defaults(cls: type) -> Iterator[tuple[str, Any]]:
-    """Yields the name and default of each field of a dataclass or a pydantic model, and nothing for another class.
-
-    A field with no default yields a marker of its own, never ``SKIPPED``.
-    """
-    if dataclasses.is_dataclass(cls):
-        yield from ((field.name, field.default) for field in dataclasses.fields(cls))
-    elif issubclass(cls, BaseModel):
-        yield from ((name, field.default) for name, field in cls.model_fields.items())
 
 
 def declaration_of(cls: type) -> TypeDeclaration:
@@ -289,11 +272,9 @@ def declaration_of(cls: type) -> TypeDeclaration:
     Raises:
         NodeDeclarationError: ``type_not_named`` if ``cls`` has no declaration of its own.
     """
-    declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
+    declared = _own_declaration(cls)
     if declared is None:
-        parent = next(
-            (base for base in cls.__mro__[1:] if "__conductor_type__" in vars(base)), None
-        )
+        parent = next((base for base in cls.__mro__[1:] if _own_declaration(base)), None)
         suggested_id, suggested_title = _suggested_declaration(cls)
         raise NodeDeclarationError(
             declaration_problems.type_not_named(
@@ -307,12 +288,19 @@ def declaration_of(cls: type) -> TypeDeclaration:
 
 
 def is_declared(cls: type) -> bool:
-    """Whether ``@host_type`` declared ``cls`` itself, not only a parent class of it, as ``declaration_of`` reads it.
+    """Whether ``@host_type`` declared ``cls`` or any parent class of it.
 
-    ``@node`` asks it of a returned dataclass: a declared one is one value, and one with no declaration lists the
-    node's outputs.
+    ``@node`` asks it of a returned dataclass: one with no declaration anywhere lists the node's outputs, and any
+    other is one value. So an undeclared subclass of a declared class is a type, and ``declaration_of`` refuses it
+    as ``type_not_named``, on a return as on an input.
     """
-    return "__conductor_type__" in vars(cls)
+    return any(_own_declaration(base) for base in cls.__mro__)
+
+
+def _own_declaration(cls: type) -> TypeDeclaration | None:
+    """Returns what ``@host_type`` stored on ``cls`` itself, or ``None``: a parent's declaration doesn't count."""
+    declared: TypeDeclaration | None = vars(cls).get(_DECLARATION)
+    return declared
 
 
 def _suggested_declaration(cls: type) -> tuple[str, str]:
@@ -340,5 +328,5 @@ def accepted_classes(cls: type) -> tuple[type, ...]:
     These are the classes ``@host_type(accepts=...)`` lists. For a ``Temperature`` declared with
     ``accepts=[Celsius]`` it is ``(Celsius,)``. For a class with no declaration, like ``int``, it is ``()``.
     """
-    declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
+    declared = _own_declaration(cls)
     return () if declared is None else declared.accepts

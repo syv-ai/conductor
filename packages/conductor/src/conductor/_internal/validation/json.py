@@ -27,7 +27,7 @@ from pydantic_core import (
     SchemaValidator,
 )
 
-from conductor._internal.base import finite_json_text, validate_as_json
+from conductor._internal.base import SKIPPED, finite_json_text, validate_as_json
 from conductor._internal.problem import no_json_form, set_has_no_order
 from conductor._internal.table import TableType, json_fallback
 from conductor._internal.types import Type, json_by_its_class
@@ -163,6 +163,14 @@ def holds_a_set(value: Any) -> bool:
     return any(isinstance(part, (set, frozenset)) for part in _parts(value))
 
 
+def holds_skipped(value: Any) -> bool:
+    """Whether ``value`` is ``SKIPPED``, or has it somewhere inside (``_parts``).
+
+    A frame isn't walked: a table's cells can't be ``SKIPPED``.
+    """
+    return any(part is SKIPPED for part in _parts(value))
+
+
 def _parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
     """Yields ``value`` and every value inside it: in a list, tuple or dict, or in a field of a dataclass or a
     pydantic model.
@@ -171,9 +179,6 @@ def _parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
     refuses it when it writes the value.
     """
     yield value
-    if id(value) in walked:
-        return
-    inside = walked | {id(value)}
     if isinstance(value, dict):
         parts: Any = value.values()
     elif isinstance(value, (list, tuple)):
@@ -184,6 +189,9 @@ def _parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
         parts = (getattr(value, field.name) for field in dataclasses.fields(value))
     else:
         return
+    if id(value) in walked:
+        return
+    inside = walked | {id(value)}
     for part in parts:
         yield from _parts(part, inside)
 
