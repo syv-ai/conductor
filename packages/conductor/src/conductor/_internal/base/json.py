@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NoReturn
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
@@ -23,17 +23,33 @@ from pydantic_core import (
     to_jsonable_python,
 )
 
+
+class _ReadOnlyConfig(dict[str, Any]):
+    """A ``dict`` that refuses every change, so ``JSON_CONFIG`` can't be changed by a host.
+
+    It is a ``dict`` and not a ``MappingProxyType``, because pydantic reads a config only from a ``dict``: a
+    pydantic dataclass's ``config=`` and ``TypeAdapter(config=)`` ignore any other mapping.
+    """
+
+    def _refuse(self, *_: object, **__: object) -> NoReturn:
+        raise TypeError(
+            "JSON_CONFIG can't be changed; build your own config from it: ConfigDict(**JSON_CONFIG, ...)"
+        )
+
+    __setitem__ = __delitem__ = __ior__ = update = pop = popitem = clear = setdefault = _refuse  # type: ignore[assignment]
+
+
 #: The pydantic config conductor writes and reads JSON by, and the one a host's own model, dataclass or ``TypedDict``
-#: that holds ``bytes`` sets to follow the same rule: ``ConfigDict(**JSON_CONFIG, ...)`` or ``with_config(JSON_CONFIG)``.
-#: Every pydantic config in conductor that writes or reads JSON is built from it, and a call that takes one of its
-#: settings, like pydantic's ``to_json``, reads that setting from it. So a value is written one way wherever it goes.
-#: It is a plain ``dict``, since pydantic's ``with_config`` takes no other mapping: a host must not change it.
+#: that holds ``bytes`` is built from to follow the same rule: ``ConfigDict(**JSON_CONFIG, ...)``, or
+#: ``with_config(JSON_CONFIG)``. Every pydantic config in conductor that writes or reads JSON is built from it, and a
+#: call that takes one of its settings, like pydantic's ``to_json``, reads that setting from it. So a value is
+#: written one way wherever it goes. It can't be changed: a changed setting would split conductor's own writing in two.
 #:
 #: - ``inf``, ``-inf`` and ``nan`` are written as the texts ``"Infinity"``, ``"-Infinity"`` and ``"NaN"``. A
 #:   ``float`` reads each one back as the float, and a ``str`` keeps the text.
 #: - ``bytes`` are written as URL-safe base64 text with its padding: ``b"\xff\xfe"`` is ``"__4="``. ``bytes`` reads
 #:   base64 text back, standard or URL-safe, with or without its padding, and refuses any other text.
-JSON_CONFIG: Final = ConfigDict(
+JSON_CONFIG: Final[ConfigDict] = _ReadOnlyConfig(  # type: ignore[assignment]
     ser_json_inf_nan="strings", ser_json_bytes="base64", val_json_bytes="base64"
 )
 

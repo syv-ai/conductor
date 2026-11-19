@@ -1420,9 +1420,10 @@ def type_not_supported_bytes_as_text(*, cls: str, field: str) -> str:
     A ``TypedDict`` or a plain dataclass given a config with pydantic's ``with_config`` reads its fields by that
     config too, so it is refused the same way.
 
-    To fix it, build the class's config from ``conductor.JSON_CONFIG``, as ``ConfigDict(**JSON_CONFIG)``, or give a
-    ``TypedDict`` or dataclass ``with_config(JSON_CONFIG)``. For a class from a library, declare a subclass of it with that config, and build the subclass: an instance of the library's
-    class is written by its own config. A library's class nested inside it needs a subclass of its own.
+    To fix it, build the class's config from ``conductor.JSON_CONFIG``, as ``ConfigDict(**JSON_CONFIG, ...)``, or give a
+    ``TypedDict`` or dataclass ``with_config(JSON_CONFIG)``. For a class from a library, declare a subclass of it with
+    that config, and build the subclass: an instance of the library's class is written by its own config. A library's
+    class nested inside it needs a subclass of its own.
 
     Args:
         cls: The model or pydantic dataclass, by its name.
@@ -1446,7 +1447,7 @@ def type_not_supported_bytes_as_text(*, cls: str, field: str) -> str:
     """
     return (
         f"{cls} reads and writes its field {field!r} as text, and conductor carries bytes as base64 text. "
-        f"Build the config of {cls} from conductor.JSON_CONFIG, as ConfigDict(**JSON_CONFIG)."
+        f"Build the config of {cls} from conductor.JSON_CONFIG, as ConfigDict(**JSON_CONFIG, ...)."
     )
 
 
