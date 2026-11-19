@@ -335,16 +335,14 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; part of #106, the core &middot; page 4 of 11</p>
+  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 4 of 11</p>
   <h1>Series <em>and</em> tables</h1>
   <div class="prose">
     <p class="lede">A node's types say how many values it deals with. <code>str</code> is one value. <code>Series[str]</code> is many values of one type, and each value in it is an item. <code>Table[R]</code> is a whole table, passed along an edge as one value. From those types alone, conductor works out whether a node is called once or once per item.</p>
-    <p class="muted">Every sample output and widget state on this page comes from running the code at <code>7d2df580</code> on Python 3.12.11, and the <code>list[str]</code> sample at <code>3e216a54</code>.</p>
+    <p class="muted">Every sample output and widget state on this page is what the code it shows prints.</p>
   </div>
   <div class="crumbs">
     <a href="overview.html">&larr; The overview</a>
-    <a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the core</a>
-    <a href="https://github.com/syv-ai/conductor/pull/109">PR #109, the docs this page cites</a>
   </div>
   <div class="idea" aria-label="The three types">
     <div>
@@ -468,7 +466,7 @@ finished=3 waiting=0 skipped=0 none_input=0 known=3 total=3</pre>
       <ul class="plain muted">
         <li><b>Item indexes</b> are the indexes alone: <code>(0, 1)</code> is line 1 of document 0. A node inside no loop has <code>()</code>.</li>
         <li><b>A <a href="subgraphs.html#places">loc</a></b> puts each index right after the id of the node inside that loop, in the graph where the loop is: <code>("approve", 0, 1)</code>. A <a href="problems.html">problem</a> names a call by its loc, and so does <a href="running-and-streaming.html#outcomes"><code>run.none_input_calls</code></a>.</li>
-        <li><b>The text</b> joins node ids with <code>/</code> and puts <code>@</code> before each index: <code>approve@0@1</code>. A <a href="asking-a-person.html#ids">waiting call&rsquo;s id</a> is that text, then <code>~</code> and a fingerprint of the node's id, its code and the call's inputs.</li>
+        <li><b>The text</b> joins node ids with <code>/</code> and puts <code>@</code> before each index: <code>approve@0@1</code>. A <a href="asking-a-person.html#ids">waiting call&rsquo;s id</a> is that text, then <code>~</code> and a fingerprint of the call: the node's code, the call's inputs and its item in each loop.</li>
       </ul>
       <p class="muted">Inside a <a href="subgraphs.html#open">subgraph</a>, the index goes after the subgraph node when the loop is in the outer graph. The inner node <code>shout</code> of a subgraph node <code>loud</code> that runs per line is <code>("loud", 1, "shout")</code>, written <code>loud@1/shout</code>. That is why no node id or name may contain <code>.</code>, <code>/</code>, <code>@</code> or <code>~</code>.</p>
     </div>
@@ -502,7 +500,7 @@ print({n: d.per_item_of for n, d in graph.describe().nodes.items()})
 run = graph.run({"text": "a,b|c"})
 print([w.id.split("~")[0] for w in run.waiting])
 print([w.prompt for w in run.waiting])
-run = run.answer({w.id: True for w in run.waiting}).resume()
+run = run.with_answers({w.id: True for w in run.waiting}).resume()
 print(run.results["approve"]["result"])
 print(run.results["count"]["result"])</pre>
       <pre class="out">{'approve': 'lines.result', 'count': 'docs.result', 'docs': None, 'lines': 'docs.result'}
@@ -530,7 +528,7 @@ print(run.results["count"]["result"])</pre>
     <div class="kind"><b><code class="int" title="Internal">GraphInput</code></b><p>The caller gives the value when the run starts. <code>lines.text</code> in the loop above.</p></div>
     <div class="kind"><b><code class="int" title="Internal">ConstantInput</code></b><p>It is the same value on every call. That's the constant in the <a href="graph-record-and-compiling.html#record">graph record</a>, or else the input's default. <code>shout.mark</code> is <code>"!"</code>.</p></div>
     <div class="kind"><b><code class="int" title="Internal">EdgeInput</code></b><p>It gets one value per call, through its edges. When the edge reads one item of a Series, the call at <code>(1,)</code> gets item 1 of what the source returned.</p></div>
-    <div class="kind"><b><code class="int" title="Internal">CollectingInput</code></b><p>It is a <code>Series</code> or <code>Table</code> input wired to a <code>Series</code> output, or to a node inside its loop. A <code>Series</code> input gets one value per item, as a list. A <code>Table</code> input gets the records as one frame. Its node is called outside that loop. <code>join.texts</code> above.</p></div>
+    <div class="kind"><b><code class="int" title="Internal">CollectingInput</code></b><p>It is a <code>Series</code> or <code>Table</code> input wired to a <code>Series</code> output, or to a node inside its loop. A <code>Series</code> input gets one value per item, as a list. A <code>Table</code> input gets the rows as one frame. Its node is called outside that loop. <code>join.texts</code> above.</p></div>
     <div class="kind"><b><code class="int" title="Internal">MissingInput</code></b><p>It has no value, because the graph has a <a href="problems.html">problem</a> there. Such a graph doesn't run, but an editor can still draw the node.</p></div>
   </div>
   <p class="small" style="margin-top:.75rem"><code>one_value</code>, <code>item</code> and <code>outer_value</code> are all an <code class="int" title="Internal">EdgeInput</code>.</p>
@@ -547,7 +545,7 @@ print(run.results["count"]["result"])</pre>
       <rect class="d-box acc" x="36" y="74" width="52" height="28" rx="6"/><text class="d-label" x="62" y="93" text-anchor="middle">[0] a</text>
       <rect class="d-box" x="94" y="74" width="52" height="28" rx="6"/><text class="d-label" x="120" y="93" text-anchor="middle">[1] b</text>
       <rect class="d-box" x="152" y="74" width="52" height="28" rx="6"/><text class="d-label" x="178" y="93" text-anchor="middle">[2] c</text>
-      <text class="d-sub" x="36" y="126">with a field: columns[name][i]</text>
+      <text class="d-sub" x="36" y="126">with a field: cell(name, i)</text>
 
       <text class="d-title" x="290" y="24">one call per item</text>
       <path class="d-edge acc" d="M88 88 C 200 60, 240 58, 288 58" marker-end="url(#ar2)"/>
@@ -634,7 +632,7 @@ record = make_graph(
 (problem,) = Graph.compile(record, registry).problems
 print(problem.type, problem.loc, problem.ctx["series"])</pre>
       <pre class="out">series_not_nested ('greet',) ['words-1.result', 'words-2.result']</pre>
-      <p class="small">The samples run with their imports, and the <code>series_not_nested</code> one with <code>words(text: str) -&gt; Series[str]</code>, which splits on spaces. The full files are listed in the footer.</p>
+      <p class="small">The samples run with their imports and a <code>registry</code>, and the <code>series_not_nested</code> one with <code>words(text: str) -&gt; Series[str]</code>, which splits on spaces.</p>
     </div>
   </div>
 </section>
@@ -702,7 +700,7 @@ print(graph.run({"text": "Ida,Bo,Al"}).outputs)</pre>
 <section id="stored" aria-labelledby="st-h">
   <div class="section-head">
     <p class="eyebrow">What a node returns for a Series</p>
-    <h2 id="st-h">A node may return a frame for a Series of records</h2>
+    <h2 id="st-h">A node may return a frame for a Series of rows</h2>
     <p class="muted">What a node returns for a <code>Series</code> output is checked by the output's type. For <code>Series[R]</code>, with <code>R</code> a <code>TypedDict</code>, or for <code>Series[dict]</code>, <code>Series[dict[str, Any]]</code> or <code>Series[Any]</code>, a node may return a <code>polars.DataFrame</code> instead of a list.</p>
   </div>
 
@@ -736,11 +734,11 @@ set            -> failed, invalid_output: set_has_no_order</pre>
 
   <div class="section-head" style="margin-top:4rem">
     <h3>A run keeps a Series in one of two forms <span class="lvl int">Internal</span></h3>
-    <p class="muted">A list becomes a <code class="int" title="Internal">SeriesItems</code>. A frame is kept as it is, as <code class="int" title="Internal">Records</code>. Both have the same methods, so the code that reads a stored Series never checks which one it has.</p>
+    <p class="muted">A list becomes a <code class="int" title="Internal">SeriesItems</code>. A frame is kept as it is, as <code class="int" title="Internal">SeriesRows</code>. Both have the same methods, so the code that reads a stored Series never checks which one it has.</p>
   </div>
 
   <figure class="side">
-    <div class="diagram"><svg viewBox="0 0 820 300" role="img" aria-label="A list becomes SeriesItems. A frame returned for a Series of records becomes Records. Both answer the same reads.">
+    <div class="diagram"><svg viewBox="0 0 820 300" role="img" aria-label="A list becomes SeriesItems. A frame returned for a Series of rows becomes SeriesRows. Both answer the same reads.">
       <defs>
         <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
       </defs>
@@ -750,7 +748,7 @@ set            -> failed, invalid_output: set_has_no_order</pre>
       <text class="d-sub" x="36" y="84">or polars.Series</text>
       <rect class="d-box" x="20" y="186" width="190" height="56" rx="8"/>
       <text class="d-label" x="36" y="208">a polars.DataFrame</text>
-      <text class="d-sub" x="36" y="226">for a Series of records</text>
+      <text class="d-sub" x="36" y="226">for a Series of rows</text>
 
       <path class="d-edge" d="M210 72 L 282 72" marker-end="url(#ar3)"/>
       <path class="d-edge" d="M210 214 L 282 214" marker-end="url(#ar3)"/>
@@ -762,8 +760,8 @@ set            -> failed, invalid_output: set_has_no_order</pre>
       <text class="d-label" x="300" y="66">SeriesItems</text>
       <text class="d-sub" x="300" y="84">the list, with SKIPPED in place</text>
       <rect class="d-box int" x="284" y="186" width="236" height="56" rx="8"/>
-      <text class="d-label" x="300" y="208">Records</text>
-      <text class="d-sub" x="300" y="226">the frame, each column made a list once</text>
+      <text class="d-label" x="300" y="208">SeriesRows</text>
+      <text class="d-sub" x="300" y="226">the frame, a column made a list once</text>
 
       <path class="d-edge" d="M520 72 C 550 72, 550 150, 572 150" marker-end="url(#ar3)"/>
       <path class="d-edge" d="M520 214 C 550 214, 550 150, 572 150" marker-end="url(#ar3)"/>
@@ -771,14 +769,14 @@ set            -> failed, invalid_output: set_has_no_order</pre>
       <text class="d-title" x="574" y="24">what reads it</text>
       <rect class="d-box int" x="574" y="44" width="230" height="212" rx="10"/>
       <text class="d-label" x="590" y="72">stored[i]</text><text class="d-sub" x="700" y="72">one item, per call</text>
-      <text class="d-label" x="590" y="104">columns[name][i]</text><text class="d-sub" x="726" y="104">one field</text>
+      <text class="d-label" x="590" y="104">cell(name, i)</text><text class="d-sub" x="726" y="104">one field</text>
       <text class="d-label" x="590" y="136">as_list()</text><text class="d-sub" x="700" y="136">a Series input</text>
       <text class="d-label" x="590" y="168">as_table_input()</text><text class="d-sub" x="726" y="168">a Table</text>
       <text class="d-label" x="590" y="200">field_as_list(name)</text>
       <text class="d-label" x="590" y="232">for_saving()</text><text class="d-sub" x="700" y="232">a saved run</text>
     </svg></div>
     <div class="aside">
-      <figcaption>A <code>Table</code> input wired to <code class="int" title="Internal">Records</code> gets the frame itself, so no record is made for it. A Series input gets plain dicts either way.</figcaption>
+      <figcaption>A <code>Table</code> input wired to <code class="int" title="Internal">SeriesRows</code> gets the frame itself, so no dict is made for it. A Series input gets plain dicts either way.</figcaption>
       <p class="small">A solid outline is public and a dashed one is internal.</p>
     </div>
   </figure>
@@ -786,8 +784,8 @@ set            -> failed, invalid_output: set_has_no_order</pre>
   <div class="split" style="margin-top:3rem">
     <div class="prose">
       <h3>Why keep the frame</h3>
-      <p class="muted">An edge that names a field reads one column of the frame, and a column that no edge reads stays in the frame until the run is saved. <code>docs/design.md</code> reports a run whose one <code>Series</code> input reads one field of 200,000 rows: 149 ms with the records made up front, 10 ms with the table kept.</p>
-      <p class="muted">The frame is checked as a <code>Table[Contact]</code> when the node returns it, so it has exactly <code>Contact</code>'s columns. The <code>phone</code> column is gone before anything reads it. A <a href="saved-runs-and-reuse.html#saved">saved run</a> writes <code class="int" title="Internal">Records</code> as a table's JSON, and <code class="int" title="Internal">SeriesItems</code> as a JSON array.</p>
+      <p class="muted">An edge that names a field reads one column of the frame, and a column that no edge reads stays in the frame until the run is saved.</p>
+      <p class="muted">The frame is checked as a <code>Table[Contact]</code> when the node returns it, so it has exactly <code>Contact</code>'s columns. The <code>phone</code> column is gone before anything reads it. A <a href="saved-runs-and-reuse.html#saved">saved run</a> writes <code class="int" title="Internal">SeriesRows</code> as a table's JSON, and <code class="int" title="Internal">SeriesItems</code> as a JSON array.</p>
       <p class="muted">A <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a> item has no JSON form, so <code class="int" title="Internal">for_saving()</code> writes it as <code>None</code> and lists its index beside the Series. A frame has no <code>SKIPPED</code> row.</p>
     </div>
     <div class="sample">
@@ -799,7 +797,7 @@ FRAME = pl.DataFrame({"name": ["Ida", "Bo"], "email": ["ida@a.dk", None], "phone
 
 @registry.node("as-frame", title="As frame", description="Returns the contacts as a table.")
 def as_frame(text: str) -> Series[Contact]:
-    return FRAME  # a table may stand for a Series of its records
+    return FRAME  # a table may stand for a Series of its rows
 
 @registry.node("as-list", title="As list", description="Returns the contacts as a list.")
 def as_list(text: str) -> Series[Contact]:
@@ -815,14 +813,14 @@ for source in (as_frame, as_list):
         make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]), registry
     )
     run = graph.run({"text": "x"})
-    stored = run._outcomes[(source.id,)][()].outputs["result"]   # internal: how the run keeps it
+    stored = run._outcomes.of((source.id,))[()].outputs["result"]   # internal: how the run keeps it
     print(source.id, type(stored).__name__, run.results["greet"]["result"])
     saved[source.id] = json.loads(run.to_json())["outcomes"][source.id]["outputs"]["result"]
 print(dumps(saved))</pre>
-      <p class="label small"><span class="lvl int">Internal</span>printed &middot; the class names <code class="int" title="Internal">Records</code> and <code class="int" title="Internal">SeriesItems</code>, read from <code class="int" title="Internal">run._outcomes</code></p>
-      <pre class="out">as-frame Records ['hi Ida', 'hi Bo']
+      <p class="label small"><span class="lvl int">Internal</span>printed &middot; the class names <code class="int" title="Internal">SeriesRows</code> and <code class="int" title="Internal">SeriesItems</code>, read from <code class="int" title="Internal">run._outcomes</code></p>
+      <pre class="out">as-frame SeriesRows ['hi Ida', 'hi Bo']
 as-list SeriesItems ['hi Ida', 'hi Bo']</pre>
-      <p class="label small"><span class="lvl pub">Public</span>printed &middot; the <code>result</code> of each source as <code>run.to_json()</code> saves it, with the series' JSON formatter <code>dumps</code>: an indent of 2, and a list that fits on one line kept on one line</p>
+      <p class="label small"><span class="lvl pub">Public</span>printed &middot; the <code>result</code> of each source as <code>run.to_json()</code> saves it, printed by a small formatter <code>dumps</code>: an indent of 2, and a list that fits on one line kept on one line</p>
       <pre class="out">{
   "as-frame": [
     {
@@ -855,11 +853,11 @@ as-list SeriesItems ['hi Ida', 'hi Bo']</pre>
   <div class="section-head">
     <p class="eyebrow">A whole table as one value</p>
     <h2 id="tb-h">Every form of a table becomes one frame</h2>
-    <p class="muted">A table can arrive as a <code>polars.DataFrame</code>, as a list of records with one dict per row, or as the JSON conductor writes for a table. Whatever the form, a <code>Table[R]</code> reaches the node as a frame with exactly the columns <code>R</code> names, each of its declared type. That holds for a caller's value, a constant, <a href="asking-a-person.html#answering">a person&rsquo;s answer</a>, collected records and a node's own return.</p>
+    <p class="muted">A table can arrive as a <code>polars.DataFrame</code>, as a list of rows with one dict per row, or as the JSON conductor writes for a table. Whatever the form, a <code>Table[R]</code> reaches the node as a frame with exactly the columns <code>R</code> names, each of its declared type. That holds for a caller's value, a constant, <a href="asking-a-person.html#answering">a person&rsquo;s answer</a>, collected rows and a node's own return. A constant is JSON, so it is never a frame.</p>
   </div>
 
   <figure class="side">
-    <div class="diagram"><svg viewBox="0 0 820 250" role="img" aria-label="A frame, records or conductor's JSON are read by the table schema into a frame with R's columns, then each column is converted to the type a saved run reads back">
+    <div class="diagram"><svg viewBox="0 0 820 250" role="img" aria-label="A frame, a list of rows or conductor's JSON are read by the table schema into a frame with R's columns, then each column is converted to the type a saved run reads back">
       <defs>
         <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
       </defs>
@@ -895,8 +893,8 @@ as-list SeriesItems ['hi Ida', 'hi Bo']</pre>
   <div class="split" style="margin-top:3rem">
     <div class="prose">
       <h3 id="no-loop">A table never starts a loop <span class="lvl pub">Public</span></h3>
-      <p class="muted">A table is passed whole. A column of it is no source. An edge to <code>contacts.result.email</code> from a <code>Table</code> output is <code>unknown_output_field_of_whole_table_or_list</code>. To run per record, a node returns <code>Series[R]</code>. <a href="standard-nodes.html#loops">Split</a> in <a href="standard-nodes.html#modules"><code>syv-conductor-nodes</code></a> does that for any table or list.</p>
-      <p class="muted">The other way, a <code>Table[R]</code> input wired to records inside a loop collects them into one table, the way a <code>Series</code> input collects items. A record is never <code>None</code>, so a table keeps no place for a missing row.</p>
+      <p class="muted">A table is passed whole. A column of it is no source. An edge to <code>contacts.result.email</code> from a <code>Table</code> output is <code>unknown_output_field_of_whole_table_or_list</code>. To run per row, a node returns <code>Series[R]</code>. <a href="standard-nodes.html#loops">Split</a> in <a href="standard-nodes.html#modules"><code>syv-conductor-nodes</code></a> does that for any table or list.</p>
+      <p class="muted">The other way, a <code>Table[R]</code> input wired to rows inside a loop collects them into one table, the way a <code>Series</code> input collects items. A row is never <code>None</code>, so a table keeps no place for a missing row.</p>
       <p class="muted">Every field of a row type is required. A <code>NotRequired</code> field, or a <code>TypedDict</code> declared <code>total=False</code>, is refused when the node is declared (<code>row_field_optional</code>). Declare the field <code>X | None</code> instead.</p>
     </div>
     <div class="sample">
@@ -911,7 +909,7 @@ def total(invoices: Table[Invoice]) -> str:
 graph = Graph.compile(make_graph(total), registry)
 print(graph.describe().inputs["invoices"].type)
 given = {
-    "records": [{"customer": "Ida", "amount": 100, "note": "x"}, {"customer": "Bo", "amount": 5000, "note": "y"}],
+    "rows": [{"customer": "Ida", "amount": 100, "note": "x"}, {"customer": "Bo", "amount": 5000, "note": "y"}],
     "frame (Int32)": pl.DataFrame({"customer": ["Ida"], "amount": pl.Series([100], dtype=pl.Int32)}),
     "conductor's JSON": {"columns": [{"name": "customer", "type": "str", "values": ["Ida"]},
                                      {"name": "amount", "type": "int", "values": [100]}]},
@@ -929,7 +927,7 @@ for name, value in {
         p = e.problems[0]
         print(f"{name:17} -> {p.type}: {p.ctx.get('reason') or p.ctx['errors'][0]['msg']}")</pre>
       <pre class="out">Table[customer: str, amount: int]
-records           -> 2 rows, columns ['customer', 'amount'], amount Int64, sum 5100
+rows              -> 2 rows, columns ['customer', 'amount'], amount Int64, sum 5100
 frame (Int32)     -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
 conductor's JSON  -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
 no rows           -> 0 rows, columns ['customer', 'amount'], amount Int64, sum 0
@@ -971,7 +969,7 @@ blank amount      -> invalid_input: column 'amount' has a blank cell, and its ty
   <div class="split" style="margin-top:3rem">
     <div class="prose">
       <h3>Only what a loop runs over counts</h3>
-      <p class="muted">A series that is only collected or passed whole costs no calls, so it is not counted. A <code>Series</code> of records kept as a table counts its rows.</p>
+      <p class="muted">A series that is only collected or passed whole costs no calls, so it is not counted. A <code>Series</code> of rows kept as a table counts its rows.</p>
       <p class="muted">The run is <code>stopped</code>, not failed. <code>run.with_max_items(n)</code> is the same run under a new limit, and <a href="running-and-streaming.html#start"><code>resume()</code></a> goes on from there without calling again what was already called. The limit belongs to the run, so <code>resume()</code> and <a href="running-and-streaming.html#stream"><code>stream()</code></a> don't take it.</p>
       <p class="muted"><code>max_items</code> must be a whole number of at least 1. <code>0</code>, <code>2.5</code> and <code>True</code> are refused with <a href="running-and-streaming.html#limits"><code>invalid_limit</code></a>.</p>
     </div>
@@ -1019,7 +1017,7 @@ complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
     <article class="choice">
       <h3>A table never starts a loop.<span class="lvl pub">Public</span></h3>
       <p>If tables started loops by themselves, how often a node runs would depend on which columns happened to be wired. A node that returns <code>Series[R]</code> is where the run visibly fans out, and a table that is only passed along adds no calls.</p>
-      <p class="cost"><b>Cost:</b> a table needs a <a href="standard-nodes.html#loops">Split</a> node before anything runs per record.</p>
+      <p class="cost"><b>Cost:</b> a table needs a <a href="standard-nodes.html#loops">Split</a> node before anything runs per row.</p>
     </article>
     <article class="choice">
       <h3>Two series never pair up by themselves.<span class="lvl pub">Public</span></h3>
@@ -1031,7 +1029,7 @@ complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
       <p class="cost"><b>Cost:</b> the engine accepts a returned <code>polars.Series</code>, but a type checker wants <code>series.to_list()</code>.</p>
     </article>
     <article class="choice">
-      <h3>A Series of records keeps the table it came as.<span class="lvl int">Internal</span></h3>
+      <h3>A Series of rows keeps the table it came as.<span class="lvl int">Internal</span></h3>
       <p>An edge that reads one field reads one column, and a column that no edge reads stays in the frame until the run is saved. The two stored forms share one set of methods, so no reader asks which it has. A node author sees it as a faster run, and in a <a href="saved-runs-and-reuse.html#saved">saved run</a>'s JSON, which writes the Series as a table.</p>
       <p class="cost"><b>Cost:</b> a run has two stored forms of a Series, and each read is written once for each.</p>
     </article>
@@ -1057,9 +1055,7 @@ complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
 </section>
 
 <footer>
-  <p><a href="overview.html">&larr; The overview</a> &middot; <a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the code</a> &middot; <a href="https://github.com/syv-ai/conductor/pull/109">PR #109, the docs</a></p>
-  <p><b>Read from the code</b> at <code>54f82579</code>, and checked at <code>7b2d71e6</code> and <code>7d2df580</code>, under <code class="int" title="Internal">packages/conductor/src/conductor/_internal/</code>: <code class="int" title="Internal">series/</code> (<code class="int" title="Internal">__init__.py</code>, <code class="int" title="Internal">type.py</code>, <code class="int" title="Internal">read.py</code>, <code class="int" title="Internal">stored.py</code>), <code class="int" title="Internal">table/</code> (<code class="int" title="Internal">__init__.py</code>, <code class="int" title="Internal">type.py</code>, <code class="int" title="Internal">read.py</code>, <code class="int" title="Internal">write.py</code>, <code class="int" title="Internal">table_as_a_type_checker_reads_it.pyi</code>), <code class="int" title="Internal">run/arguments.py</code>, <code class="int" title="Internal">run/progress.py</code>, <code class="int" title="Internal">graph/input.py</code>, the item-limit parts of <code class="int" title="Internal">run/scheduler.py</code> and <code class="int" title="Internal">run/blueprint.py</code>, <code class="int" title="Internal">base/place.py</code>, <code class="int" title="Internal">run/waiting.py</code>'s waiting ids, and the <code>item_limit</code> problem. Also the "Types" and "One or many" sections of <code>about/llms.txt</code>, <code>docs/design.md</code>, <code>docs/writing-nodes.md</code> and <code>docs/OVERVIEW.md</code> (in #109), and the tests <code>test_one_or_many.py</code>, <code>test_records.py</code>, <code>test_progress.py</code>, and the loop, table and item-limit sections of <code>test_items_and_collecting.py</code>.</p>
-  <p><b>Run</b> with <code>uv run --no-sync</code> in a worktree at <code>7d2df580</code>, on Python 3.12.11: ten sample files and one that runs every widget state, in <code>scratch/loop-182/samples/</code> (<code>s1_loop.py</code> to <code>s10_limit_each.py</code>, <code>data_for_widgets.py</code>), and <code>s11_into_list.py</code>, run at <code>3e216a54</code>. Every output above is pasted from those runs. JSON is printed with the series' formatter <code>jsonfmt.dumps</code>. Of the code files read, only <code>run/scheduler.py</code>, <code>run/blueprint.py</code> and <code>run/waiting.py</code> changed between <code>54f82579</code> and <code>7b2d71e6</code>. <code>llms.txt</code>, <code>design.md</code>, <code>writing-nodes.md</code> and <code>test_items_and_collecting.py</code> changed too, and the page follows them as they are there. The samples were run again at <code>7d2df580</code>, where graph inputs given as one mapping, the one-value rule, the renamed problem codes and the <code>skipped</code> and <code>none_input</code> counts of a call count changed what they print. The 149 ms and 10 ms figures are from <code>docs/design.md</code> (in #109), not measured here.</p>
+  <p><a href="overview.html">&larr; The overview</a></p>
 </footer>
 
 </div>
@@ -1243,6 +1239,5 @@ const DATA = {"loop":{"collect/0":{"per_item_of":{"join":null,"lines":null,"shou
 })();
 </script>
 
-</body></html>
 </body>
 </html>

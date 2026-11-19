@@ -334,7 +334,7 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; part of #106, the core &middot; saved runs and reuse</p>
+  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; saved runs and reuse</p>
   <h1>Save a run and run it <em>again</em></h1>
   <div class="beside">
     <div class="prose">
@@ -360,7 +360,6 @@ graph = Graph.compile(record, registry)</pre>
   </div>
   <div class="links">
     <a href="overview.html">Back to the overview</a>
-    <a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the core</a>
     <a href="asking-a-person.html">Asking a person</a>
     <a href="running-and-streaming.html">Running and streaming</a>
     <a href="series-and-tables.html">Series and tables</a>
@@ -381,11 +380,11 @@ graph = Graph.compile(record, registry)</pre>
       <p class="eyebrow">A run as JSON</p>
       <h2 id="saved-h">A saved run keeps one list per output, with one entry per call</h2>
       <p class="muted"><span class="lvl int lead-lvl">Internal</span>In memory, a run keeps one <a href="running-and-streaming.html#outcomes">outcome</a> per call, keyed by the call's <a href="series-and-tables.html#indexes">item indexes</a>. <code>shout</code> has three calls, at <code>(0,)</code>, <code>(1,)</code> and <code>(2,)</code>.</p>
-      <p class="muted"><span class="lvl pub lead-lvl">Public</span>The saved JSON has a list of states for each node and a list for each of its outputs. A call's place in the lists is its call number.</p>
+      <p class="muted"><span class="lvl pub lead-lvl">Public</span>The saved JSON has a list of states for each node, a list for each of its outputs, and a list of call fingerprints. A call's place in the lists is its call number.</p>
     </div>
     <figure>
       <div class="diagram">
-        <svg viewBox="0 0 860 250" role="img" aria-label="In memory, shout's outcomes are keyed by item indexes. In JSON they are a list of states and a list per output. Reading back works the item indexes out again from the length of lines' saved series.">
+        <svg viewBox="0 0 860 250" role="img" aria-label="In memory, shout's outcomes are keyed by item indexes. In JSON they are a list of states, a list per output and a list of call fingerprints. Reading back works the item indexes out again from the length of lines' saved series.">
           <defs>
             <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker>
             <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-head a" d="M0 0 L10 5 L0 10 z"/></marker>
@@ -402,11 +401,12 @@ graph = Graph.compile(record, registry)</pre>
           <text class="d-sub" x="410" y="157" text-anchor="middle">from the series lines returned</text>
 
           <text class="d-title" x="530" y="24">shout in the saved run</text>
-          <rect class="d-box a" x="530" y="38" width="310" height="118" rx="8"/>
+          <rect class="d-box a" x="530" y="38" width="310" height="124" rx="8"/>
           <text class="d-label" x="546" y="62">"states":  ["done", "done", "done"]</text>
           <text class="d-label" x="546" y="86">"outputs": {"result":</text>
           <text class="d-label" x="606" y="106">["A!", "B!", "C!"]}</text>
-          <text class="d-sub" x="546" y="136">no item indexes, no key per call</text>
+          <text class="d-label" x="546" y="130">"fingerprints": [fp a, fp b, fp c]</text>
+          <text class="d-sub" x="546" y="150">no item indexes, no key per call</text>
 
           <text class="d-title" x="20" y="196">not saved, worked out again when read</text>
           <text class="d-sub" x="20" y="218">item indexes · status (from the outcomes and ended_early) · progress · results · waiting ids</text>
@@ -420,7 +420,7 @@ graph = Graph.compile(record, registry)</pre>
   <div class="two" style="margin-top:3rem">
     <div class="stack">
       <h3>The finished run as saved</h3>
-      <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line, 450 characters. The sample prints it with the series' JSON formatter, <code>dumps</code>: <code>indent=2</code>, with a list that fits on one line kept on one line. A <code>code</code> value hashes the node's id, version, fields, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source. So it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
+      <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line, 547 characters. The sample prints it with <code>dumps</code>, a small helper that indents by 2 and keeps a list that fits on one line on one line. Each entry under <code>fingerprints</code> is a call's fingerprint, taken when the call was made: a hash of the node's code fingerprint and the call's arguments. The code fingerprint hashes the node's id, version, fields, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source, so it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 saved = run.to_json()
 print(dumps(json.loads(saved)))</pre>
@@ -437,27 +437,25 @@ print(dumps(json.loads(saved)))</pre>
       "states": ["done"],
       "outputs": {
         "result": [["a", "b", "c"]]
-      }
+      },
+      "fingerprints": ["6bf5d89feee07349880a7827"]
     },
     "shout": {
       "states": ["done", "done", "done"],
       "outputs": {
         "result": ["A!", "B!", "C!"]
-      }
+      },
+      "fingerprints": ["e122950749707c2ee6a33910", "a20f03b26bcfd54aacb068e5", "11866a76b3e33364fb53774f"]
     },
     "join": {
       "states": ["done"],
       "outputs": {
         "result": ["A!+B!+C!"]
-      }
+      },
+      "fingerprints": ["5b0fcafd470e5c72614dd45b"]
     }
   },
   "reusable": {},
-  "code": {
-    "lines": "253d121da65ecc7d",
-    "shout": "da4d6140e884b688",
-    "join": "1896cb4684ece326"
-  },
   "complete": ["lines", "shout", "join"]
 }</pre>
   </div>
@@ -472,12 +470,13 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
     </div>
     <div class="stack">
       <h3>A call that isn't done</h3>
-      <p class="muted">A call with no outputs has <code>null</code> in every list. A waiting call says why under <code>questions</code>, which holds what its <a href="asking-a-person.html#walk"><code>Ask</code></a> said. The <a href="asking-a-person.html">page on asking a person</a> shows one. A call not made because an input got <code>None</code> says why under <code>none_inputs</code>. A skipped call has the state <code>"skipped"</code>. A failed call has only the nulls, and <code>ended_early</code> holds the <a href="problems.html">problem</a>. Here <code>strip</code> returned <code>None</code> for the blank second part of <code>"a, ,c"</code>, and <code>up(line: str)</code> doesn't take <code>None</code>, so it wasn't called for it. Below is the value of <code>outcomes.up</code>.</p>
+      <p class="muted">A call with no outputs has <code>null</code> in every list. Only a done or a waiting call can have a fingerprint. A waiting call says why under <code>questions</code>, which holds what its <a href="asking-a-person.html#walk"><code>Ask</code></a> said. The <a href="asking-a-person.html">page on asking a person</a> shows one. A call not made because an input got <code>None</code> says why under <code>none_inputs</code>. A skipped call has the state <code>"skipped"</code>. A failed call has only the nulls, and <code>ended_early</code> holds the <a href="problems.html">problem</a>. Here <code>strip</code> returned <code>None</code> for the blank second part of <code>"a, ,c"</code>, and <code>up(line: str)</code> doesn't take <code>None</code>, so it wasn't called for it. Below is the value of <code>outcomes.up</code>.</p>
       <pre data-lang="json">{
   "states": ["done", null, "done"],
   "outputs": {
     "result": ["A", null, "C"]
   },
+  "fingerprints": ["f209c03633a126d5217eab1e", null, "11352248bd8236a9903785f4"],
   "none_inputs": {
     "1": "line"
   }
@@ -492,9 +491,8 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
     <div class="key"><code class="k">ended_early</code><p>It says how the last <a href="running-and-streaming.html#start"><code>resume()</code></a> ended the run early. It holds the <a href="running-and-streaming.html#status">status</a> and the problem. It is <code>null</code> when it didn't. A copy made while a resume is still going is saved with <code>null</code> here.</p></div>
     <div class="key"><code class="k">max_items</code><p>The run's <a href="series-and-tables.html#limit">item limit</a>.</p></div>
     <div class="key"><code class="k">inputs</code><p>The <a href="graph-record-and-compiling.html#record">graph inputs</a> the caller gave, by name.</p></div>
-    <div class="key"><code class="k">outcomes</code><p>It holds the lists above for each function node that has an outcome. A node inside a subgraph is named by its path, <a href="subgraphs.html#places"><code>loud/shout</code></a>. A subgraph node is never called, so it has no key.</p></div>
-    <div class="key"><code class="k">reusable</code><p>It holds the previous run's outcomes this run may still reuse, by node. Each outcome is written once, with the fingerprint of the arguments its call got. It has entries in a run made from a previous run, for the nodes that aren't complete yet.</p></div>
-    <div class="key"><code class="k">code</code><p>It holds each node's code fingerprint, of the definition its outcomes came from. When it isn't the loading graph's, the outcomes are kept, but never reused.</p></div>
+    <div class="key"><code class="k">outcomes</code><p>It holds the lists above for each function node that has an outcome: <code>states</code>, <code>outputs</code> and <code>fingerprints</code>, then the keys that say why a call isn't done. A node inside a subgraph is named by its path, <a href="subgraphs.html#places"><code>loud/shout</code></a>. A subgraph node is never called, so it has no key.</p></div>
+    <div class="key"><code class="k">reusable</code><p>It holds the previous run's outcomes this run may still reuse, by node. Each outcome is written once, in the same lists as under <code>outcomes</code>, with the fingerprint its call was made with, and the item indexes the call had beside it. It has entries in a run made from a previous run, for the nodes that aren't complete yet.</p></div>
     <div class="key"><code class="k">complete</code><p>The nodes that were complete when the run last stopped, so going on doesn't report them complete again.</p></div>
   </div>
 </section>
@@ -507,7 +505,7 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
     <div class="section-head">
       <p class="eyebrow">Reading it back</p>
       <h2 id="codec-h">A saved run is checked against its graph when it is read</h2>
-      <p class="muted">A saved run comes from <a href="serving-runs.html#the-store">a store</a>, so <code>Run.from_json</code> checks it <a href="overview.html#choices">where it comes in</a>. Any fault in it is one <code>saved_run_unreadable</code>, and <code>ctx.where</code> names its place. A saved run of another graph is <code>saved_run_of_another_graph</code> instead. A graph with <a href="graph-record-and-compiling.html#walls">problems</a> raises those before anything is read.</p>
+      <p class="muted">A saved run comes from <a href="serving-runs.html#the-store">a store</a>, so <code>Run.from_json</code> checks it <a href="overview.html#choices">where it comes in</a>. Any fault in it is one <code>saved_run_unreadable</code>: <code>ctx.where</code> names its place, <code>ctx.reason</code> says why, and <code>ctx.errors</code> holds the one error, with no value in it. A saved run of another graph is <code>saved_run_of_another_graph</code> instead. A graph with <a href="graph-record-and-compiling.html#walls">problems</a> raises those before anything is read.</p>
     </div>
     <figure>
       <div class="diagram">
@@ -562,21 +560,22 @@ try:
     Run.from_json(json.dumps(data), graph)
 except InvalidCallError as e:
     print(e.problems[0].type, e.problems[0].ctx)</pre>
-      <p class="out">saved_run_unreadable {'where': 'outcomes.shout.outputs.result.1', 'reason': 'Input should be a valid string'}</p>
+      <p class="out">saved_run_unreadable {'where': 'outcomes.shout.outputs.result.1', 'reason': 'Input should be a valid string', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}</p>
     </div>
     <div class="stack">
       <h3>A call too many</h3>
-      <p class="muted">Add a fourth entry to shout's lists. Each value is fine on its own, but <code>lines</code> returned three lines, so shout has three calls.</p>
-      <pre data-lang="py">data["outcomes"]["shout"]["states"].append("done"); data["outcomes"]["shout"]["outputs"]["result"].append("D!")
+      <p class="muted">Add a fourth entry to each of shout's lists. Each value is fine on its own, and the lists agree with each other, but <code>lines</code> returned three lines, so shout has three calls. A fault conductor finds in the lists, not pydantic, has the error <code>saved_lists_disagree</code>.</p>
+      <pre data-lang="py">shout = data["outcomes"]["shout"]
+shout["states"].append("done"); shout["outputs"]["result"].append("D!"); shout["fingerprints"].append(None)
 # then from_json and print as on the left</pre>
-      <p class="out">saved_run_unreadable {'where': 'outcomes.shout', 'reason': 'its lists have 4 entries, but the saved series give the node 3 calls'}</p>
+      <p class="out">saved_run_unreadable {'where': 'outcomes.shout', 'reason': 'its lists have 4 entries, but the saved series give the node 3 calls', 'errors': [{'type': 'saved_lists_disagree', 'loc': [], 'msg': 'its lists have 4 entries, but the saved series give the node 3 calls'}]}</p>
     </div>
   </div>
 
   <div class="prose" style="margin-top:2.5rem">
     <h3>A value is saved by its output's type</h3>
     <p class="muted">Each value is written by its output's type. A call with no outputs has <code>null</code> in every list. <code>run.outputs_to_json()</code> writes a complete run's <a href="graph-record-and-compiling.html#record">graph outputs</a> by the same types. The <a href="series-and-tables.html#stored">page on Series and tables</a> has how a run stores a <code>Series</code>.</p>
-    <p class="muted">Each value reads back by its declared type, so a date comes back from its text. JSON has no number for <code>inf</code> or <code>nan</code>, so they are written as the texts <code>"Infinity"</code>, <code>"-Infinity"</code> and <code>"NaN"</code>. A <code>float</code> reads the float back. Under <code>Any</code>, the text stays text.</p>
+    <p class="muted">Each value reads back by its declared type, so a date comes back from its text. JSON has no number for <code>inf</code> or <code>nan</code>, so they are written as the texts <code>"Infinity"</code>, <code>"-Infinity"</code> and <code>"NaN"</code>. A <code>float</code> reads the float back. Under <code>Any</code>, the text stays text. <code>bytes</code> are written as base64 text, as in all JSON conductor writes (<code>conductor.JSON_CONFIG</code>).</p>
   </div>
 </section>
 
@@ -641,12 +640,12 @@ c</textarea>
       <p class="hist" id="hist"></p>
     </div>
   </div>
-  <p class="small" style="margin-top:1.25rem;max-width:var(--col)">The player works the rule out in the page. Its rule was checked against the real engine at <code>7d2df580</code> on 40 random chains of six runs each, 240 runs in all, mixing every control above. It agreed on every call made and on every output.</p>
+  <p class="small" style="margin-top:1.25rem;max-width:var(--col)">The player works the rule out in the page. Its rule was checked against the real engine on 40 random chains of six runs each, 240 runs in all, mixing every control above. It agreed on every call made and on every output.</p>
 
   <div class="two" style="margin-top:3.5rem">
     <div class="stack">
       <h3>The same thing in code</h3>
-      <p class="muted"><a href="running-and-streaming.html#start"><code>run.with_inputs(...)</code></a> is the new run before it starts. <code>again</code> is that plus <a href="running-and-streaming.html#start"><code>resume()</code></a>. The new run already holds what it may reuse under <code>reusable</code>, each <a href="running-and-streaming.html#outcomes">outcome</a> with the fingerprint of the arguments its call got. The sample prints <code>ready</code>, then shout's entry under <code>reusable</code>, on the right.</p>
+      <p class="muted"><a href="running-and-streaming.html#start"><code>run.with_inputs(...)</code></a> is the new run before it starts. <code>again</code> is that plus <a href="running-and-streaming.html#start"><code>resume()</code></a>. The new run already holds what it may reuse under <code>reusable</code>: each <a href="running-and-streaming.html#outcomes">outcome</a> in the same lists as under <code>outcomes</code>, with the fingerprint its call was made with, and the item indexes the call had. The sample prints <code>ready</code>, then shout's entry under <code>reusable</code>, on the right.</p>
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 fresh = run.with_inputs({"text": "a\nb\nd"})
 print(fresh.status)
@@ -654,17 +653,11 @@ print(dumps(json.loads(fresh.to_json())["reusable"]["shout"]))</pre>
       <p class="out">ready</p>
     </div>
     <pre data-lang="json">{
-  "outcomes": {
-    "states": ["done", "done", "done"],
-    "outputs": {
-      "result": ["A!", "B!", "C!"]
-    }
+  "states": ["done", "done", "done"],
+  "outputs": {
+    "result": ["A!", "B!", "C!"]
   },
-  "fingerprints": [
-    "3c3d9c496a2874d3651c1e96",
-    "6bec9914aee69021d1aeb07a",
-    "59a403756335422c2c89d184"
-  ],
+  "fingerprints": ["e122950749707c2ee6a33910", "a20f03b26bcfd54aacb068e5", "11866a76b3e33364fb53774f"],
   "item_indexes": {
     "0": [0],
     "1": [1],
@@ -694,19 +687,20 @@ print(third.outputs)</pre>
       <h3 id="matched-by">What a call is matched by</h3>
       <ul class="plain muted">
         <li>A dict a database hands back with its keys in another order still matches.</li>
+        <li>The fingerprint is taken once, when the call is made, and kept on its outcome, a saved run's too. So an outcome made before the node's code changed keeps the old code in its fingerprint, and no call of the new code matches it.</li>
         <li>An argument with no JSON form gets no fingerprint. That call is made again, and the run doesn't fail.</li>
         <li>Input types are part of the code fingerprint, limits and <a href="nodes-and-types.html#hint">choices</a> too. So a node whose input's limit changed is called again, since its input may refuse the same value.</li>
       </ul>
       <figure>
         <div class="diagram">
-          <svg viewBox="0 0 560 300" style="min-width:560px" role="img" aria-label="The code fingerprint hashes the node's id, version, function code, field types, loops and asks. The arguments fingerprint hashes the code fingerprint with the call's arguments as JSON with sorted keys. A call looks up that fingerprint among the previous run's outcomes.">
+          <svg viewBox="0 0 560 300" style="min-width:560px" role="img" aria-label="The code fingerprint hashes the node's id, version, function code, field types, loops and asks. The call fingerprint hashes the code fingerprint with the call's arguments as JSON with sorted keys. A call looks up that fingerprint among the previous run's outcomes.">
             <defs><marker id="ch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs>
             <text class="d-title" x="16" y="22">what the call is matched by · the node's code</text>
             <rect class="d-box" x="16" y="32" width="528" height="56" rx="8"/>
             <text class="d-sub" x="30" y="54">id · version · the function's parsed source (no name, comments or docstrings)</text>
             <text class="d-sub" x="30" y="72">its inputs' and outputs' types, and which outputs are branches · its loops · asks</text>
             <path class="d-edge" d="M130 92 L 130 120" marker-end="url(#ch)"/>
-            <text class="d-title" x="16" y="140">arguments fingerprint · 24 hex</text>
+            <text class="d-title" x="16" y="140">call fingerprint · 24 hex · kept on the outcome</text>
             <rect class="d-box int" x="16" y="150" width="528" height="56" rx="8"/>
             <text class="d-label" x="30" y="172">hash([code fingerprint, arguments])</text>
             <text class="d-sub" x="30" y="192">arguments as JSON with every dict's keys sorted, such as {"line": "b", "mark": "!"}</text>
@@ -718,7 +712,7 @@ print(third.outputs)</pre>
           </svg>
         </div>
         <p class="small">The solid boxes are public. The dashed box is how conductor hashes them.</p>
-        <figcaption>The two steps are for a node that never asks. A node that may ask keeps its earlier outcomes in item order, grouped by arguments and outer items, and each is taken once (see below).</figcaption>
+        <figcaption>The two steps are for a node that never asks. For a node that may ask, the call fingerprint also hashes the call's item in every loop it is inside. Its earlier outcomes are kept in item order, grouped by that fingerprint, and each is taken once (see below).</figcaption>
       </figure>
     </div>
   </div>
@@ -747,12 +741,12 @@ def approve(name: str) -> bool:
 
 g = Graph.compile(make_graph(names, approve), r)
 run = g.run({"text": "bo,bo"})
-run = run.answer({w.id: v for w, v in zip(run.waiting, (True, False))}).resume()
+run = run.with_answers({w.id: v for w, v in zip(run.waiting, (True, False))}).resume()
 print(run.results["approve"]["result"])
 again = run.again({"text": "eva,bo,bo"})
 print(again.results["approve"]["result"], [w.id for w in again.waiting])</pre>
       <p class="out">[True, False]
-[None, True, False] ['approve@0~62aa3687']</p>
+[None, True, False] ['approve@0~9976b740']</p>
     </div>
     <div class="stack">
       <p class="muted">Eva is new, so she is asked. The first <code>bo</code> keeps the first answer and the second keeps the second, even though both moved down one place.</p>
@@ -791,7 +785,7 @@ print(took(), again.outputs)</pre>
     </div>
     <div class="stack">
       <h3>After an edit to a node's code, loading works and the node runs again</h3>
-      <p class="muted">Declare <code>shout</code> again under the same id and version, with other code, in a new <a href="nodes-and-types.html#registry">registry</a>. The record is the same, so the graph fingerprint is the same, and the saved run loads. Its <code>code</code> entry for shout no longer matches. Shout's outcomes stay in the run, but they won't be reused. In the new run, <code>lines</code> is not called. <code>join</code> is, because shout's new results are new arguments for it.</p>
+      <p class="muted">Declare <code>shout</code> again under the same id and version, with other code, in a new <a href="nodes-and-types.html#registry">registry</a>. The record is the same, so the graph fingerprint is the same, and the saved run loads. Shout's saved fingerprints were taken with the old code, so no call of the new code matches them. Shout's outcomes stay in the run, but they won't be reused. In the new run, <code>lines</code> is not called. <code>join</code> is, because shout's new results are new arguments for it.</p>
       <pre data-lang="py">g2 = Graph.compile(record, other)   # shout returns line.upper() + mark + mark
 print(graph.fingerprint == g2.fingerprint)
 back = Run.from_json(saved, g2)
@@ -810,7 +804,7 @@ complete ['A!', 'B!', 'C!']
     <ul class="plain muted">
       <li>It keeps the calls that were made: their results, and a <a href="asking-a-person.html#questions">question</a> still waiting. A skipped call, or one not made because an input got <code>None</code>, has nothing to reuse.</li>
       <li>It also carries on what the previous run could have reused and didn't, for each node that isn't complete. When a node is complete, its unused reusable outcomes are dropped.</li>
-      <li><code>run.forget("node")</code> drops a node's reusable outcomes, so that node is called again. A node downstream that then gets the same arguments is reused.</li>
+      <li><code>run.with_forgotten("node")</code> is a run of the same inputs without that node's reusable outcomes, so that node is called again. A node downstream that then gets the same arguments is reused.</li>
     </ul>
   </div>
 </section>
@@ -876,7 +870,7 @@ print(calls)</pre>
     <article class="choice">
       <h3>A saved run has a list per output, not a record per call.<span class="lvl pub">Public</span></h3>
       <p>Pydantic checks a whole list in one go, where a record per call would cost a check each. Each output's name is written once. And a call too many or too few makes a list of the wrong length, which reading refuses.</p>
-      <p class="cost"><b>Cost:</b> one call's <a href="running-and-streaming.html#outcomes">outcome</a> is spread across several lists, and the extra keys (<code>questions</code>, <code>none_inputs</code>, <code>skipped</code>, <code>skipped_items</code>) point back into them by call number.</p>
+      <p class="cost"><b>Cost:</b> one call's <a href="running-and-streaming.html#outcomes">outcome</a> is spread across several lists (its states, outputs and fingerprints), and the extra keys (<code>questions</code>, <code>none_inputs</code>, <code>skipped</code>, <code>skipped_items</code>) point back into them by call number.</p>
     </article>
     <article class="choice">
       <h3>Item indexes aren't saved.<span class="lvl pub">Public</span></h3>
@@ -896,12 +890,12 @@ print(calls)</pre>
     <article class="choice">
       <h3>Reuse goes by content, not by place.<span class="lvl pub">Public</span></h3>
       <p>Insert a line, reorder the lines, or repeat one, and the calls that see a value they saw before take its outcome.</p>
-      <p class="cost"><b>Cost:</b> a call's arguments are written as JSON and hashed whenever its node has earlier outcomes to offer. A call with an argument that has no JSON form isn't reused.</p>
+      <p class="cost"><b>Cost:</b> every call's arguments are written as JSON and hashed when the call is made, since its outcome keeps the fingerprint. A call with an argument that has no JSON form isn't reused.</p>
     </article>
     <article class="choice">
       <h3>The code in the key is the function's own.<span class="lvl pub">Public</span></h3>
       <p>The code fingerprint takes the function's source as Python parses it, without its name, decorators, comments and docstrings. So a docstring edit keeps the outcomes, and so does a new Python version. Hashing all the code a node can reach would be slow, and would still miss the outside world.</p>
-      <p class="cost"><b>Cost:</b> a change to anything the function reads from outside its own source isn't noticed: a module constant such as a prompt template, a helper it calls, a method of a type it uses, a data file it opens. To call the node again, make the run with <code>run.forget("node")</code>, or declare a new version of the node and move the graph to it with <code>registry.upgrade</code>. A node whose result depends on more than its inputs on every call sets <code>reuse_when_inputs_match=False</code>. A function whose source conductor can't read is hashed by its bytecode: a lambda, a function made by <code>exec</code>, or one defined where Python keeps no source. A def's bytecode includes its docstring. Bytecode changes with the Python version, so after a new one nothing of such a node is reused, answers included, and its <a href="asking-a-person.html#ids">waiting calls' ids</a> change.</p>
+      <p class="cost"><b>Cost:</b> a change to anything the function reads from outside its own source isn't noticed: a module constant such as a prompt template, a helper it calls, a method of a type it uses, a data file it opens. To call the node again, make the run with <code>run.with_forgotten("node")</code>, or declare a new version of the node and move the graph to it with <code>registry.upgrade</code>. A node whose result depends on more than its inputs on every call sets <code>reuse_when_inputs_match=False</code>. A function whose source conductor can't read is hashed by its bytecode: a lambda, a function made by <code>exec</code>, or one defined where Python keeps no source. A def's bytecode includes its docstring. Bytecode changes with the Python version, so after a new one nothing of such a node is reused, answers included, and its <a href="asking-a-person.html#ids">waiting calls' ids</a> change.</p>
     </article>
     <article class="choice">
       <h3>The context is not in the key.<span class="lvl pub">Public</span></h3>
@@ -917,9 +911,8 @@ print(calls)</pre>
 </section>
 
 <footer>
-  <p><b>Read from the code at <code>b4fcca1a</code>, again at <code>7b2d71e6</code>, and checked again at <code>7d2df580</code>.</b> The files read were <code class="int" title="Internal">run/json/</code> (<code class="int" title="Internal">__init__.py</code>, <code class="int" title="Internal">type.py</code>, <code class="int" title="Internal">codec.py</code>, <code class="int" title="Internal">write.py</code>, <code class="int" title="Internal">read.py</code>), <code class="int" title="Internal">run/reuse.py</code>, <code class="int" title="Internal">run/type.py</code>, <code class="int" title="Internal">graph/type.py</code>, <code class="int" title="Internal">base/json.py</code>, <code class="int" title="Internal">base/hashing.py</code>, <code class="int" title="Internal">node/policy.py</code>, <code class="int" title="Internal">code_fingerprint</code> in <code class="int" title="Internal">graph/node.py</code>, <code class="int" title="Internal">code_text_of</code> in <code class="int" title="Internal">node/type.py</code>, the reuse branch of <a href="running-and-streaming.html#pass"><code class="int" title="Internal">Scheduler._start_if_ready</code></a>, the "Running again" and "Saving a run" sections of <a href="overview.html#choices"><code>llms.txt</code></a> (in #106), and <code>docs/design.md</code> (in <a href="https://github.com/syv-ai/conductor/pull/109">#109</a>). The tests in <code>test_saved_form.py</code>, <code>test_saving.py</code> and <code>test_reuse_and_failure.py</code> were read by name and docstring. At <code>7b2d71e6</code> a code fingerprint hashes the function's parsed source, <code>from_json</code> checks <code>reuse_when_inputs_match</code> again, and the message of <code>saved_run_of_another_graph</code> no longer quotes the saved fingerprint. At <code>7d2df580</code> graph inputs are given as one mapping, a call not made for a <code>None</code> is saved under <code>none_inputs</code>, a reusable outcome is written once, and every code fingerprint changed once. The page follows them.</p>
-  <p><b>Run:</b> every sample on this page, on Python 3.12.11, at <code>7d2df580</code>. The outputs are as printed, JSON with the series' formatter <code>jsonfmt.dumps</code>. The samples that print call lists ran the copy of the nodes that records each call, and the hashes come from the code shown. The player's rule was checked against 240 runs of the real engine.</p>
-  <p><a href="overview.html">The overview</a> &middot; <a href="https://github.com/syv-ai/conductor/pull/106">PR #106</a></p>
+  <p>Every sample on this page was run, and its output is as printed. The samples that print call lists ran the copy of the nodes that records each call, and the hashes come from the code shown. The rules are written out in full in the "Running again" and "Saving a run" sections of <code>python -m conductor.about</code>.</p>
+  <p><a href="overview.html">The overview</a></p>
 </footer>
 
 </div>
@@ -1094,6 +1087,5 @@ print(calls)</pre>
 })();
 </script>
 
-</body></html>
 </body>
 </html>

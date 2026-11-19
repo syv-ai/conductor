@@ -378,14 +378,13 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; #108, conductor-providers &middot; serving runs</p>
+  <p class="eyebrow">Conductor 2.0 &middot; syv-conductor-providers &middot; serving runs</p>
   <h1>Serving <em>runs</em></h1>
   <div class="prose">
     <p class="lede">Some runs outlive a request. A node asks a person to approve something and the answer comes tomorrow, or the server is deployed halfway through a long run. <code>syv-conductor-providers</code> keeps such runs in your database and serves them over HTTP, from one server process or ten.</p>
     <p class="muted">It is a separate package, imported as <code>conductor_providers</code>. Everything in it is under <code>conductor_providers.fastapi</code>. You write a store, build a <code>Worker</code> on it, and mount <code>run_router</code> in front of the worker.</p>
     <div class="links">
       <a href="overview.html">The overview</a>
-      <a href="https://github.com/syv-ai/conductor/pull/108">PR #108</a>
       <a href="asking-a-person.html">Asking a person</a>
       <a href="running-and-streaming.html">Running and streaming</a>
       <a href="saved-runs-and-reuse.html">Saved runs and reuse</a>
@@ -565,7 +564,8 @@ async def main():
     store = DictStore()
     worker = Worker(store, nodes_for=lambda metadata: registry)
     async with worker.serving():
-        view = await worker.begin(make_graph(approve), {"amount": 5000}, {"user": "anna"})
+        view = await worker.begin(make_graph(approve), {"amount": 5000}, {"user": "anna"},
+                                  allows=lambda m: True)
         print("begin  -&gt;", view.status, view.waiting)
         print("compiles after begin:", compiles)
         view = await until_stopped(worker, view.id)
@@ -590,7 +590,7 @@ asyncio.run(main())</pre>
       <p class="muted"><code>begin</code> answers at once with the run as written, <code>running</code>, and makes the first resume call in the background. Each resume call here stores its own <a href="running-and-streaming.html#stream">events</a>, from <code>run_start</code> to <code>run_end</code>, and a follower reads them all with <code>worker.events</code>. A run that stopped running has no owner and no lease.</p>
       <pre class="out">begin  -&gt; running []
 compiles after begin: 1
-read   -&gt; waiting ['approve~58ca084b'] Approve 5000 kr.?
+read   -&gt; waiting ['approve~60a01e27'] Approve 5000 kr.?
 compiles after the first resume call: 2
 row.state = {
   "status": "waiting",
@@ -656,7 +656,7 @@ events:
         </g>
         </svg>
     </div>
-    <figcaption>A run that is <a href="asking-a-person.html#answering">declined</a> while it isn't running stops after <code>Run.from_json</code>. The worker gives it the decline, and <code>run.stream</code> isn't called. Compiling is the part 2.0 <a href="overview.html#perf">made slower</a>, and the overview has the numbers. The compiled <code>Graph</code> is new each time. So what a <code>Graph</code> keeps once built, its <a href="running-and-streaming.html#start">run blueprint</a> and its <a href="saved-runs-and-reuse.html#codec">codec</a> (both internal cached properties), is built again on each load too.</figcaption>
+    <figcaption>A run that is <a href="asking-a-person.html#answering">declined</a> while it isn't running stops after <code>Run.from_json</code>. The worker gives it the decline, and <code>run.stream</code> isn't called. So each load pays for a compile of the whole graph. The compiled <code>Graph</code> is new each time. So what a <code>Graph</code> keeps once built, its <a href="running-and-streaming.html#start">run blueprint</a> and its <a href="saved-runs-and-reuse.html#codec">codec</a> (both internal cached properties), is built again on each load too.</figcaption>
   </figure>
   <div class="table-wrap" style="margin-top:2rem">
     <table>
@@ -666,7 +666,7 @@ events:
         <tr><td><code>begin(previous=)</code></td><td>Compiles the new graph and loads the <a href="saved-runs-and-reuse.html#edits">previous run</a>. <code>estimate(previous=)</code> does both too.</td><td class="num">3</td></tr>
         <tr><td><code>again</code></td><td>Loads the run to change its inputs.</td><td class="num">2</td></tr>
         <tr><td><code>resume(max_items=)</code></td><td>Loads the run to raise the <a href="series-and-tables.html#limit">ceiling</a>.</td><td class="num">2</td></tr>
-        <tr><td><code>decline</code> of a waiting run</td><td>Loads the run and gives it the decline. The run is written <code>failed</code> at once, with no resume call.</td><td class="num">1</td></tr>
+        <tr><td><code>decline</code> of a waiting run</td><td>Loads the run and gives it the decline. The run is written <code>declined</code> at once, with no resume call.</td><td class="num">1</td></tr>
         <tr><td><code>cancel</code> of a waiting run</td><td>Nothing besides the resume call.</td><td class="num">1</td></tr>
         <tr><td><code>read</code>, and an empty <code>answer</code></td><td>Nothing. Each answers with the view built from the row, without loading the run.</td><td class="num">0</td></tr>
       </tbody>
@@ -724,10 +724,10 @@ events:
       <pre class="out">  claim at rev 1 by one: written
   claim at rev 1 by other: refused, the row had moved on
   write of state at rev 2: written -&gt; queued:
-[{"kind": "answer", "waiting_id": "approve~b6e7dce6", "answer": false}]
+[{"kind": "answer", "waiting_id": "approve~60a01e27", "answer": false}]
 both answered: running running
 ended: complete {'result': True}
-refused: {'approve~b6e7dce6': ['not_waiting']}</pre>
+refused: {'approve~60a01e27': ['not_waiting']}</pre>
     </div>
   </div>
 </section>
@@ -798,7 +798,8 @@ refused: {'approve~b6e7dce6': ['not_waiting']}</pre>
 a = Worker(store, nodes_for=lambda m: registry, lease=0.6)
 b = Worker(store, nodes_for=lambda m: registry, lease=0.6)
 async with a.serving():
-    view = await a.begin(make_graph(many, slow), {"n": 40}, {"user": "anna"})
+    view = await a.begin(make_graph(many, slow), {"n": 40}, {"user": "anna"},
+                         allows=lambda m: True)
     while len(calls) &lt; 10:
         await asyncio.sleep(0.01)
 async with b.serving():
@@ -813,7 +814,7 @@ A shuts down after 10 calls
   update at rev 2: owner=None, lease_until=0.0 (handed back), status=running, written=True
 after A left: status running owner None lease_until 0.0
   update at rev 3: owner=B, lease_until=now + lease, status=running, written=True
-  update at rev 8: owner=None, lease_until=None, status=complete, written=True
+  update at rev 7: owner=None, lease_until=None, status=complete, written=True
 ended: complete | calls made: 40 | distinct items: 40
 run_start events: 2  run_end events: 1</pre>
     </div>
@@ -827,13 +828,13 @@ run_start events: 2  run_end events: 1</pre>
   <div class="section-head">
     <p class="eyebrow">Answer, decline, cancel, resume</p>
     <h2 id="actions-h">What a call does depends on where the run is</h2>
-    <p class="muted">Each method that acts on a run reads its row, acts on it as it is, and returns the run as written. Pick a call and where the run is. The status and the view you get back are public. The claims and queues in the steps are how the worker gets there. The engine's side is in <a href="asking-a-person.html#answering">asking a person</a> and <a href="running-and-streaming.html#stream">running and streaming</a>. The queue's rules in full are in <a href="overview.html#choices"><code>python -m conductor.about answers-and-declines</code></a>.</p>
+    <p class="muted">Each method that acts on a run reads its row, acts on it as it is, and returns the run as written. Pick a call and where the run is. The status and the view you get back are public. The claims and queues in the steps are how the worker gets there. The engine's side is in <a href="asking-a-person.html#answering">asking a person</a> and <a href="running-and-streaming.html#stream">running and streaming</a>. The queue's rules in full are in <code>python -m conductor.about answers-and-declines</code>.</p>
   </div>
   <div class="matrix">
     <div class="pick">
       <div><p class="eyebrow" style="margin-bottom:.5rem">The call</p><div class="tabs" id="m-call" role="group" aria-label="The call"></div></div>
       <div><p class="eyebrow" style="margin-bottom:.5rem">The run is</p><div class="tabs" id="m-state" role="group" aria-label="Where the run is"></div></div>
-      <p class="small">"Ended early" is <code>failed</code>, <code>stopped</code>, <code>cancelled</code> or <code>timed_out</code>. Such a run has a <a href="running-and-streaming.html#status"><code>cause</code></a>.</p>
+      <p class="small">"Ended early" is <code>failed</code>, <code>stopped</code>, <code>cancelled</code> or <code>timed_out</code>. Such a run has a <a href="running-and-streaming.html#status"><code>cause</code></a>. A <code>declined</code> run has one too, <code>answer_declined</code>, but a person's decline ended it for good, and nothing resumes it.</p>
     </div>
     <div class="verdict" id="m-out" aria-live="polite"></div>
   </div>
@@ -859,8 +860,8 @@ run_start events: 2  run_end events: 1</pre>
         <tr><td><code>GET /runs/{run_id}</code></td><td><code>read</code></td><td>The run as it was when it last stopped running.</td></tr>
         <tr><td><code>GET /runs/{run_id}/events</code></td><td><code>events</code></td><td>Server-sent events from whichever worker runs it. With <code>Last-Event-ID</code> it goes on after a reconnect.</td></tr>
         <tr><td><code>POST /runs/{run_id}/answers</code></td><td><code>answer</code></td><td><code>{waiting_id: value}</code>. 202.</td></tr>
-        <tr><td><code>POST /runs/{run_id}/declines</code></td><td><code>decline</code></td><td><code>{"waiting_id", "reason"}</code>. When the run takes it, the run ends <code>failed</code> with <a href="asking-a-person.html#answering"><code>answer_declined</code></a>, and a run that isn't running answers <code>failed</code> at once. A decline sent while the run is running is queued, and may be refused later, into <code>refused</code> (<a href="asking-a-person.html#ids"><code>not_waiting</code></a> or <code>answer_stale</code>). 202.</td></tr>
-        <tr><td><code>POST /runs/{run_id}/resume</code></td><td><code>resume</code></td><td>Resumes a run that ended early. <code>{"max_items": n}</code> raises its <a href="series-and-tables.html#limit">item limit</a>. 202.</td></tr>
+        <tr><td><code>POST /runs/{run_id}/declines</code></td><td><code>decline</code></td><td><code>{"waiting_id", "reason"}</code>. When the run takes it, the run ends <code>declined</code> with <a href="asking-a-person.html#answering"><code>answer_declined</code></a>, for good, and a run that isn't running answers <code>declined</code> at once. A decline sent while the run is running is queued, and may be refused later, into <code>refused</code> (<a href="asking-a-person.html#ids"><code>not_waiting</code></a> or <code>answer_stale</code>). 202.</td></tr>
+        <tr><td><code>POST /runs/{run_id}/resume</code></td><td><code>resume</code></td><td>Resumes a run that ended early, never a <code>declined</code> one. <code>{"max_items": n}</code> raises its <a href="series-and-tables.html#limit">item limit</a>. 202.</td></tr>
         <tr><td><code>POST /runs/{run_id}/again</code></td><td><code>again</code></td><td>A <a href="saved-runs-and-reuse.html#again">new run with some inputs changed</a>, on this request's nodes. 202.</td></tr>
         <tr><td><code>POST /runs/{run_id}/cancel</code></td><td><code>cancel</code></td><td>Asks the run to stop before its next node call.</td></tr>
       </tbody>
@@ -893,7 +894,9 @@ for label, req in [
 r = await c.post(f"/runs/{run_id}/declines",
                  json={"waiting_id": v["waiting"][0]["id"], "reason": "Over budget"})
 print("POST declines", r.status_code, r.json()["status"])
-...  # read until it isn't running, then GET /runs/{run_id}/events
+r = await c.post(f"/runs/{run_id}/resume")
+print("POST resume (declined run)", r.status_code, [(p["type"], p["ctx"]) for p in r.json()["detail"]])
+...  # GET the run again, then GET /runs/{run_id}/events
 paths = app.openapi()["paths"]
 for path in ("/runs/{run_id}", "/runs/{run_id}/resume"):
     print("responses of", path, list(paths[path]["get" if path == "/runs/{run_id}" else "post"]["responses"]))</pre>
@@ -901,7 +904,7 @@ for path in ("/runs/{run_id}", "/runs/{run_id}/resume"):
     <div class="sample">
       <p class="label">What it printed · the <code>STATUS</code> line <span class="lvl int">Internal</span></p>
       <p class="muted">Every refusal the worker makes is <code>{"detail": [problem, ...]}</code>, a list of conductor <a href="problems.html">problems</a> in the shape of FastAPI's own 422, and the first problem's code picks the status. Each route's OpenAPI entry declares the statuses it can refuse with. A body of the wrong shape gets FastAPI's own 422, such as <code>extra_forbidden</code> or <code>int_type</code>.</p>
-      <p class="muted">A decline to a run that isn't running is given to it at once, and the route answers with the run <code>failed</code>. The run isn't resumed, so its events end with a <code>run_end</code> that has no <code>run_start</code> before it. A resume call that raised before its stream started stores a lone <code>run_end</code> too. So does a running run with a decline queued, when its worker hands it back or dies: the next worker gives it the queue first, and a run that takes the decline ends <code>failed</code> with no resume call. The declined call loses its outcome, so it no longer waits. Any other question still waits. A resume, or an answer to another question (which resumes the run), asks the declined question again.</p>
+      <p class="muted">A decline to a run that isn't running is given to it at once, and the route answers with the run <code>declined</code>. The run isn't resumed, so its events end with a <code>run_end</code> that has no <code>run_start</code> before it. A resume call that raised before its stream started stores a lone <code>run_end</code> too. A declined run has ended for good: a resume is <code>run_not_resumable</code>, and an answer or another decline is conductor's <code>not_waiting</code>.</p>
       <pre class="out">POST /runs 202 keys: ['waiting', 'outputs', 'progress', 'id', 'metadata', 'status', 'cause', 'refused'] status: running
 GET /runs/{id}, four of its keys:
 {
@@ -910,14 +913,15 @@ GET /runs/{id}, four of its keys:
   "outputs": null,
   "refused": {}
 }
-waiting ids: ['approve~58ca084b']
+waiting ids: ['approve~60a01e27']
 GET as bo 404 [('no_such_run', {})]
 GET unknown id 404 [('no_such_run', {})]
 POST resume (waiting run) 409 [('run_not_resumable', {'status': 'waiting'})]
-POST answers, wrong type 422 [('invalid_answer', {'waiting_id': 'approve~58ca084b', 'reason': 'Input should be a valid boolean'})]
-POST declines, stale id 422 [('answer_stale', {'waiting_id': 'approve~00000000', 'current': 'approve~58ca084b'})]
-POST declines 202 failed
-GET after the decline failed answer_declined {'reason': 'Over budget'} waiting: []
+POST answers, wrong type 422 [('invalid_answer', {'waiting_id': 'approve~60a01e27', 'reason': 'Input should be a valid boolean', 'errors': [{'type': 'bool_type', 'loc': [], 'msg': 'Input should be a valid boolean'}]})]
+POST declines, stale id 422 [('answer_stale', {'waiting_id': 'approve~00000000', 'current': 'approve~60a01e27'})]
+POST declines 202 declined
+POST resume (declined run) 409 [('run_not_resumable', {'status': 'declined'})]
+GET after the decline declined answer_declined {'reason': 'Over budget'} waiting: []
 event types: ['run_start', 'node_start', 'node_waiting', 'run_end', 'run_end']
 responses of /runs/{run_id} ['200', '404', '422']
 responses of /runs/{run_id}/resume ['202', '404', '409', '422']
@@ -933,7 +937,7 @@ STATUS: {'no_such_run': 404, 'run_not_resumable': 409}</pre>
       <thead><tr><th>Code</th><th>Status</th><th>When</th></tr></thead>
       <tbody>
         <tr><td><code>no_such_run</code></td><td class="num">404</td><td>No run has the id, or the run filter doesn't let this request see it. The id is the route's, or the <code>previous</code> of <code>POST /runs</code> or <code>/estimate</code>.</td></tr>
-        <tr><td><code>run_not_resumable</code></td><td class="num">409</td><td>A resume of a run that didn't end early. <code>ctx.status</code> says where it is.</td></tr>
+        <tr><td><code>run_not_resumable</code></td><td class="num">409</td><td>A resume of a run that didn't end early, or that a decline ended for good. <code>ctx.status</code> says where it is.</td></tr>
         <tr><td><code>raised_outside_a_node</code></td><td class="num">422</td><td>It isn't a refusal of a call. It is the <code>cause</code> of a run whose resume call raised outside any node, or a queued answer's or decline's entry in <code>refused</code> when its check raised. <code>ctx.error</code> is the exception's class name.</td></tr>
       </tbody>
     </table>
@@ -953,7 +957,7 @@ STATUS: {'no_such_run': 404, 'run_not_resumable': 409}</pre>
     <div class="prose">
       <p>Every run keeps some metadata, of the worker's <code>metadata_type</code>. That is a <code>dict[str, str]</code> unless you name a pydantic model. The router's <code>metadata</code> dependency gives it, and it is written once, when the run starts. The worker checks it against <code>metadata_type</code> first. A value of another type is a bug in your code, so pydantic's error is raised as it is, a 500.</p>
       <p>Each time any worker resumes the run, it builds the run's registry (<code>nodes_for</code>) and <a href="nodes-and-types.html#context">context</a> (<code>context</code>) from that metadata. So keep in it what identifies the request, such as a user and a team, and nothing that changes.</p>
-      <p><code>run_filter</code> gives, per request, a test of a run's metadata. The router passes it to the worker as <code>allows=</code>, a required keyword on every method that acts on a run by id: <code>read</code>, <code>answer</code>, <code>decline</code>, <code>resume</code>, <code>cancel</code>, <code>again</code> and <code>events</code>. <code>begin</code> and <code>estimate</code> need <code>allows</code> only with <code>previous</code>, and raise <code>TypeError</code> when given <code>previous</code> without it.</p>
+      <p><code>run_filter</code> gives, per request, a test of a run's metadata. The router passes it to the worker as <code>allows=</code>, a required keyword on all nine of the worker's methods: <code>read</code>, <code>answer</code>, <code>decline</code>, <code>resume</code>, <code>cancel</code>, <code>again</code> and <code>events</code>, which act on a run by id, and <code>begin</code> and <code>estimate</code>, which test it on a <code>previous</code> run when given one. With no logins, pass <code>allows=lambda metadata: True</code>.</p>
     </div>
     <div class="sample">
       <p class="label">In the typed form, everyone in a team sees the team's runs. The model and the two dependencies are from docs/serving-runs.md. The last two lines are written from that page's prose.</p>
@@ -1086,16 +1090,16 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
     </article>
     <article class="choice">
       <h3>An answer or a decline to a running run is queued.</h3>
-      <p>One entry per reply, each to one waiting id, is kept in the row's <code>state</code>. It is given to the run when the resume call ends, in the order it came, with <a href="asking-a-person.html#answering"><code>run.answer</code></a> and <code>run.decline</code>, so a wrong answer is refused alone. What became of the last answer or decline to each question is in <code>refused</code>.</p>
+      <p>One entry per reply, each to one waiting id, is kept in the row's <code>state</code>. It is given to the run when the resume call ends, in the order it came, with <a href="asking-a-person.html#answering"><code>run.with_answers</code></a> and <code>run.with_decline</code>, so a wrong answer is refused alone. What became of the last answer or decline to each question is in <code>refused</code>.</p>
       <p class="cost"><b>Cost:</b> the caller gets a 202 either way, and learns of a refusal only by reading the run again. Only a reply JSON can't write is refused at once.</p>
     </article>
     <article class="choice">
       <h3>A run you may not see is a run that isn't there.</h3>
-      <p>Both are a 404 <code>no_such_run</code> with the same body, so a request learns nothing about runs it may not see. Because <code>allows=</code> is a required keyword on every method that acts on a run by id, a route of your own can't leave the check out by accident.</p>
+      <p>Both are a 404 <code>no_such_run</code> with the same body, so a request learns nothing about runs it may not see. Because <code>allows=</code> is a required keyword on every method of the worker, a route of your own can't leave the check out by accident.</p>
     </article>
     <article class="choice">
       <h3>A body with a graph is read once, as text.</h3>
-      <p><code>POST /runs</code>, <code>/estimate</code> and <code>/compile</code> read their body with conductor's <a href="graph-record-and-compiling.html#read-json"><code>read_json</code></a>, so a key written twice, such as two nodes with one id, is a 422 <a href="graph-record-and-compiling.html#walls"><code>invalid_record</code></a> whose <code>ctx.error</code> is <code>repeated_key</code>, rather than a node quietly dropped.</p>
+      <p><code>POST /runs</code>, <code>/estimate</code> and <code>/compile</code> read their body with conductor's <a href="graph-record-and-compiling.html#read-json"><code>read_json</code></a>, so a key written twice, such as two nodes with one id, is a 422 <a href="graph-record-and-compiling.html#walls"><code>invalid_record</code></a> whose <code>ctx.errors</code> holds <code>repeated_key</code>, rather than a node quietly dropped.</p>
       <p class="cost"><b>Cost:</b> FastAPI doesn't parse these bodies, so it can't derive their schema. <code>bodies.py</code>'s <code class="int" title="Internal">declared()</code> builds it from the model and inlines every <code>$ref</code>, and it goes in through <code>openapi_extra</code>. Your OpenAPI page shows the schema all the same.</p>
     </article>
   </div>
@@ -1106,26 +1110,24 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
 <section id="next" aria-labelledby="next-h">
   <div class="section-head">
     <p class="eyebrow">Where to go next</p>
-    <h2 id="next-h">Read #108 in this order</h2>
-    <p class="muted">Read <code>store.py</code> and <code>state.py</code> first, then <code>worker.py</code> and <code>held_run.py</code>, then <code>router.py</code> and <code>bodies.py</code>, with <code>problems.py</code> and <code>testing.py</code> beside them. <code>docs/serving-runs.md</code> is the guide, and the suite runs its code as written.</p>
+    <h2 id="next-h">Read the package in this order</h2>
+    <p class="muted">Read <code>store.py</code> and <code>state.py</code> first, then <code>worker.py</code> and <code>held_run.py</code>, then <code>router.py</code> and <code>bodies.py</code>, with <code>problems.py</code> and <code>testing.py</code> beside them. They are in <code>packages/conductor-providers/src/conductor_providers/fastapi/</code>. <code>docs/serving-runs.md</code> is the guide, and the suite runs its code as written.</p>
     <div class="links">
-      <a href="https://github.com/syv-ai/conductor/pull/108">PR #108, conductor-providers</a>
       <a href="overview.html">Back to the overview</a>
     </div>
   </div>
   <ul class="series">
     <li><a href="overview.html">The overview</a> <span>page 1</span></li>
-    <li><a href="asking-a-person.html">Asking a person</a> <span>published</span></li>
-    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>published</span></li>
-    <li><a href="running-and-streaming.html">Running and streaming</a> <span>published</span></li>
-    <li><a href="problems.html">Problems</a> <span>published</span></li>
+    <li><a href="asking-a-person.html">Asking a person</a> <span>page 5</span></li>
+    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>page 7</span></li>
+    <li><a href="running-and-streaming.html">Running and streaming</a> <span>page 8</span></li>
+    <li><a href="problems.html">Problems</a> <span>page 9</span></li>
     <li class="here">Serving runs <span>this page</span></li>
   </ul>
 </section>
 
 <footer>
-  <p><b>Read from the code</b> at <code>b4fcca1a</code>, whole, and again where it changed up to <code>03d66106</code>. At <code>7d2df580</code>: the whole of <code>docs/serving-runs.md</code>, the package's <code>problems.py</code>, the queue entries in <code>state.py</code>, <code>router.py</code>'s declared refusals, the signatures and docstrings of <code>worker.py</code>'s methods, <code>testing.py</code>'s checks, the reference's section <code>python -m conductor.about answers-and-declines</code>, and the providers' lines of the <code>CHANGELOG</code> under <code>[Unreleased]</code>. The files read at <code>b4fcca1a</code>: under <code>packages/conductor-providers/src/conductor_providers/</code>, <code>__init__.py</code>, <code>fastapi/__init__.py</code>, <code>store.py</code>, <code>state.py</code>, <code>worker.py</code>, <code>held_run.py</code>, <code>router.py</code>, <code>bodies.py</code>, <code>problems.py</code> and <code>testing.py</code>; the package's <code>pyproject.toml</code>; <code>docs/serving-runs.md</code>; every file in <code>tests/test_providers/</code>; the "Serving Runs" section of <code>llms.txt</code> and the companions section of <code>docs/design.md</code>. Also read, in part, for one fact each: <code>run/stream.py</code> (what <code>hand_back</code> does) and <code>graph/type.py</code> (<code>Graph.compile</code> is a static method; <code>_blueprint</code> and <code>_codec</code> are cached properties).</p>
-  <p><b>Run</b> on CPython 3.12.11, in a worktree at <code>03d66106</code>: samples 1 to 5 (<code>one_run.py</code>, <code>hand_back.py</code>, <code>race.py</code>, <code>routes_sample.py</code>, <code>check.py</code>), whose outputs are pasted as printed, JSON with the series' formatter <code>jsonfmt.dumps</code>. Sample 4 runs the routes in process and prints two routes' declared responses. The compile counts are from a probe at <code>03d66106</code> that counts <code>Graph.compile</code> calls from the start of each worker call. The kill number in a lease step's caption is an assertion of <code>test_serving_runs.py</code>, not a measurement of this page. Two more probes at <code>03d66106</code> back the matrix: a cancel that comes during a run's last call, on the holding worker or another, ends the run <code>cancelled</code> with <code>run_cancelled</code>, and a resume then completes it with no call. A decline queued on a running run whose worker then hands it back ends the run <code>failed</code>, <code>answer_declined</code>, with a lone <code>run_end</code> and no call.</p>
+  <p>The outputs on this page are what the code above printed, on the dict store shown in <a href="#the-store">writing a store</a>. The compile counts come from wrapping <code>Graph.compile</code> to count its calls from the start of each worker call.</p>
 </footer>
 
 </div>
@@ -1139,7 +1141,7 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
   const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   /* names the page marks internal wherever a caption writes them in backticks */
   const INTERNAL = new Set(["HeldRun", "GuardedStore", "StoreFailedError", "RunState", "RunOutcome", "STATUS"]);
-  /* backticks become code, and only [text](page.html#anchor) becomes a link; the rest stays escaped */
+  /* backticks become code, and only [text](a page of the series) becomes a link; the rest stays escaped */
   const code = (t) => esc(t).replace(/`([^`]+)`/g, (m, n) => INTERNAL.has(n) ? '<code class="int" title="Internal">' + n + "</code>" : "<code>" + n + "</code>")
     .replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
 
@@ -1226,7 +1228,7 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
       { t: "The lease runs out, and B's sweep takes it", cap: "A lease after A's last renewal, `lease_until` is in the past. B sweeps three times a lease, so within a third of a lease more `expired(now)` gives B the row, and B claims it at the rev it read.",
         row: { owner: "B", lease: "now + lease", rev: "+1", status: "running", run: "last checkpoint", state: "running" },
         a: ["dead", ""], b: ["holds the run", "claimed at rev"], A: "dead", B: "holds", lA: "", lB: "expired · claim", ch: ["owner", "lease"] },
-      { t: "B goes on from the last checkpoint", cap: "B loads the run as A last saved it. The calls A made after that checkpoint aren't in it, so B makes them again. With `checkpoint_every=0.05`, the test with real processes allows at most 6 of 40 calls made twice.",
+      { t: "B goes on from the last checkpoint", cap: "B loads the run as A last saved it. The calls A made after that checkpoint aren't in it, so B makes them again. The test with two real worker processes kills A mid-run and checks that B makes again exactly the calls A's last checkpoint doesn't keep.",
         row: { owner: "None", lease: "None", rev: "+n", status: "complete", run: "the whole run", state: "complete" },
         a: ["dead", ""], b: ["serving", "resume call 2 ended"], A: "dead", B: "", lA: "", lB: "row with run_end", ch: ["owner", "lease", "status"] }] },
     outage: { name: "the store fails", steps: [BEGIN, WORK,
@@ -1291,38 +1293,42 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
 
   /* ======================= THE MATRIX ======================= */
   const CALLS = { answer: "answer", decline: "decline", cancel: "cancel", resume: "resume" };
-  const STATES = { running: "running", waiting: "waiting", early: "ended early", complete: "complete" };
+  const STATES = { running: "running", waiting: "waiting", early: "ended early", complete: "complete", declined: "declined" };
   const M = {
     "answer:running": { pills: [["202", ""], ["running", ""]], steps: [
       "The answers are queued in the row's `state`, one entry per answer, with a write at the rev read. Only an answer JSON can't write is checked now, and refused at once as `invalid_answer` (a 422).",
-      "When the resume call ends, the worker gives the run the queue in the order it came, with [`run.answer`](asking-a-person.html#answering).",
-      "An answer the run refuses goes to `refused` with its problems. One it takes clears what `refused` had for its question. A second answer to an answered question is [`not_waiting`](asking-a-person.html#ids), and so is a decline queued after it.",
-      "If the run took a decline, it ends `failed`. Otherwise, if it took any answer, it is running again, and the same worker resumes it at once, or hands it back if it is shutting down." ] },
+      "When the resume call ends, the worker gives the run the queue in the order it came, with [`run.with_answers`](asking-a-person.html#answering).",
+      "An answer the run refuses goes to `refused` with its problems. One it takes clears what `refused` had for its question. A second answer to an answered question is [`not_waiting`](asking-a-person.html#ids), and so is every reply queued after a decline the run took.",
+      "If the run took a decline, it ends `declined`, for good. Otherwise, if it took any answer, it is running again, and the same worker resumes it at once, or hands it back if it is shutting down." ] },
     "answer:waiting": { pills: [["202", ""], ["running", ""]], steps: [
-      "The worker loads the run (a compile) and gives it the answers with [`run.answer`](asking-a-person.html#answering). A refusal is a 422 that lists every answer refused, and nothing is written.",
+      "The worker loads the run (a compile) and gives it the answers with [`run.with_answers`](asking-a-person.html#answering). A refusal is a 422 that lists every answer refused, and nothing is written.",
       "It claims the row at the rev it read, with the answered run and `running`, and resumes it in the background.",
-      "If another call wrote the row first, it reads the row again. The answer is queued if the run is running now, and refused as `not_waiting` if the other call already answered and the run moved on." ] },
+      "If another call wrote the row first, it reads the row again. The answer is queued if the run is running now, and refused as `not_waiting` if the other call answered the question and the run finished." ] },
     "answer:early": { pills: [["202", ""], ["running", ""]], steps: [
       "It goes as for a waiting run. The run takes answers whatever its status, so a run that failed, stopped, timed out or was cancelled with questions waiting is answered and goes on.",
       "A run whose resume call raised lists what waits in its last checkpoint, and answering one of those goes on with the run, with no separate resume.",
-      "Such a run may still have replies queued from that call. If they hold a decline, the run is given the whole queue now, with this call's answers last. A run that takes the decline is written `failed` with no resume call, and an answer it refuses then is in `refused`, not a 422." ] },
+      "A run that isn't running holds no queue: what was queued during its last resume call was given to it when that call ended, even one that raised. So this call's answers act on the run alone." ] },
     "answer:complete": { pills: [["422", "bad"], ["not_waiting", "bad"]], steps: [
-      "Nothing waits any more, so `run.answer` refuses the answer as conductor's [`not_waiting`](asking-a-person.html#ids), and nothing is written.",
+      "Nothing waits any more, so `run.with_answers` refuses the answer as conductor's [`not_waiting`](asking-a-person.html#ids), and nothing is written.",
       "No answers at all (`{}`) change nothing for any run, and answer with the run as it is." ] },
+    "answer:declined": { pills: [["422", "bad"], ["not_waiting", "bad"]], steps: [
+      "A declined run waits on nothing, so `run.with_answers` refuses every answer as conductor's [`not_waiting`](asking-a-person.html#ids), with `ctx.status` `declined`, and nothing is written." ] },
     "decline:running": { pills: [["202", ""], ["running", ""]], steps: [
       "The decline is queued in the row's `state`, beside the answers, with a write at the rev read. Only a reason JSON can't write is checked now, and refused at once as `invalid_decline_reason` (a 422).",
-      "When the resume call ends, the run is given the queue in the order it came, with `run.answer` and [`run.decline`](asking-a-person.html#answering). Of an answer and a decline to one question, the first queued is taken, and the second is refused as [`not_waiting`](asking-a-person.html#ids) in `refused`.",
-      "A decline the run takes ends it `failed` with [`answer_declined`](asking-a-person.html#answering), keeping every answer it took. It isn't resumed, and a cancel asked of it is cleared.",
-      "If the worker hands the run back, or dies, before that, the worker that takes the run next gives it the queue first. A run that takes the decline ends `failed` with no resume call, and its events get a lone `run_end`." ] },
-    "decline:waiting": { pills: [["202", ""], ["failed", ""]], steps: [
-      "The worker loads the run (a compile) and gives it the decline with [`run.decline`](asking-a-person.html#answering). A refusal ([`not_waiting`](asking-a-person.html#ids), `answer_stale`, or `invalid_decline_reason` for a reason JSON can't write) is a 422, and nothing is written.",
-      "A run that takes it is written `failed` with [`answer_declined`](asking-a-person.html#answering) at once, with no resume call, and its `run_end` goes in the same update. So the call needs no serving worker.",
-      "The call answers with the run `failed`. Its events get a `run_end` with no `run_start` before it." ] },
-    "decline:early": { pills: [["202", ""], ["failed", ""]], steps: [
-      "It goes as for a waiting run. A run that failed, stopped, timed out or was cancelled with questions waiting takes a decline, and `answer_declined` becomes its `cause`.",
-      "A run whose resume call raised may still have replies queued from that call. They are given first, and this decline last. If the run takes a queued answer and refuses the decline, it is resumed instead and answers `running`, with the refusal on the response and in `refused`." ] },
+      "When the resume call ends, the run is given the queue in the order it came, with `run.with_answers` and [`run.with_decline`](asking-a-person.html#answering). Of an answer and a decline to one question, the first queued is taken, and the second is refused as [`not_waiting`](asking-a-person.html#ids) in `refused`. Until then, the calls the resume call makes go on. To stop them at once, cancel the run as well.",
+      "A decline the run takes ends it `declined` with [`answer_declined`](asking-a-person.html#answering), for good, keeping every answer it took. It isn't resumed, and a cancel asked of it is cleared.",
+      "If the worker hands the run back, or dies, before that, the worker that takes it over resumes it with the queue kept, and gives it the queue when that resume call ends." ] },
+    "decline:waiting": { pills: [["202", ""], ["declined", ""]], steps: [
+      "The worker loads the run (a compile) and gives it the decline with [`run.with_decline`](asking-a-person.html#answering). A refusal ([`not_waiting`](asking-a-person.html#ids), `answer_stale`, or `invalid_decline_reason` for a reason JSON can't write) is a 422, and nothing is written.",
+      "A run that takes it is written `declined` with [`answer_declined`](asking-a-person.html#answering) at once, with no resume call, and its `run_end` goes in the same update. So the call needs no serving worker.",
+      "The call answers with the run `declined`. Its events get a `run_end` with no `run_start` before it." ] },
+    "decline:early": { pills: [["202", ""], ["declined", ""]], steps: [
+      "It goes as for a waiting run. A run that failed, stopped, timed out or was cancelled with questions waiting takes a decline, ends `declined`, and `answer_declined` becomes its `cause`.",
+      "Such a run holds no queue, since what was queued during its last resume call was given to it when that call ended. So the decline acts on the run alone." ] },
     "decline:complete": { pills: [["422", "bad"], ["not_waiting", "bad"]], steps: [
-      "Nothing waits any more, so [`run.decline`](asking-a-person.html#answering) refuses it as [`not_waiting`](asking-a-person.html#ids), and nothing is written." ] },
+      "Nothing waits any more, so [`run.with_decline`](asking-a-person.html#answering) refuses it as [`not_waiting`](asking-a-person.html#ids), and nothing is written." ] },
+    "decline:declined": { pills: [["422", "bad"], ["not_waiting", "bad"]], steps: [
+      "The run has already ended for good, so [`run.with_decline`](asking-a-person.html#answering) refuses a second decline as [`not_waiting`](asking-a-person.html#ids), and nothing is written." ] },
     "cancel:running": { pills: [["200", ""], ["running", ""]], steps: [
       "The worker writes the cancel into the row's `state`.",
       "If this worker holds the run, its held run reads the row again at once. If another worker does, it hears the cancel at its next checkpoint or lease renewal.",
@@ -1337,6 +1343,8 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
       "A run that ended early has nothing to cancel. It is left as it is, and the call answers with it." ] },
     "cancel:complete": { pills: [["200", ""], ["complete", "good"]], steps: [
       "There is nothing to cancel, so the run is left as it is." ] },
+    "cancel:declined": { pills: [["200", ""], ["declined", "good"]], steps: [
+      "A declined run has ended for good. There is nothing to cancel, so it is left as it is, and the call answers with it." ] },
     "resume:running": { pills: [["409", "bad"], ["run_not_resumable", "bad"]], steps: [
       "Only a run that ended early, one with a `cause`, can be resumed. `ctx.status` is `running`." ] },
     "resume:waiting": { pills: [["409", "bad"], ["run_not_resumable", "bad"]], steps: [
@@ -1344,10 +1352,11 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
     "resume:early": { pills: [["202", ""], ["running", ""]], steps: [
       "The worker claims the row at the rev it read, `running`, and resumes it in the background. No node call that finished is made again.",
       "With `{\"max_items\": n}` it first loads the run and raises its [ceiling](series-and-tables.html#limit), and the raised run is stored with the claim, so every later resume call has it.",
-      "Answers and declines queued before a resume call that raised are still queued. If the run takes a decline among them, the worker gives it the queue with no resume call, and it ends `failed` with [`answer_declined`](asking-a-person.html#answering).",
-      "Otherwise the run is resumed, and given the queue when this call ends. A queued decline it can't take yet is given to it then too." ] },
+      "A run that ended early holds no queue. Replies sent during its last resume call were given to it when that call ended, even one that raised, and a run that took a decline then is `declined`, not ended early." ] },
     "resume:complete": { pills: [["409", "bad"], ["run_not_resumable", "bad"]], steps: [
       "A complete run has nothing to go on with. `ctx.status` is `complete`." ] },
+    "resume:declined": { pills: [["409", "bad"], ["run_not_resumable", "bad"]], steps: [
+      "A person's decline ended the run for good, so nothing resumes it. `ctx.status` is `declined`." ] },
   };
   let call = "answer", st = "running";
   function tabs(el, obj, get, set) {
@@ -1373,6 +1382,5 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
 })();
 </script>
 
-</body></html>
 </body>
 </html>

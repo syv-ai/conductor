@@ -386,14 +386,13 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; part of #106 &middot; page 2 of 11</p>
+  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 2 of 11</p>
   <h1>A node and <em>its types</em></h1>
   <div class="prose">
     <p class="lede">A node is a plain Python function under <code>@node</code>. Conductor reads the function's typed signature once, when the decorator runs, and turns its parameters into inputs and its return type into outputs.</p>
   </div>
   <nav class="crumbs" aria-label="Related pages">
     <a href="overview.html">&larr; The overview</a>
-    <a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the core</a>
   </nav>
   <div class="idea" aria-label="The three ideas of this page">
     <div>
@@ -613,7 +612,7 @@ except NodeDeclarationError as error:
     print(error.problems[0].type)
     print(error)</pre>
       <pre class="out">type_not_named
-@node('total') on total: values: __main__.Unnamed is the type of a field, and it has no @host_type. Write @host_type("unnamed", title="Unnamed") above the class.</pre>
+total (version 1).values: __main__.Unnamed is the type of a field, and it has no @host_type. Write @host_type("unnamed", title="Unnamed") above the class.</pre>
     </div>
     <div>
       <p class="label">What <code>@host_type</code> checks</p>
@@ -693,17 +692,17 @@ def sum_of(count: int, **values: float) -> float:
 def pick(value: Any, names: str, chosen: str) -> dict[str, Any]: ...
 
 
-print(sum_of.hook_parameters)
-print(pick.hook_parameters)
+print(sum_of.compute_added_inputs.values_of)
+print(pick.compute_outputs.values_of)
 print([(f.name, f.constant_only) for f in sum_of.describe().inputs])
 
 graph = Graph.compile(make_graph(sum_of, constants={"sum.count": 3},
     defaults={"sum.value_0": 0.0, "sum.value_1": 0.0, "sum.value_2": 0.0}), registry)
 print([i.field.name for i in graph.describe().nodes["sum"].inputs])
 print(graph.run({"value_0": 1.0, "value_1": 2.0, "value_2": 3.5}).outputs)</pre>
-      <p class="label">printed &middot; the <code class="int" title="Internal">hook_parameters</code> lines <span class="lvl int">Internal</span></p>
-      <pre class="out">{'compute_added_inputs': {'count': 'value'}}
-{'compute_outputs': {'names': 'value', 'value': 'arriving_type'}}
+      <p class="label">printed &middot; the <code class="int" title="Internal">values_of</code> lines, the inputs whose values each hook reads <span class="lvl int">Internal</span></p>
+      <pre class="out">frozenset({'count'})
+frozenset({'names'})
 [('count', True)]
 ['count', 'value_0', 'value_1', 'value_2']
 {'result': 6.5}</pre>
@@ -715,7 +714,7 @@ print(graph.run({"value_0": 1.0, "value_1": 2.0, "value_2": 3.5}).outputs)</pre>
         <div><dt>a parameter annotated <code>type</code></dt><dd>The type an edge brings to that input, or <code>Any</code> until one does. Only <code>compute_outputs</code> may ask for it, since added inputs are worked out before any edge is read.</dd></div>
         <div><dt><code>**added: type</code></dt><dd>On <code>compute_outputs</code> of a node that also adds inputs: the type arriving on each added input.</dd></div>
       </dl>
-      <p class="muted">A hook returns <code>{name: type hint}</code>, or <code>{name: (type hint, default)}</code>. A default of <code>SKIPPED</code> makes an output a branch, as <code>branches</code> does. Each field is held to the rules <code>@node</code> holds a declared field to. A hook that raises doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes the <a href="problems.html">problem</a> <code>compute_hook_raised</code> on its node, with only the exception's class in <code>ctx.error</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. A hook that raises a <a href="problems.html#failures"><code>NodeError</code></a>, or returns a field <code>@node</code> would refuse, is <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> instead.</p>
+      <p class="muted">A hook returns <code>{name: type hint}</code>, or <code>{name: (type hint, default)}</code>. A default of <code>SKIPPED</code> makes an output a branch, as <code>branches</code> does. Each field is held to the rules <code>@node</code> holds a declared field to. A hook that raises doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes the <a href="problems.html">problem</a> <code>compute_hook_raised</code> on its node, with only the exception's class in <code>ctx.error</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. A hook that raises a <a href="problems.html#failures"><code>NodeError</code></a> is <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> instead, with the error's message in <code>ctx.reason</code> and its code in <code>ctx.error</code>. A hook that returns a field <code>@node</code> would refuse, or a name a field can't have, is <code>compute_hook_returned_invalid</code>, whose <code>ctx.errors</code> says what is wrong.</p>
       <pre class="out">[('compute_hook_raised', ('bad',), 'ValueError')]</pre>
     </div>
   </div>
@@ -768,11 +767,11 @@ context_does_not_fit_missing_member ('lookup', 'ctx') 'lookup' asks for the run'
           <tr><td>retry_delay</td><td>1.0</td><td>Seconds before the first retry. Each later one waits twice as long.</td></tr>
           <tr><td>attempt_timeout</td><td>None</td><td>Seconds one attempt may take.</td></tr>
           <tr><td>retry_on</td><td>()</td><td>Exception classes to retry besides <a href="problems.html#failures"><code>ExternalError</code></a>.</td></tr>
-          <tr><td><a href="saved-runs-and-reuse.html#policy">reuse_when_inputs_match</a></td><td>True</td><td>Whether a run made from another (<a href="saved-runs-and-reuse.html#again"><code>run.again</code></a>, <code>run.with_inputs</code>, <a href="saved-runs-and-reuse.html#kept"><code>run.forget</code></a>) may <a href="saved-runs-and-reuse.html#again">reuse</a> a result.</td></tr>
+          <tr><td><a href="saved-runs-and-reuse.html#policy">reuse_when_inputs_match</a></td><td>True</td><td>Whether a run made from another (<a href="saved-runs-and-reuse.html#again"><code>run.again</code></a>, <code>run.with_inputs</code>, <a href="saved-runs-and-reuse.html#kept"><code>run.with_forgotten</code></a>) may <a href="saved-runs-and-reuse.html#again">reuse</a> a result.</td></tr>
           <tr><td><a href="saved-runs-and-reuse.html#policy">costs_nothing</a></td><td>False</td><td>Whether <code>resume(only_costs_nothing=True)</code> may call it.</td></tr>
         </tbody>
       </table></div>
-      <p class="muted"><code>Policy</code> is a frozen pydantic dataclass read strictly, so a wrong value raises where it is written. So does a keyword it doesn't have. A node whose <code>concurrency</code> is 2 or more, or that has an <code>attempt_timeout</code>, is called on threads. Any other is called on the run's own thread. <code class="int" title="Internal">Policy.threaded</code> says which.</p>
+      <p class="muted"><code>Policy</code> is a frozen pydantic dataclass read strictly, so a wrong value raises where it is written. So does a keyword it doesn't have. A node whose <code>concurrency</code> is 2 or more, or that has an <code>attempt_timeout</code>, is called on threads. Any other is called on the scheduler's own thread, retries included. <code class="int" title="Internal">Policy.threaded</code> says which.</p>
       <pre data-lang="py">p = Policy(concurrency=4, retries=2)
 print(p.threaded, Policy().threaded, Policy(attempt_timeout=5).threaded)
 for bad in ({"retries": "2"}, {"concurrency": 0}, {"retries": True}, {"retry": 2}):
@@ -864,7 +863,7 @@ print(Graph.compile(saved, registry).run().outputs)</pre>
   <div class="section-head prose">
     <p class="eyebrow">Declaration faults</p>
     <h2 id="faults-h">A mistake in a node fails where it is written <span class="lvl pub">Public</span></h2>
-    <p class="muted"><code>@node</code>, <a href="subgraphs.html#open"><code>subgraph</code></a>, <code>@host_type</code>, <code>Param</code> and <code>NodeRegistry</code> raise <code>NodeDeclarationError</code>, which is a <code>TypeError</code>. <a href="problems.html#catalogues"><code>DECLARATION_PROBLEMS</code></a> has 53 kinds, each with a code of its own. Here are 14 of them, each as it was raised by running it.</p>
+    <p class="muted"><code>@node</code>, <a href="subgraphs.html#open"><code>subgraph</code></a>, <code>@host_type</code>, <code>Param</code> and <code>NodeRegistry</code> raise <code>NodeDeclarationError</code>, which is a <code>TypeError</code>. <a href="problems.html#catalogues"><code>DECLARATION_PROBLEMS</code></a> has 62 kinds, each with a code of its own. Here are 14 of them, each as it was raised by running it.</p>
   </div>
   <div class="gallery">
     <div class="faults" id="fault-list" role="group" aria-label="Faults"></div>
@@ -920,7 +919,7 @@ print([d.id for d in free], len(host))</pre>
 lower 'Case' ('core',) {}
 () ('acme', 'case')
 duplicate_node_id
-two nodes have the id 'upper': __main__.upper and __main__.shout. Give one of them another id, or swap the old one for the new one with registry.replace(...).
+upper (version 1): two nodes have the id 'upper': __main__.upper and __main__.shout. Give one of them another id, or swap the old one for the new one with registry.replace(...).
 KeyError "'uper' is not registered here; the ids are upper, lower"
 ['upper'] 2</pre>
     </div>
@@ -1005,23 +1004,18 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
   <ul class="series">
     <li><a href="overview.html">The overview</a> <span>page 1</span></li>
     <li class="here">A node and its types <span>this page</span></li>
-    <li><a href="graph-record-and-compiling.html">The graph record and compiling</a> <span>#106</span></li>
-    <li><a href="series-and-tables.html">Series and tables</a> <span>#106</span></li>
-    <li><a href="asking-a-person.html">Asking a person</a> <span>#106</span></li>
-    <li><a href="subgraphs.html">Subgraphs</a> <span>#106</span></li>
-    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>#106</span></li>
-    <li><a href="running-and-streaming.html">Running and streaming</a> <span>#106</span></li>
-    <li><a href="problems.html">Problems</a> <span>#106</span></li>
-    <li><a href="standard-nodes.html">The nodes</a> <span>#107</span></li>
-    <li><a href="serving-runs.html">Serving runs</a> <span>#108</span></li>
+    <li><a href="graph-record-and-compiling.html">The graph record and compiling</a> <span>syv-conductor</span></li>
+    <li><a href="series-and-tables.html">Series and tables</a> <span>syv-conductor</span></li>
+    <li><a href="asking-a-person.html">Asking a person</a> <span>syv-conductor</span></li>
+    <li><a href="subgraphs.html">Subgraphs</a> <span>syv-conductor</span></li>
+    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>syv-conductor</span></li>
+    <li><a href="running-and-streaming.html">Running and streaming</a> <span>syv-conductor</span></li>
+    <li><a href="problems.html">Problems</a> <span>syv-conductor</span></li>
+    <li><a href="standard-nodes.html">The nodes</a> <span>syv-conductor-nodes</span></li>
+    <li><a href="serving-runs.html">Serving runs</a> <span>syv-conductor-providers</span></li>
   </ul>
 </section>
 
-<footer>
-  <p>Read from the code at <code>54f82579</code>, and checked again at <code>7d2df580</code> against the reference, <code>docs/writing-nodes.md</code> and the changelog: every file in <code class="int" title="Internal">_internal/node/</code>, <code class="int" title="Internal">_internal/types/</code>, <code class="int" title="Internal">_internal/field/</code>, <code class="int" title="Internal">_internal/context/</code> and <code class="int" title="Internal">_internal/registry/</code>, plus <code class="int" title="Internal">_internal/problem/declaration_problems.py</code> and <code>conductor/widgets.py</code>. Also the reference's sections on the node contract, versions and policies, field hooks, a node for any type, types, context and the palette, and <code>docs/writing-nodes.md</code> and <code>docs/design.md</code>.</p>
-  <p>Tests read: the names and purposes of every test in <code>tests/test_core/</code> <code>test_nodes.py</code>, <code>test_types.py</code>, <code>test_host_types.py</code>, <code>test_registry.py</code>, <code>test_upgrade.py</code>, <code>test_context.py</code>, <code>test_hook_added_types.py</code> and <code>test_generic_nodes.py</code>, and the bodies of the ones this page leans on.</p>
-  <p>Every output shown was printed by samples 1 to 9, run again at <code>7d2df580</code> on Python 3.12.11 (samples 1 and 2 at <code>03d66106</code>), with JSON laid out as the series lays it out. Sample 10's output isn't shown. Output lines are trimmed to what each section discusses. The signature panel's JSON is printed with <code>exclude_defaults=True</code>. A function body that doesn't change the output is shown as <code>...</code>. Every sample imports only conductor's public names. A block that prints an internal value says so in its label.</p>
-</footer>
 
 </div>
 </div>
@@ -1082,7 +1076,7 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
       job: 'The Param\'s title goes to the description, and its limits go into the schema. The default 2 is checked against the type and its limits when @node runs, and must be writable as JSON. A default the type refuses fails here, with default_invalid.',
       code: 'print(repeat.inputs["times"])',
       label: 'printed &middot; the <code class="int" title="Internal">Field</code> <span class="lvl int">Internal</span>, then its FieldDescription',
-      out: "Field(name='times', default=2, is_output=False, type=Type(typing.Annotated[int, Param(title=None, description=None, widget=None, constant_only=None, choices=None, ge=1, gt=None, le=10, lt=None, multiple_of=None, min_length=None, max_length=None, pattern=None)]))\n\n" +
+      out: "Field(name='times', default=2, is_output=False, type=Type(typing.Annotated[int, Ge(ge=1), Le(le=10)]))\n\n" +
         "{\n  \"name\": \"times\",\n  \"title\": \"Times\",\n  \"is_series\": false,\n  \"type\": \"int\",\n  \"json_schema\": {\n    \"maximum\": 10,\n    \"minimum\": 1,\n    \"type\": \"integer\"\n  },\n  \"required\": false,\n  \"default\": 2\n}" },
     { id: "joiner", text: 'joiner: Annotated[str, Param(choices=["", " ", "-"], widget=Dropdown())] = " "', indent: "    ", tail: ",",
       name: "choices, with a widget",
@@ -1137,11 +1131,11 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
   const SHAPES = [
     { tab: "one value", code: '@node("upper", title="Upper", description="Capitals.")\ndef upper(text: str) -> str:\n    return text.upper()',
       outs: ["result: str, required"],
-      returns: "One value of the type. A value of exactly the declared class is kept as it is. Any other is read strictly, so \"12\" is never an int.",
+      returns: "One value of the type, as the type's own check gives it. Only a value of exactly one of Python's own classes, like a str for str, is kept as it is without a check. The check is strict, so \"12\" is never an int.",
       dataclass: "None" },
-    { tab: "frozen dataclass", code: '@dataclass(frozen=True)\nclass Routed:\n    large: int = SKIPPED\n    small: int = SKIPPED\n\n@node("route", title="Route", description="Sends an amount one of two ways.")\ndef route(amount: int) -> Routed:\n    if amount >= 1000:\n        return Routed(large=amount)\n    return Routed(small=amount)',
+    { tab: "dataclass", code: '@dataclass\nclass Routed:\n    large: int = SKIPPED\n    small: int = SKIPPED\n\n@node("route", title="Route", description="Sends an amount one of two ways.")\ndef route(amount: int) -> Routed:\n    if amount >= 1000:\n        return Routed(large=amount)\n    return Routed(small=amount)',
       outs: ["large: int, a branch, not required", "small: int, a branch, not required"],
-      returns: "An instance of the dataclass, one output per field. A dataclass that isn't frozen fails at @node (outputs_not_frozen). A field whose default is SKIPPED is a branch. A call gives a value to at most one branch, and the others stay SKIPPED, so route(5) gives small 5 and skips large. Two branches with a value fail the call as invalid_output. Returning SKIPPED itself skips every output.",
+      returns: "An instance of the dataclass, one output per field. A dataclass with @host_type is one value instead, not a dataclass of outputs. A field whose default is SKIPPED is a branch. A call gives a value to at most one branch, and the others stay SKIPPED, so route(5) gives small 5 and skips large. Two branches with a value fail the call as invalid_output. Returning SKIPPED itself skips every output.",
       dataclass: "Routed" },
     { tab: "hook's mapping", code: 'def by_name(names: list[str]) -> dict[str, type]:\n    return {name: str for name in names}\n\n@node("cells", title="Cells", description="One output per name.",\n      compute_outputs=by_name)\ndef cells(line: str, names: list[str]) -> dict[str, str]:\n    return dict(zip(names, line.split(",")))',
       outs: ["(none until a graph is compiled)"],
@@ -1238,33 +1232,33 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
   /* ======================= FAULT GALLERY ======================= */
   const FAULTS = [
     { label: "an async def", code: "async def fetch(url: str) -> str: ...", type: "async_run",
-      text: "@node('fetch') on fetch: a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads." },
+      text: "fetch (version 1): a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads." },
     { label: "an input with no hint", code: "def echo(text) -> str: ...", type: "input_without_type",
-      text: "@node('echo') on echo: text: the input has no type hint. Give it one, since the hint says what the input takes." },
+      text: "echo (version 1).text: the input has no type hint. Give it one, since the hint says what the input takes." },
     { label: "no return type", code: "def echo(text: str): ...", type: "output_without_type",
-      text: "@node('echo') on echo: the node has no return type. Write one, or -> None for no outputs." },
+      text: "echo (version 1): the node has no return type. Write one, or -> None for no outputs." },
     { label: "a default of the wrong type", code: 'def count(number: int = "many") -> int: ...', type: "default_invalid",
-      text: "@node('count') on count: number: the default 'many' isn't a value of int that can be written as JSON: Input should be a valid integer, unable to parse string as an integer. Give a default that is." },
+      text: "count (version 1).number: the default 'many' isn't a value of int that can be written as JSON: Input should be a valid integer. Give a default that is." },
     { label: "a limit the type can't take", code: "def short(text: Annotated[str, Param(ge=0)]) -> str: ...", type: "param_limit_not_supported",
-      text: "@node('short') on short: text: pydantic has no rule for ge on str. Remove it from the Param, or check the value in the node instead." },
+      text: "short (version 1).text: pydantic has no rule for ge on str. Remove it from the hint, or check the value in the node instead." },
     { label: "pydantic's Field in a hint", code: "def repeat(text: str, times: Annotated[int, Field(ge=0)] = 1) -> str: ...", type: "pydantic_field_in_hint",
-      text: "@node('repeat') on repeat: times: the hint uses pydantic's Field(...). An input or output takes its title, description and limits from Param, so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]." },
+      text: "repeat (version 1).times: the hint uses pydantic's Field(...). An input or output takes its title, description and limits from Param, so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]." },
     { label: "a widget beside the type", code: "def note(text: Annotated[str, Textarea()]) -> str: ...", type: "widget_outside_param",
-      text: "@node('note') on note: text: the widget is written in Annotated next to the type, where it is ignored. Put it on Param: Annotated[..., Param(widget=...)]." },
-    { label: "a dataclass not frozen", code: "@dataclass\nclass Parts:\n    first: str\n    last: str\n\ndef parts(name: str) -> Parts: ...", type: "outputs_not_frozen",
-      text: "@node('parts') on parts: the dataclass the node returns isn't frozen. Write @dataclass(frozen=True)." },
+      text: "note (version 1).text: the widget is written in Annotated next to the type, where it is ignored. Put it on Param: Annotated[..., Param(widget=...)]." },
+    { label: "a set", code: "def tags(names: set[str]) -> str: ...", type: "type_not_supported_set",
+      text: "tags (version 1).names: a set has no order, so set[str] has no JSON form that keeps it the same. Declare a list or a tuple instead." },
     { label: "a Series of Series", code: "def wrap(text: str) -> Series[Series[str]]: ...", type: "nested_series",
-      text: "@node('wrap') on wrap: result: a Series of Series isn't allowed, since a Series has one level of items. Use one Series, and let the next node make the next level." },
+      text: "wrap (version 1).result: a Series of Series isn't allowed, since a Series has one level of items. Use one Series, and let the next node make the next level." },
     { label: "Context not first", code: "def later(text: str, ctx: Context[HostContext]) -> str: ...", type: "context_misplaced",
-      text: "@node('later') on later: ctx: Context[...] must be the whole of the node's first parameter, like def sign(ctx: Context[HostContext], text: str). Anywhere else, a caller would have to give its value." },
+      text: "later (version 1).ctx: Context[...] must be the whole of the node's first parameter, like def sign(ctx: Context[HostContext], text: str). Anywhere else, a caller would have to give its value." },
     { label: "costs_nothing with a context", code: "@node(..., policy=Policy(costs_nothing=True))\ndef stamp(ctx: Context[HostContext], text: str) -> str: ...", type: "costs_nothing_takes_context",
-      text: "@node('stamp') on stamp: ctx: the node takes the run's context, so it uses the host's objects and its call isn't free. Drop costs_nothing from its Policy, or give the node what it needs as an input." },
+      text: "stamp (version 1).ctx: the node takes the run's context, so it uses the host's objects and its call isn't free. Drop costs_nothing from its Policy, or give the node what it needs as an input." },
     { label: "**kwargs with no hook", code: "def loose(**values: str) -> str: ...", type: "var_keyword_without_hook",
-      text: "@node('loose') on loose: the node takes a ** parameter, but has no compute_added_inputs hook to fill it. Remove the ** parameter, or add compute_added_inputs=." },
+      text: "loose (version 1): the node takes a ** parameter, but has no compute_added_inputs hook to fill it. Remove the ** parameter, or add compute_added_inputs=." },
     { label: "a type variable only in the return", code: "def make[T](text: str) -> list[T]: ...", type: "type_variable_only_in_return",
-      text: "@node('make') on make: result: the type variable T is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs." },
+      text: "make (version 1).result: the type variable T is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs." },
     { label: "a dot in the id", code: 'node("a.b", title="Echo", description="Hands the text back.")(echo)', type: "invalid_node_id",
-      text: "@node got 'a.b' as the node's id. An id can't be empty, and can't contain any of '.', '/', '@', '~', since those mean something in sources and waiting ids. Pick another, like @node('upper')." },
+      text: "@node got 'a.b' as an id it can't take. A node's id can't be empty, and can't contain any of '.', '/', '@', '~', since those mean something in sources and waiting ids. A type's id is one word of letters, digits, '_', '.' or '-', and isn't one of conductor's own, since it is written inside other ids. Pick another." }
   ];
   const flist = $("#fault-list"), fview = $("#fault-view");
   FAULTS.forEach((f, i) => {
@@ -1286,6 +1280,5 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
 })();
 </script>
 
-</body></html>
 </body>
 </html>

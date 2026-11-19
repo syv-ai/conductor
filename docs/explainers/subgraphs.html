@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor 2.0 explainer series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    diagrams, the explorer, code and tables; sections are separated by space and a faint
    staff of rules, never by boxes.
@@ -357,11 +357,11 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; in #106, the core &middot; page 6 of 11</p>
+  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 6 of 11</p>
   <h1>A graph <em>inside</em> a graph</h1>
   <div class="prose stack">
     <p class="lede">A subgraph is a <a href="graph-record-and-compiling.html#record">graph record</a> used as one node of another graph. You make it with <code>subgraph(...)</code>, much as you make a node from a function with <a href="nodes-and-types.html#signature"><code>@node</code></a> (see <a href="nodes-and-types.html">a node and its types</a>). The graph that uses it is the outer graph, and the nodes in its record are its inner nodes.</p>
-    <p class="crumbs"><a href="overview.html">Back to the overview</a><a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the core</a></p>
+    <p class="crumbs"><a href="overview.html">Back to the overview</a></p>
   </div>
   <div class="idea" aria-label="The three ideas of this page">
     <div>
@@ -387,7 +387,7 @@ body { margin: 0; }
   <div class="section-head prose">
     <p class="eyebrow">The model</p>
     <h2 id="open-h">Three views of one subgraph</h2>
-    <p class="muted"><code>loud</code> is the subgraph <code>strip &rarr; shout</code>. The outer graph splits a text into lines, runs <code>loud</code>'s nodes once per line, and joins the results. The first view is what you wire. The other two are how conductor <a href="graph-record-and-compiling.html#compiling">compiles</a> and runs it. Every output on this page was printed by the code at <code>7d2df580</code>, on Python 3.12.11.</p>
+    <p class="muted"><code>loud</code> is the subgraph <code>strip &rarr; shout</code>. The outer graph splits a text into lines, runs <code>loud</code>'s nodes once per line, and joins the results. The first view is what you wire. The other two are how conductor <a href="graph-record-and-compiling.html#compiling">compiles</a> and runs it. Every output on this page is what the code beside it prints.</p>
   </div>
 
   <div class="stack" style="gap:1.25rem">
@@ -499,7 +499,7 @@ body { margin: 0; }
     </ol>
     </div>
     <div class="stack">
-      <p class="label">Run at the commit</p>
+      <p class="label">Run it</p>
 <pre data-lang="py"># a subgraph whose record names a node that isn't there
 g = Graph.compile(make_graph(broken), registry)
 for p in g.problems:
@@ -537,7 +537,7 @@ subgraph_contains_itself ('self-a', 'x', 'y')</pre>
   <div class="section-head prose" style="margin-top:3.5rem;margin-bottom:1.5rem">
     <h3>Every call of one run</h3>
     <p class="muted">The outer graph is <code>lines &rarr; review</code>, where <code>review</code> is the subgraph <code>strip &rarr; check</code>. <code>strip</code> gives <code>None</code> for a blank line, and <code>check</code> <a href="asking-a-person.html">asks a person</a>. The run got the text <code>"a\n \nc"</code>. Pick a call to see how each part of conductor names it.</p>
-    <p class="small">Every <a href="asking-a-person.html#ids">waiting id</a>, loc, <a href="running-and-streaming.html#outcomes">outcome</a> and prompt is printed by the run at <code>7d2df580</code>, on Python 3.12.11. The hex after <code>~</code> is the same on any Python version, since the node's code goes into it as its parsed source. The node paths and saved positions are worked out from them.</p>
+    <p class="small">Every <a href="asking-a-person.html#ids">waiting id</a>, loc, <a href="running-and-streaming.html#outcomes">outcome</a> and prompt is printed by the sample below. The hex after <code>~</code> is the same on any Python version, since the node's code goes into it as its parsed source. The node paths come from <code>run.progress.nodes</code>, and the saved positions from <code>run.to_json()</code>.</p>
   </div>
 
   <div class="explorer">
@@ -563,15 +563,15 @@ for w in run.waiting:
     print(w.id, w.loc, w.prompt)
 for n in run.none_input_calls:
     print("none input:", n.loc, n.input)
-run2 = (run.answer("review@0/check", True)
-           .answer(run.waiting[1].id, False).resume())
+run2 = run.with_answers({"review@0/check": True,
+                         run.waiting[1].id: False}).resume()
 print(run2.status, run2.outputs)</pre>
     </div>
     <div class="stack">
       <p class="label">What it prints</p>
-      <p class="muted">An answer may name the call without the part after <code>~</code>, as the first answer in the sample does with <code>"review@0/check"</code>. With it, the id also carries a fingerprint of the node, the call's inputs and its items, and an answer to an id whose fingerprint no longer matches is refused (<a href="asking-a-person.html#ids"><code>answer_stale</code></a>).</p>
-<pre class="out">review@0/check~44afa68e ('review', 0, 'check') Keep 'a'?
-review@2/check~4cf17bc4 ('review', 2, 'check') Keep 'c'?
+      <p class="muted"><code>run.with_answers</code> takes a mapping of answers by waiting id. An id may name the call without the part after <code>~</code>, as the first answer in the sample does with <code>"review@0/check"</code>. With it, the id also carries a fingerprint of the node's code, the call's inputs and its items, and an answer to an id whose call now asks another question is refused (<a href="asking-a-person.html#ids"><code>answer_stale</code></a>).</p>
+<pre class="out">review@0/check~cc0e11c8 ('review', 0, 'check') Keep 'a'?
+review@2/check~d06812fa ('review', 2, 'check') Keep 'c'?
 none input: ('review', 1, 'check') line
 complete {'result': [True, None, False]}</pre>
     </div>
@@ -673,7 +673,7 @@ Table[name: str]
 AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
     </div>
     <div class="stack">
-      <p>The example is from <code>docs/subgraphs.md</code>, which is in <a href="https://github.com/syv-ai/conductor/pull/109">#109, the docs</a>. <code>each</code> is <a href="standard-nodes.html#control">generic</a>: <code>def each[T](value: Table[T] | list[T]) -> Series[T]</code>.</p>
+      <p>The example is from the user guide, <code>docs/subgraphs.md</code>. <code>each</code> is <a href="standard-nodes.html#control">generic</a>: <code>def each[T](value: Table[T] | list[T]) -> Series[T]</code>.</p>
       <p class="muted">A subgraph is compiled with nothing wired into it. A type variable at one of its <a href="graph-record-and-compiling.html#record">graph inputs</a> has no edge to bind it, so <code>shout-names</code> offers <code>Table | list</code>, and its edge <code>each.result.name</code> can't be checked until a run. <code>shout-contacts</code> starts with <code>known</code>, whose input says exactly what it takes, so the subgraph offers <code>Table[name: str]</code> and its edges are checked when it's compiled.</p>
       <p class="muted">The palette entry also says <a href="asking-a-person.html#walk"><code>asks</code></a> when any node inside asks, at any depth. For <code>review</code> above, <code>registry.describe()</code> gives the input <code>line</code>, the output <code>result</code> and <code>asks</code> true. <code>takes_added_inputs</code> and <code>computes_outputs</code> are false for every subgraph.</p>
     </div>
@@ -732,7 +732,7 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
   <div class="section-head prose">
     <p class="eyebrow">Where to go next</p>
     <h2 id="next-h">The code and the rest of the series</h2>
-    <p class="muted">All of this is in <a href="https://github.com/syv-ai/conductor/pull/106">#106, the core</a>. In it, read <code class="int" title="Internal">node/declare.py</code> and <code class="int" title="Internal">node/type.py</code> for the definition, <code class="int" title="Internal">graph/compile.py</code> and <code class="int" title="Internal">graph/node.py</code> for compiling, <code class="int" title="Internal">run/blueprint.py</code> for the run, and <code class="int" title="Internal">base/place.py</code> for the addresses. The user guide, <code>docs/subgraphs.md</code>, is in <a href="https://github.com/syv-ai/conductor/pull/109">#109, the docs</a>, and the rules are in <code>python -m conductor.about the-graph-record</code>.</p>
+    <p class="muted">All of this is in the core, <code>syv-conductor</code>, under <code>conductor/_internal/</code>. Read <code class="int" title="Internal">node/declare.py</code> and <code class="int" title="Internal">node/type.py</code> for the definition, <code class="int" title="Internal">graph/compile.py</code> and <code class="int" title="Internal">graph/node.py</code> for compiling, <code class="int" title="Internal">run/blueprint.py</code> for the run, and <code class="int" title="Internal">base/place.py</code> for the addresses. The user guide is <code>docs/subgraphs.md</code>, and the rules are in <code>python -m conductor.about the-graph-record</code>.</p>
   </div>
   <ul class="series">
     <li><a href="overview.html">The overview</a> <span>page 1</span></li>
@@ -750,8 +750,7 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
 </section>
 
 <footer>
-  <p>Read from the code at <code>b4fcca1a</code>, checked again at <code>7d581d9e</code>, again at <code>7b2d71e6</code>, and again at <code>7d2df580</code>. Besides the files named above, the page read the subgraph parts of <code class="int" title="Internal">graph/type.py</code>, <code class="int" title="Internal">registry/type.py</code>, <code class="int" title="Internal">run/waiting.py</code> and <code class="int" title="Internal">registry/describe.py</code>, the subgraph rules in <code>llms.txt</code>, and the tests <code>test_subgraphs.py</code> and <code>test_subgraph_outputs_inside_loops.py</code>. Between the first two commits, these files changed only in docstrings and docs text, except a test of the item limit in <code>test_subgraphs.py</code>, which this page doesn't cover. By <code>7b2d71e6</code>, a node's code fingerprint is a hash of its parsed source instead of its bytecode (<code class="int" title="Internal">node/type.py</code>, <code class="int" title="Internal">graph/node.py</code>), which changed the part of each waiting id after <code>~</code>. By <code>7d2df580</code>, that part also covers the call's items and which outputs are branches, so it changed again. A graph's inputs are given as one mapping (<code>graph.run({"text": ...})</code>), <code>graph.outputs</code> is a mapping of descriptions, a call not made for a <code>None</code> is a none input (<code>run.none_input_calls</code>), a problem's code names its cause with no <code>ctx.variant</code>, and <code>registry.describe()</code> leaves out a subgraph whose graph has problems. The other changes in these files are outside this page.</p>
-  <p>Every output on this page was printed by five sample scripts on Python 3.12.11, at each of these commits, and is shown as printed at <code>7d2df580</code>. At <code>7d2df580</code> the samples changed to the current API, and the output changed only in the waiting ids' fingerprints, the none input's line, the <code>series_not_nested_inside_subgraph</code> code and the outputs of <code>inner</code>, now a list of names. The samples import only public names. The code shown on this page reads three attributes the reference doesn't document: <code class="int" title="Internal">input_names</code>, <code class="int" title="Internal">output_names</code> and <code class="int" title="Internal">graph</code> on a <code>SubgraphDefinition</code>. The scripts also print some internal values to check the prose.</p>
+  <p>The code on this page imports only public names. It also reads three attributes of a <code>SubgraphDefinition</code> the reference doesn't document: <code class="int" title="Internal">input_names</code>, <code class="int" title="Internal">output_names</code> and <code class="int" title="Internal">graph</code>.</p>
 </footer>
 
 </div>
@@ -798,7 +797,7 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
   const C = (t) => "<code>" + t + "</code>";
   const CI = (t) => '<code class="int" title="Internal">' + t + "</code>";
   const INT = '<span class="lvl int">Internal</span>';
-  /* a note's text, escaped, with only [text](page.html#anchor) turned into a link */
+  /* a note's text, escaped, with only [text](a page of the series) turned into a link */
   const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
   const VIEWS = {
     a: {
@@ -807,7 +806,7 @@ AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
         C("subgraph(...)(record)") + " returns a " + C("SubgraphDefinition") + ". Its inputs and outputs are the " + '<a href="graph-record-and-compiling.html#record">graph inputs and outputs</a>' + " its record declares.",
         "In the outer graph, " + C("loud") + " is wired like any node. " + C("lines") + " returns a " + '<a href="series-and-tables.html#loop"><code>Series[str]</code></a>' + " and " + C("loud") + " takes one line, so " + C("loud") + "'s nodes are called once per line, and " + C("join") + " collects what they return.",
       ],
-      label: "Run at the commit &middot; the " + CI("input_names") + " and " + CI("output_names") + " line " + INT,
+      label: "Run it &middot; the " + CI("input_names") + " and " + CI("output_names") + " line " + INT,
       code: `loud = subgraph("loud", title="Loud",
     description="Trims a line and writes it in capitals.")(
     make_graph(strip, shout, edges=[("strip.result", "shout.line")])
@@ -832,7 +831,7 @@ lines.result
         "Inside its own graph, " + C("strip") + " and " + C("shout") + " are in no loop. The loop is outside, where " + C("loud") + " is.",
         "None of " + C("loud") + "'s nodes is copied into the outer graph. It still has three nodes.",
       ],
-      label: "Run at the commit &middot; " + CI("loud.graph") + " " + INT,
+      label: "Run it &middot; " + CI("loud.graph") + " " + INT,
       code: `inner = Graph.compile(loud.graph, registry)
 print(inner, list(inner.inputs), list(inner.outputs))
 print({n: d.per_item_of for n, d in inner.describe().nodes.items()})
@@ -849,7 +848,7 @@ print([i.field.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_
         "When the graph's first run is made or read, conductor walks the compiled graph and every inner graph. It lists the nodes by their full path in a " + CI("RunBlueprint") + ". The " + C("Graph") + " keeps it for every later run.",
         "You see it in " + '<a href="running-and-streaming.html#start"><code>run.progress.nodes</code></a>' + ", which lists the nodes in the blueprint's order. " + C("loud") + " comes right after the nodes inside it. " + C("loud") + "'s count there is the sum of the nodes inside it. The " + '<a href="saved-runs-and-reuse.html#saved">saved run</a>' + "'s " + '<a href="running-and-streaming.html#outcomes">outcomes</a>' + " have only the four function nodes, by path.",
       ],
-      label: "Run at the commit",
+      label: "Run it",
       code: `run = graph.run({"text": " a \\nb "})
 print(list(run.progress.nodes))
 print(list(json.loads(run.to_json())["outcomes"]))`,
@@ -894,8 +893,8 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
   });
   CALLS.check0 = {
     name: "review/check, item 0", path: '("review", "check")', indexes: "(0,)", loc: '("review", 0, "check")', text: "review@0/check",
-    outcome: "waiting: Keep 'a'?", waitid: "review@0/check~44afa68e", event: '("review", "check")', saved: '"review/check", position 0, with its question',
-    note: "[run.answer](asking-a-person.html#answering) takes the whole id, or the place before the ~.",
+    outcome: "waiting: Keep 'a'?", waitid: "review@0/check~cc0e11c8", event: '("review", "check")', saved: '"review/check", position 0, with its prompt in questions and its call fingerprint in fingerprints',
+    note: "[run.with_answers](asking-a-person.html#answering) takes the whole id, or the place before the ~.",
   };
   CALLS.check1 = {
     name: "review/check, item 1", path: '("review", "check")', indexes: "(1,)", loc: '("review", 1, "check")', text: "review@1/check",
@@ -904,7 +903,7 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
   };
   CALLS.check2 = {
     name: "review/check, item 2", path: '("review", "check")', indexes: "(2,)", loc: '("review", 2, "check")', text: "review@2/check",
-    outcome: "waiting: Keep 'c'?", waitid: "review@2/check~4cf17bc4", event: '("review", "check")', saved: '"review/check", position 2, with its question',
+    outcome: "waiting: Keep 'c'?", waitid: "review@2/check~d06812fa", event: '("review", "check")', saved: '"review/check", position 2, with its prompt in questions and its call fingerprint in fingerprints',
     note: "The fingerprint differs from item 0's, since the call's input and item differ.",
   };
 
@@ -950,6 +949,5 @@ print(list(json.loads(run.to_json())["outcomes"]))`,
 })();
 </script>
 
-</body></html>
 </body>
 </html>

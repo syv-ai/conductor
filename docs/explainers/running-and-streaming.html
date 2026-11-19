@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 /* =====================================================================
-   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   DESIGN TOKENS: the look of the conductor 2.0 series.
    Layout: one reading column (about 76ch) that widens to 1360px for the
    step-through, the diagrams, code and tables. Sections are separated by
    space and a faint staff of rules, never by boxes.
@@ -399,15 +399,14 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor 2.0 &middot; in #106, the core &middot; page 8 of 11</p>
+  <p class="eyebrow">Conductor 2.0 &middot; the core, <code>syv-conductor</code> &middot; page 8 of 11</p>
   <h1>Running and <em>streaming</em></h1>
   <div class="prose stack">
     <p class="lede">A compiled graph doesn't run by itself. You make a run from it, and the run calls the graph's nodes.</p>
-    <p class="muted">Every example on the page uses the graph from conductor's README. <code>lines</code> splits a text into lines, <code>shout</code> is called once per line, and <code>join</code> collects what <code>shout</code> returned. Every output is printed by its sample at <code>7d2df580</code> on Python 3.12.11.</p>
+    <p class="muted">Every example on the page uses the graph from conductor's README. <code>lines</code> splits a text into lines, <code>shout</code> is called once per line, and <code>join</code> collects what <code>shout</code> returned. Every output on the page is what the sample beside it prints.</p>
   </div>
   <div class="backlinks">
     <a href="overview.html">Back to the overview</a>
-    <a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the core</a>
   </div>
   <div class="idea" aria-label="The ideas of this part">
     <div>
@@ -497,7 +496,7 @@ body { margin: 0; }
 
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">@registry.node("lines", title="Lines", description="...",
                policy=Policy(costs_nothing=True))
 def lines(text: str) -> Series[str]:
@@ -538,7 +537,7 @@ complete {'result': 'A!+B!+C!'}
     <h2 id="pass-h">One pass of the scheduler <span class="lvl int">Internal</span></h2>
     <p class="muted">You write none of this. It decides the order your nodes are called in.</p>
     <p class="muted">The scheduler keeps a heap of calls to try, called <code class="int" title="Internal">ready</code>, ordered by each node's place in the blueprint. It takes the first, asks for its arguments, and makes the call if they are all there. Each outcome it records puts the calls that read it back on <code class="int" title="Internal">ready</code>. A call that collects a <a href="series-and-tables.html#loop">loop</a>, like <code>join</code>, also waits in <code class="int" title="Internal">collectors</code> until no call upstream of it is running for the same item.</p>
-    <p class="muted">The steps are a trace of the real scheduler at <code>7d2df580</code>, with <code>{"text": "a\nb\nc"}</code>. Switch <code>shout</code>'s policy to see its calls on threads.</p>
+    <p class="muted">The steps are a trace of the real scheduler, with <code>{"text": "a\nb\nc"}</code>. Switch <code>shout</code>'s policy to see its calls on threads.</p>
   </div>
 
   <div class="walk">
@@ -590,7 +589,7 @@ complete {'result': 'A!+B!+C!'}
   <div class="section-head prose">
     <p class="eyebrow">What a call leaves behind</p>
     <h2 id="outcomes-h">Four kinds of outcome</h2>
-    <p class="muted">A call has at most one outcome, and once stored it doesn't change, except that an answer turns <code class="int" title="Internal">Unanswered</code> into <code class="int" title="Internal">Done</code>. Three of the four kinds have outputs that the next node can read. <code class="int" title="Internal">Unanswered</code> has none yet, so a call that reads it isn't ready.</p>
+    <p class="muted">A call has at most one outcome, and once stored it doesn't change, except that an answer turns <code class="int" title="Internal">Unanswered</code> into <code class="int" title="Internal">Done</code>, and a decline removes every <code class="int" title="Internal">Unanswered</code>. Three of the four kinds have outputs that the next node can read. <code class="int" title="Internal">Unanswered</code> has none yet, so a call that reads it isn't ready.</p>
     <p class="muted">You never import the four classes. You see them through <code>run.results</code>, <a href="asking-a-person.html#host"><code>run.waiting</code></a>, <code>run.none_input_calls</code> and <code>run.status</code>.</p>
   </div>
   <div class="kinds">
@@ -602,7 +601,7 @@ complete {'result': 'A!+B!+C!'}
 
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">def tidy(line: str) -> str | None:        # None for a blank line
     return line.strip() or None
 
@@ -651,17 +650,18 @@ print(run.none_input_calls)</pre>
   <div class="section-head prose">
     <p class="eyebrow">How a run stands</p>
     <h2 id="status-h">The status is read from the outcomes and the last resume <span class="lvl pub">Public</span></h2>
-    <p class="muted"><code>run.status</code> comes from the outcomes and from how the last <code>resume()</code> left the run. A <a href="asking-a-person.html#answering"><code>run.decline</code></a> leaves it as a failed call would: <code>failed</code>, with <a href="asking-a-person.html#answering"><code>answer_declined</code></a> as its cause. The first line of the rule that applies wins. Try it.</p>
+    <p class="muted"><code>run.status</code> comes from the outcomes and from how the last <code>resume()</code> left the run. <a href="asking-a-person.html#answering"><code>run.with_decline</code></a> stores its own ending in the same place: <code>declined</code>, with <a href="asking-a-person.html#answering"><code>answer_declined</code></a> as its cause. A declined run has ended for good: nothing waits, and <code>resume()</code> and <code>stream()</code> call no node. The first line of the rule that applies wins. Try it.</p>
   </div>
   <div class="decider">
     <div class="inputs">
       <label><input type="checkbox" id="s-running"><span>This is a copy made while a <code>resume()</code> is still going, such as a checkpoint or a run handed back.</span></label>
       <label><input type="checkbox" id="s-complete"><span>Every call of every node has an outcome, and none of them is waiting.</span></label>
       <div class="sel">
-        <label for="s-early" style="cursor:default"><span>How the last <code>resume()</code> ended:</span></label>
+        <label for="s-early" style="cursor:default"><span>How the last <code>resume()</code>, or a decline, ended the run:</span></label>
         <select id="s-early">
           <option value="">it made every call that was ready</option>
-          <option value="failed">a call failed or was declined</option>
+          <option value="failed">a call failed</option>
+          <option value="declined">a person declined (run.with_decline)</option>
           <option value="stopped">a series went over max_items</option>
           <option value="cancelled">the stream was cancelled</option>
           <option value="timed_out">its timeout passed</option>
@@ -669,7 +669,7 @@ print(run.none_input_calls)</pre>
       </div>
       <label><input type="checkbox" id="s-waiting"><span>A call waits for a person (an <code class="int" title="Internal">Unanswered</code> outcome).</span></label>
       <div><button class="btn" type="button" id="s-answer">Answer the waiting call</button></div>
-      <p class="small" id="s-note">An answer keeps a failure or an <a href="series-and-tables.html#limit">item limit</a>, since the failed call or the long series is still there. It drops a cancel or a timeout, which belonged to that one resume.</p>
+      <p class="small" id="s-note">An answer keeps a failure or an <a href="series-and-tables.html#limit">item limit</a>, since the failed call or the long series is still there. It drops a cancel or a timeout, which belonged to that one resume. A declined run waits on nothing, so it takes no answer.</p>
     </div>
     <div class="verdict" aria-live="polite">
       <p class="eyebrow">run.status</p>
@@ -769,7 +769,7 @@ print(run.none_input_calls)</pre>
 
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11 &middot; the second value printed, <code class="int" title="Internal">policy.threaded</code> <span class="lvl int">Internal</span></p>
+      <p class="label">A sample and what it prints &middot; the second value printed, <code class="int" title="Internal">policy.threaded</code> <span class="lvl int">Internal</span></p>
 <pre data-lang="py">for policy in (Policy(), Policy(concurrency=4)):
     @node("slow", title="Slow", description="...", policy=policy)
     def slow(line: str) -> str:
@@ -780,12 +780,12 @@ print(run.none_input_calls)</pre>
     run = graph.run({"text": "\n".join("abcdefgh")})
     print(policy.concurrency, policy.threaded, run.status,
           seconds, len(seen), "thread(s)", where)</pre>
-      <p class="small">It printed this on one Mac. The times vary from run to run.</p>
-<pre class="out">None False complete 0.45s 1 thread(s) main
-4 True complete 0.12s 4 thread(s) pool</pre>
+      <p class="small">The times vary by machine and from run to run. On one thread the eight calls of 50 ms take about 0.4 s; four at a time take about a quarter of that.</p>
+<pre class="out">None False complete 0.43s 1 thread(s) main
+4 True complete 0.11s 4 thread(s) pool</pre>
     </div>
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">@node("fetch", title="Fetch", description="...",
       policy=Policy(retries=2, retry_delay=0.01))
 def fetch(line: str) -> str:
@@ -805,7 +805,7 @@ async for event in graph.with_inputs({"text": "a"}).stream():
   </div>
 
   <div class="sample" style="margin-top:2rem; max-width:var(--col)">
-    <p class="label">Run at 7d2df580, Python 3.12.11</p>
+    <p class="label">A sample and what it prints</p>
 <pre data-lang="py">@node("stuck", title="Stuck", description="...",
       policy=Policy(attempt_timeout=0.05, retries=3))
 def stuck(line: str) -> str:
@@ -830,7 +830,7 @@ print(run.status, run.cause.model_dump(mode="json"))</pre>
   </div>
   <div class="two">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">@node("parse", title="Parse", description="Reads a number.")
 def parse(line: str) -> int:
     return int(line)
@@ -921,7 +921,7 @@ failed {'type': 'too_short', 'loc': ['check', 1], 'msg': 'The line is too short.
 
   <div class="two" style="margin-top:2.5rem">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">async def follow():
     async for event in graph.with_inputs({"text": "a\nb"}).stream():
         print(event.model_dump(mode="json"))
@@ -954,7 +954,7 @@ asyncio.run(follow())</pre>
         <tr><td>node_complete</td><td>It comes at most once per node in a run, when every call has an outcome, none waits, and nothing upstream is running. It carries the node's <code>CallCount</code>, as <code>node_progress</code> does, and how many calls this stream <a href="saved-runs-and-reuse.html#again">reused</a>.</td></tr>
         <tr><td>node_retry</td><td>A call failed and will be tried again. It carries which attempt it was, the delay and the cause.</td></tr>
         <tr><td>node_failed</td><td>A call failed and won't be retried. It carries the call's <a href="problems.html"><code>Problem</code></a>, and the run then ends.</td></tr>
-        <tr><td>node_waiting</td><td>A call raised <a href="asking-a-person.html#walk"><code>Ask</code></a>. It carries the <a href="asking-a-person.html#host"><code>Waiting</code></a>, whose id <a href="asking-a-person.html#answering"><code>run.answer</code></a> takes.</td></tr>
+        <tr><td>node_waiting</td><td>A call raised <a href="asking-a-person.html#walk"><code>Ask</code></a>. It carries the <a href="asking-a-person.html#host"><code>Waiting</code></a>, whose id <a href="asking-a-person.html#answering"><code>run.with_answers</code></a> and <code>run.with_decline</code> take.</td></tr>
         <tr><td>run_checkpoint</td><td>It carries a copy of the run to save. It comes with <code>checkpoint_every</code>, and as the last event after <code>hand_back</code>.</td></tr>
         <tr><td>run_end</td><td>It comes last, with <code>status</code> and <code>cause</code>. A stream handed back has none.</td></tr>
       </tbody>
@@ -975,7 +975,7 @@ asyncio.run(follow())</pre>
 
   <div class="two">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py"># tick sleeps 30 ms, called once per line of ten
 part = graph.with_inputs({"text": "\n".join("abcdefghij")}).resume(timeout=0.1)
 print(part.status, part.cause.type, part.progress.nodes["tick"].model_dump())
@@ -986,7 +986,7 @@ print(rest.status, rest.progress.nodes["tick"].model_dump())</pre>
 complete {'finished': 10, 'waiting': 0, 'skipped': 0, 'none_input': 0, 'known': 10, 'total': 10}</pre>
     </div>
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">big = graph.run({"text": "a\nb\nc"}, max_items=2)
 print(big.status, big.cause.model_dump(mode="json"))
 print(big.with_max_items(10).resume().outputs)</pre>
@@ -997,7 +997,7 @@ print(big.with_max_items(10).resume().outputs)</pre>
 
   <div class="two" style="margin-top:2rem">
     <div class="sample">
-      <p class="label">Run at 7d2df580, Python 3.12.11</p>
+      <p class="label">A sample and what it prints</p>
 <pre data-lang="py">async for event in graph.with_inputs({"text": ten_lines}).stream(checkpoint_every=0.05):
     kinds.append(event.type)
     if event.type == "run_checkpoint":
@@ -1034,7 +1034,7 @@ complete</pre>
     <article class="choice">
       <h3>Calls run on the scheduler's own thread unless the node asks for threads.<span class="lvl pub">Public</span></h3>
       <p>A chain of fast nodes then pays no thread hop per call.</p>
-      <p class="cost"><b>Cost:</b> a slow node that doesn't set <code>concurrency</code> runs one item at a time. In the sample above, eight items took 0.45 s instead of 0.12 s.</p>
+      <p class="cost"><b>Cost:</b> a slow node that doesn't set <code>concurrency</code> runs one item at a time. In the sample above, eight items took about four times as long as with <code>concurrency=4</code>.</p>
     </article>
     <article class="choice">
       <h3><code>concurrency</code> counts across the whole process.<span class="lvl pub">Public</span></h3>
@@ -1062,7 +1062,7 @@ complete</pre>
     </article>
     <article class="choice">
       <h3>A run you hold doesn't change.<span class="lvl pub">Public</span></h3>
-      <p><code>resume()</code>, <code>answer()</code> and the rest return a new <code>Run</code>. A host can keep the run it started from, and a checkpoint's copy is safe to save while the scheduler goes on. Setting an attribute of a <code>Run</code> raises <code>FrozenInstanceError</code>.</p>
+      <p><code>resume()</code>, <code>again()</code> and each <code>with_...</code> method (<code>with_answers</code>, <code>with_decline</code>, <code>with_inputs</code>, <code>with_forgotten</code>, <code>with_max_items</code>) return a new <code>Run</code>. A host can keep the run it started from, and a checkpoint's copy is safe to save while the scheduler goes on. Setting an attribute of a <code>Run</code> raises <code>FrozenInstanceError</code>.</p>
       <p class="cost"><b>Cost:</b> each <code>resume()</code> copies the run's outcome dicts, one per node.</p>
     </article>
     <article class="choice">
@@ -1110,8 +1110,7 @@ complete</pre>
 </section>
 
 <footer>
-  <p><b>Read from the code</b> at <code>54f82579</code>, whole, and the changes to it checked at <code>7d581d9e</code>, at <code>7b2d71e6</code> and again at <code>7d2df580</code>: under <code class="int" title="Internal">packages/conductor/src/conductor/_internal/</code>, <code class="int" title="Internal">run/__init__.py</code>, <code class="int" title="Internal">type.py</code>, <code class="int" title="Internal">blueprint.py</code>, <code class="int" title="Internal">scheduler.py</code>, <code class="int" title="Internal">call.py</code>, <code class="int" title="Internal">outcome.py</code>, <code class="int" title="Internal">arguments.py</code>, <code class="int" title="Internal">state.py</code>, <code class="int" title="Internal">progress.py</code>, <code class="int" title="Internal">results.py</code>, <code class="int" title="Internal">stream.py</code>, <code class="int" title="Internal">events.py</code>, <code class="int" title="Internal">node_events.py</code>, <code class="int" title="Internal">validator.py</code>, <code class="int" title="Internal">node/policy.py</code>, <code class="int" title="Internal">node/running_calls.py</code>, and <code>conductor/events.py</code>. Also <code>Graph.with_inputs</code>, <code>Graph.run</code>, <code class="int" title="Internal">Graph._blueprint</code> and <code class="int" title="Internal">LimitsValidator</code> in <code class="int" title="Internal">graph/</code>, the running sections of <code>llms.txt</code> and <code>docs/design.md</code>, and parts of <code>tests/test_core/test_running.py</code>.</p>
-  <p><b>Run</b> on Python 3.12.11 at <code>7d2df580</code>. Every sample's output on this page is printed by it. Every sample imports only conductor's public names, and a block that prints an internal value says so in its label. The step-through is a trace of <code class="int" title="Internal">Scheduler</code>'s own methods, wrapped to log each call, for both of <code>shout</code>'s policies. Times vary by machine.</p>
+  <p>Every sample imports only conductor's public names, and a block that prints an internal value says so in its label. The step-through is a trace of <code class="int" title="Internal">Scheduler</code>'s own methods, wrapped to log each call, for both of <code>shout</code>'s policies. Times vary by machine.</p>
 </footer>
 
 </div>
@@ -1162,7 +1161,7 @@ complete</pre>
       code: "ready = [lines (), join ()]", ready: ["lines ()", "join ()"], running: [], coll: [], s: {} },
     { t: "lines () is first in the blueprint's order", c: "The heap gives the call of the node that comes first in the blueprint. Its one argument is the graph input text, so it's ready. lines has Policy(), so it's called right here, on the scheduler's own thread.",
       code: "arguments_for(lines, ()) → {'text': 'a\\nb\\nc'}", ready: ["join ()"], running: [], coll: [], s: { "lines ()": "try" }, tag: { "lines ()": "own thread" } },
-    { t: "Done is recorded, and what reads it wakes", c: "_record writes the outcome. Then _make_downstream_ready puts the calls that read lines on ready. That is one call of shout per line, and join () a second time.",
+    { t: "Done is recorded, and what reads it wakes", c: "_write_outcome writes the outcome. Then _make_downstream_ready puts the calls that read lines on ready. That is one call of shout per line, and join () a second time.",
       code: "outcomes[('lines',)][()] = Done({'result': ['a', 'b', 'c']})", ready: ["shout (0,)", "shout (1,)", "shout (2,)", "join ()", "join ()"], running: [], coll: [], s: { "lines ()": "done" } },
     { t: "shout (0,) is called and recorded", c: "shout comes before join in the blueprint, so its calls come off the heap first. The call reads item 0 of lines.result. join reads shout across the loop, so join () goes into collectors instead of ready.",
       code: "shout(line='a', mark='!') → 'A!'", ready: ["shout (1,)", "shout (2,)", "join ()", "join ()"], running: [], coll: ["join ()"], s: { "lines ()": "done", "shout (0,)": "done" }, tag: { "shout (0,)": "own thread" } },
@@ -1193,7 +1192,7 @@ complete</pre>
     { t: "Nothing is ready, so the scheduler waits", c: "The scheduler waits on the returned queue. Only node functions run on pool threads. Outcomes are written here, on the scheduler's thread.",
       code: "_wait() → returned.get()", ready: [], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
     { t: "shout (0,) comes back, and shout (2,) starts", c: "The pool thread counts its call out, which wakes this run, and then hands back what the call returned. So the freed place goes to the waiting attempt first. Then the outcome is recorded, and join () goes into collectors. It stays there while a call upstream of it runs. Which call comes back first varies.",
-      code: "_wait: None → _start_every_waiting_call (shout (2,) starts); _wait: _call_returned → _record(shout, (0,), Done)", ready: [], running: ["shout (1,)", "shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "run", "shout (2,)": "run" }), tag: { "shout (1,)": "thread", "shout (2,)": "thread" } },
+      code: "_wait: None → _start_every_waiting_call (shout (2,) starts); _wait: _call_returned → _write_outcome(shout, (0,), Done)", ready: [], running: ["shout (1,)", "shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "run", "shout (2,)": "run" }), tag: { "shout (1,)": "thread", "shout (2,)": "thread" } },
     { t: "shout (1,) comes back", c: "It is recorded, in the same wait as shout (0,) or in the next one, since _take_news takes in every call that is back. join () stays in collectors, because shout (2,) is still running.",
       code: "_release_collectors() → False", ready: [], running: ["shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "run" }), tag: { "shout (2,)": "thread" } },
     { t: "shout (2,) comes back, and join () is released", c: "Nothing upstream of join is running now, so join () goes on ready. A collecting call isn't put back on ready after every item, only once its loop is quiet. join was tried before this, in step 7, and wasn't ready.",
@@ -1250,11 +1249,17 @@ complete</pre>
   show(0);
 
   /* ======================= THE STATUS RULE =======================
-     The order of state.py's status_of. */
+     The order of state.py's status_of. A decline removes every waiting
+     call, so a declined run has none, takes no answer, and is never complete:
+     the call it declined has no outcome. */
   const sRun = $("#s-running"), sComp = $("#s-complete"), sEarly = $("#s-early"), sWait = $("#s-waiting");
   function decide() {
-    if (sComp.checked) { sWait.checked = false; }
-    sWait.disabled = sComp.checked;
+    const declined = sEarly.value === "declined";
+    if (declined) { sComp.checked = false; }
+    sComp.disabled = declined;
+    if (sComp.checked || declined) { sWait.checked = false; }
+    sWait.disabled = sComp.checked || declined;
+    $("#s-answer").disabled = declined;
     let hit, status;
     if (sRun.checked) { hit = 0; status = "running"; }
     else if (sComp.checked) { hit = 1; status = "complete"; }
@@ -1278,6 +1283,5 @@ complete</pre>
 })();
 </script>
 
-</body></html>
 </body>
 </html>
