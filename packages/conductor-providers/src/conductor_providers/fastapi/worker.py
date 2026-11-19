@@ -28,8 +28,8 @@ from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
 from conductor_providers.fastapi.problems import RESUMABLE, no_such_run, run_not_resumable
-from conductor_providers.fastapi.state import M, RunOutcome, RunRow, RunState, RunView
-from conductor_providers.fastapi.store import GuardedStore, RunStore
+from conductor_providers.fastapi.state import RunOutcome, RunState, RunView
+from conductor_providers.fastapi.store import GuardedStore, M, RunRow, RunStore
 
 #: The class of the run's context, the registry's ``context_type``.
 X = TypeVar("X", default=None)
@@ -244,7 +244,7 @@ class Worker(Generic[M, X]):
         metadata = self._checked(metadata)
         row, nodes = await self._row(run_id, allows), self.nodes_for(metadata)
         again = await asyncio.to_thread(lambda: row.loaded(nodes).with_inputs(inputs))
-        return await self._create(row.graph, metadata, again)
+        return await self._create(row.stored.graph, metadata, again)
 
     async def answer(
         self,
@@ -432,7 +432,7 @@ class Worker(Generic[M, X]):
         the run stopped, the events stored then are all there will be. The row is read again only when a ``run_end``
         was the last event, or there was no event yet; otherwise events alone are read.
         """
-        run_id, ended = row.id, not row.state.is_running
+        run_id, ended = row.stored.id, not row.state.is_running
         may_have_ended = True
         while True:
             new = await self._store.events(run_id, after)
@@ -453,13 +453,13 @@ class Worker(Generic[M, X]):
         """Go on with every run whose lease ran out: its worker died or handed it back. A run that can't be taken
         (its row can't be read, the store fails) is logged and left for the next call, and the others are taken."""
         for row in await self._store.expired(time.time()):
-            if row.id not in self._held:
+            if row.stored.id not in self._held:
                 try:
                     await self._claim(row, row.state)
                 except Exception:
                     log.exception(
                         "run %s, whose lease ran out, was not taken over; the next sweep tries again",
-                        row.id,
+                        row.stored.id,
                     )
 
     @asynccontextmanager
@@ -577,8 +577,8 @@ class Worker(Generic[M, X]):
         """The run in ``row`` as a reader sees it, from its state, its outcome and its metadata."""
         state, outcome = row.state, row.outcome
         return RunView(
-            id=row.id,
-            metadata=from_json(row.metadata_json),
+            id=row.stored.id,
+            metadata=from_json(row.stored.metadata),
             status=state.status,
             cause=state.cause,
             waiting=outcome.waiting,
@@ -613,22 +613,17 @@ class Worker(Generic[M, X]):
         self._check_served()
         state = RunState.started()
         saved, outcome = await asyncio.to_thread(
-            lambda: (run.to_json(), RunOutcome.of(run, state.status).model_dump_json())
+            lambda: (run.to_json(), RunOutcome.of(run, state.status))
         )
-        holder = self._settings.holder()
-        row = RunRow(
-            id=uuid.uuid4().hex,
-            graph=graph,
-            metadata_json=self._metadata.dump_json(metadata, by_alias=True).decode(),
-            metadata_type=self._metadata,
-            run=saved,
+        row = await self._store.create(
+            uuid.uuid4().hex,
+            graph,
+            metadata,
+            self._settings.holder(),
             state=state,
-            outcome_json=outcome,
-            rev=0,
-            owner=holder["owner"],
-            lease_until=holder["lease_until"],
+            run=saved,
+            outcome=outcome,
         )
-        await self._store.create(row)
         self._resume_in_background(row)
         return self._view(row)
 
@@ -713,7 +708,7 @@ class Worker(Generic[M, X]):
             finally:
                 # The run may have been taken again while this task wrote that it lets the run go. Then the entry
                 # is the newer task's, and that task removes it.
-                if self._held.get(row.id, (None,))[0] is held:
-                    del self._held[row.id]
+                if self._held.get(row.stored.id, (None,))[0] is held:
+                    del self._held[row.stored.id]
 
-        self._held[row.id] = (held, asyncio.get_running_loop().create_task(hold()))
+        self._held[row.stored.id] = (held, asyncio.get_running_loop().create_task(hold()))

@@ -7,11 +7,10 @@ works its change out again from what it reads. ``GuardedStore.change`` is that l
 tries again goes through it. An ``update`` can append one event in the same write, which is how a run's ``run_end``
 lands with the row that says how the run stopped.
 
-``GuardedStore`` is the worker's one door to a host's store. It reads each row
-into a ``RunRow``, writes a row's changes back as text, and turns anything the
-store raises into one exception, ``StoreFailedError``, which names the method.
-``check_run_store`` calls a store with ``guarded`` alone, since it checks the
-text a store keeps.
+``GuardedStore`` is the worker's one door to a host's store. It wraps each row it reads in a ``RunRow``, which
+reads the row's JSON into its types. It writes a row's changes back as text, and turns anything the store raises
+into one exception, ``StoreFailedError``, which names the method. ``check_run_store`` calls a store with
+``guarded`` alone, since it checks the text a store keeps.
 """
 
 from __future__ import annotations
@@ -20,15 +19,20 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from functools import cached_property
 from typing import Any, Generic, Protocol, TypedDict
 
-from conductor import InvalidCallError, RunStatus
+from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunStatus
 from conductor.events import RunEnd
 from pydantic import TypeAdapter, ValidationError
+from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.problems import no_such_run
-from conductor_providers.fastapi.state import M, RunOutcome, RunRow, RunState
+from conductor_providers.fastapi.state import RunOutcome, RunState
+
+#: The type of a run's metadata: what the host keeps on it. ``dict[str, str]`` unless the host names a model.
+M = TypeVar("M", default=dict[str, str])
 
 log = logging.getLogger("conductor_providers.fastapi")
 
@@ -74,6 +78,53 @@ class StoredRun:
     rev: int
     owner: str | None
     lease_until: float | None
+
+
+@dataclass(frozen=True)
+class RunRow(Generic[M]):
+    """A run's row as the worker reads it: the ``StoredRun`` the host's store gave, with its JSON read into types.
+
+    The worker's store wraps each row in one as it gets it, so nothing else in the worker parses a row's JSON. The
+    ``state`` is read at once: it is small, and every action on a run looks at it first. The ``outcome`` can be
+    megabytes, and only a reader's view and a resume call need it, so it is read the first time it is asked for.
+    So is the ``metadata``, so that a row whose metadata the worker's type refuses can still be taken over, and its
+    resume call then fails it.
+
+    Attributes:
+        stored: The row as the host's store keeps it.
+        state: The row's ``state``, read: where the run is, and what was asked of it while it was running.
+        metadata_type: Reads the row's ``metadata``: the worker's ``metadata_type``.
+    """
+
+    stored: StoredRun
+    state: RunState
+    metadata_type: TypeAdapter[M] = field(repr=False, compare=False)
+
+    @cached_property
+    def metadata(self) -> M:
+        """The run's metadata, read by its type the first time it is asked for.
+
+        Raises:
+            ValidationError: The worker's ``metadata_type`` refuses the row's metadata.
+        """
+        return self.metadata_type.validate_json(self.stored.metadata)
+
+    @cached_property
+    def outcome(self) -> RunOutcome:
+        """What a reader gets without loading the run, read the first time it is asked for.
+
+        Raises:
+            ValidationError: The row's outcome can't be read.
+        """
+        return RunOutcome.model_validate_json(self.stored.outcome)
+
+    def loaded(self, nodes: NodeRegistry[Any]) -> Run[Any]:
+        """The run this row keeps, loaded on ``nodes``.
+
+        Raises:
+            InvalidCallError: The graph doesn't compile on ``nodes``, or the saved run can't be read.
+        """
+        return Run.from_json(self.stored.run, Graph.compile(self.stored.graph, nodes))
 
 
 class RunChanges(TypedDict, total=False):
@@ -232,11 +283,11 @@ def refuse_an_update_without_an_event(store: RunStore) -> None:
 class GuardedStore(Generic[M]):
     """A host's store as the worker uses it: rows read into ``RunRow``, and outages raised as ``StoreFailedError``.
 
-    It has the six methods of ``RunStore``. ``get`` and ``expired`` read each row into a ``RunRow``, and
-    ``create`` and ``update`` write a ``RunRow``'s columns back as text. ``change`` tries a write again until it
-    lands. Code that holds a ``GuardedStore`` works on a row's
-    metadata, state and outcome as their types, and can tell an outage apart from a fault in its own code by the
-    exception's class alone.
+    It has the six methods of ``RunStore``. ``get`` and ``expired`` wrap each row in a ``RunRow``. ``create`` and
+    ``update`` take the columns they write as their types, write them as text, and give the row as written.
+    ``change`` tries a write again until it lands. Code that holds a ``GuardedStore`` works on a row's metadata,
+    state and outcome as their types, and can tell an outage apart from a fault in its own code by the exception's
+    class alone.
 
     Args:
         store: The host's store.
@@ -251,23 +302,40 @@ class GuardedStore(Generic[M]):
         self._store = store
         self._metadata = metadata
 
-    async def create(self, row: RunRow[M]) -> None:
-        """Insert a new run: ``RunStore.create`` with the row written as text."""
-        columns = self._columns(
-            {"owner": row.owner, "lease_until": row.lease_until},
-            state=row.state,
-            run=row.run,
-            outcome=None,
-        )
-        columns["outcome"] = row.outcome_json
+    async def create(
+        self,
+        run_id: str,
+        graph: str,
+        metadata: M,
+        holder: RunChanges,
+        *,
+        state: RunState,
+        run: str,
+        outcome: RunOutcome,
+    ) -> RunRow[M]:
+        """Insert a new run: ``RunStore.create`` with the row written as text.
+
+        Args:
+            run_id: The run's id.
+            graph: The ``GraphRecord`` the run is of, as JSON.
+            metadata: The run's metadata, written by alias.
+            holder: The row's ``owner`` and ``lease_until``.
+            state: The row's state, written as its ``state`` and ``status``.
+            run: The row's ``run``, as JSON.
+            outcome: The row's outcome.
+
+        Returns:
+            The row as written.
+        """
         stored = StoredRun(
-            id=row.id,
-            graph=row.graph,
-            metadata=row.metadata_json,
-            rev=row.rev,
-            **columns,
+            id=run_id,
+            graph=graph,
+            metadata=self._metadata.dump_json(metadata, by_alias=True).decode(),
+            rev=0,
+            **await self._columns(holder, state=state, run=run, outcome=outcome),
         )
         await guarded("create", self._store.create(stored))
+        return RunRow(stored, state, self._metadata)
 
     async def get(self, run_id: str) -> RunRow[M] | None:
         """``RunStore.get``, its row read.
@@ -307,25 +375,15 @@ class GuardedStore(Generic[M]):
         Returns:
             The row as written; ``None`` when another writer moved its ``rev`` on first, and nothing was written.
         """
-        if outcome is None:
-            columns = self._columns(holder or {}, state=state, run=run, outcome=None)
-        else:  # an outcome can be megabytes, so it is written on a thread
-            columns = await asyncio.to_thread(
-                self._columns, holder or {}, state=state, run=run, outcome=outcome
-            )
+        columns = await self._columns(holder or {}, state=state, run=run, outcome=outcome)
         if state is not None and not state.is_running:
             call_end = RunEnd(status=state.status, cause=state.cause)
         event = None if call_end is None else call_end.model_dump_json()
-        if not await guarded("update", self._store.update(row.id, row.rev, columns, event)):
+        stored = row.stored
+        if not await guarded("update", self._store.update(stored.id, stored.rev, columns, event)):
             return None
-        written: dict[str, Any] = {**(holder or {}), "rev": row.rev + 1}
-        if state is not None:
-            written["state"] = state
-        if run is not None:
-            written["run"] = run
-        if outcome is not None:
-            written["outcome_json"] = columns["outcome"]
-        return replace(row, **written)
+        written = replace(stored, **columns, rev=stored.rev + 1)
+        return RunRow(written, row.state if state is None else state, self._metadata)
 
     async def change(
         self, row: RunRow[M], step: Callable[[RunRow[M]], Awaitable[RunRow[M] | None]]
@@ -348,7 +406,7 @@ class GuardedStore(Generic[M]):
             InvalidCallError: The row is gone when it is read again (``no_such_run``).
         """
         while (left := await step(row)) is None:
-            read = await self.get(row.id)
+            read = await self.get(row.stored.id)
             if read is None:
                 raise InvalidCallError([no_such_run()])
             row = read
@@ -382,30 +440,19 @@ class GuardedStore(Generic[M]):
 
     def _read(self, stored: StoredRun) -> RunRow[M]:
         """A row with its state read; its metadata and outcome are read when they are first asked for."""
-        return RunRow(
-            id=stored.id,
-            graph=stored.graph,
-            metadata_json=stored.metadata,
-            metadata_type=self._metadata,
-            run=stored.run,
-            state=RunState.model_validate_json(stored.state),
-            outcome_json=stored.outcome,
-            rev=stored.rev,
-            owner=stored.owner,
-            lease_until=stored.lease_until,
-        )
+        return RunRow(stored, RunState.model_validate_json(stored.state), self._metadata)
 
     @staticmethod
-    def _columns(
+    async def _columns(
         holder: RunChanges,
         *,
         state: RunState | None,
         run: str | None,
         outcome: RunOutcome | None,
     ) -> RunChanges:
-        """The columns a write changes, as the store keeps them: the one place the worker writes a row's state.
+        """The columns a write changes, as the store keeps them: the one place the worker writes a row's JSON.
 
-        ``status`` is written with ``state``, from it.
+        ``status`` is written with ``state``, from it. An outcome can be megabytes, so it is written on a thread.
         """
         columns: RunChanges = {}
         if state is not None:
@@ -413,6 +460,6 @@ class GuardedStore(Generic[M]):
         if run is not None:
             columns["run"] = run
         if outcome is not None:
-            columns["outcome"] = outcome.model_dump_json()
+            columns["outcome"] = await asyncio.to_thread(outcome.model_dump_json)
         columns.update(holder)
         return columns

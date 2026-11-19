@@ -27,8 +27,7 @@ from conductor import InvalidCallError, NodeRegistry, Problem, Run
 from conductor.events import RunCheckpoint, RunEnd
 
 from conductor_providers.fastapi.problems import no_such_run, raised_outside_a_node
-from conductor_providers.fastapi.state import RunRow
-from conductor_providers.fastapi.store import GuardedStore, RunChanges, StoreFailedError
+from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunRow, StoreFailedError
 
 log = logging.getLogger("conductor_providers.fastapi")
 
@@ -88,7 +87,7 @@ class HeldRun:
     def __init__(
         self, store: GuardedStore[Any], row: RunRow[Any], settings: ResumeSettings
     ) -> None:
-        self.run_id = row.id
+        self.run_id = row.stored.id
         self._store = store
         self._settings = settings
         # the row as last read or written
@@ -328,6 +327,6 @@ class HeldRun:
         """Take in the row as read: what another writer changed in its state, a cancel asked of it, and whether
         another worker took it."""
         self._row = row
-        self._released = row.owner != self._settings.worker_id
+        self._released = row.stored.owner != self._settings.worker_id
         if self._released or row.state.cancel_asked:
             self._stop.set()

@@ -24,7 +24,8 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Decline, Resume, StartRun, declared
 from conductor_providers.fastapi.problems import STATUS, no_such_run, run_not_resumable
-from conductor_providers.fastapi.state import M, RunView
+from conductor_providers.fastapi.state import RunView
+from conductor_providers.fastapi.store import M
 from conductor_providers.fastapi.worker import Worker, X
 
 #: A refusal's body: FastAPI's own ``HTTPValidationError``, the shape of a 422, which a conductor ``Problem`` fits, so
