@@ -95,8 +95,10 @@ class StartRun(BaseModel):
             RequestValidationError: The body isn't an object of this shape, such as inputs that aren't an object.
                 FastAPI answers it as it answers any body it refuses.
         """
+        # read_json's refusal is conductor's InvalidCallError, also a ValidationError, so it is read outside the try
+        data = read_json(text)
         try:
-            return cls.model_validate(read_json(text))
+            return cls.model_validate(data)
         except ValidationError as refused:
             errors = refused.errors(include_url=False)
             raise RequestValidationError(

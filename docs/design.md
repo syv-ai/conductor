@@ -394,6 +394,14 @@ Every record is a frozen pydantic model: `GraphRecord`, `Problem`, the events, `
 result. Each works as a FastAPI response model as it is. `Policy` is one too, so `Policy(retries="2")` raises right
 where it's written.
 
+A refused call raises `InvalidCallError`, which is also pydantic's `ValidationError` (provisional): `errors()` has one
+error per problem, with the problem's code as its `type`, so code that handles pydantic's errors handles conductor's.
+The cost is a catch order. A route that reads a body with pydantic and then calls conductor catches `InvalidCallError`
+first, or the body's handler answers conductor's refusal as a malformed body.
+**Worth questioning:** `NodeDeclarationError` and `NodeError` stay outside pydantic's tree, so `except ValidationError`
+catches some of conductor's errors and not others. They are a developer's fault and a node's failure, not a refused
+value.
+
 `Param` is pydantic metadata. Its limits and choices work inside a host's own `BaseModel` too, and they live in the
 field's JSON schema. On a node's input, `Param` is the only spelling: pydantic's `Field(...)` in the hint is refused
 (`pydantic_field_in_hint`), so a limit is never written two ways.

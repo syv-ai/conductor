@@ -341,7 +341,7 @@ async def start_saved_graph(
 app.include_router(own_routes)
 ```
 
-The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. The run this route starts is read, answered and followed through the router's routes.
+The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. An `InvalidCallError` is also pydantic's `ValidationError`, so a route that catches pydantic's errors too catches `InvalidCallError` first. The run this route starts is read, answered and followed through the router's routes.
 
 Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Each of them takes your run filter as `allows=`, as the router passes it, and turns away a run the request may not see; so does `begin` when you give it a `previous` run. With no logins, pass `allows=lambda metadata: True`. Following a run's events takes two steps: awaiting `worker.events(...)` checks the run, so a run that isn't there is refused before you start, and then you iterate what it gives:
 

@@ -140,6 +140,14 @@ def _no_sentence(*loc: str | int, shelf: str) -> int:
     return 0
 
 
+def _key_named_msg(*loc: str | int, msg: str) -> str:
+    return ""
+
+
+def _place_named_msg(msg: str, /) -> str:
+    return ""
+
+
 @pytest.mark.parametrize(
     ("say", "parameter"),
     [
@@ -152,6 +160,8 @@ def _no_sentence(*loc: str | int, shelf: str) -> int:
         (_place_that_is_no_place, "room"),
         (_places_of_another_type, "loc"),
         (_no_sentence, "return"),
+        (_key_named_msg, "msg"),
+        (_place_named_msg, "msg"),
     ],
 )
 def test_a_signature_outside_the_three_rules_is_refused_where_it_is_declared(

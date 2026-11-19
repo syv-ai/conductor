@@ -19,7 +19,8 @@ dependencies = [
     # its limits, like Ge(0), are read as Param's
     "annotated-types>=0.6",
     "polars>=2.0",
-    "pydantic>=2.14",
+    # 2.14.2 is the first that unpickles a ValidationError with an error type of its own, as InvalidCallError's are.
+    "pydantic>=2.14.2",
     # 4.16 is the first whose sentinel pickles and copies to itself and prints as its bare name (REQUIRED, SKIPPED).
     "typing-extensions>=4.16",
 ]

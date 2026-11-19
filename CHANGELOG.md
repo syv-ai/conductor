@@ -9,7 +9,7 @@ released together at one version. The format follows
 
 Ships as 2.0.0, a new major. The node contract, the graph record, compiling and the engine are each
 replaced, and no alias keeps a 1.x name alive. Conductor depends on `polars>=2.0`,
-`pydantic>=2.14` (the first to export `MISSING`, which a record without a value is written with) and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
+`pydantic>=2.14.2` (2.14 is the first to export `MISSING`, which a record without a value is written with, and 2.14.2 the first that unpickles a `ValidationError` with an error type of its own, as an `InvalidCallError`'s are) and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
 rule.
 
 What changes in how you work, before the name-by-name tables:
@@ -235,6 +235,14 @@ What changes in how you work, before the name-by-name tables:
   `type_mismatch_whole_table_or_list` and `unknown_output_field_of_whole_table_or_list` is `ctx.kind`; and `compute_hook_failed`'s `ctx.error` `added_input_taken` is `compute_hook_returned_invalid`'s `added_input_exists`.
 - **A refused call lists its problems in `problems`.** `InvalidCallError.problems` is every `Problem` the call
   was refused for, as `graph.problems` is for a graph, and `read_json` raises it too.
+- **A refused call is also pydantic's `ValidationError`** (provisional). `InvalidCallError` subclasses
+  `pydantic.ValidationError` (so it stays a `ValueError`): `except ValidationError` catches it, and `errors()` has
+  one error per problem with the problem's `type`, `loc` and `msg`, its `ctx` the problem's with the message added
+  under `msg`, and `input` `None`. `str(error)` still lists the problems. A host that catches pydantic's errors and
+  conductor's in one place catches `InvalidCallError` first. A kind of problem can't have a `ctx` key `msg`
+  (`ProblemCatalogue.problem` refuses it). `retry_on=(ValidationError,)` retries an `InvalidCallError` a node lets
+  out. `NodeDeclarationError` and `NodeError` are not `ValidationError`s. `InvalidCallError` and
+  `NodeDeclarationError` pickle and copy with their problems (neither could be unpickled).
 - **`type_not_named` gives a declaration to paste.** For a class with no `@host_type`, the message suggests an id and a title made from the class's name, `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`, where it wrote `@host_type("...", title="...")`; `ctx` gains `suggested_id` and `suggested_title`. An id that would be one of conductor's own gets `-type` after it.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,

@@ -164,9 +164,15 @@ def _check_parameter(function: str, parameter: Parameter) -> None:
         parameter: One of its parameters.
 
     Raises:
-        TypeError: The parameter is none of the three, or its type or default is wrong for its sort.
+        TypeError: The parameter is none of the three, its type or default is wrong for its sort, or it is a
+            ``ctx`` key named ``msg``.
     """
     prefix = f"{function}: parameter '{parameter.name}'"
+    if parameter.name == "msg" and parameter.kind is not parameter.VAR_POSITIONAL:
+        raise TypeError(
+            f"{prefix} is a ctx key named msg, the key an InvalidCallError's errors() keep each message under; "
+            "give it another name"
+        )
     match parameter.kind:
         case parameter.POSITIONAL_OR_KEYWORD:
             raise TypeError(
@@ -283,8 +289,9 @@ class ProblemCatalogue:
         together share the start of their code, like ``type_mismatch`` and ``type_mismatch_whole_table_or_list``.
 
         Raises:
-            TypeError: When the function is declared, if a parameter is none of the three, if the return type isn't
-                ``str``, or if the catalogue already has a kind with the function's name.
+            TypeError: When the function is declared, if a parameter is none of the three or is a ``ctx`` key named
+                ``msg``, if the return type isn't ``str``, or if the catalogue already has a kind with the function's
+                name.
         """
         kind = ProblemKind(write_message, self._title)
         self._add(kind)

@@ -306,9 +306,11 @@ def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
         ),
     ],
 )
-def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_error(
+def test_what_is_not_a_record_is_refused_as_invalid_record_never_pydantics_own_error(
     record, loc, error
 ):
+    """A record's fault is conductor's ``invalid_record``, raised as ``InvalidCallError``, never the plain
+    ``ValidationError`` the record's model raised."""
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record, REGISTRY)
     problems = refused.value.problems
@@ -316,9 +318,7 @@ def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_er
         problems[0].loc,
         problems[0].ctx["errors"][0]["type"],
     ) == (loc, error)
-    assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith(
-        "This isn't a valid graph record. At"
-    )
+    assert problems[0].msg.startswith("This isn't a valid graph record. At")
 
 
 def test_a_record_as_plain_data_compiles_as_its_json_does():

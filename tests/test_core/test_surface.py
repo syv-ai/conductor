@@ -376,8 +376,75 @@ def test_the_errors_a_caller_catches_share_one_base():
     )
 
     assert base.__name__ == "ConductorError"
-    assert issubclass(InvalidCallError, ValueError)
+    assert issubclass(InvalidCallError, ValidationError) and issubclass(
+        InvalidCallError, ValueError
+    )
     assert issubclass(NodeDeclarationError, TypeError)
+    assert not any(
+        issubclass(error, ValidationError)
+        for error in (NodeDeclarationError, NodeError, ExternalError)
+    )
+
+
+def _refused() -> InvalidCallError:
+    """A refusal of two problems, one with a nested ``ctx`` and braces in its message, one with no ``ctx``."""
+    return InvalidCallError(
+        [
+            Problem(
+                type="invalid_input",
+                loc=("inputs", "n"),
+                msg="write it as {n} or {{n}}",
+                ctx={"name": "n", "errors": [{"type": "int_type", "loc": [0], "msg": "x"}]},
+            ),
+            Problem(type="missing_input", loc=("inputs", "m"), msg="'m' is missing."),
+        ]
+    )
+
+
+def test_an_invalid_call_error_is_pydantics_error_with_one_error_per_problem():
+    """A host that handles pydantic's errors handles conductor's: ``errors()`` gives each problem's ``type``,
+    ``loc`` and ``msg``, a message's braces kept as written, and its ``ctx`` with the message under ``msg``. No
+    error quotes a value: its ``input`` is ``None``."""
+    refused = _refused()
+
+    assert [
+        Problem(
+            type=error["type"],
+            loc=error["loc"],
+            msg=error["msg"],
+            ctx={key: value for key, value in error["ctx"].items() if key != "msg"},
+        )
+        for error in refused.errors()
+    ] == refused.problems
+    assert all(
+        error["input"] is None and error["ctx"]["msg"] == error["msg"] for error in refused.errors()
+    )
+    assert refused.problems[0].msg == "write it as {n} or {{n}}"
+    assert str(refused) == (
+        "2 problem(s):\n"
+        "  inputs.n — invalid_input: write it as {n} or {{n}}\n"
+        "  inputs.m — missing_input: 'm' is missing."
+    )
+
+
+def test_conductors_errors_pickle_and_copy_with_their_problems():
+    """A worker process sends an exception back pickled, so each keeps its class, its problems and its text."""
+    with pytest.raises(NodeDeclarationError) as declared:
+
+        @node("pickled", title="Pickled", description="For a test.")
+        async def pickled(text: str) -> str:
+            return text
+
+    errors: list[InvalidCallError | NodeDeclarationError | NodeError] = [
+        _refused(),
+        declared.value,
+        NodeError("No pages.", code="unreadable", ctx={"pages": 0}),
+    ]
+
+    for error in errors:
+        for copied in (pickle.loads(pickle.dumps(error)), copy.deepcopy(error)):
+            assert type(copied) is type(error)
+            assert (copied.problems, str(copied)) == (error.problems, str(error))
 
 
 def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():

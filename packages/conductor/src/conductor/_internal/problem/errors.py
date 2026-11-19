@@ -16,7 +16,8 @@ why it stopped.
 
     ConductorError
     ├── NodeDeclarationError    a node was declared wrong; also a TypeError
-    ├── InvalidCallError        a call on a graph or a run was given a value it can't use; also a ValueError
+    ├── InvalidCallError        a call on a graph or a run was given a value it can't use; also pydantic's
+    │                           ValidationError, and so a ValueError
     └── NodeError               a node failed, with a message for people; not retried
         └── ExternalError         the outside world failed; retried
 
@@ -46,7 +47,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Self, cast
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticKnownError
@@ -274,6 +275,14 @@ class ConductorError(Exception):
         self.problems = list(problems)
         super().__init__(text)
 
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Pickles the exception as its class, its text and its problems, so a worker process can send it back.
+
+        Python's own pickling calls the class again with the exception's text, which a subclass's ``__init__``
+        doesn't take. So the exception is made again without calling ``__init__``, and its problems are put back.
+        """
+        return type(self).__new__, (type(self), *self.args), self.__dict__
+
 
 class NodeDeclarationError(ConductorError, TypeError):
     """A node or a type was declared wrong. It is raised as soon as the module that declares it is imported.
@@ -331,14 +340,20 @@ class NodeDeclarationError(ConductorError, TypeError):
         return NodeDeclarationError(self.problems[0], place, version=version)
 
 
-class InvalidCallError(ConductorError, ValueError):
+class InvalidCallError(ValidationError, ConductorError):
     """A value given to conductor was refused, and nothing was done with it.
 
     Say a graph's input ``n`` is an ``int``. Then ``graph.run({"n": "many"})`` raises it, with one ``invalid_input``
     problem. It is raised before anything runs, and the run the caller has stays as it was. A call's arguments are
     checked in stages, and the first stage that finds a fault raises with every problem of that stage. So
-    ``graph.run({"n": "many"}, max_items=0)`` raises only ``invalid_limit``. Like pydantic's error, it is also a
-    ``ValueError``.
+    ``graph.run({"n": "many"}, max_items=0)`` raises only ``invalid_limit``.
+
+    It is also pydantic's ``ValidationError``, and so a ``ValueError``. ``except ValidationError`` catches it, and
+    ``errors()`` gives one of pydantic's errors per problem, with the problem's ``type``, ``loc`` and ``msg``. Each
+    error's ``ctx`` is the problem's ``ctx`` with the message added under ``msg``, since pydantic makes an error's
+    message from its ``ctx``; no kind of problem has a ``ctx`` key of that name. Nothing it carries quotes a refused
+    value, and its ``input`` is always ``None``. Neither ``NodeDeclarationError`` nor ``NodeError`` is a
+    ``ValidationError``: one is a developer's fault and the other a node's failure, not a refused value.
 
     Most calls a host makes can raise it: ``graph.run``, ``graph.with_inputs``, ``run.resume``, ``run.stream``,
     ``run.with_answers``, ``run.with_inputs``, ``run.again``, ``run.with_forgotten``, ``run.outputs``,
@@ -353,19 +368,60 @@ class InvalidCallError(ConductorError, ValueError):
         problems: What is wrong, in the order it was found.
     """
 
-    def __init__(self, problems: Iterable[Problem]) -> None:
-        problems = list(problems)
-        super().__init__(
-            problems,
-            "\n".join(
-                [
-                    f"{len(problems)} problem(s):",
-                    *(
-                        f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}"
-                        for problem in problems
+    def __new__(cls, *args: Any) -> Self:
+        """Makes the exception from its problems: ``InvalidCallError(problems)``.
+
+        Pydantic makes it too, with its own four arguments, when it copies or unpickles one. Those are passed on.
+        """
+        if len(args) != 1:
+            return super().__new__(cls, *args)
+        (problems,) = args
+        return cls.from_exception_data(
+            cls.__name__,
+            [
+                {
+                    # pydantic fills an error's message in from its ctx, so a message with braces in it is
+                    # kept only as the last ctx value, filled into a template that reads nothing else
+                    "type": PydanticCustomError(
+                        problem.type, "{msg}", {**problem.ctx, "msg": problem.msg}
                     ),
-                ]
-            ),
+                    "loc": problem.loc,
+                    "input": None,
+                }
+                for problem in problems
+            ],
+            hide_input=True,
+        )
+
+    def __init__(self, *args: Any) -> None:
+        """Does nothing: ``__new__`` made the exception, and its problems are read from pydantic's errors."""
+
+    # ConductorError's __init__ stores its problems, but pydantic's errors are what this class pickles and copies,
+    # so the problems are read from them
+    @property
+    def problems(self) -> list[Problem]:  # type: ignore[override]
+        """What is wrong, in the order it was found: each of pydantic's errors, without the ``msg`` in its ``ctx``."""
+        return [
+            Problem.model_construct(
+                type=error["type"],
+                loc=error["loc"],
+                msg=error["msg"],
+                ctx={key: value for key, value in error["ctx"].items() if key != "msg"},
+            )
+            for error in self.errors(include_url=False, include_input=False)
+        ]
+
+    def __str__(self) -> str:
+        """The problems, one per line, each with its ``loc``, its code and its message."""
+        problems = self.problems
+        return "\n".join(
+            [
+                f"{len(problems)} problem(s):",
+                *(
+                    f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}"
+                    for problem in problems
+                ),
+            ]
         )
 
 

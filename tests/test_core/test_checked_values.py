@@ -31,6 +31,7 @@ from conductor import (
     NodeRecord,
     Param,
     Policy,
+    Problem,
     Run,
     Series,
     Source,
@@ -1848,6 +1849,41 @@ def test_a_host_check_that_raises_a_type_error_is_a_refusal_never_an_exception(
         _DOORS[door],
         ["value_error"],
     )
+
+
+def _refuses_with_conductors_error(value: int) -> int:
+    """A host's check that calls conductor and lets its ``InvalidCallError`` out, with a value in its message and
+    ``ctx``."""
+    raise InvalidCallError(
+        [
+            Problem(
+                type="invalid_input", loc=("inputs", "pin"), msg=f"pin {value}", ctx={"pin": value}
+            )
+        ]
+    )
+
+
+@pytest.mark.parametrize("door", _DOORS)
+def test_a_host_check_that_raises_conductors_own_error_is_refused_as_any_check_is(door: str):
+    """An ``InvalidCallError`` is also a ``ValidationError``, which pydantic folds into its own errors when a check
+    raises it. So the door still refuses the value with its own problem, at its own place. The host's problem keeps
+    only its code, as any error a host's check raises does: its message and ``ctx`` quote the value."""
+    with pytest.raises(InvalidCallError) as refused:
+        _given(4711, Annotated[int, AfterValidator(_refuses_with_conductors_error)], door)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.loc[-1], problem.ctx["errors"]) == (
+        _DOORS[door],
+        "value",
+        [
+            {
+                "type": "invalid_input",
+                "loc": [],
+                "msg": "The value did not pass its type's own check",
+            }
+        ],
+    )
+    assert "4711" not in str(refused.value)
 
 
 def test_a_list_given_to_a_host_check_that_raises_a_type_error_is_a_list_for_one_value():

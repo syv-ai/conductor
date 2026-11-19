@@ -1032,6 +1032,9 @@ async def test_a_request_fastapi_refuses_is_answered_without_quoting_what_it_sen
 
 
 async def test_text_that_isnt_json_is_refused_as_conductor_refuses_a_record() -> None:
+    """Conductor's refusal is also pydantic's ``ValidationError``, so a body's reader that turns pydantic's errors
+    into FastAPI's would answer it at ``("body", "record")``, with each message in its ``ctx``. It is answered as
+    conductor's problem instead, at ``("record",)``."""
     registry, _, _ = _uploads()
     as_json = {"content-type": "application/json"}
 
@@ -1041,9 +1044,14 @@ async def test_text_that_isnt_json_is_refused_as_conductor_refuses_a_record() ->
 
             assert refused.status_code == 422, path
             assert [
-                (problem["type"], problem["ctx"]["errors"][0]["type"])
+                (
+                    problem["type"],
+                    problem["loc"],
+                    problem["ctx"]["errors"][0]["type"],
+                    "msg" in problem["ctx"],
+                )
                 for problem in refused.json()["detail"]
-            ] == [("invalid_record", "json_invalid")]
+            ] == [("invalid_record", ["record"], "json_invalid", False)], path
 
 
 async def test_a_run_started_from_a_previous_one_reuses_its_work_and_one_the_filter_hides_is_a_404() -> (
