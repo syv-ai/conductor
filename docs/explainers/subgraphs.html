@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conductor Subgraphs</title>
+<style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* =====================================================================
+   DESIGN TOKENS: the look of the conductor 2.0 review series.
+   Layout: one reading column (about 76ch) that widens to 1360px for the
+   diagrams, the explorer, code and tables; sections are separated by space and a faint
+   staff of rules, never by boxes.
+   ===================================================================== */
+:root {
+  --paper: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #142033;
+  --ink-2: #48566a;
+  --ink-3: #75839a;
+  --rule: #dbe1ea;
+  --accent: #2a4fd6;
+  --accent-soft: #e3e9fc;
+  --old: #a3adbb;
+  --slow: #b1530b;
+  --slow-soft: #fbeadb;
+  --ok: #1d7a4e;
+  --code-bg: #f8f9fb;
+  --code-key: #2a4fd6;
+  --code-str: #1d7a4e;
+  --code-com: #7b8798;
+  --pr106: #2a4fd6; --pr107: #0f8a83; --pr108: #8a4fd0; --pr109: #b1530b;
+
+  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --font-body: "Instrument Sans", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+  --step-4: clamp(2.75rem, 7vw, 4.75rem);
+
+  --col: 76ch;
+  --wide: 1360px;
+  --gap: 1.25rem;
+  --section: clamp(4.5rem, 10vw, 8rem);
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20, 32, 51, .05), 0 6px 24px rgba(20, 32, 51, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+    --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+    --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+    --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+    --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+  --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+  --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+  --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+  --pr106: #8aa2ff; --pr107: #4fd1c5; --pr108: #c19bff; --pr109: #f2a463;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+/* ===================== end of design tokens ===================== */
+
+/* public or internal */
+:root { --int: #6b7689; --int-soft: #eef1f5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --int: #9aa5b8; --int-soft: #1d2533; } }
+:root[data-theme="dark"] { --int: #9aa5b8; --int-soft: #1d2533; }
+.lvl { display: inline-block; font-family: var(--font-body); font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 4px; vertical-align: .15em; margin-left: .5rem; }
+.lvl.pub { background: var(--accent-soft); color: var(--ink); }
+.lvl.int { background: var(--int-soft); color: var(--int); }
+code.int { color: var(--int); text-decoration: underline dotted; text-underline-offset: .2em; }
+.legend { display: flex; flex-wrap: wrap; gap: .5rem 2rem; font-size: .9375rem; color: var(--ink-2); }
+.legend .lvl { margin-left: 0; margin-right: .5rem; }
+p > .lvl:first-child { margin-left: 0; margin-right: .35rem; }
+.label .lvl { text-transform: uppercase; }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 4rem; }
+.wrap { max-width: var(--wide); margin-inline: auto; }
+.prose { max-width: var(--col); }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 400; }
+h1 { font-family: var(--font-display); font-size: var(--step-4); line-height: 1.02; letter-spacing: -0.01em; }
+h2 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.1; }
+h3 { font-family: var(--font-body); font-size: var(--step-1); font-weight: 600; line-height: 1.3; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.eyebrow { font-size: var(--step--1); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: var(--step-1); color: var(--ink-2); line-height: 1.55; }
+.muted { color: var(--ink-2); }
+.small { font-size: var(--step--1); color: var(--ink-3); }
+section { padding-top: var(--section); }
+.section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; }
+.stack { display: grid; gap: 1rem; }
+.stack > * { min-width: 0; }
+.staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
+
+/* ---------- hero ---------- */
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero h1 em { font-style: italic; color: var(--accent); }
+.crumbs { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: var(--step--1); }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
+.idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
+.idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
+.idea .term b { font-weight: 400; color: var(--accent); }
+@media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- code ---------- */
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
+pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var(--ok); border-radius: 0; color: var(--ink-2); word-break: break-word; }
+.tk-k { color: var(--code-key); }
+.tk-s { color: var(--code-str); }
+.tk-c { color: var(--code-com); font-style: italic; }
+.tk-d { color: var(--ink-2); }
+.ln { display: block; }
+.pair { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1.5rem 2rem; align-items: start; }
+@media (max-width: 900px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+.pair > * { min-width: 0; }
+.label { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin-bottom: .4rem; }
+.label code { text-transform: none; letter-spacing: 0; }
+.beside { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); gap: 1.5rem 3rem; align-items: start; }
+@media (max-width: 1060px) { .beside { grid-template-columns: minmax(0, 1fr); } }
+.beside > * { min-width: 0; }
+.viewer { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1.5rem 2.5rem; align-items: start; }
+@media (max-width: 1060px) { .viewer { grid-template-columns: minmax(0, 1fr); } }
+.viewer > * { min-width: 0; }
+
+/* ---------- the opening diagram ---------- */
+.seg { justify-self: start; display: inline-flex; flex-wrap: wrap; gap: .25rem; background: var(--surface); border-radius: 999px; padding: .25rem; box-shadow: var(--shadow); }
+.seg button { font: 600 .875rem/1 var(--font-body); color: var(--ink-2); background: none; border: 0; border-radius: 999px; padding: .6rem 1rem; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.diagram { min-width: 0; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; overflow-x: auto; }
+.diagram svg { width: 100%; min-width: 560px; height: auto; display: block; }
+.d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
+.d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
+.d-title { font: 600 11px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+.d-edge-label { font: 500 11px var(--font-mono); fill: var(--ink-2); }
+.d-node rect { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; }
+.d-node.fn rect { fill: var(--accent-soft); stroke: var(--accent); }
+.d-pill rect { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.2; }
+.d-pill text { font: 500 11px var(--font-mono); fill: var(--ink-2); }
+.d-edge { stroke: var(--ink-3); stroke-width: 1.5; fill: none; }
+.d-arrow { fill: var(--ink-3); }
+.d-frame { fill: none; stroke: var(--ink-3); stroke-width: 1.5; }
+.d-frame.int { stroke: var(--int); stroke-dasharray: 6 5; }
+.d-band { fill: var(--accent-soft); opacity: .55; }
+.d-ghost { opacity: 0; }
+.st, .st * { transition: opacity .45s ease; }
+#open-dia .st { opacity: 0; pointer-events: none; }
+#open-dia[data-s="a"] .s-a, #open-dia[data-s="b"] .s-b, #open-dia[data-s="c"] .s-c { opacity: 1; }
+.state-text { display: grid; gap: .75rem; }
+.state-text h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
+.fade { animation: fade .45s ease both; }
+@keyframes fade { from { opacity: .15; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- steps ---------- */
+.steps { display: grid; gap: 0; counter-reset: st; }
+.steps li { list-style: none; display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .25rem 1rem; padding: 1.1rem 0; border-top: 1px solid var(--rule); }
+.steps li::before { counter-increment: st; content: counter(st); font-family: var(--font-display); font-size: var(--step-2); line-height: 1; color: var(--accent); }
+.steps li > div { display: grid; gap: .35rem; min-width: 0; }
+.steps li p { color: var(--ink-2); }
+.steps { padding: 0; margin: 0; }
+
+/* ---------- address forms ---------- */
+.forms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.5rem; }
+@media (max-width: 900px) { .forms { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .forms { grid-template-columns: minmax(0, 1fr); } }
+.form { display: grid; gap: .4rem; align-content: start; padding-top: .9rem; border-top: 3px solid var(--accent); min-width: 0; }
+.form b { font-weight: 600; }
+.form .ex { font-family: var(--font-mono); font-size: .8125rem; background: var(--accent-soft); color: var(--ink); border-radius: 5px; padding: .2rem .45rem; justify-self: start; word-break: break-all; }
+.form p { font-size: .9375rem; color: var(--ink-2); }
+
+/* ---------- call explorer ---------- */
+.explorer { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+@media (max-width: 960px) { .explorer { grid-template-columns: minmax(0, 1fr); } }
+.grid-wrap { min-width: 0; overflow-x: auto; }
+.calls { display: grid; grid-template-columns: 8.5rem repeat(3, minmax(6.5rem, 1fr)); gap: .5rem; min-width: 30rem; }
+.calls .h { font-size: .75rem; color: var(--ink-3); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; align-self: end; }
+.calls .h code { text-transform: none; letter-spacing: 0; color: var(--ink-2); }
+.calls .rowname { font-family: var(--font-mono); font-size: .8125rem; align-self: center; color: var(--ink-2); }
+.cell { font: 500 .8125rem/1.3 var(--font-mono); text-align: left; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: .6rem .7rem; cursor: pointer; display: grid; gap: .2rem; min-width: 0; }
+.cell small { font-family: var(--font-body); font-size: .75rem; color: var(--ink-3); }
+.cell:hover { border-color: var(--ink-3); }
+.cell[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.cell.wait { border-style: dashed; border-color: var(--slow); }
+.cell.wait small { color: var(--slow); }
+.cell.off small { color: var(--ink-3); font-style: italic; }
+.span3 { grid-column: span 3; }
+.panel { position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--bar-h, 0px) + 1rem); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.4rem; display: grid; gap: .9rem; min-width: 0; }
+@media (max-width: 960px) { .panel { position: static; } }
+.panel .name { font-family: var(--font-mono); font-size: 1.0625rem; font-weight: 500; word-break: break-word; }
+.panel dl { margin: 0; display: grid; gap: .65rem; }
+.panel dt { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.panel dd { margin: .1rem 0 0; font-size: .875rem; color: var(--ink-2); }
+.panel dd code { font-size: .8125rem; color: var(--ink); word-break: break-word; }
+.panel .note { font-size: .875rem; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: .75rem; }
+
+/* ---------- choices ---------- */
+.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+@media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
+.choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
+.choice h3 { font-size: 1.125rem; }
+.choice p { color: var(--ink-2); }
+.cost { font-size: .875rem; color: var(--ink); background: var(--slow-soft); padding: .55rem .75rem; border-radius: 6px; }
+.cost b { font-weight: 600; }
+
+/* ---------- next ---------- */
+.series { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .5rem 1.5rem; margin-top: 1rem; padding: 0; margin-bottom: 0; }
+.series li { list-style: none; padding: .6rem 0; border-bottom: 1px dashed var(--rule); display: flex; justify-content: space-between; gap: 1rem; font-size: .9375rem; }
+.series li span { color: var(--ink-3); font-size: .8125rem; white-space: nowrap; }
+.series li.here { color: var(--accent); font-weight: 600; }
+.series li a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .2em; }
+.series li a:hover { color: var(--accent); text-decoration-color: currentColor; }
+footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; max-width: 90ch; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!-- the series bar: the reading order and back/next, the same on every page of the series -->
+<style id="series-bar-css">
+:root { --bar-h: 44px; }
+html { scroll-padding-top: calc(var(--bar-h) + 12px); }
+body { margin: 0; }
+.sbar { position: sticky; top: 0; z-index: 60; height: var(--bar-h); display: flex; align-items: center; gap: .75rem; padding: 0 max(16px, calc((100vw - var(--wide, 1360px)) / 2)); background: color-mix(in srgb, var(--paper) 88%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(10px); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--rule); font-family: var(--font-body); font-size: .8125rem; color: var(--ink-2); }
+.sbar a { color: inherit; text-decoration: none; }
+.sbar a:hover { color: var(--accent); }
+.sbar-home { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sbar-order { position: relative; flex: 1; min-width: 0; display: flex; justify-content: center; }
+.sbar-btn { font: inherit; color: var(--ink); background: none; border: 0; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; display: inline-flex; gap: .5rem; align-items: baseline; max-width: 100%; }
+.sbar-btn:hover, .sbar-btn[aria-expanded="true"] { background: var(--accent-soft); }
+.sbar-num { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.sbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbar-caret { color: var(--ink-3); font-size: .7rem; }
+.sbar-list { position: absolute; top: calc(var(--bar-h) - 6px); left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 32px)); margin: 0; padding: .4rem; list-style: none; background: var(--surface); border-radius: 10px; box-shadow: 0 8px 32px rgba(20, 32, 51, .18); counter-reset: sb; }
+.sbar-list[hidden] { display: none; }
+.sbar-list li { counter-increment: sb; }
+.sbar-list a { display: flex; gap: .75rem; padding: .45rem .6rem; border-radius: 6px; color: var(--ink); }
+.sbar-list a::before { content: counter(sb); font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); min-width: 1.25rem; text-align: right; }
+.sbar-list a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-list a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.sbar-list small { margin-left: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: .7rem; }
+.sbar-step { display: flex; gap: .25rem; white-space: nowrap; }
+.sbar-step a, .sbar-step span { padding: .35rem .6rem; border-radius: 6px; }
+.sbar-step a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-step span { color: var(--ink-3); opacity: .5; }
+@media (max-width: 640px) { .sbar-home { display: none; } .sbar-order { position: static; } .sbar-title { max-width: 9rem; } .sbar-step .sbar-word { display: none; } }
+@media print { .sbar { display: none; } }
+</style>
+<style id="series-layout">
+/* Columns side by side end level: a row is as tall as its tallest column, and the box at the foot of each
+   shorter column grows to the row's bottom. Rows are the pages' classes for columns side by side; a box is a
+   code block (pre), an output (.out), a figure or a cost (.cost). A diagram or a pre that is a column on its
+   own just stretches with the row. Inside a row, a column's own prose goes above its box; text about the
+   whole row goes below the row. At 900px and below the columns stack, and no height is forced. */
+@media (min-width: 901px) {
+  :is(.idea, .two, .pair, .split, .beside, .stage, .ex-body, .choices, figure.side, .viewer, .sig, .fail-grid, .ctrl-row, .facts, .shape) {
+    /* Every column stretches to the row's height. A text column with no box just stretches. */
+    align-items: stretch;
+    /* A stretched column keeps its parts packed at the top, as they were; the spare height goes below them. */
+    & > * { align-content: start; }
+    /* A column that ends in a box, and a figure that is a column, stack their parts so one can grow. */
+    & > :where(:has(> :is(pre, .out, figure, .cost):last-child), figure),
+    & > * > :where(figure:last-child) { display: flex; flex-direction: column; }
+    /* The box grows only when it ends its column: text or a control under a box would leave a gap above it.
+       A row with a pre as a column on its own (a long JSON beside a short sample) or with a live widget's
+       .controls is left out, so its short box keeps its own height. */
+    &:not(:has(> pre, .controls)) > * > :is(pre, .out, figure, .cost):last-child { flex-grow: 1; }
+    /* A figure hands its spare height to the diagram in it, above its caption. */
+    & > figure > :not(figcaption, p),
+    & > * > figure:last-child > :not(figcaption, p) { flex-grow: 1; }
+    /* Columns of a label, a box and a note (.ex-body, and a row marked .labelled) share the row's three
+       tracks, so the boxes start and end level even when the labels or notes above and under them differ. */
+    &:is(.ex-body, .labelled) > div { display: grid; grid-template-rows: subgrid; grid-row: span 3; }
+  }
+}
+</style>
+</head>
+<body>
+<nav class="sbar" aria-label="Conductor 2.0 series" data-page="6">
+  <a class="sbar-home" href="overview.html">Conductor 2.0</a>
+  <div class="sbar-order">
+    <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
+    <ol class="sbar-list" id="sbar-list" hidden></ol>
+  </div>
+  <div class="sbar-step"></div>
+</nav>
+<script id="series-bar-js">
+(function () {
+  var PAGES = [
+    ["Overview", "overview.html"],
+    ["A node and its types", "nodes-and-types.html"],
+    ["The graph record and compiling", "graph-record-and-compiling.html"],
+    ["Series and tables", "series-and-tables.html"],
+    ["Asking a person", "asking-a-person.html"],
+    ["Subgraphs", "subgraphs.html"],
+    ["Saved runs and reuse", "saved-runs-and-reuse.html"],
+    ["Running and streaming", "running-and-streaming.html"],
+    ["Problems", "problems.html"],
+    ["The standard nodes", "standard-nodes.html"],
+    ["Serving runs", "serving-runs.html"]
+  ];
+  var bar = document.querySelector(".sbar");
+  if (!bar) return;
+  var here = parseInt(bar.getAttribute("data-page"), 10) - 1;
+  var url = function (i) { return PAGES[i][1]; };
+  bar.querySelector(".sbar-num").textContent = (here + 1) + " / " + PAGES.length;
+  bar.querySelector(".sbar-title").textContent = PAGES[here][0];
+  var list = bar.querySelector(".sbar-list");
+  PAGES.forEach(function (p, i) {
+    var li = document.createElement("li"), a = document.createElement("a");
+    a.href = url(i);
+    a.textContent = p[0];
+    if (i === here) a.setAttribute("aria-current", "page");
+    li.appendChild(a); list.appendChild(li);
+  });
+  var step = bar.querySelector(".sbar-step");
+  var link = function (i, label, word, rel) {
+    var html = label.replace("WORD", '<span class="sbar-word">' + word + "</span>");
+    if (i < 0 || i >= PAGES.length) { var s = document.createElement("span"); s.innerHTML = html; s.setAttribute("aria-hidden", "true"); return s; }
+    var a = document.createElement("a"); a.href = url(i); a.rel = rel;
+    a.title = PAGES[i][0]; a.innerHTML = html;
+    return a;
+  };
+  step.appendChild(link(here - 1, "← WORD", "Back", "prev"));
+  step.appendChild(link(here + 1, "WORD →", "Next", "next"));
+  var btn = bar.querySelector(".sbar-btn");
+  var open = function (yes) { list.hidden = !yes; btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+  btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
+  document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<!-- /series-bar -->
+<div class="page">
+<div class="wrap">
+
+<!-- ============================ HERO ============================ -->
+<header class="hero">
+  <p class="eyebrow">Conductor 2.0 &middot; in #106, the core &middot; page 6 of 11</p>
+  <h1>A graph <em>inside</em> a graph</h1>
+  <div class="prose stack">
+    <p class="lede">A subgraph is a <a href="graph-record-and-compiling.html#record">graph record</a> used as one node of another graph. You make it with <code>subgraph(...)</code>, much as you make a node from a function with <a href="nodes-and-types.html#signature"><code>@node</code></a> (see <a href="nodes-and-types.html">a node and its types</a>). The graph that uses it is the outer graph, and the nodes in its record are its inner nodes.</p>
+    <p class="crumbs"><a href="overview.html">Back to the overview</a><a href="https://github.com/syv-ai/conductor/pull/106">PR #106, the core</a></p>
+  </div>
+  <div class="idea" aria-label="The three ideas of this page">
+    <div>
+      <p class="term">Outside, it's <b>one node</b>.</p>
+    </div>
+    <div>
+      <p class="term">Its record is compiled <b>on its own</b>.</p>
+    </div>
+    <div>
+      <p class="term">A run calls <b>the nodes inside</b>, never the subgraph node.</p>
+    </div>
+  </div>
+  <div class="legend" aria-label="Key">
+    <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+    <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+  </div>
+</header>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ ONE NODE, OPENED ============================ -->
+<section id="open" aria-labelledby="open-h">
+  <div class="section-head prose">
+    <p class="eyebrow">The model</p>
+    <h2 id="open-h">Three views of one subgraph</h2>
+    <p class="muted"><code>loud</code> is the subgraph <code>strip &rarr; shout</code>. The outer graph splits a text into lines, runs <code>loud</code>'s nodes once per line, and joins the results. The first view is what you wire. The other two are how conductor <a href="graph-record-and-compiling.html#compiling">compiles</a> and runs it. Every output on this page was printed by the code at <code>7d2df580</code>, on Python 3.12.11.</p>
+  </div>
+
+  <div class="stack" style="gap:1.25rem">
+    <div class="seg" role="group" aria-label="View">
+      <button type="button" data-s="a" aria-pressed="true">The outer graph</button>
+      <button type="button" data-s="b" aria-pressed="false">Compiled</button>
+      <button type="button" data-s="c" aria-pressed="false">The run blueprint</button>
+    </div>
+
+    <div class="viewer">
+    <figure style="margin:0;min-width:0">
+    <div class="diagram">
+      <svg viewBox="0 0 800 290" id="open-dia" data-s="a" role="img" aria-label="The subgraph loud drawn closed as one node, then opened as its own compiled graph, then flattened into the run blueprint with loud/strip and loud/shout called once per line.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 L10 5 L0 10 z"/></marker>
+        </defs>
+
+        <!-- header line per state -->
+        <text class="d-title st s-a" x="16" y="28">graph.describe() shows 3 nodes</text>
+        <text class="d-title st s-b" x="16" y="28">Graph.compile makes two Graphs with two Compilers</text>
+        <text class="d-title st s-c" x="16" y="28">The RunBlueprint has 4 function nodes and 1 subgraph node</text>
+
+        <!-- loop band (blueprint) -->
+        <g class="st s-c">
+          <rect class="d-band" x="238" y="52" width="396" height="206" rx="12"/>
+          <text class="d-sub" x="436" y="250" text-anchor="middle">each is called once per line, in the loop over lines.result</text>
+        </g>
+
+        <!-- graph input text -->
+        <g class="d-pill"><rect x="16" y="135" width="58" height="26" rx="13"/><text x="45" y="152" text-anchor="middle">text</text></g>
+        <path class="d-edge" d="M74 148 H98" marker-end="url(#ar)"/>
+
+        <!-- lines -->
+        <g class="d-node fn"><rect x="100" y="126" width="110" height="44" rx="8"/><text class="d-label" x="155" y="146" text-anchor="middle">lines</text><text class="d-sub" x="155" y="161" text-anchor="middle">Series[str]</text></g>
+        <text class="d-sub st s-c" x="155" y="186" text-anchor="middle">#0</text>
+
+        <!-- join -->
+        <g class="d-node fn"><rect x="672" y="126" width="110" height="44" rx="8"/><text class="d-label" x="727" y="146" text-anchor="middle">join</text><text class="d-sub" x="727" y="161" text-anchor="middle">collects</text></g>
+        <text class="d-sub st s-c" x="727" y="186" text-anchor="middle">#3</text>
+
+        <!-- state a: loud closed -->
+        <g class="st s-a">
+          <path class="d-edge" d="M210 148 H349" marker-end="url(#ar)"/>
+          <text class="d-edge-label" x="280" y="139" text-anchor="middle">loud.line</text>
+          <g class="d-node"><rect x="351" y="126" width="170" height="44" rx="8"/><text class="d-label" x="436" y="146" text-anchor="middle">loud</text><text class="d-sub" x="436" y="161" text-anchor="middle">subgraph node per item</text></g>
+          <path class="d-edge" d="M521 148 H670" marker-end="url(#ar)"/>
+          <text class="d-edge-label" x="596" y="139" text-anchor="middle">loud.result</text>
+        </g>
+
+        <!-- state b: loud opened as its own compiled Graph -->
+        <g class="st s-b">
+          <rect class="d-frame int" x="250" y="64" width="372" height="168" rx="12"/>
+          <text class="d-label" x="266" y="86">loud</text>
+          <text class="d-sub" x="302" y="86">loud's record, compiled into a Graph of its own</text>
+          <path class="d-edge" d="M210 148 H260" marker-end="url(#ar)"/>
+          <g class="d-pill"><rect x="262" y="135" width="50" height="26" rx="13"/><text x="287" y="152" text-anchor="middle">line</text></g>
+          <path class="d-edge" d="M312 148 H328" marker-end="url(#ar)"/>
+          <g class="d-node fn"><rect x="330" y="126" width="100" height="44" rx="8"/><text class="d-label" x="380" y="146" text-anchor="middle">strip</text><text class="d-sub" x="380" y="161" text-anchor="middle">no loop</text></g>
+          <path class="d-edge" d="M430 148 H450" marker-end="url(#ar)"/>
+          <g class="d-node fn"><rect x="452" y="126" width="100" height="44" rx="8"/><text class="d-label" x="502" y="146" text-anchor="middle">shout</text><text class="d-sub" x="502" y="161" text-anchor="middle">no loop</text></g>
+          <path class="d-edge" d="M552 148 H564" marker-end="url(#ar)"/>
+          <g class="d-pill"><rect x="566" y="135" width="50" height="26" rx="13"/><text x="591" y="152" text-anchor="middle">result</text></g>
+          <path class="d-edge" d="M622 148 H670" marker-end="url(#ar)"/>
+          <text class="d-sub" x="436" y="214" text-anchor="middle">a graph input and a graph output become the node's input and output</text>
+        </g>
+
+        <!-- state c: flattened -->
+        <g class="st s-c">
+          <rect class="d-frame int" x="300" y="74" width="276" height="148" rx="12"/>
+          <text class="d-label" x="316" y="96">loud</text>
+          <text class="d-sub" x="352" y="96">never called, no outcomes</text>
+          <path class="d-edge" d="M210 148 H328" marker-end="url(#ar)"/>
+          <text class="d-edge-label" x="268" y="139" text-anchor="middle">per item</text>
+          <g class="d-node fn"><rect x="330" y="126" width="100" height="44" rx="8"/><text class="d-label" x="380" y="146" text-anchor="middle">loud/strip</text><text class="d-sub" x="380" y="161" text-anchor="middle">per line</text></g>
+          <text class="d-sub" x="380" y="186" text-anchor="middle">#1</text>
+          <path class="d-edge" d="M430 148 H450" marker-end="url(#ar)"/>
+          <g class="d-node fn"><rect x="452" y="126" width="100" height="44" rx="8"/><text class="d-label" x="502" y="146" text-anchor="middle">loud/shout</text><text class="d-sub" x="502" y="161" text-anchor="middle">per line</text></g>
+          <text class="d-sub" x="502" y="186" text-anchor="middle">#2</text>
+          <path class="d-edge" d="M552 148 H670" marker-end="url(#ar)"/>
+          <text class="d-edge-label" x="611" y="139" text-anchor="middle">collects</text>
+        </g>
+      </svg>
+    </div>
+      <figcaption class="small" style="margin-top:.6rem">Blue boxes are function nodes. A run calls only these. Pills are a graph's own inputs and outputs. In the <a href="running-and-streaming.html#start">blueprint</a>, <code>#n</code> is the order a run tries the function nodes in.</figcaption>
+      <p class="small">A solid outline is public and a dashed one is internal.</p>
+    </figure>
+      <div class="state-text" id="state-text" aria-live="polite"></div>
+    </div>
+    <div id="state-code"></div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ COMPILING ============================ -->
+<section id="compile" aria-labelledby="compile-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Compiling</p>
+    <h2 id="compile-h">How a subgraph node is compiled</h2>
+    <p class="muted">When a graph is <a href="graph-record-and-compiling.html#compiling">compiled</a>, each subgraph node's record is compiled on its own first. A <a href="problems.html">problem</a> inside comes back with the subgraph node's id in front of its <code>loc</code>. The node is left out, so <code>describe()</code> says it wasn't <code>found</code>. A subgraph that contains itself, at any depth, is <code>subgraph_contains_itself</code>. Otherwise the node's inputs and outputs are the inner graph's. Each output keeps the field of the inner node that returns it, under the graph output's name.</p>
+  </div>
+
+  <div class="pair">
+    <div class="stack">
+    <p class="label">What <code class="int" title="Internal">_compile_subgraph_node</code> does <span class="lvl int">Internal</span></p>
+    <ol class="steps">
+      <li><div><h3>Refuse a subgraph that contains itself</h3><p>Each compiler knows the ids of the subgraphs it's inside (<code class="int" title="Internal">inside_subgraphs</code>). If the subgraph's id is among them, the node gets <code>subgraph_contains_itself</code>.</p></div></li>
+      <li><div><h3>Compile its record with a Compiler of its own</h3><p>A new <code class="int" title="Internal">Compiler</code> gets the same registry and the longer stack of subgraph ids. All the compilers of one <code>Graph.compile</code> call share one dict of compiled subgraphs (<code class="int" title="Internal">compiled_subgraphs</code>), keyed by id, version and that stack. So a subgraph used twice, inside the same subgraphs, is compiled once in that call.</p></div></li>
+    </ol>
+    </div>
+    <div class="stack">
+      <p class="label">Run at the commit</p>
+<pre data-lang="py"># a subgraph whose record names a node that isn't there
+g = Graph.compile(make_graph(broken), registry)
+for p in g.problems:
+    print(p.type, p.loc)
+print("found:", g.describe().nodes["broken"].found)
+
+# self-a uses self-b, which uses self-a
+for p in Graph.compile(make_graph(loop_a), registry).problems:
+    print(p.type, p.loc)</pre>
+<pre class="out">unknown_node ('broken', 'x')
+found: False
+subgraph_contains_itself ('self-a', 'x', 'y')</pre>
+      <p class="small">The problem of the circle is on <code>y</code>, the node inside <code>self-b</code> that leads back to <code>self-a</code>.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ ADDRESSES ============================ -->
+<section id="places" aria-labelledby="places-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Places and ids</p>
+    <h2 id="places-h">How a place inside a subgraph is written <span class="lvl pub">Public</span></h2>
+    <p class="muted"><a href="problems.html">Problems</a>, <a href="running-and-streaming.html#stream">events</a>, <a href="asking-a-person.html#host">waiting calls</a> and <a href="saved-runs-and-reuse.html#saved">saved runs</a> all say where something happened. There are four ways to write it. Each is a tuple for code and a text for people. The texts use <code>.</code>, <code>/</code>, <code>@</code> and <code>~</code> as separators, so no node id and no input or output name may contain any of them.</p>
+  </div>
+
+  <div class="forms">
+    <div class="form"><b>Node path</b><span class="ex">loud/shout</span><p>A node's id, after the id of each subgraph node it's inside. A run stores a node's outcomes under it.</p></div>
+    <div class="form"><b>Item indexes</b><span class="ex">(1,)</span><p>Which call of a node. There is one index per <a href="series-and-tables.html#loop">loop</a> the node is inside, outermost first.</p></div>
+    <div class="form"><b>Loc</b><span class="ex">loud@1/shout</span><p>It names one call. Each index goes right after the node that's inside its loop, in the graph where the loop is. As a tuple: <code>("loud", 1, "shout")</code>.</p></div>
+    <div class="form"><b>Source</b><span class="ex">loud.result</span><p>Where an edge reads from. It is an output of a node in the same graph, maybe one field of it. It is never a node inside a subgraph.</p></div>
+  </div>
+
+  <div class="section-head prose" style="margin-top:3.5rem;margin-bottom:1.5rem">
+    <h3>Every call of one run</h3>
+    <p class="muted">The outer graph is <code>lines &rarr; review</code>, where <code>review</code> is the subgraph <code>strip &rarr; check</code>. <code>strip</code> gives <code>None</code> for a blank line, and <code>check</code> <a href="asking-a-person.html">asks a person</a>. The run got the text <code>"a\n \nc"</code>. Pick a call to see how each part of conductor names it.</p>
+    <p class="small">Every <a href="asking-a-person.html#ids">waiting id</a>, loc, <a href="running-and-streaming.html#outcomes">outcome</a> and prompt is printed by the run at <code>7d2df580</code>, on Python 3.12.11. The hex after <code>~</code> is the same on any Python version, since the node's code goes into it as its parsed source. The node paths and saved positions are worked out from them.</p>
+  </div>
+
+  <div class="explorer">
+    <div class="grid-wrap">
+      <div class="calls" id="calls" role="group" aria-label="The calls of the run"></div>
+    </div>
+    <aside class="panel" id="call-panel" aria-live="polite"></aside>
+  </div>
+
+  <div class="pair" style="margin-top:2.5rem">
+    <div class="stack">
+      <p class="label">The sample</p>
+<pre data-lang="py">review = subgraph("review", title="Review",
+    description="Trims a line and asks a person about it.")(
+    make_graph(strip, check, edges=[("strip.result", "check.line")])
+)
+registry.add(review)
+graph = Graph.compile(make_graph(lines, review,
+    edges=[("lines.result", "review.line")]), registry)
+
+run = graph.run({"text": "a\n \nc"})
+for w in run.waiting:
+    print(w.id, w.loc, w.prompt)
+for n in run.none_input_calls:
+    print("none input:", n.loc, n.input)
+run2 = (run.answer("review@0/check", True)
+           .answer(run.waiting[1].id, False).resume())
+print(run2.status, run2.outputs)</pre>
+    </div>
+    <div class="stack">
+      <p class="label">What it prints</p>
+      <p class="muted">An answer may name the call without the part after <code>~</code>, as the first answer in the sample does with <code>"review@0/check"</code>. With it, the id also carries a fingerprint of the node, the call's inputs and its items, and an answer to an id whose fingerprint no longer matches is refused (<a href="asking-a-person.html#ids"><code>answer_stale</code></a>).</p>
+<pre class="out">review@0/check~44afa68e ('review', 0, 'check') Keep 'a'?
+review@2/check~4cf17bc4 ('review', 2, 'check') Keep 'c'?
+none input: ('review', 1, 'check') line
+complete {'result': [True, None, False]}</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ LOOPS ============================ -->
+<section id="loops" aria-labelledby="loops-h">
+  <div class="beside">
+  <div class="section-head prose">
+    <p class="eyebrow">Loops</p>
+    <h2 id="loops-h">A subgraph that loops inside</h2>
+    <p class="muted">A node outside reads a subgraph's output as it would read the same node drawn in its own graph. Take <code>per-line</code>, the subgraph <code>documents &rarr; lines &rarr; upper</code>. <code>lines</code> runs once per document and <code>upper</code> once per line (how loops work is on <a href="series-and-tables.html">Series and tables</a>), so the output <code>result</code> is a list of lines for each document.</p>
+  </div>
+
+  <figure style="margin:0 0 2rem;min-width:0">
+  <div class="diagram">
+    <svg viewBox="0 0 800 250" role="img" aria-label="Inside per-line, upper sits in two nested loops, over documents.result and lines.result. join outside takes a Series, so it collects the inner loop and runs once per document: per_item_of per-line/documents.result.">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 L10 5 L0 10 z"/></marker>
+      </defs>
+      <rect class="d-frame" x="16" y="20" width="560" height="210" rx="12"/>
+      <text class="d-label" x="32" y="42">per-line</text>
+      <text class="d-sub" x="96" y="42">subgraph node in no loop</text>
+      <rect class="d-band" x="196" y="58" width="370" height="162" rx="10"/>
+      <text class="d-sub" x="210" y="76">loop per-line/documents.result</text>
+      <rect class="d-band" x="370" y="88" width="186" height="120" rx="10"/>
+      <text class="d-sub" x="382" y="106">loop per-line/lines.result</text>
+      <g class="d-node fn"><rect x="40" y="128" width="120" height="44" rx="8"/><text class="d-label" x="100" y="148" text-anchor="middle">documents</text><text class="d-sub" x="100" y="163" text-anchor="middle">once</text></g>
+      <path class="d-edge" d="M160 150 H228" marker-end="url(#ar2)"/>
+      <g class="d-node fn"><rect x="230" y="128" width="110" height="44" rx="8"/><text class="d-label" x="285" y="148" text-anchor="middle">lines</text><text class="d-sub" x="285" y="163" text-anchor="middle">per document</text></g>
+      <path class="d-edge" d="M340 150 H408" marker-end="url(#ar2)"/>
+      <g class="d-node fn"><rect x="410" y="128" width="110" height="44" rx="8"/><text class="d-label" x="465" y="148" text-anchor="middle">upper</text><text class="d-sub" x="465" y="163" text-anchor="middle">per line</text></g>
+      <path class="d-edge" d="M520 150 H640" marker-end="url(#ar2)"/>
+      <text class="d-edge-label" x="600" y="141" text-anchor="middle">per-line.result</text>
+      <g class="d-node fn"><rect x="642" y="128" width="140" height="44" rx="8"/><text class="d-label" x="712" y="148" text-anchor="middle">join</text><text class="d-sub" x="712" y="163" text-anchor="middle">texts: Series[str]</text></g>
+      <text class="d-sub" x="712" y="192" text-anchor="middle">per document</text>
+    </svg>
+  </div>
+    <figcaption class="small" style="margin-top:.6rem">Each loop is named by the list it goes over, written as a path from the outer graph. <code>join</code> takes a <a href="series-and-tables.html#loop"><code>Series[str]</code></a>, so it collects the innermost loop and is left inside the outer one. An output's described <code>loops</code> name them from inside the subgraph.</figcaption>
+  </figure>
+  </div>
+
+  <div class="pair">
+    <div class="stack">
+<pre data-lang="py">g = Graph.compile(make_graph(per_line, join,
+    edges=[("per-line.result", "join.texts")]), registry)
+run = g.run({"text": "a,b;c"})
+print(run.results["per-line"]["result"], run.results["join"]["result"])
+print(g.describe().nodes["join"].per_item_of)
+out = g.describe().nodes["per-line"].outputs[0]
+print(out.type, out.is_series, out.loops)</pre>
+<pre class="out">[['A', 'B'], ['C']] ['A B', 'C']
+per-line/documents.result
+str True ['documents.result', 'lines.result']</pre>
+    </div>
+    <div class="stack">
+      <p>An output's description keeps the type of one value, <code>str</code>, and lists its <code>loops</code> outermost first. Each entry is one level of list.</p>
+      <p class="muted"><span class="lvl int">Internal</span> <a href="graph-record-and-compiling.html#compiling">Compiling</a> asks the compiled subgraph node's inner graph for each output's loops, the node that returns it and the <a href="nodes-and-types.html#outputs">branches</a> it needs.</p>
+      <p class="muted">Two outputs from loops that don't nest can't be paired. When one of them is made inside a subgraph, no edge in the outer graph can fix that, and the <a href="problems.html">problem</a> says so.</p>
+      <p class="small">The sample prints the problem's <a href="problems.html#kinds"><code>type</code></a> and loc, then <code>series</code> and <code>subgraphs</code> from its <code>ctx</code>, then its message. Line breaks are added here.</p>
+<pre class="out">series_not_nested_inside_subgraph ('pair',)
+  ['per-line/lines.result', 'lines.result'] ['per-line']
+'pair' reads items from per-line/lines.result, lines.result,
+but nothing says which items go together. One of them is made
+inside a subgraph (per-line), so no edge here can fix that.
+Give one of them whole to a Series input, or change the
+subgraph so it returns both from the same loop.</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ PALETTE ============================ -->
+<section id="palette" aria-labelledby="palette-h">
+  <div class="section-head prose">
+    <p class="eyebrow">In the palette</p>
+    <h2 id="palette-h">A registry describes a subgraph by compiling it</h2>
+    <p class="muted">A subgraph's inputs and outputs depend on the nodes its record uses, and those are in the registry. So <code>SubgraphDefinition</code> has no <code>describe()</code> of its own. <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> <a href="graph-record-and-compiling.html#compiling">compiles</a> a one-node graph that uses the subgraph and reads that node's inputs and outputs. It keeps the result until the registry's nodes change. A subgraph whose own graph has <a href="problems.html">problems</a> on the registry's nodes, such as a node the registry doesn't have yet, is left out of <code>registry.describe()</code>, with one warning on the <code>conductor</code> logger.</p>
+  </div>
+  <div class="pair">
+    <div class="stack">
+<pre data-lang="py">registry.add(
+    subgraph("shout-names", ...)(make_graph(each, upper,
+        edges=[("each.result.name", "upper.text")])),
+    subgraph("shout-contacts", ...)(make_graph(known, each, upper,
+        edges=[("known.result", "each.value"),
+               ("each.result.name", "upper.text")])),
+)
+palette = {d.id: d for d in registry.describe().nodes}
+print(palette["shout-names"].inputs[0].type)
+print(palette["shout-contacts"].inputs[0].type)
+registry["shout-names"].describe()</pre>
+<pre class="out">Table | list
+Table[name: str]
+AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
+    </div>
+    <div class="stack">
+      <p>The example is from <code>docs/subgraphs.md</code>, which is in <a href="https://github.com/syv-ai/conductor/pull/109">#109, the docs</a>. <code>each</code> is <a href="standard-nodes.html#control">generic</a>: <code>def each[T](value: Table[T] | list[T]) -> Series[T]</code>.</p>
+      <p class="muted">A subgraph is compiled with nothing wired into it. A type variable at one of its <a href="graph-record-and-compiling.html#record">graph inputs</a> has no edge to bind it, so <code>shout-names</code> offers <code>Table | list</code>, and its edge <code>each.result.name</code> can't be checked until a run. <code>shout-contacts</code> starts with <code>known</code>, whose input says exactly what it takes, so the subgraph offers <code>Table[name: str]</code> and its edges are checked when it's compiled.</p>
+      <p class="muted">The palette entry also says <a href="asking-a-person.html#walk"><code>asks</code></a> when any node inside asks, at any depth. For <code>review</code> above, <code>registry.describe()</code> gives the input <code>line</code>, the output <code>result</code> and <code>asks</code> true. <code>takes_added_inputs</code> and <code>computes_outputs</code> are false for every subgraph.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ CHOICES ============================ -->
+<section id="choices" aria-labelledby="choices-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="choices-h">Seven design choices</h2>
+  </div>
+  <div class="choices">
+    <article class="choice">
+      <h3>A subgraph is made like any node definition.<span class="lvl pub">Public</span></h3>
+      <p><code>subgraph()</code> takes <a href="nodes-and-types.html#signature"><code>@node</code></a>'s arguments, less <code>policy</code>, the <a href="nodes-and-types.html#hooks">hooks</a> and <code>asks</code>. So a registry, a <a href="graph-record-and-compiling.html#record">graph record</a> and <a href="graph-record-and-compiling.html#upgrade"><code>registry.upgrade</code></a> treat it as any node. It has an id, <a href="nodes-and-types.html#versions">versions</a> and a <a href="nodes-and-types.html#registry">palette entry</a>.</p>
+      <p class="cost"><b>Cost:</b> it has no <a href="nodes-and-types.html#policy"><code>Policy</code></a>, so a whole subgraph can't be <a href="running-and-streaming.html#policy">retried</a> or limited as one unit. Each inner node uses its own.</p>
+    </article>
+    <article class="choice">
+      <h3>Its interface is its record's graph inputs and outputs.<span class="lvl pub">Public</span></h3>
+      <p>An edge reads <code>loud.result</code>, an output of a node in its own graph. No name may contain <code>/</code>, so no edge can reach a node inside. What the subgraph offers is what its record declares, and nothing else.</p>
+    </article>
+    <article class="choice">
+      <h3>The same <code class="int" title="Internal">Compiler</code> compiles it on its own.<span class="lvl int">Internal</span></h3>
+      <p>One set of rules covers every graph. So a subgraph's faults are the same <a href="problems.html">problems</a> as anywhere, with the subgraph node's id in front of their <code>loc</code>. You see the choice in a problem's <code>loc</code>, and in the loose input type the palette offers, which is its cost.</p>
+      <p class="cost"><b>Cost:</b> nothing wired in is known when it's <a href="graph-record-and-compiling.html#compiling">compiled</a>. A <a href="standard-nodes.html#control">generic</a> first node gives the subgraph a loose input type, like <code>Table | list</code>.</p>
+    </article>
+    <article class="choice">
+      <h3>A run calls only function nodes, from a flat blueprint.<span class="lvl int">Internal</span></h3>
+      <p>When a graph's first run is made or read, <a href="running-and-streaming.html#start"><code class="int" title="Internal">RunBlueprint.of</code></a> lists every function node of the graph and its subgraphs by full path. So a node inside gets one call per item of every <a href="series-and-tables.html#loop">loop</a> it's inside, its own <code>Policy</code>, and its own <a href="saved-runs-and-reuse.html#again">reuse</a>. A <code>Series</code> input inside still collects only the loops inside the subgraph.</p>
+      <p class="cost"><b>Cost:</b> the subgraph node has no <a href="running-and-streaming.html#outcomes">outcomes</a> of its own. Its results, progress and <a href="running-and-streaming.html#stream">events</a> are worked out from the nodes inside it.</p>
+    </article>
+    <article class="choice">
+      <h3>A loop inside is named by the list inside.<span class="lvl pub">Public</span></h3>
+      <p>The loop over <code>documents.result</code> inside <code>per-line</code> is <code>per-line/documents.result</code>. Two outputs returned in that loop name the same loop, so they line up item by item outside.</p>
+      <p class="cost"><b>Cost:</b> outputs from two loops inside that don't nest can't be paired by any edge outside. The problem says to change the subgraph or collect one of them.</p>
+    </article>
+    <article class="choice">
+      <h3>A call has one address wherever it is named.<span class="lvl pub">Public</span></h3>
+      <p>A <code>loc</code> puts each <a href="series-and-tables.html#indexes">item index</a> right after the node inside its loop: <code>("review", 0, "check")</code>. Problems, <a href="asking-a-person.html#host">waiting calls</a> and <a href="running-and-streaming.html#outcomes"><code>run.none_input_calls</code></a> use it, and a <a href="asking-a-person.html#ids">waiting id</a> writes the same thing as text, <code>review@0/check</code>.</p>
+    </article>
+    <article class="choice">
+      <h3>The palette entry comes from the registry, not the definition.<span class="lvl pub">Public</span></h3>
+      <p>Its fields depend on the nodes the record uses, so the registry compiles it to find them. A definition with its own <code>describe()</code> couldn't know them without a registry.</p>
+      <p class="cost"><b>Cost:</b> <code>registry.describe()</code> compiles each subgraph's entry once, with every subgraph inside it, and again on the first <code>registry.describe()</code> after the registry's nodes change. Each <code>Graph.compile</code> compiles its subgraphs afresh.</p>
+    </article>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ NEXT ============================ -->
+<section id="next" aria-labelledby="next-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Where to go next</p>
+    <h2 id="next-h">The code and the rest of the series</h2>
+    <p class="muted">All of this is in <a href="https://github.com/syv-ai/conductor/pull/106">#106, the core</a>. In it, read <code class="int" title="Internal">node/declare.py</code> and <code class="int" title="Internal">node/type.py</code> for the definition, <code class="int" title="Internal">graph/compile.py</code> and <code class="int" title="Internal">graph/node.py</code> for compiling, <code class="int" title="Internal">run/blueprint.py</code> for the run, and <code class="int" title="Internal">base/place.py</code> for the addresses. The user guide, <code>docs/subgraphs.md</code>, is in <a href="https://github.com/syv-ai/conductor/pull/109">#109, the docs</a>, and the rules are in <code>python -m conductor.about the-graph-record</code>.</p>
+  </div>
+  <ul class="series">
+    <li><a href="overview.html">The overview</a> <span>page 1</span></li>
+    <li><a href="nodes-and-types.html">A node and its types</a> <span>page 2</span></li>
+    <li><a href="graph-record-and-compiling.html">The graph record and compiling</a> <span>page 3</span></li>
+    <li><a href="series-and-tables.html">Series and tables</a> <span>page 4</span></li>
+    <li><a href="asking-a-person.html">Asking a person</a> <span>page 5</span></li>
+    <li class="here">Subgraphs <span>this page</span></li>
+    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>page 7</span></li>
+    <li><a href="running-and-streaming.html">Running and streaming</a> <span>page 8</span></li>
+    <li><a href="problems.html">Problems</a> <span>page 9</span></li>
+    <li><a href="standard-nodes.html">The nodes</a> <span>page 10</span></li>
+    <li><a href="serving-runs.html">Serving runs</a> <span>page 11</span></li>
+  </ul>
+</section>
+
+<footer>
+  <p>Read from the code at <code>b4fcca1a</code>, checked again at <code>7d581d9e</code>, again at <code>7b2d71e6</code>, and again at <code>7d2df580</code>. Besides the files named above, the page read the subgraph parts of <code class="int" title="Internal">graph/type.py</code>, <code class="int" title="Internal">registry/type.py</code>, <code class="int" title="Internal">run/waiting.py</code> and <code class="int" title="Internal">registry/describe.py</code>, the subgraph rules in <code>llms.txt</code>, and the tests <code>test_subgraphs.py</code> and <code>test_subgraph_outputs_inside_loops.py</code>. Between the first two commits, these files changed only in docstrings and docs text, except a test of the item limit in <code>test_subgraphs.py</code>, which this page doesn't cover. By <code>7b2d71e6</code>, a node's code fingerprint is a hash of its parsed source instead of its bytecode (<code class="int" title="Internal">node/type.py</code>, <code class="int" title="Internal">graph/node.py</code>), which changed the part of each waiting id after <code>~</code>. By <code>7d2df580</code>, that part also covers the call's items and which outputs are branches, so it changed again. A graph's inputs are given as one mapping (<code>graph.run({"text": ...})</code>), <code>graph.outputs</code> is a mapping of descriptions, a call not made for a <code>None</code> is a none input (<code>run.none_input_calls</code>), a problem's code names its cause with no <code>ctx.variant</code>, and <code>registry.describe()</code> leaves out a subgraph whose graph has problems. The other changes in these files are outside this page.</p>
+  <p>Every output on this page was printed by five sample scripts on Python 3.12.11, at each of these commits, and is shown as printed at <code>7d2df580</code>. At <code>7d2df580</code> the samples changed to the current API, and the output changed only in the waiting ids' fingerprints, the none input's line, the <code>series_not_nested_inside_subgraph</code> code and the outputs of <code>inner</code>, now a list of names. The samples import only public names. The code shown on this page reads three attributes the reference doesn't document: <code class="int" title="Internal">input_names</code>, <code class="int" title="Internal">output_names</code> and <code class="int" title="Internal">graph</code> on a <code>SubgraphDefinition</code>. The scripts also print some internal values to check the prose.</p>
+</footer>
+
+</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- a small highlighter for Python ---------- */
+  const PY_KW = /\b(def|return|if|raise|from|import|class|for|in|is|not|async|await|True|False|None|lambda|try|except)\b/g;
+  function highlight(src) {
+    const out = [];
+    const re = /(#[^\n]*)|("""[\s\S]*?"""|f?"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(@[\w.]+)/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      out.push(esc(src.slice(last, m.index)).replace(PY_KW, '<span class="tk-k">$1</span>'));
+      if (m[1]) out.push('<span class="tk-c">' + esc(m[1]) + "</span>");
+      else if (m[2]) out.push('<span class="tk-s">' + esc(m[2]) + "</span>");
+      else out.push('<span class="tk-k">' + esc(m[3]) + "</span>");
+      last = re.lastIndex;
+    }
+    out.push(esc(src.slice(last)).replace(PY_KW, '<span class="tk-k">$1</span>'));
+    return out.join("");
+  }
+  /* each code line hangs: a wrapped line goes on 2ch past its own indent */
+  function hang(pre, html) {
+    const lines = html.split("\n");
+    const balanced = lines.every((l) => (l.match(/<span/g) || []).length === (l.match(/<\/span>/g) || []).length);
+    if (!balanced) { pre.innerHTML = html; return; }
+    pre.innerHTML = lines.map((l) => {
+      const n = l.match(/^ */)[0].length;
+      return '<span class="ln" style="padding-left:' + (n + 2) + 'ch;text-indent:-' + (n + 2) + 'ch">' + (l || " ") + "</span>";
+    }).join("");
+  }
+  const paint = (pre) => { hang(pre, highlight(pre.textContent)); };
+  document.querySelectorAll("pre[data-lang]").forEach(paint);
+  document.querySelectorAll("pre.out").forEach((p) => hang(p, esc(p.textContent)));
+
+  /* ======================= THE THREE VIEWS ======================= */
+  const C = (t) => "<code>" + t + "</code>";
+  const CI = (t) => '<code class="int" title="Internal">' + t + "</code>";
+  const INT = '<span class="lvl int">Internal</span>';
+  /* a note's text, escaped, with only [text](page.html#anchor) turned into a link */
+  const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
+  const VIEWS = {
+    a: {
+      title: "In the outer graph, loud is one node",
+      text: [
+        C("subgraph(...)(record)") + " returns a " + C("SubgraphDefinition") + ". Its inputs and outputs are the " + '<a href="graph-record-and-compiling.html#record">graph inputs and outputs</a>' + " its record declares.",
+        "In the outer graph, " + C("loud") + " is wired like any node. " + C("lines") + " returns a " + '<a href="series-and-tables.html#loop"><code>Series[str]</code></a>' + " and " + C("loud") + " takes one line, so " + C("loud") + "'s nodes are called once per line, and " + C("join") + " collects what they return.",
+      ],
+      label: "Run at the commit &middot; the " + CI("input_names") + " and " + CI("output_names") + " line " + INT,
+      code: `loud = subgraph("loud", title="Loud",
+    description="Trims a line and writes it in capitals.")(
+    make_graph(strip, shout, edges=[("strip.result", "shout.line")])
+)
+registry.add(loud)
+print(type(loud).__name__, loud.input_names, loud.output_names)
+
+graph = Graph.compile(make_graph(lines, loud, join, edges=[
+    ("lines.result", "loud.line"), ("loud.result", "join.texts")]), registry)
+print(graph)
+print(graph.describe().nodes["loud"].per_item_of)
+print(graph.run({"text": " a \\nb "}).outputs)`,
+      out: `SubgraphDefinition ('line',) ('result',)
+<Graph of 3 nodes, runnable>
+lines.result
+{'result': 'A / B'}`,
+    },
+    b: {
+      title: "loud's record is compiled as a Graph of its own" + INT,
+      text: [
+        "When the outer graph is compiled, " + C("loud") + "'s record is compiled by a " + CI("Compiler") + " of its own, into a " + C("Graph") + " of its own. The sample compiles the same record alone to show it.",
+        "Inside its own graph, " + C("strip") + " and " + C("shout") + " are in no loop. The loop is outside, where " + C("loud") + " is.",
+        "None of " + C("loud") + "'s nodes is copied into the outer graph. It still has three nodes.",
+      ],
+      label: "Run at the commit &middot; " + CI("loud.graph") + " " + INT,
+      code: `inner = Graph.compile(loud.graph, registry)
+print(inner, list(inner.inputs), list(inner.outputs))
+print({n: d.per_item_of for n, d in inner.describe().nodes.items()})
+
+d = graph.describe().nodes["loud"]
+print([i.field.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_of)`,
+      out: `<Graph of 2 nodes, runnable> ['line'] ['result']
+{'shout': None, 'strip': None}
+['line'] ['result'] lines.result`,
+    },
+    c: {
+      title: "The run blueprint opens loud up in place" + INT,
+      text: [
+        "When the graph's first run is made or read, conductor walks the compiled graph and every inner graph. It lists the nodes by their full path in a " + CI("RunBlueprint") + ". The " + C("Graph") + " keeps it for every later run.",
+        "You see it in " + '<a href="running-and-streaming.html#start"><code>run.progress.nodes</code></a>' + ", which lists the nodes in the blueprint's order. " + C("loud") + " comes right after the nodes inside it. " + C("loud") + "'s count there is the sum of the nodes inside it. The " + '<a href="saved-runs-and-reuse.html#saved">saved run</a>' + "'s " + '<a href="running-and-streaming.html#outcomes">outcomes</a>' + " have only the four function nodes, by path.",
+      ],
+      label: "Run at the commit",
+      code: `run = graph.run({"text": " a \\nb "})
+print(list(run.progress.nodes))
+print(list(json.loads(run.to_json())["outcomes"]))`,
+      out: `['lines', 'loud/strip', 'loud/shout', 'loud', 'join']
+['lines', 'loud/strip', 'loud/shout', 'join']`,
+    },
+  };
+  const dia = $("#open-dia");
+  function view(k) {
+    const v = VIEWS[k];
+    dia.dataset.s = k;
+    document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.s === k)));
+    const t = $("#state-text");
+    t.innerHTML = "<h3>" + v.title + "</h3>" + v.text.map((p, i) => '<p class="' + (i ? "muted" : "") + '">' + p + "</p>").join("");
+    const c = $("#state-code");
+    c.innerHTML = '<p class="label">' + v.label + '</p><div class="pair"><pre data-lang="py"></pre><pre class="out"></pre></div>';
+    const pres = c.querySelectorAll("pre");
+    pres[0].textContent = v.code; paint(pres[0]);
+    hang(pres[1], esc(v.out));
+    if (!reduced) { [t, c].forEach((e) => { e.classList.remove("fade"); void e.offsetWidth; e.classList.add("fade"); }); }
+  }
+  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => view(b.dataset.s)));
+  view("a");
+
+  /* ======================= THE CALL EXPLORER ======================= */
+  const LINES = ["a", " ", "c"];
+  const CALLS = {
+    lines: {
+      name: "lines", path: '("lines",)', indexes: "()", loc: '("lines",)', text: "lines",
+      outcome: 'done: ["a", " ", "c"]', event: '("lines",)', saved: '"lines"',
+      note: "A node of the outer graph in no loop. Its path is its id, and it has no item indexes.",
+    },
+  };
+  const STRIP_OUT = ['"a"', "None", '"c"'];
+  LINES.forEach((_, i) => {
+    CALLS["strip" + i] = {
+      name: "review/strip, item " + i, path: '("review", "strip")', indexes: "(" + i + ",)",
+      loc: '("review", ' + i + ', "strip")', text: "review@" + i + "/strip",
+      outcome: "done: " + STRIP_OUT[i], event: '("review", "strip")', saved: '"review/strip", position ' + i,
+      note: i === 1 ? "strip returned None for the blank line. check takes a str, not str | None, so check isn't called for this item." : "strip adds no loop of its own. Its index comes from the loop review is inside, so it follows review's id.",
+    };
+  });
+  CALLS.check0 = {
+    name: "review/check, item 0", path: '("review", "check")', indexes: "(0,)", loc: '("review", 0, "check")', text: "review@0/check",
+    outcome: "waiting: Keep 'a'?", waitid: "review@0/check~44afa68e", event: '("review", "check")', saved: '"review/check", position 0, with its question',
+    note: "[run.answer](asking-a-person.html#answering) takes the whole id, or the place before the ~.",
+  };
+  CALLS.check1 = {
+    name: "review/check, item 1", path: '("review", "check")', indexes: "(1,)", loc: '("review", 1, "check")', text: "review@1/check",
+    outcome: "none input: its input line got None", noneinput: 'NoneInputCall(loc=("review", 1, "check"), input="line")', event: '("review", "check")', saved: '"review/check", position 1, in none_inputs',
+    note: "[run.none_input_calls](running-and-streaming.html#outcomes) lists it by the same loc a problem or a waiting call would use.",
+  };
+  CALLS.check2 = {
+    name: "review/check, item 2", path: '("review", "check")', indexes: "(2,)", loc: '("review", 2, "check")', text: "review@2/check",
+    outcome: "waiting: Keep 'c'?", waitid: "review@2/check~4cf17bc4", event: '("review", "check")', saved: '"review/check", position 2, with its question',
+    note: "The fingerprint differs from item 0's, since the call's input and item differ.",
+  };
+
+  const grid = $("#calls");
+  const head = (h) => { const d = document.createElement("div"); d.className = "h"; d.innerHTML = h; grid.append(d); };
+  const rowname = (t) => { const d = document.createElement("div"); d.className = "rowname"; d.textContent = t; grid.append(d); };
+  function cell(id, label, small, cls, span) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "cell" + (cls ? " " + cls : "") + (span ? " span3" : "");
+    b.dataset.id = id; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = esc(label) + "<small>" + esc(small) + "</small>";
+    b.addEventListener("click", () => pick(id));
+    grid.append(b);
+  }
+  head(""); LINES.forEach((l, i) => head("item " + i + " <code>" + esc(JSON.stringify(l)) + "</code>"));
+  rowname("lines"); cell("lines", "lines", "called once, returns 3 lines", "", true);
+  rowname("review/strip"); LINES.forEach((_, i) => cell("strip" + i, "review@" + i + "/strip", "returned " + STRIP_OUT[i]));
+  rowname("review/check");
+  cell("check0", "review@0/check", "waiting", "wait");
+  cell("check1", "review@1/check", "none input", "off");
+  cell("check2", "review@2/check", "waiting", "wait");
+
+  const panel = $("#call-panel");
+  function row(dt, dd) { return "<div><dt>" + dt + "</dt><dd>" + dd + "</dd></div>"; }
+  function pick(id) {
+    const c = CALLS[id];
+    grid.querySelectorAll(".cell").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === id)));
+    panel.innerHTML =
+      '<p class="name">' + esc(c.name) + "</p>" +
+      "<dl>" +
+      row("Node path", "<code>" + esc(c.path) + "</code>") +
+      row("Item indexes", "<code>" + esc(c.indexes) + "</code>") +
+      row("Loc", "<code>" + esc(c.loc) + "</code>, written <code>" + esc(c.text) + "</code>") +
+      row("Outcome", esc(c.outcome)) +
+      (c.waitid ? row("Waiting id", "<code>" + esc(c.waitid) + "</code>") : "") +
+      (c.noneinput ? row("In run.none_input_calls", "<code>" + esc(c.noneinput) + "</code>") : "") +
+      row("Events about the node", "<code>loc=" + esc(c.event) + "</code>, which names the node, not one call (" + '<a href="running-and-streaming.html">running and streaming</a>' + ")") +
+      row("In the saved run", "under " + esc(c.saved)) +
+      "</dl>" +
+      '<p class="note">' + linked(c.note) + "</p>";
+  }
+  pick("check0");
+})();
+</script>
+
+</body></html>
+</body>
+</html>
