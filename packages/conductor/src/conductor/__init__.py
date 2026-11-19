@@ -22,7 +22,7 @@ Everything in ``conductor._internal`` is private and may change.
 from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask
-from conductor._internal.base import SKIPPED, Source
+from conductor._internal.base import JSON_CONFIG, SKIPPED, Source
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
 from conductor._internal.graph import (
@@ -96,6 +96,7 @@ __all__ = [
     "NodeRecord",
     "InputEntry",
     "Source",
+    "JSON_CONFIG",
     "make_graph",
     "Graph",
     "read_json",

@@ -23,9 +23,11 @@ from pydantic_core import (
     to_jsonable_python,
 )
 
-#: How conductor writes and reads what JSON has no form for. Every pydantic config in conductor that writes or reads
-#: JSON is built from it, as ``ConfigDict(**JSON_CONFIG, frozen=True)``, and a call that takes one of its settings,
-#: like pydantic's ``to_json``, reads that setting from it. So a value is written one way wherever it goes.
+#: The pydantic config conductor writes and reads JSON by, and the one a host's own model, dataclass or ``TypedDict``
+#: that holds ``bytes`` sets to follow the same rule: ``ConfigDict(**JSON_CONFIG, ...)`` or ``with_config(JSON_CONFIG)``.
+#: Every pydantic config in conductor that writes or reads JSON is built from it, and a call that takes one of its
+#: settings, like pydantic's ``to_json``, reads that setting from it. So a value is written one way wherever it goes.
+#: It is a plain ``dict``, since pydantic's ``with_config`` takes no other mapping: a host must not change it.
 #:
 #: - ``inf``, ``-inf`` and ``nan`` are written as the texts ``"Infinity"``, ``"-Infinity"`` and ``"NaN"``. A
 #:   ``float`` reads each one back as the float, and a ``str`` keeps the text.
