@@ -455,7 +455,7 @@ def test_an_upgrade_that_returns_none_is_upgrade_broken_and_the_other_nodes_are_
 
     checked = check_registry(registry_of(forgets, fails))
     assert [(p.type, p.loc, p.ctx["problem"]) for p in checked] == [
-        ("upgrade_broken", ("forgets", 1), "cannot_move_to_version_rewrite_failed"),
+        ("upgrade_broken", ("forgets", 1), "cannot_move_to_version_rewrite_returned_invalid"),
         ("upgrade_broken", ("fails", 1), "cannot_move_to_version_raised"),
     ]
 

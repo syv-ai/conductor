@@ -110,12 +110,12 @@ def cannot_move_to_version_rewrite_failed(
     error: str,
     error_ctx: dict[str, Any] | None = None,
 ) -> str:
-    """``registry.upgrade`` ran the ``rewrite`` of a version's ``Upgrade``, and it raised a ``NodeError`` or returned no dict of input names.
+    """``registry.upgrade`` ran the ``rewrite`` of a version's ``Upgrade``, and it raised a ``NodeError``.
 
     A ``NodeError`` keeps its message, since the node's developer wrote it for people. ``ctx.error`` is its ``code``
-    and ``ctx.error_ctx`` its ``ctx``. A rewrite that returns anything but a dict whose keys are text, such as
-    ``None`` when it forgets its ``return``, has ``ctx.error`` ``not_a_mapping``. A rewrite that raises any other
-    exception is ``cannot_move_to_version_raised``.
+    and ``ctx.error_ctx`` its ``ctx``. A rewrite that raises any other exception is
+    ``cannot_move_to_version_raised``, and one that returns no dict of input names is
+    ``cannot_move_to_version_rewrite_returned_invalid``.
 
     ``ctx.version`` and ``ctx.target`` are the step whose rewrite failed. On a move over several versions, that may
     be a later step than the first.
@@ -128,8 +128,8 @@ def cannot_move_to_version_rewrite_failed(
         node: The id of its node definition.
         version: The version the step moves from.
         target: The version the step moves to.
-        reason: The ``NodeError``'s message, or what is wrong with what the rewrite returned.
-        error: The ``code`` of the rewrite's ``NodeError``, or ``not_a_mapping``.
+        reason: The ``NodeError``'s message.
+        error: The ``code`` of the rewrite's ``NodeError``.
         error_ctx: The ``ctx`` of the rewrite's ``NodeError``, if it has one.
 
     Example:
@@ -156,6 +156,61 @@ def cannot_move_to_version_rewrite_failed(
     return (
         f"'{node}' can't move from version {version} to version {target}."
         f" The rewrite of its Upgrade failed: {reason.rstrip('.')}."
+    )
+
+
+@CALL_PROBLEMS.problem
+def cannot_move_to_version_rewrite_returned_invalid(
+    *loc: str | int,
+    node: str,
+    version: int,
+    target: int,
+    reason: str,
+    errors: list[dict[str, Any]],
+) -> str:
+    """``registry.upgrade`` ran the ``rewrite`` of a version's ``Upgrade``, and it returned no dict of input names.
+
+    A rewrite returns the node's constants and graph-input defaults as a dict whose keys are input names. Anything
+    else, such as ``None`` when it forgets its ``return``, is refused. ``ctx.errors`` has pydantic's error, with
+    ``loc`` ``[]``: ``dict_type`` for no dict, ``string_type`` for a key that isn't text. A rewrite that raises is
+    ``cannot_move_to_version_rewrite_failed`` or ``cannot_move_to_version_raised``.
+
+    ``ctx.version`` and ``ctx.target`` are the step whose rewrite returned it. On a move over several versions, that
+    may be a later step than the first.
+
+    To fix it, make that version's ``Upgrade`` return a dict of input names to values. In the example, the rewrite
+    returns a list of pairs.
+
+    Args:
+        loc: The node.
+        node: The id of its node definition.
+        version: The version the step moves from.
+        target: The version the step moves to.
+        reason: What is wrong with what the rewrite returned.
+        errors: pydantic's error, with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
+
+    Example:
+        @node("nod", title="Nod", description="Nods at a person.")
+        def nod_v1(name: str) -> str:
+            return f"Nod {name}"
+
+
+        def as_pairs(values: dict) -> dict:
+            return [("first", values["name"])]  # type: ignore[return-value]
+
+
+        @node("nod", title="Nod", description="Nods at a person.", replaces=nod_v1, upgrade=Upgrade(rewrite=as_pairs))
+        def nod(first: str) -> str:
+            return f"Nod {first}"
+
+
+        nodding = NodeRegistry()
+        nodding.add(nod)
+        refused(lambda: nodding.upgrade(make_graph(nod_v1, constants={"nod.name": "Ada"}), "nod"))
+    """
+    return (
+        f"'{node}' can't move from version {version} to version {target}."
+        f" The rewrite of its Upgrade returned {reason.rstrip('.')}. Return a dict of input names to values."
     )
 
 

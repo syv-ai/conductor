@@ -502,26 +502,42 @@ def _bye_upgraded_by(rewrite) -> InvalidCallError:
 
 
 @pytest.mark.parametrize(
-    ("returned", "reason"),
+    ("returned", "reason", "error"),
     [
-        (None, "it returned a NoneType, not a dict of input names to values"),
-        (["Ada"], "it returned a list, not a dict of input names to values"),
-        ({1: "Ada"}, "it returned a dict with a key that isn't text"),
+        (
+            None,
+            "a NoneType",
+            {"type": "dict_type", "loc": [], "msg": "Input should be a valid dictionary"},
+        ),
+        (
+            ["Ada"],
+            "a list",
+            {"type": "dict_type", "loc": [], "msg": "Input should be a valid dictionary"},
+        ),
+        (
+            {1: "Ada"},
+            "a dict with a key that isn't text",
+            {"type": "string_type", "loc": [], "msg": "Input should be a valid string"},
+        ),
     ],
 )
-def test_a_rewrite_that_returns_no_dict_of_input_names_is_refused_at_the_node(returned, reason):
-    """A rewrite that forgets its ``return``, or returns a list, is refused at the node, never a bare exception."""
+def test_a_rewrite_that_returns_no_dict_of_input_names_is_refused_at_the_node_with_pydantics_error(
+    returned, reason, error
+):
+    """A rewrite that forgets its ``return``, or returns a list, is refused at the node, never a bare exception.
+
+    It is a kind of its own, with pydantic's error, as a hook's return is: ``ctx.error`` of the kind a ``NodeError``
+    from the rewrite gives is only ever that error's code.
+    """
     [problem] = _bye_upgraded_by(lambda values: returned).problems
     assert (problem.type, problem.loc, problem.ctx) == (
-        "cannot_move_to_version_rewrite_failed",
+        "cannot_move_to_version_rewrite_returned_invalid",
         ("b",),
-        {
-            "node": "bye",
-            "version": 1,
-            "target": 2,
-            "reason": reason,
-            "error": "not_a_mapping",
-        },
+        {"node": "bye", "version": 1, "target": 2, "reason": reason, "errors": [error]},
+    )
+    assert problem.msg == (
+        f"'bye' can't move from version 1 to version 2. The rewrite of its Upgrade returned {reason}."
+        " Return a dict of input names to values."
     )
 
 

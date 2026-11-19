@@ -409,9 +409,9 @@ class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
     ``{"day": date(2026, 1, 2)}``. The validator gives ``{"day": "2026-01-02"}``.
 
     Raises (when called):
-        InvalidCallError: ``cannot_move_to_version_rewrite_failed``, at the node with ``error``
-            ``not_a_mapping``, if the rewrite returned no dict, or one with a key that isn't text. ``invalid_value``
-            at the node and input for a value that can't be written as JSON.
+        InvalidCallError: ``cannot_move_to_version_rewrite_returned_invalid`` at the node, with pydantic's error in
+            ``ctx.errors``, if the rewrite returned no dict, or one with a key that isn't text. ``invalid_value`` at the
+            node and input for a value that can't be written as JSON.
     """
 
     def __init__(self, node_id: str, node: str, version: int, target: int) -> None:
@@ -437,20 +437,18 @@ class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
         try:
             values = _REWRITTEN_VALUES.validate_python(returned)
         except ValidationError as invalid:
-            reason = (
-                f"it returned a {type(returned).__name__}, not a dict of input names to values"
-                if not invalid.errors()[0]["loc"]
-                else "it returned a dict with a key that isn't text"
-            )
+            first = invalid.errors()[0]
             raise InvalidCallError(
                 [
-                    call_problems.cannot_move_to_version_rewrite_failed(
+                    call_problems.cannot_move_to_version_rewrite_returned_invalid(
                         self._node_id,
                         node=self._node,
                         version=self._version,
                         target=self._target,
-                        reason=reason,
-                        error="not_a_mapping",
+                        reason=f"a {type(returned).__name__}"
+                        if not first["loc"]
+                        else "a dict with a key that isn't text",
+                        errors=[shape_error(first)],
                     )
                 ]
             ) from None

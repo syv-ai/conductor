@@ -153,7 +153,7 @@ def _rewritten(
 
     Raises:
         InvalidCallError: ``cannot_move_to_version_rewrite_failed`` or ``cannot_move_to_version_raised``, if the rewrite
-            raises or returns no dict of input names. See ``RewriteValidator`` for the rest.
+            raises. See ``RewriteValidator`` for what it may return.
     """
     values = {
         name: entry.default if entry.constant is MISSING else entry.constant
