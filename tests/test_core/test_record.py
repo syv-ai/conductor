@@ -9,6 +9,7 @@ the record doesn't have, that is a problem of the graph, in ``graph.problems``. 
 """
 
 import json
+from collections import UserList, deque
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Annotated, Any
@@ -2467,6 +2468,49 @@ def test_make_graph_takes_every_form_of_its_arguments_a_type_checker_takes():
     assert record.outputs == {"loud": Source("b", "result")}
     assert make_graph(_hello, inputs={"who": ("hello.name",)}) == make_graph(
         _hello, inputs={"who": "hello.name"}
+    )
+
+
+class _Secret:
+    """A key whose text must never reach a problem."""
+
+    def __repr__(self) -> str:
+        return "SECRET-REPR"
+
+    __str__ = __repr__
+
+
+@pytest.mark.parametrize("argument", ["inputs", "outputs"])
+@pytest.mark.parametrize("key", [SKIPPED, _Secret(), 1], ids=["sentinel", "secret", "int"])
+@pytest.mark.parametrize("value", [SKIPPED, 5], ids=["sentinel-value", "int-value"])
+def test_make_graph_quotes_no_key_that_is_not_text_even_when_the_value_under_it_is_refused(
+    argument: str, key: object, value: object
+):
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, **{argument: {key: value}})
+
+    [problem] = refused.value.problems
+    assert [(e["type"], e["loc"]) for e in problem.ctx["errors"]] == [("string_type", ["[key]"])]
+    written = str(refused.value) + repr(refused.value.errors())
+    assert "SKIPPED" not in written and "SECRET-REPR" not in written
+
+
+def test_make_graph_takes_any_sequence_that_is_not_text_bytes_or_a_set():
+    edge = ("hello.result", "shout.text")
+    expected = make_graph(_hello, _shout, edges=[edge], inputs={"t": ["shout.times"]})
+
+    assert (
+        make_graph(_hello, _shout, edges=deque([edge]), inputs={"t": ["shout.times"]}) == expected
+    )
+    assert (
+        make_graph(_hello, _shout, edges=UserList([edge]), inputs={"t": ["shout.times"]})
+        == expected
+    )
+    assert (
+        make_graph(_hello, _shout, edges=[deque(edge)], inputs={"t": ["shout.times"]}) == expected
+    )  # type: ignore[list-item]
+    assert (
+        make_graph(_hello, _shout, edges=[edge], inputs={"t": deque(["shout.times"])}) == expected
     )
 
 

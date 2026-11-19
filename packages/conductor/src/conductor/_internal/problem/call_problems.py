@@ -653,14 +653,15 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
 def invalid_argument(argument: str, /, *, reason: str, errors: list[dict[str, Any]]) -> str:
     """``make_graph`` is given an argument that isn't of the type its signature says, such as ``outputs=None``.
 
-    The nodes are definitions, or tuples of an id and a definition such as ``("a", upper)``. ``edges`` is a list or
-    tuple of pairs of text. ``constants``, ``defaults`` and ``outputs`` are mappings keyed by text, and ``outputs``
-    maps to text. ``inputs`` maps text to one place, or to a list or tuple of them. A set is never taken, since it
-    has no order, and neither are bytes. A type checker finds these faults too.
+    The nodes are definitions, or tuples of an id and a definition such as ``("a", upper)``. ``edges`` is a sequence of
+    pairs of text, such as a list of tuples. ``constants``, ``defaults`` and ``outputs`` are mappings keyed by text,
+    and ``outputs`` maps to text. ``inputs`` maps text to one place, or to a sequence of them. A sequence is any but
+    text or bytes. A set is never taken, since it has no order. A type checker finds these faults too.
 
     To fix it, give the argument the type ``make_graph``'s signature says. ``ctx.errors`` has every fault in it, each
     with pydantic's code, or ``not_a_node`` for a node, and its ``loc`` inside the argument: an index, or a key of a
-    mapping. A key that isn't text is not quoted: the ``loc`` stops before it, at ``"[key]"``.
+    mapping. A key that isn't text is not quoted: the ``loc`` stops before it, at ``"[key]"``, and a fault in the value
+    under it is left out.
 
     Args:
         argument: The argument: ``nodes``, ``edges``, ``constants``, ``defaults``, ``inputs`` or ``outputs``.
