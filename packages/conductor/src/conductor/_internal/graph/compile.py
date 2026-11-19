@@ -825,7 +825,7 @@ class Compiler:
                     name,
                     source=written,
                     outputs=[place_text(path, output) for output in node.outputs],
-                    record_field=source.field,
+                    field=source.field,
                     kind=parts[0],
                     fields=parts[1],
                 )
@@ -836,7 +836,7 @@ class Compiler:
             fields = [place_text(path, source.output, f) for f in field.type.fields]
             self.problems.append(
                 compile_problems.unknown_output(
-                    node_id, name, source=written, outputs=fields, record_field=source.field
+                    node_id, name, source=written, outputs=fields, field=source.field
                 )
             )
             return None

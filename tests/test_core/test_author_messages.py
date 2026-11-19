@@ -161,7 +161,7 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series()
     assert found.ctx == {
         "source": "read.result.email",
         "outputs": ["read.result"],
-        "record_field": "email",
+        "field": "email",
         "kind": "table",
         "fields": ["name", "email"],
     }

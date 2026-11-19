@@ -950,11 +950,11 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
 
 @COMPILE_PROBLEMS.problem
 def unknown_output(
-    *loc: str | int, source: str, outputs: list[str], record_field: str | None = None
+    *loc: str | int, source: str, outputs: list[str], field: str | None = None
 ) -> str:
     """An edge's source is an output, or a field of one, that its node doesn't have.
 
-    An edge may name one field of a record that an output gives, like ``node.output.field``.
+    An edge may name one field of the value an output gives, like ``node.output.field``.
 
     To fix it, wire from one of the outputs in ``ctx.outputs``. The list has those fields too.
 
@@ -962,7 +962,7 @@ def unknown_output(
         loc: The node the edge leads into, and the input.
         source: The edge's source, as text, like ``"a.result"``.
         outputs: The outputs the source's node has, as text.
-        record_field: The field of a record the edge names, if the record has no field by that name.
+        field: The field the edge names, if the output's value has no field by that name.
 
     Example:
         problems({"nodes": {
@@ -978,7 +978,7 @@ def unknown_output_field_of_whole_table_or_list(
     *loc: str | int,
     source: str,
     outputs: list[str],
-    record_field: str,
+    field: str,
     kind: Literal["table", "list"],
     fields: list[str],
 ) -> str:
@@ -992,7 +992,7 @@ def unknown_output_field_of_whole_table_or_list(
         loc: The node the edge leads into, and the input.
         source: The edge's source, as text, like ``"a.result"``.
         outputs: The outputs the source's node has, as text.
-        record_field: The field the edge names.
+        field: The field the edge names.
         kind: Whether the source is a table or a list.
         fields: The fields each row or item has, so an editor can offer them. Empty if they aren't known.
 

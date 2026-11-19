@@ -545,7 +545,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         },
         discriminator=_table_form,
         custom_error_type="not_a_table",
-        custom_error_message="a table must be a frame, or a list of records with one object per row",
+        custom_error_message="a table must be a frame, or a list with one object per row",
         custom_error_context=dict(OWN_MESSAGE),
     )
     kept = core_schema.no_info_after_validator_function(as_saved, any_form)

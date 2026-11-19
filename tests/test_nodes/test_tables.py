@@ -149,7 +149,7 @@ def columns_of(field) -> dict[str, Any]:
 def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     graph = compile_graph(contacts, series.split, edges=[("contacts.result", "series-split.value")])
     described = output(graph, "series-split")
-    assert graph.problems == [] and (described.is_series, described.type) == (True, "record")
+    assert graph.problems == [] and (described.is_series, described.type) == (True, "row")
     assert described.json_schema["properties"] == {
         "name": {"title": "Name", "type": "string"},
         "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},

@@ -210,6 +210,6 @@ def _written(value: Any) -> Any:
     """
     if isinstance(value, pl.DataFrame):
         raise no_json_form(
-            "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of records"
+            "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list with one object per row"
         )
     return json_by_its_class(value)

@@ -197,7 +197,7 @@ def test_an_empty_title_fails_at_the_class_statement() -> None:
 
 
 @pytest.mark.parametrize(
-    "wrong_id", ["str", "Series", "Table", "record", "list[int]", "a b", "a|b", ""], ids=repr
+    "wrong_id", ["str", "Series", "Table", "row", "list[int]", "a b", "a|b", ""], ids=repr
 )
 def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_an_invalid_node_id_as_on_a_node(
     wrong_id: Any,
@@ -302,7 +302,7 @@ def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_lin
     [
         ("InvoiceLine", '@host_type("invoice-line", title="Invoice line")'),
         ("IPAddress", '@host_type("ip-address", title="IP address")'),
-        ("Record", '@host_type("record-type", title="Record")'),
+        ("Row", '@host_type("row-type", title="Row")'),
     ],
 )
 def test_the_line_a_class_that_is_not_declared_is_told_to_write_declares_it(
@@ -310,7 +310,7 @@ def test_the_line_a_class_that_is_not_declared_is_told_to_write_declares_it(
 ) -> None:
     """The refusal suggests an id and a title made from the class's name, and pasting them declares the class.
 
-    ``Record`` would give ``"record"``, which is one of conductor's own ids, so it gets ``-type`` after it.
+    ``Row`` would give ``"row"``, which is one of conductor's own ids, so it gets ``-type`` after it.
     """
     undeclared = dataclasses.make_dataclass(name, [("x", float)])
 

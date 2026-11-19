@@ -147,7 +147,7 @@ NAMES: Mapping[Any, tuple[str, str]] = {
 
 #: The ids a host can't declare, because conductor uses them. ``Type`` adds ``Series`` and ``Table`` here when
 #: their packages are imported.
-OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()} | {"record"}
+OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()} | {"row"}
 
 #: The attribute ``@host_type`` stores a class's ``TypeDeclaration`` in, read only by ``_own_declaration``.
 _DECLARATION = "__conductor_type__"

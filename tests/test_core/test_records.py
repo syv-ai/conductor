@@ -342,7 +342,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
     run = graph.run({"text": "x"})
 
     cause = run.cause
-    assert (run.status, cause.type, cause.loc, cause.ctx["record_field"]) == (
+    assert (run.status, cause.type, cause.loc, cause.ctx["field"]) == (
         "failed",
         "invalid_edge_value",
         ("greet", 2),

@@ -1182,7 +1182,7 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
     """Runs ``graph`` and returns how it ended: its status, and its cause's code, place, input and field."""
     run = graph.run()
     cause = run.cause
-    return run.status, cause.type, cause.loc, cause.ctx["input"], cause.ctx["record_field"]
+    return run.status, cause.type, cause.loc, cause.ctx["input"], cause.ctx["field"]
 
 
 @pytest.mark.parametrize(
@@ -1303,7 +1303,7 @@ def test_the_first_fault_in_the_signature_fails_a_call_that_no_skip_settles():
     edges = [("give.result.email", "two.first"), ("give.result.name", "two.second")]
     graph = Graph.compile(make_graph(items, two, edges=edges), registry_of(items, two))
     run = graph.run()
-    assert (run.status, run.cause.type, run.cause.ctx["input"], run.cause.ctx["record_field"]) == (
+    assert (run.status, run.cause.type, run.cause.ctx["input"], run.cause.ctx["field"]) == (
         "failed",
         "invalid_edge_value",
         "first",
@@ -1355,7 +1355,7 @@ def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_c
         registry_of(_words, give, reader, _all_of),
     )
     run = graph.run({"text": "a b"})
-    assert (run.status, run.cause.type, run.cause.ctx["record_field"]) == (
+    assert (run.status, run.cause.type, run.cause.ctx["field"]) == (
         "failed",
         "invalid_edge_value",
         "name",

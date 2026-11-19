@@ -522,7 +522,7 @@ def test_an_edge_may_name_one_field_of_a_record_and_an_unknown_field_lists_the_o
     assert problems(graph) == [("unknown_output", ("s", "email"))]
     assert (
         graph.problems[0].ctx["outputs"] == ["r.result.name", "r.result.email"]
-        and graph.problems[0].ctx["record_field"] == "phone"
+        and graph.problems[0].ctx["field"] == "phone"
     )
 
 

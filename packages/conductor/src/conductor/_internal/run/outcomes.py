@@ -266,7 +266,7 @@ class RunOutcomes:
                             run_problems.invalid_edge_value(
                                 input=name,
                                 reason=error["msg"],
-                                record_field=missing.field,
+                                field=missing.field,
                                 errors=[error],
                             )
                         ]

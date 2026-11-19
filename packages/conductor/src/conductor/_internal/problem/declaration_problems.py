@@ -1143,7 +1143,7 @@ def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
 def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
     """``@host_type`` is put above something that isn't a class it can name, such as a function or a ``TypedDict``.
 
-    A ``TypedDict`` is a record. Conductor reads a record by its fields, so it needs no declaration.
+    Conductor reads a ``TypedDict`` by its fields, so it needs no declaration.
 
     To fix it, put ``@host_type`` above a class.
 
@@ -1152,13 +1152,13 @@ def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
         given: What it was put above, as Python writes it.
 
     Example:
-        class Row(TypedDict):
-            name: str
+        class Address(TypedDict):
+            street: str
 
 
-        declaration_refused(lambda: host_type("row", title="Row")(Row))
+        declaration_refused(lambda: host_type("address", title="Address")(Address))
     """
-    return f"@host_type({id!r}) goes above a class, and {given} isn't one it can name. A TypedDict is a record, and needs no declaration."
+    return f"@host_type({id!r}) goes above a class, and {given} isn't one it can name. A TypedDict is read by its fields, and needs no declaration."
 
 
 @DECLARATION_PROBLEMS.problem

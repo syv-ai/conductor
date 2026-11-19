@@ -1305,7 +1305,7 @@ def test_a_table_graph_input_given_one_record_or_a_wrong_key_inside_is_refused_a
         (
             "invalid_input",
             ("inputs", "names"),
-            "a table must be a frame, or a list of records with one object per row",
+            "a table must be a frame, or a list with one object per row",
         )
     ]
     assert [problem[:2] for problem in refused({"columns": [], "rows": 1})] == [
@@ -2752,7 +2752,7 @@ def test_a_typed_dict_output_is_a_record_and_an_edge_may_name_one_of_its_fields(
         return {"name": "Bo"}
 
     described = contact.describe().outputs[0]
-    assert (described.type, list(described.json_schema["properties"])) == ("record", ["name"])
+    assert (described.type, list(described.json_schema["properties"])) == ("row", ["name"])
     graph = Graph.compile(
         make_graph(contact, upper, edges=[("contact.result.name", "upper.text")]),
         registry_of(contact, upper),

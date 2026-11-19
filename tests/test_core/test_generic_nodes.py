@@ -179,7 +179,7 @@ def test_a_series_wired_to_a_type_variable_is_looped_over_and_binds_the_item_typ
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
     from_table = _compiled(rows, split, edges=[["rows.result", "split.value"]])
-    assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs[
+    assert _types(from_table, "split")["result"] == (True, "row") and from_table.run().outputs[
         "result"
     ] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
     from_list = _compiled(

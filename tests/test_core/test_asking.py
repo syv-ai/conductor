@@ -1048,7 +1048,7 @@ def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refuse
     )
     assert (
         _refused(lambda: run.with_answers("q", "B,2"))[0].msg
-        == "That isn't a valid answer: a table must be a frame, or a list of records with one object per row."
+        == "That isn't a valid answer: a table must be a frame, or a list with one object per row."
     )
 
 
@@ -1657,7 +1657,7 @@ def test_a_choice_offered_for_a_table_is_a_table_like_any_choice_of_its_type():
 
     assert (
         _once(wrong)[1].cause.ctx["reason"]
-        == "the choices for 'result' are wrong (a table must be a frame, or a list of records with one object per row)"
+        == "the choices for 'result' are wrong (a table must be a frame, or a list with one object per row)"
     )
 
 

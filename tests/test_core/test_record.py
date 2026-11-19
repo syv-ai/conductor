@@ -1593,7 +1593,7 @@ def _a_table_read_by_one_text(source: str) -> Problem:
 def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_is_one_value():
     problem = _a_table_read_by_one_text("r.result.name")
 
-    assert (problem.type, problem.loc, problem.ctx["record_field"]) == (
+    assert (problem.type, problem.loc, problem.ctx["field"]) == (
         "unknown_output_field_of_whole_table_or_list",
         ("u", "text"),
         "name",
@@ -2283,8 +2283,8 @@ def test_a_table_as_a_constant_is_refused_at_the_call_and_the_reason_says_to_wri
     (problem,) = refused.value.problems
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
     assert problem.ctx["reason"] == (
-        "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of"
-        " records"
+        "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list with"
+        " one object per row"
     )
     assert [error["type"] for error in problem.ctx["errors"]] == ["no_json_form"]
 

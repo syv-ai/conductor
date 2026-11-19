@@ -507,8 +507,8 @@ class Type:
             origin is Annotated
         ):  # a union's member keeps what checks it, which doesn't change its name
             return Type(one)._named
-        if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "record"
-            return "record", "Record", ()
+        if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "row"
+            return "row", "Row", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
         _check_is_type(one)
         own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
@@ -554,12 +554,12 @@ class Type:
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
         # Every type writes and reads by JSON_CONFIG: a float that isn't finite as text, and bytes as base64. Pydantic
-        # refuses a config beside a record, so a record is handed to it under a type alias. A model and a pydantic
-        # dataclass still write their fields by their own config, wherever they sit. A TypedDict or a plain dataclass
-        # takes the config it sits in, as inside a list.
+        # refuses a config beside a class that declares its fields, so such a class is handed to it under a type alias.
+        # A model and a pydantic dataclass still write their fields by their own config, wherever they sit. A TypedDict
+        # or a plain dataclass takes the config it sits in, as inside a list.
         try:
             given: Any = (
-                TypeAliasType("Record", read)
+                TypeAliasType("Fields", read)
                 if len(options) == 1 and declares_fields(options[0])
                 else read
             )
