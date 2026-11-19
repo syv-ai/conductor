@@ -768,6 +768,7 @@ What changes in how you work, before the name-by-name tables:
   longer names the function, which the traceback's decorator line shows. A declaration problem's `loc[0]` is the node definition's id, such as `"upper"`, where a graph
   problem's is a node's id in the graph record, such as `"u"`.
 - **A definition's hooks are `Hook` values (provisional).** `FunctionDefinition.compute_added_inputs` and `compute_outputs` are each a `Hook` or `None`, no longer the function given to `@node`: the function is `hook.function`. What `@node` takes, and what compiling a hook gives, don't change.
+- **A choice with a set in it is refused** [provisional]. `Param(choices=[{"a"}])` on an `Any` field was taken, the set read as a list; a choice with a set anywhere in it is now refused where the node is declared, as `choices_invalid` with `set_has_no_order` in `ctx.errors`, as a set is refused everywhere a value enters.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

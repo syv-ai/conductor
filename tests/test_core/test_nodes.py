@@ -3158,6 +3158,23 @@ def test_every_fault_in_a_params_choices_is_one_choices_invalid_with_each_choice
     assert problem.ctx["reason"] == problem.ctx["errors"][0]["msg"]
 
 
+def test_a_choice_with_a_set_in_it_is_refused_as_set_has_no_order() -> None:
+    """A set's JSON form is a list, so a choice holding one, at any depth, would read back as another value. It is
+    refused as a set is everywhere a value enters, even on ``Any``, which takes a list."""
+    for choices in ([{"a"}], [["x", [frozenset({1})]]]):
+        with pytest.raises(NodeDeclarationError) as raised:
+
+            @node("loose", title="Loose", description="For a test.")
+            def loose(pick: Annotated[Any, Param(choices=choices)]) -> Any:
+                return pick
+
+        (problem,) = raised.value.problems
+        assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+            "choices_invalid",
+            [("set_has_no_order", [0])],
+        ), choices
+
+
 def test_a_reason_a_host_check_gave_is_quoted_with_one_period() -> None:
     """The text that replaces a host validator's message has no final period, so a message quoting it reads right."""
     from pydantic import AfterValidator

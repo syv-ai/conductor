@@ -8,11 +8,12 @@ as JSON, so it gives the same result as the same value sent over HTTP.
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any, Final, Literal, NoReturn
 
-from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
     CoreConfig,
     PydanticCustomError,
@@ -182,6 +183,40 @@ def finite_json_text(value: Any, title: str, fallback: Callable[[Any], Any] | No
             title, [{"type": "finite_number", "loc": (), "input": value}]
         ) from None
     return text
+
+
+def holds_a_set(value: Any) -> bool:
+    """Whether ``value`` is a set, or has one somewhere inside (``value_parts``).
+
+    Pydantic writes a set as an array by itself and never hands it to a ``fallback``, so the set is looked for
+    before the value is written.
+    """
+    return any(isinstance(part, (set, frozenset)) for part in value_parts(value))
+
+
+def value_parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
+    """Yields ``value`` and every value inside it: in a list, tuple or dict, or in a field of a dataclass or a
+    pydantic model.
+
+    A container already walked on the way down (``walked``, by ``id``) is a cycle, which isn't walked again: pydantic
+    refuses it when it writes the value.
+    """
+    yield value
+    if isinstance(value, dict):
+        parts: Any = value.values()
+    elif isinstance(value, (list, tuple)):
+        parts = value
+    elif isinstance(value, BaseModel):
+        parts = (field for _, field in value)
+    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        parts = (getattr(value, field.name) for field in dataclasses.fields(value))
+    else:
+        return
+    if id(value) in walked:
+        return
+    inside = walked | {id(value)}
+    for part in parts:
+        yield from value_parts(part, inside)
 
 
 def _written(

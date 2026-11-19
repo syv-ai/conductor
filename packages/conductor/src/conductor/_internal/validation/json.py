@@ -12,26 +12,31 @@ memory, is ``no_json_form``. And a number that enters is finite: ``inf`` and ``n
 pydantic's ``finite_number``, though what a node computes may hold them. Every refusal here is pydantic's
 ``ValidationError``, as a type's own is, so a caller handles one kind of error.
 
-The module also holds the one walk over a value and everything inside it (``_parts``), and the checks built on it:
-``holds_a_set``, which the reader here asks, and ``holds_skipped``, which a node's return check asks, since
-``SKIPPED`` inside a returned value has no JSON form.
+It also holds ``holds_skipped``, which a node's return check asks, since ``SKIPPED`` inside a returned value has no
+JSON form. It and the reader here walk a value with ``value_parts``, the one walk over a value and everything inside
+it.
 """
 
 from __future__ import annotations
 
-import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any
 
 import polars as pl
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from pydantic_core import (
     PydanticCustomError,
     PydanticSerializationError,
     SchemaValidator,
 )
 
-from conductor._internal.base import SKIPPED, finite_json_text, validate_as_json
+from conductor._internal.base import (
+    SKIPPED,
+    finite_json_text,
+    holds_a_set,
+    validate_as_json,
+    value_parts,
+)
 from conductor._internal.problem import no_json_form, set_has_no_order
 from conductor._internal.table import TableType, json_fallback
 from conductor._internal.types import Type, json_by_its_class
@@ -81,7 +86,7 @@ def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> An
     # A dict's key is text in the JSON, so the text can't show a key that isn't finite, like dict[float, str]'s
     # "Infinity", until the type has read it. A saved run is read by its own reader, so it may keep such keys.
     finite_json_text(
-        [key for part in _parts(read) if isinstance(part, dict) for key in part], value_type.id
+        [key for part in value_parts(read) if isinstance(part, dict) for key in part], value_type.id
     )
     return read
 
@@ -158,46 +163,12 @@ def _as_json[T](title: str, value: Any, write: Callable[[], T]) -> T:
     raise ValidationError.from_exception_data(title, [{"type": refused, "loc": (), "input": value}])
 
 
-def holds_a_set(value: Any) -> bool:
-    """Whether ``value`` is a set, or has one somewhere inside (``_parts``).
-
-    Pydantic writes a set as an array by itself and never hands it to a ``fallback``, so the set is looked for
-    before the value is written.
-    """
-    return any(isinstance(part, (set, frozenset)) for part in _parts(value))
-
-
 def holds_skipped(value: Any) -> bool:
-    """Whether ``value`` is ``SKIPPED``, or has it somewhere inside (``_parts``).
+    """Whether ``value`` is ``SKIPPED``, or has it somewhere inside (``value_parts``).
 
     A frame isn't walked: a table's cells can't be ``SKIPPED``.
     """
-    return any(part is SKIPPED for part in _parts(value))
-
-
-def _parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
-    """Yields ``value`` and every value inside it: in a list, tuple or dict, or in a field of a dataclass or a
-    pydantic model.
-
-    A container already walked on the way down (``walked``, by ``id``) is a cycle, which isn't walked again: pydantic
-    refuses it when it writes the value.
-    """
-    yield value
-    if isinstance(value, dict):
-        parts: Any = value.values()
-    elif isinstance(value, (list, tuple)):
-        parts = value
-    elif isinstance(value, BaseModel):
-        parts = (field for _, field in value)
-    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
-        parts = (getattr(value, field.name) for field in dataclasses.fields(value))
-    else:
-        return
-    if id(value) in walked:
-        return
-    inside = walked | {id(value)}
-    for part in parts:
-        yield from _parts(part, inside)
+    return any(part is SKIPPED for part in value_parts(value))
 
 
 def _written(value: Any) -> Any:

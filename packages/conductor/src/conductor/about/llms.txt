@@ -401,7 +401,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 - An open `Series` input takes only a list. One value given there is `invalid_input`.
 - A set has no order, so it is never a list. A type that is a set or holds one, at any depth of an input's or an output's type (`set[str]`, `frozenset[int]`, `list[set[str]]`, a `TypedDict` field, a type variable's bound), is refused where the node is declared (`type_not_supported_set`): it has no JSON form that keeps it the same, so no default of it could be read from one. Declare a `list` or a `tuple`. A host's own model or dataclass is its own, so its fields are not walked: one may hold a set, and an edge may read that field, though no default of the class may hold one.
 - A set given for an input or in an answer is refused ("Starting a run"), and so is one returned for a `Series`, with `set_has_no_order` in the problem's `errors`.
-- `make_graph` and an upgrade's rewrite refuse a constant with a set anywhere in it, with `set_has_no_order` too. A set has no JSON form, so a record with a set in it, handed to `Graph.compile`, is `invalid_record`.
+- `make_graph` and an upgrade's rewrite refuse a constant with a set anywhere in it, with `set_has_no_order` too. So does `@node`, for a `Param`'s choice with a set anywhere in it, even on `Any` (`choices_invalid`, `set_has_no_order` in `ctx.errors`). It is provisional. A set has no JSON form, so a record with a set in it, handed to `Graph.compile`, is `invalid_record`.
 
 **A subgraph is one node.** Its inputs and outputs are the ones its graph declares, by their names there. So an author wires `emb.text`, and an edge from `emb.result`. No name has a dot.
 

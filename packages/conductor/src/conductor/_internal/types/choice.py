@@ -31,6 +31,7 @@ from conductor._internal.base import (
     ConductorModel,
     canonical_json,
     finite_json_text,
+    holds_a_set,
 )
 from conductor._internal.problem import (
     NodeDeclarationError,
@@ -189,6 +190,7 @@ def declared_choices(
         write: Converts a value ``reader`` gave back to JSON.
 
     A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
+    A choice with a set in it is refused too (``set_has_no_order``), since its JSON form would be a list.
 
     Raises:
         NodeDeclarationError: ``choices_invalid``, with the fault of each choice that doesn't read in
@@ -197,6 +199,8 @@ def declared_choices(
 
     def read(value: Any) -> Any:
         # a choice is given as an answer is, from its JSON form, so one that isn't finite could never be picked
+        if holds_a_set(value):
+            raise set_has_no_order()
         return reader.validate_json(finite_json_text(value, "choice"), strict=True)
 
     try:
