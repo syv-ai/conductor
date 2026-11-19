@@ -148,10 +148,10 @@ def run_codec(
     the one key ``result``, a list of ``str | None``.
 
     Each node gets a subclass of ``SavedOutcomes``, whose ``outputs``, ``skipped`` and ``skipped_items`` are keyed by
-    the node's outputs. It also gets a subclass of ``SavedReusable`` with the same fields, and ``item_indexes``. Nodes whose
-    outputs have the same names and types share both classes. The codec keeps them by node in ``outcomes_classes``
-    and ``reusable_classes``, and a run is written with them. So a run written and the run read back from it use the
-    same classes. Each class's name ends with the graph's fingerprint.
+    the node's outputs. It also gets a subclass of ``SavedReusable`` with the same fields, and ``item_indexes``.
+    Nodes whose outputs have the same names and types share both classes. The codec keeps them by node in
+    ``outcomes_classes`` and ``reusable_classes``, and a run is written with them. So a run written and the run read
+    back from it use the same classes. Each class's name ends with the graph's fingerprint.
 
     Args:
         fingerprint: The graph's fingerprint.

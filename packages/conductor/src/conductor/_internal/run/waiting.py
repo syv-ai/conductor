@@ -37,11 +37,11 @@ class Waiting(ConductorModel):
             index of each item the call is for, then ``~`` and a fingerprint of the call. That is a hash of the
             fingerprint reuse matches calls by, taken when the call was made, and of the node's code fingerprint now
             (``BlueprintFunctionNode.code_fingerprint`` says what that covers). So it covers the node's code, the
-            call's inputs and its item in every loop it is inside, not the ``Ask``'s prompt, choices or default. Inside a subgraph, the
-            subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If any of those change, the
-            call may ask something else, so the old id stops matching. An answer to it is refused with
-            ``answer_stale``. A call whose inputs or items JSON can't write has no fingerprint, and its id is the
-            call alone: ``"approve@1"``.
+            call's inputs and its item in every loop it is inside, not the ``Ask``'s prompt, choices or default.
+            Inside a subgraph, the subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If any
+            of those change, the call may ask something else, so the old id stops matching. An answer to it is
+            refused with ``answer_stale``. A call whose inputs or items JSON can't write has no fingerprint, and its
+            id is the call alone: ``"approve@1"``.
         loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
             that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
             subgraph node and its item come first: ``("review", 0, "approve", 1)``.

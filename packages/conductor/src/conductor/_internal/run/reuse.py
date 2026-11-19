@@ -224,8 +224,8 @@ def call_fingerprint(
     length keep their own answers.
 
     The scheduler takes it once, when the call is made, and the call's ``Done`` or ``Unanswered`` keeps it. A
-    waiting call's id is made from it (``question_fingerprint``). The hash sorts the keys of every dict, so a dict read back from a database with its keys in another order
-    hashes the same as before it was saved.
+    waiting call's id is made from it (``question_fingerprint``). The hash sorts the keys of every dict, so a dict
+    read back from a database with its keys in another order hashes the same as before it was saved.
 
     Args:
         node: The node.

@@ -144,9 +144,9 @@ def _outcomes_by_call_number(
     return [of_node.get(item_indexes) for item_indexes in outcomes.item_indexes(node.loops)[0]]
 
 
-def saved_outcomes(
-    saved_class: type[SavedOutcomes], outputs: Mapping[str, Field], outcomes: list[Outcome | None]
-) -> SavedOutcomes:
+def saved_outcomes[S: SavedOutcomes](
+    saved_class: type[S], outputs: Mapping[str, Field], outcomes: list[Outcome | None]
+) -> S:
     """Returns the outcomes of one node the way a saved run writes them: a list per output, with an entry per call.
 
     ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
@@ -243,8 +243,8 @@ def saved_reusable(
             outcomes.append(done)
     for left in reusable.reused_in_item_order.get(path, {}).values():
         outcomes.extend(left)
-    return saved_class.model_construct(
-        **{**dict(saved_outcomes(saved_class, outputs, outcomes)), "item_indexes": item_indexes}
+    return saved_outcomes(saved_class, outputs, outcomes).model_copy(
+        update={"item_indexes": item_indexes}
     )
 
 

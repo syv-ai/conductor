@@ -173,6 +173,8 @@ class Unanswered:
         default_factory=dict
     )
     defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
+    # Required when an Unanswered is made. Pydantic's default is only for a question read from a saved run, whose
+    # JSON leaves the fingerprint out: read.py puts the one from the node's fingerprints list in its place.
     fingerprint: Annotated[str | None, PydanticField(exclude=True, default=None)] = (
         dataclasses.field(kw_only=True)
     )

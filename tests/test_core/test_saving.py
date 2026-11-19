@@ -2038,6 +2038,10 @@ def ok_word(word: str) -> bool:
             "outcomes.upper",
             lambda s: s["outcomes"]["upper"].__setitem__("fingerprints", []),
         ),  # not one fingerprint per call
+        (
+            "outcomes.upper",
+            lambda s: s["outcomes"]["upper"]["states"].__setitem__(0, "skipped"),
+        ),  # a skipped call keeps the fingerprint of a call that was made
         ("complete.0", lambda s: s.__setitem__("complete", ["nowhere"])),
         (
             "reusable.ok",
