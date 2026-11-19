@@ -534,10 +534,18 @@ def costs_nothing_takes_context() -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def default_invalid(*, default: str, type: str, reason: str) -> str:
+def default_invalid(
+    *,
+    default: str,
+    type: str,
+    reason: str,
+    errors: list[dict[str, Any]],
+    column: str | None = None,
+) -> str:
     """An input's default isn't a value of its type, or can't be written as JSON.
 
-    An editor shows the default, and a saved graph stores it, both as JSON.
+    An editor shows the default, and a saved graph stores it, both as JSON. ``ctx.reason`` and ``ctx.errors`` say what
+    the type refused, as they do for ``invalid_value``.
 
     To fix it, give a default of the input's type that can be written as JSON.
 
@@ -545,6 +553,8 @@ def default_invalid(*, default: str, type: str, reason: str) -> str:
         default: The default, as Python writes it.
         type: The input's type.
         reason: Why the type refuses it, or why it can't be written as JSON.
+        errors: pydantic's list of what it refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
+        column: For a table, the column of the first value refused.
 
     Example:
         def counted(number: int = "many") -> int:  # type: ignore[assignment]

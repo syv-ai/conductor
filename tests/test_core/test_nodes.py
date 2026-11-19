@@ -316,7 +316,11 @@ def test_a_default_its_type_cannot_read_fails_where_it_is_written():
 
     with pytest.raises(NodeDeclarationError, match="'x'|x:") as raised:
         declared(f)
-    assert raised.value.problems[0].type == "default_invalid"
+    (problem,) = raised.value.problems
+    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+        "default_invalid",
+        [("int_type", [])],
+    )
 
 
 def test_a_default_outside_its_own_bounds_fails_where_it_is_written():
@@ -325,7 +329,18 @@ def test_a_default_outside_its_own_bounds_fails_where_it_is_written():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.problems[0].type == "default_invalid"
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx["errors"]) == (
+        "default_invalid",
+        [
+            {
+                "type": "greater_than_equal",
+                "loc": [],
+                "msg": "Input should be greater than or equal to 0",
+                "ctx": {"ge": 0},
+            }
+        ],
+    )
 
 
 def test_a_series_default_is_checked_against_the_limits_of_each_item():
@@ -334,7 +349,11 @@ def test_a_series_default_is_checked_against_the_limits_of_each_item():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.problems[0].type == "default_invalid"
+    (problem,) = raised.value.problems
+    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+        "default_invalid",
+        [("greater_than_equal", [1])],
+    )
 
 
 def test_an_unknown_param_argument_is_pythons_own_type_error():

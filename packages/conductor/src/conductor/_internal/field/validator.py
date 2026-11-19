@@ -114,7 +114,7 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
             declaration_problems.default_none_not_taken()
             if default is None
             else declaration_problems.default_invalid(
-                default=repr(default), type=whole.id, reason=whole.refusal(error)["reason"]
+                default=repr(default), type=whole.id, **whole.refusal(error)
             )
         )
         raise NodeDeclarationError(refused, name) from None
