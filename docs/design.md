@@ -459,8 +459,10 @@ Each validator lives in the package of what it checks, in its `validator.py`, an
 anywhere else is refused at import. A rule that holds for every type, like "a yes or no isn't a number", is built into
 each type's schema once, so `True` is refused for an `int` input, a list item and a table cell alike.
 
-A validator costs a run as little as it can. A value already exactly of a plain class skips pydantic, and an edge
-whose source already fits isn't checked at all.
+A validator costs a run as little as it can. A value already exactly of one of Python's own classes, such as `str`,
+skips pydantic, and an edge whose source already fits isn't checked at all. A value of a host's class always goes
+through its class's check, since its constructor may check nothing; for a model or a dataclass, pydantic's check is
+that the value is one.
 
 ```python
 from typing import Annotated

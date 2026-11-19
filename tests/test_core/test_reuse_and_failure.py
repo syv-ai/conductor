@@ -736,6 +736,64 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
     assert len(calls) == 2
 
 
+class Colour:
+    """A host's value pydantic can write only by its own class's schema, as pydantic-extra-types' ``Color`` is."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Colour) and other.name == self.name
+
+    __hash__ = None  # type: ignore[assignment]
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        from pydantic_core import core_schema
+
+        from_text = core_schema.no_info_after_validator_function(cls, core_schema.str_schema())
+        return core_schema.json_or_python_schema(
+            json_schema=from_text,
+            python_schema=core_schema.union_schema(
+                [core_schema.is_instance_schema(cls), from_text]
+            ),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda colour: colour.name
+            ),
+        )
+
+
+host_type("Colour", title="Colour")(Colour)
+
+
+def test_a_value_written_by_its_own_class_is_hashed_by_it_and_reused():
+    """A call's arguments are written by their class's own schema to be hashed, as a value is written everywhere
+    else, so a call given a ``Colour`` again is reused, and an asking call's id ends with its fingerprint."""
+    calls: list[str] = []
+
+    @node("paint", title="Paint", description="For a test.")
+    def paint(colour: Colour) -> str:
+        calls.append(colour.name)
+        return colour.name
+
+    @node("pick-shade", title="Pick shade", description="For a test.", asks=True)
+    def pick_shade(colour: Colour) -> str:
+        raise Ask("Which shade?")
+
+    graph = Graph.compile(_record({"p": paint}), registry_of(paint))
+    first = Run.from_json(graph.run({"colour": "red"}).to_json(), graph)
+    first.again({"colour": "red"})
+    first.again({"colour": "blue"})
+    asking = Graph.compile(_record({"s": pick_shade}), registry_of(pick_shade)).run(
+        {"colour": "red"}
+    )
+
+    assert calls == ["red", "blue"]
+    assert graph.run({"colour": "red"}).outputs == {"result": "red"}
+    assert asking.waiting[0].inputs == {"colour": "red"}
+    assert "~" in asking.waiting[0].id
+
+
 def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edited_item_asks_again():
     @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:

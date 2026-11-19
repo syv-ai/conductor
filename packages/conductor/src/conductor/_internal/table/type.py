@@ -15,7 +15,7 @@ import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
-from conductor._internal.types import Type
+from conductor._internal.types import Type, json_by_its_class
 
 from .read import as_saved, column_missing, row_columns, table_schema
 from .write import (
@@ -126,32 +126,33 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         return kind, f"column '{part}': {msg}"
 
 
-def frame_as_json(value: Any) -> Any:
-    """Converts a frame to JSON where no type says it is a table.
+def json_fallback(value: Any) -> Any:
+    """Writes an object pydantic can't write by itself as JSON, where no type says what the value is.
 
-    That happens for a frame in a person's answer a host queues for later (``Run.queued_as_json``), and in the
-    inputs a waiting call shows. The columns are first converted the way a run stores them (``as_saved``).
-    Pydantic's ``to_json`` calls it as its ``fallback`` for a value it can't write itself.
+    That happens for a person's answer a host queues for later (``Run.queued_as_json``), and for the inputs a waiting
+    call shows. A frame is written as a table, its columns first converted the way a run stores them (``as_saved``).
+    Any other object is written by its own class's schema (``json_by_its_class``). Pydantic's ``to_json`` calls it as
+    its ``fallback``.
 
     Raises:
-        TypeError: ``value`` is not a frame. Pydantic's ``to_json`` expects ``fallback`` to raise it for a value it
-            can't write.
+        TypeError: The object can't be written as JSON. Pydantic's ``to_json`` expects ``fallback`` to raise it.
         PydanticCustomError: ``column_not_saved`` if a column would come back changed from a saved run.
     """
     if not isinstance(value, pl.DataFrame):
-        raise TypeError(type(value).__name__)
+        return json_by_its_class(value)
     return written_table(as_saved(value))
 
 
-def frame_to_hash(value: Any) -> Any:
-    """Returns ``{"table": digest}`` to hash in place of a frame a call received.
+def hash_fallback(value: Any) -> Any:
+    """Writes an object pydantic can't write by itself, for a call's arguments to be hashed.
 
-    It is passed to ``to_json`` as ``fallback`` when a call's arguments are hashed. This keeps a large table from
-    being written as JSON for every call that gets it. ``table_digest`` works out each frame's digest once.
+    A frame is written as ``{"table": digest}``. This keeps a large table from being written as JSON for every call
+    that gets it, and ``table_digest`` works out each frame's digest once. Any other object is written by its own
+    class's schema (``json_by_its_class``), as everywhere else. Pydantic's ``to_json`` calls it as its ``fallback``.
 
     Raises:
-        TypeError: ``value`` is not a frame, so it can't be written as JSON.
+        TypeError: The object can't be written as JSON, so the call can't be hashed.
     """
     if not isinstance(value, pl.DataFrame):
-        raise TypeError(type(value).__name__)
+        return json_by_its_class(value)
     return {"table": table_digest(value)}

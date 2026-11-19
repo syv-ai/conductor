@@ -40,16 +40,15 @@ from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerati
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
+    PydanticSerializationError,
     SchemaError,
     SchemaSerializer,
     SchemaValidator,
-    core_schema,
 )
 
 from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
 from conductor._internal.problem import (
     NodeDeclarationError,
-    conductor_error,
     declaration_problems,
     is_conductor_error,
     value_free_errors,
@@ -308,27 +307,10 @@ class Type:
     def output_schema(self) -> CoreSchema:
         """The schema an output of the type is checked by, strictly: what a node returns, or a person's answer.
 
-        It is ``returned_schema`` with conductor's rules added (``with_rules``). A host's class may give its own
-        pydantic schema, and that schema may give back an object of another class. So where the type is made of a
-        host's classes, a value that comes out of pydantic as another class is refused with ``not_its_class``.
+        It is ``returned_schema`` with conductor's rules added (``with_rules``). A value is what the type's own check
+        gives, whatever its class: pydantic's ``EmailStr`` gives a ``str``, and ``AwareDatetime`` a ``datetime``.
         """
-        schema = with_rules(self.returned_schema)
-        exact = self.exact_classes
-        # Conductor's own classes always come out of pydantic as themselves, so there is nothing to check.
-        if all(cls in NAMES for cls in exact):
-            return schema
-        type_id = self.id
-
-        def of_its_class(read: Any) -> Any:
-            if not isinstance(read, exact):
-                raise conductor_error(
-                    "not_its_class",
-                    "its type's own check returned a {got}, not a {type}",
-                    {"got": type(read).__name__, "type": type_id},
-                )
-            return read
-
-        return core_schema.no_info_after_validator_function(of_its_class, schema)
+        return with_rules(self.returned_schema)
 
     @functools.cached_property
     def output_validator(self) -> SchemaValidator:
@@ -346,20 +328,14 @@ class Type:
         A value whose class is exactly one of these needs no checking. ``Type(str)`` gives ``(str,)``, and
         ``Type(int | None)`` gives ``(int, type(None))``.
 
-        It is ``()`` when every value has to be checked. That is when an option of the type isn't a plain class
-        (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``, a ``Series`` or a table), or when the type has a
-        limit, choices or other metadata.
+        Only conductor's own classes (``NAMES``) are trusted this way, since every value of one is a value of its
+        type. A host's class may make a value its own check refuses, like a ``str`` subclass whose constructor checks
+        nothing, so pydantic checks every value of it. It is ``()`` when any option of the type is not one of
+        conductor's own classes, or when the type has a limit, choices or other metadata.
         """
         options = union_members(self.bare)
-        plain = all(
-            isinstance(option, type)
-            and not typing.is_typeddict(option)
-            and option is not Any
-            and Type(option).item is None
-            and Type(option).row is None
-            for option in options
-        )
-        return options if plain and not self.limited else ()
+        own = all(isinstance(option, type) and option in NAMES for option in options)
+        return options if own and not self.limited else ()
 
     @functools.cached_property
     def limited(self) -> bool:
@@ -717,6 +693,9 @@ class Type:
         ``"Input should be a valid integer, unable to parse string as an integer"``, and one error with the
         ``loc`` ``[1]``.
 
+        A class's own check that refuses a value of exactly that class says so in the ``reason``, since that is a fault
+        in the class's schema, not in the value: a schema must take its own instance.
+
         A ``loc`` keeps list indexes, record fields and table columns. It stops at the first other step, such as a
         dict key, since a key is part of the value. An error in a table's column names the column.
 
@@ -759,10 +738,33 @@ class Type:
             elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
                 columns.append(whole)
                 error_record["loc"] = [whole]
-        refusal = TypeRefusal(reason=value_free[0]["msg"], errors=value_free)
+        refusal = TypeRefusal(
+            reason=self._own_class_refused(pairs[0][1], value_free[0]["msg"], start)
+            or value_free[0]["msg"],
+            errors=value_free,
+        )
         if columns:
             refusal["column"] = columns[0]
         return refusal
+
+    def _own_class_refused(self, first: Any, message: str, start: int) -> str | None:
+        """Returns the reason for a refusal of a value of exactly the type's own class, or ``None`` for any other.
+
+        Say a host's ``Colour`` reads only text, and a node returns ``Colour("red")``. Pydantic's message,
+        "Input should be a valid string", says nothing of the cause: the class's schema doesn't take a ``Colour``. A
+        type with a limit, choices or other metadata may refuse a value of its class, so it is left out, and so is one
+        of conductor's own classes, whose check refuses its own value only by conductor's rules, like an ``inf``.
+
+        Args:
+            first: The first of pydantic's raw errors, with the value it refused in ``input``.
+            message: The same error's message without the value (``value_free_errors``), which the reason quotes,
+                since a host's own check may write the value into its message.
+            start: How many steps of its ``loc`` lead down to the value of this type, as ``refusal``'s ``under``.
+        """
+        refused = type(first.get("input"))
+        if first["loc"][start:] or self.limited or refused in NAMES or refused not in self.options:
+            return None
+        return f"the type's own check refuses a {refused.__name__}, a value of its own class ({message})"
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc``, a list index or a field name, and returns where it leads.
@@ -799,6 +801,25 @@ class Type:
         ``kind`` and ``msg`` as they are.
         """
         return kind, msg
+
+
+def json_by_its_class(value: Any) -> JsonValue:
+    """Writes an object as JSON by its own class's schema, where pydantic can't write it by itself.
+
+    Pydantic writes a value it is handed without knowing its type. An object whose class gives its own schema, such
+    as pydantic-extra-types' ``Color``, can only be written by that schema. Every place that writes or hashes a value
+    no type is known for passes this, or a function that calls it, as pydantic's ``fallback``, so such an object is
+    written one way everywhere: a value read from its JSON, a call's arguments hashed to reuse it, and the inputs a
+    waiting call shows.
+
+    Raises:
+        TypeError: The object's class has no schema that writes it. Pydantic expects a ``fallback`` to raise it.
+    """
+    try:
+        return Type(type(value)).to_json(value)
+    # a class pydantic has no schema for, or whose schema can't write it
+    except (NodeDeclarationError, PydanticSerializationError):
+        raise TypeError(type(value).__name__) from None
 
 
 def _check_annotated_types(bare: Any, others: tuple[Any, ...]) -> None:

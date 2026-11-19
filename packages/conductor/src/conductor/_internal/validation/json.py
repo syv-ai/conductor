@@ -27,9 +27,9 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import finite_json_text, validate_as_json
-from conductor._internal.problem import NodeDeclarationError, conductor_error
-from conductor._internal.table import TableType, frame_as_json
-from conductor._internal.types import Type
+from conductor._internal.problem import conductor_error
+from conductor._internal.table import TableType, json_fallback
+from conductor._internal.types import Type, json_by_its_class
 
 
 def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
@@ -128,9 +128,7 @@ def json_data(value: Any) -> Any:
         return validate_as_json(
             Type(Any).output_validator,
             value,
-            fallback=lambda part: (
-                frame_as_json(part) if isinstance(part, pl.DataFrame) else _written(part)
-            ),
+            fallback=json_fallback,
         )
     except PydanticSerializationError:
         raise no_json_form() from None
@@ -190,8 +188,8 @@ def _parts(value: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]:
 
 
 def _written(value: Any) -> Any:
-    """Writes an object pydantic can't write by itself, by its own class's schema: what ``to_json`` calls as its
-    ``fallback`` here.
+    """Writes an object pydantic can't write by itself, by its own class's schema (``json_by_its_class``): what
+    ``to_json`` calls as its ``fallback`` here.
 
     Raises:
         PydanticCustomError: ``no_json_form`` for a frame, which is a value only where the type is a table.
@@ -202,8 +200,4 @@ def _written(value: Any) -> Any:
             "no_json_form",
             "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of records",
         )
-    try:
-        return Type(type(value)).to_json(value)
-    # a class pydantic has no schema for, or whose schema can't write it
-    except (NodeDeclarationError, PydanticSerializationError):
-        raise TypeError(type(value).__name__) from None
+    return json_by_its_class(value)

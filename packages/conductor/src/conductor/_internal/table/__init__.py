@@ -18,15 +18,15 @@ It always reaches the node as a frame with exactly the columns ``R`` names. The 
 """
 
 from .read import check_table_row, is_bare_table_row
-from .type import Table, TableType, frame_as_json, frame_to_hash
+from .type import Table, TableType, hash_fallback, json_fallback
 from .write import written_columns
 
 __all__ = [
     "Table",
     "TableType",
     "check_table_row",
-    "frame_as_json",
-    "frame_to_hash",
+    "hash_fallback",
     "is_bare_table_row",
+    "json_fallback",
     "written_columns",
 ]

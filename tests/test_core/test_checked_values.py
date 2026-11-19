@@ -158,14 +158,20 @@ class Shape(dict):  # type: ignore[type-arg]
 
 @host_type("Square", title="Square")
 class Square(Shape):
-    """A type whose own check lets any ``Shape`` through unchanged, so it accepts values that aren't a ``Square``."""
+    """A type whose own check takes any mapping with a ``side`` and gives it back as it is, so its values are never
+    of the class ``Square``, as pydantic's ``EmailStr`` gives a ``str``."""
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
-        return core_schema.no_info_plain_validator_function(lambda value: value)
+        def with_a_side(value: Any) -> Any:
+            if not isinstance(value, dict) or "side" not in value:
+                raise PydanticCustomError("no_side", "a square has a side")
+            return value
+
+        return core_schema.no_info_plain_validator_function(with_a_side)
 
 
-def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
+def test_an_answer_is_what_its_types_own_check_gives_whatever_its_class():
     @node("square", title="Square", description="For a test.", asks=True)
     def square() -> Square:
         raise Ask("Which square?")
@@ -179,15 +185,17 @@ def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
         ),
         registry_of(square),
     ).run()
-    with pytest.raises(InvalidCallError) as refused:
-        waiting.with_answers(waiting.waiting[0].id, {"side": 2})
+    answered = waiting.with_answers(waiting.waiting[0].id, {"side": 2}).resume()
 
+    assert (answered.status, answered.outputs) == ("complete", {"result": {"side": 2}})
+    with pytest.raises(InvalidCallError) as refused:
+        waiting.with_answers(waiting.waiting[0].id, {"corner": 2})
     assert [(p.type, p.ctx["reason"]) for p in refused.value.problems] == [
-        ("invalid_answer", "its type's own check returned a dict, not a Square")
+        ("invalid_answer", "The value did not pass its type's own check")
     ]
 
 
-def test_an_asks_choice_is_checked_against_its_types_own_class_as_an_answer_is():
+def test_an_asks_choice_is_what_its_types_own_check_gives_as_an_answer_is():
     @node("square", title="Square", description="For a test.", asks=True)
     def square() -> Square:
         raise Ask("Which square?", choices=[{"side": 2}])
@@ -201,17 +209,98 @@ def test_an_asks_choice_is_checked_against_its_types_own_class_as_an_answer_is()
         ),
         registry_of(square),
     ).run()
-    assert (run.cause.type, run.cause.ctx["reason"]) == (
-        "invalid_ask",
-        "the choices for 'result' are wrong (its type's own check returned a dict, not a Square)",
+
+    assert run.status == "waiting"
+    assert [choice.id for choice in run.waiting[0].questions[0].choices] == [{"side": 2}]
+
+
+def test_a_value_its_types_own_check_gives_as_another_class_is_returned_saved_and_read_back():
+    run = _returning(Shape(side=2), Square)
+
+    assert (run.status, run.outputs) == ("complete", {"result": {"side": 2}})
+    assert Run.from_json(run.to_json(), run.graph).outputs == {"result": {"side": 2}}
+
+
+@host_type("Shout", title="Shout")
+class Shout(str):
+    """A host's ``str`` subclass whose own check takes only capitals, while its constructor checks nothing."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        def capitals(value: str) -> str:
+            if not value.isupper():
+                raise PydanticCustomError("not_shouted", "a shout is in capitals")
+            return cls(value)
+
+        return core_schema.no_info_after_validator_function(capitals, core_schema.str_schema())
+
+
+def test_a_hosts_class_built_by_hand_is_still_checked_by_its_own_check():
+    """A value of exactly a host's class is checked like any other, since its constructor may check nothing: a run
+    that kept ``Shout("hi")`` as it is could not be read back."""
+    refused = _returning(Shout("hi"), Shout)
+    taken = _returning(Shout("HI"), Shout)
+
+    assert (refused.status, refused.cause.type, refused.cause.ctx["errors"][0]["type"]) == (
+        "failed",
+        "invalid_output",
+        "not_shouted",
+    )
+    assert type(taken.outputs["result"]) is Shout
+    assert Run.from_json(taken.to_json(), taken.graph).outputs == {"result": "HI"}
+
+
+@host_type("Hue", title="Hue")
+class Hue:
+    """A host's class whose own schema reads only text, so it refuses a ``Hue`` itself."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        return core_schema.no_info_after_validator_function(cls, core_schema.str_schema())
+
+
+def test_a_class_whose_own_schema_refuses_its_own_value_cant_be_returned_and_the_reason_says_so():
+    """What a node returns is checked by its type's own schema, so a schema must take a value of its own class, as
+    pydantic asks; the reason names that fault, since pydantic's own message speaks only of text."""
+    run = _returning(Hue("red"), Hue)
+
+    assert (run.status, run.cause.type, run.cause.ctx["errors"][0]["type"]) == (
+        "failed",
+        "invalid_output",
+        "string_type",
+    )
+    assert run.cause.ctx["reason"] == (
+        "the type's own check refuses a Hue, a value of its own class (Input should be a valid string)"
     )
 
 
-def test_a_type_whose_own_check_does_not_give_the_type_fails_the_node_naming_the_type():
-    run = _returning(Shape(side=2), Square)
+@host_type("Tint", title="Tint")
+class Tint:
+    """A host's class whose own check refuses every value and writes the value into its message."""
 
-    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_output", ("g",))
-    assert "Square" in run.cause.ctx["reason"]
+    def __repr__(self) -> str:
+        return f"Tint({SECRET})"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        def unread(value: Any) -> Any:
+            raise ValueError(f"cannot read {value!r}")
+
+        return core_schema.no_info_plain_validator_function(unread)
+
+
+def test_the_reason_for_a_refused_value_of_its_own_class_quotes_nothing_of_the_value():
+    """The reason quotes the error's message without the value, as every refusal does, since a host's check may write
+    the value into its own message."""
+    run = _returning(Tint(), Tint)
+
+    assert run.cause.ctx["reason"] == (
+        "the type's own check refuses a Tint, a value of its own class (The value did not pass its type's own check)"
+    )
+    assert SECRET not in run.cause.msg
 
 
 @dataclass(frozen=True)
@@ -431,13 +520,9 @@ class Squares:
 
 
 def test_an_output_of_several_is_refused_as_its_own_type_says_naming_the_output():
-    run = _returning(Squares(Shape(side=2), [{"item": "a", "amount": 1}]), Squares)  # type: ignore[arg-type]
+    run = _returning(Squares(Shape(corner=2), [{"item": "a", "amount": 1}]), Squares)  # type: ignore[arg-type]
 
-    assert (run.cause.ctx["output"], run.cause.ctx["errors"][0]["type"]) == (
-        "first",
-        "not_its_class",
-    )
-    assert run.cause.ctx["reason"] == "its type's own check returned a Shape, not a Square"
+    assert (run.cause.ctx["output"], run.cause.ctx["errors"][0]["type"]) == ("first", "no_side")
     run = _returning(
         Squares(Square(side=2), pl.DataFrame({"item": ["a"], "amount": [1.5]})), Squares
     )  # type: ignore[arg-type]

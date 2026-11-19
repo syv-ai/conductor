@@ -290,7 +290,7 @@ print(domain(Email("ida@a.dk")))        # a.dk
 print(domain.describe().inputs[0].type)  # email
 ```
 
-A value is checked as the builtin and then turned into your class, so a check you write in `__new__` runs. A class that needs another way to be checked or written as JSON can define `__get_pydantic_core_schema__`, and `@host_type` leaves that alone.
+A value is checked as the builtin and then turned into your class, so a check you write in `__new__` runs. A class that needs another way to be checked or written as JSON can define `__get_pydantic_core_schema__`, and `@host_type` leaves that alone. That schema must take a value of your class itself, not only its JSON form, since what a node returns is checked by it.
 
 ### A type that takes another
 
