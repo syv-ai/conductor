@@ -510,8 +510,37 @@ def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_w
     assert (cause.type, cause.ctx["reason"]) == (
         "invalid_ask",
         "the choices for 'result' are wrong ("
-        + ("none is given" if not choices else "one is given twice")
+        + (
+            "List should have at least 1 item after validation, not 0"
+            if not choices
+            else "a choice is given twice"
+        )
         + ")",
+    )
+
+
+@pytest.mark.parametrize(
+    ("choices", "reason"),
+    [
+        ("ab", "Input should be a valid list"),
+        ({"a", "b"}, "a set has no order, so its items could come in a different order each time"),
+        (iter(["a"]), "Input should be a valid list"),
+    ],
+    ids=["text", "a set", "an iterator"],
+)
+def test_an_asks_choices_are_a_list_so_text_a_set_or_an_iterator_is_refused(
+    choices: Any, reason: str
+) -> None:
+    """Text is not a list of its letters, a set has no order, and an iterator is used up once it is read."""
+
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick() -> str:
+        raise Ask("Which?", choices=choices)
+
+    cause = _once(pick)[1].cause
+    assert (cause.type, cause.ctx["reason"]) == (
+        "invalid_ask",
+        f"the choices for 'result' are wrong ({reason})",
     )
 
 
@@ -532,7 +561,7 @@ def test_two_dict_choices_with_their_keys_in_another_order_are_one_choice_given_
     cause = _once(pick)[1].cause
     assert (cause.type, cause.ctx["reason"]) == (
         "invalid_ask",
-        "the choices for 'result' are wrong (one is given twice)",
+        "the choices for 'result' are wrong (a choice is given twice)",
     )
 
 
@@ -1316,17 +1345,20 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         (
             lambda: Ask("?", choices=["a", object()]),
-            "the choices for 'result' are wrong (one can't be written as JSON)",
+            "the choices for 'result' are wrong (the value can't be written as JSON)",
         ),
         (
             lambda: Ask("?", choices=[Choice(object(), "Thing")]),
-            "the choices for 'result' are wrong (one can't be written as JSON)",
+            "the choices for 'result' are wrong (the value can't be written as JSON)",
         ),
         (
             lambda: Ask("?", choices=["a", "a"]),
-            "the choices for 'result' are wrong (one is given twice)",
+            "the choices for 'result' are wrong (a choice is given twice)",
         ),
-        (lambda: Ask("?", choices=[]), "the choices for 'result' are wrong (none is given)"),
+        (
+            lambda: Ask("?", choices=[]),
+            "the choices for 'result' are wrong (List should have at least 1 item after validation, not 0)",
+        ),
         (
             lambda: Ask("?", choices={"result": ["a"]}),
             "the node has one output, so choices= is a list, not a mapping",

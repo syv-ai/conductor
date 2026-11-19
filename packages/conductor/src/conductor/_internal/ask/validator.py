@@ -112,11 +112,11 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                         value_type.to_json,
                         known=value_type.choices or (),
                     )
-                except PydanticCustomError as refused:
+                except ValidationError as refused:
                     raise InvalidCallError(
                         [
                             run_problems.invalid_ask(
-                                reason=f"the choices for '{name}' are wrong ({refused.message()})"
+                                reason=f"the choices for '{name}' are wrong ({value_free_errors(refused)[0]['msg']})"
                             )
                         ]
                     ) from None

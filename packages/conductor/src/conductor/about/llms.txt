@@ -725,7 +725,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - An `Ask` that doesn't fit the outputs fails the node as `invalid_ask`, with `ctx.reason`. That is:
   - a default or choice its type refuses, or a default an answer couldn't be;
   - defaults for two branches of one node, since the defaults fill one answer in;
-  - no choices, or one choice given twice;
+  - choices that aren't a list or a tuple, such as text, a set or an iterator, no choices, or one choice given twice;
   - a name that isn't an output;
   - the one-output form on several outputs, or a `choices` mapping on one output.
 - On one output, a `default` that is a mapping is read as the default value itself, so `default={"result": 1}` on `-> dict` proposes `{"result": 1}`.

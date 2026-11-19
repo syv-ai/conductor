@@ -5,7 +5,8 @@ can offer choices too. Each one is a ``Choice``, an id with a title::
 
     Annotated[str, Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])]
 
-Two steps use them. First, the choices are checked against the type and converted to JSON (``read_choices``).
+Two steps use them. First, the choices are checked against the type and converted to JSON (``choices_schema``,
+which ``read_choices`` checks by).
 Later, each value is checked against the choices. That second step compares JSON texts: ``choice_texts`` gives
 the text of each choice, ``pick_texts`` the text of each value picked, and ``check_one_of`` refuses a pick that
 isn't one of the choices. A message names the choices with ``choices_in_message``.
@@ -13,12 +14,18 @@ isn't one of the choices. A message names the choices with ``choices_in_message`
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence, Set
 from enum import Enum
 from typing import Any
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
-from pydantic_core import PydanticCustomError, PydanticSerializationError, SchemaValidator
+from pydantic_core import (
+    CoreSchema,
+    PydanticKnownError,
+    PydanticSerializationError,
+    SchemaValidator,
+    core_schema,
+)
 
 from conductor._internal.base import (
     ConductorModel,
@@ -30,11 +37,9 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
     no_json_form,
+    set_has_no_order,
     value_free_errors,
 )
-
-#: Why a list of choices is refused when one of them can't be written as JSON.
-_ONE_HAS_NO_JSON_FORM = "one can't be written as JSON"
 
 
 class Choice(ConductorModel):
@@ -70,70 +75,101 @@ class Choice(ConductorModel):
         super().__init__(**fields)
 
 
-def read_choices(
-    given: Iterable[Any],
+def choices_schema(
     read: Callable[[Any], Any],
     write: Callable[[Any], JsonValue],
     known: Iterable[Choice] = (),
-) -> tuple[Choice, ...]:
-    """Checks the choices of a type, and returns them with each id in its JSON form.
+) -> CoreSchema:
+    """Builds the pydantic schema that checks a list of choices of one type, and gives them back with each id in its
+    JSON form.
 
-    Each id is checked by ``read``, strictly, the way its JSON text would be. Then ``write`` turns it back into
-    JSON. A bare value that is the id of a ``known`` choice becomes that choice, title and all. Any other bare value becomes a ``Choice`` titled by its text, and an enum member by its id's text
-    (``"red"`` for ``Color.RED``, ``"1"`` for a member whose value is 1). A ``Choice`` keeps its class and all its
-    fields.
+    The choices are a list or a tuple, with at least one choice. Each id is checked by ``read``, strictly, the way its
+    JSON text would be. Then ``write`` turns it back into JSON. A bare value that is the id of a ``known`` choice
+    becomes that choice, title and all. Any other bare value becomes a ``Choice`` titled by its text, and an enum
+    member by its id's text (``"red"`` for ``Color.RED``, ``"1"`` for a member whose value is 1). A ``Choice`` keeps
+    its class and all its fields.
 
-    For a ``float``, ``read_choices([1, Choice(2, "Two")], read, write)`` gives
-    ``(Choice(1.0, "1"), Choice(2.0, "Two"))``.
+    For a ``float``, the schema reads ``[1, Choice(2, "Two")]`` as ``(Choice(1.0, "1"), Choice(2.0, "Two"))``.
 
     Two ids are the same choice when their JSON texts match (``choice_texts``). So ``{"a": 1, "b": 2}`` and
     ``{"b": 2, "a": 1}`` are one choice given twice, which is refused.
 
-    The caller's ``read`` decides the rules. ``Param`` reads by its own type, limits included
-    (``validate_as_json``). The ``Ask`` validator reads by the output's type as an answer is read
-    (``read_as_json``), so a choice a person couldn't give, such as ``inf``, is refused.
+    The caller's ``read`` decides the rules. ``Param`` reads by its own type, limits included. The ``Ask`` validator
+    reads by the output's type as an answer is read (``read_as_json``), so a choice a person couldn't give, such as
+    ``inf``, is refused.
 
     Args:
-        given: The choices as a developer or a node gave them, each a value or a ``Choice``.
-        read: Reads one id by the type the choices are values of, raising pydantic's ``ValidationError`` for one
-            the type refuses, ``no_json_form`` among them.
+        read: Checks one id by the type the choices are values of, raising pydantic's ``ValidationError`` for one
+            the type refuses.
         write: Converts a value ``read`` gave back to JSON.
         known: Choices already read, which a bare value given by its id stands for. An ``Ask`` passes its
             output's own choices, so a bare ``"ida"`` is the ``Choice("ida", "Ida B.")`` the output's type gives.
 
-    Raises:
-        PydanticCustomError: ``no_json_form`` if an id can't be written as JSON. ``not_its_type`` if an id isn't
-            a value of the type; its message is the type's reason, which quotes no value. ``no_choices`` if the
-            list is empty. ``choice_twice`` if an id is given twice.
+    Returns:
+        A schema whose errors are pydantic's. An error of one choice has the choice's index first in its ``loc``,
+        then the steps of ``read``'s own error: the type's refusal, or ``no_json_form`` if the id can't be written as
+        JSON. An error of the whole list has the ``loc`` ``()``: ``set_has_no_order`` for a set, ``list_type`` for
+        anything else that isn't a list or a tuple, text included, ``too_short`` for no choices, and
+        ``choice_twice`` for an id given twice.
     """
     known_by_text = {canonical_json(choice.id): choice for choice in known}
-    chosen: list[Choice] = []
-    try:
-        for choice in given:
+
+    def a_list(given: Any) -> Any:
+        if isinstance(given, Set):
+            raise set_has_no_order()
+        if isinstance(given, str | bytes) or not isinstance(given, Sequence):
+            raise PydanticKnownError("list_type")
+        return given
+
+    def one(choice: Any) -> Choice:
+        try:
             if isinstance(choice, Choice):
-                written = write(read(choice.id))
-                chosen.append(choice.model_copy(update={"id": written}))
-            else:
-                written = write(read(choice))
-                chosen.append(
-                    known_by_text.get(
-                        canonical_json(written),
-                        Choice(written, str(written) if isinstance(choice, Enum) else str(choice)),
-                    )
-                )
-    except PydanticSerializationError:
-        raise no_json_form(_ONE_HAS_NO_JSON_FORM) from None
-    except ValidationError as refused:
-        first = value_free_errors(refused)[0]
-        # ``read`` refused it as no JSON could hold it, which is said of one choice among the rest
-        if first["type"] == "no_json_form":
-            raise no_json_form(_ONE_HAS_NO_JSON_FORM) from None
-        raise conductor_error("not_its_type", first["msg"]) from None
-    if not chosen:
-        raise conductor_error("no_choices", "none is given")
-    if len(choice_texts(chosen)) != len(chosen):
-        raise conductor_error("choice_twice", "one is given twice")
-    return tuple(chosen)
+                return choice.model_copy(update={"id": write(read(choice.id))})
+            written = write(read(choice))
+        except PydanticSerializationError:
+            raise no_json_form() from None
+        return known_by_text.get(
+            canonical_json(written),
+            Choice(written, str(written) if isinstance(choice, Enum) else str(choice)),
+        )
+
+    def each_once(chosen: list[Choice]) -> tuple[Choice, ...]:
+        if len(choice_texts(chosen)) != len(chosen):
+            raise conductor_error("choice_twice", "a choice is given twice")
+        return tuple(chosen)
+
+    return core_schema.no_info_before_validator_function(
+        a_list,
+        core_schema.no_info_after_validator_function(
+            each_once,
+            core_schema.list_schema(
+                core_schema.no_info_plain_validator_function(one), min_length=1
+            ),
+        ),
+    )
+
+
+def read_choices(
+    given: Any,
+    read: Callable[[Any], Any],
+    write: Callable[[Any], JsonValue],
+    known: Iterable[Choice] = (),
+) -> tuple[Choice, ...]:
+    """Checks the choices of a type by ``choices_schema``, and returns them with each id in its JSON form.
+
+    Args:
+        given: The choices as a developer or a node gave them, each a value or a ``Choice``.
+        read: As ``choices_schema`` takes it.
+        write: As ``choices_schema`` takes it.
+        known: As ``choices_schema`` takes it.
+
+    Raises:
+        ValidationError: ``choices_schema``'s errors.
+    """
+    chosen: tuple[Choice, ...] = SchemaValidator(
+        choices_schema(read, write, known)
+    ).validate_python(given)
+    return chosen
 
 
 def declared_choices(
@@ -155,7 +191,8 @@ def declared_choices(
     A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
 
     Raises:
-        NodeDeclarationError: ``choices_invalid``, or ``choices_invalid_no_json_form`` or ``choices_invalid_not_a_value`` when one fits.
+        NodeDeclarationError: ``choices_invalid_no_json_form`` when a choice can't be written as JSON,
+            ``choices_invalid_not_a_value`` when the type refuses one, else ``choices_invalid``.
     """
 
     def read(value: Any) -> Any:
@@ -164,15 +201,16 @@ def declared_choices(
 
     try:
         return read_choices(given, read, write)
-    except PydanticCustomError as refused:
-        match refused.type:
-            case "no_json_form":
-                problem = declaration_problems.choices_invalid_no_json_form()
-            case "not_its_type":
-                problem = declaration_problems.choices_invalid_not_a_value(reason=refused.message())
-            case _:  # no choices, or an id given twice
-                problem = declaration_problems.choices_invalid()
-        raise NodeDeclarationError(problem) from None
+    except ValidationError as refused:
+        faults = list(zip(refused.errors(), value_free_errors(refused), strict=True))
+    if any(raw["type"] == "no_json_form" for raw, _ in faults):
+        problem = declaration_problems.choices_invalid_no_json_form()
+    # an error of one choice has its index first in its loc; one of the whole list has none
+    elif refused_choice := next((free for raw, free in faults if raw["loc"]), None):
+        problem = declaration_problems.choices_invalid_not_a_value(reason=refused_choice["msg"])
+    else:
+        problem = declaration_problems.choices_invalid()
+    raise NodeDeclarationError(problem) from None
 
 
 def choice_texts(choices: Iterable[Choice]) -> frozenset[str]:
