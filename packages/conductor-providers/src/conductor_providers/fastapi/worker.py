@@ -117,8 +117,11 @@ class Worker(Generic[M, X]):
 
     @property
     def nodes_for(self) -> Callable[[M], NodeRegistry[X]]:
-        """The function that gives the registry for a run's metadata, as given; ``/nodes`` describes it and
-        ``/compile`` compiles on it."""
+        """The function that gives the registry for a run's metadata.
+
+        It is the ``nodes_for`` the worker was made with. ``/nodes`` describes what it gives, and ``/compile``
+        compiles on it. It is read-only: make a new worker to give it another.
+        """
         return self._settings.nodes_for
 
     # -- what a host calls ------------------------------------------------------------------------
