@@ -2762,6 +2762,8 @@ def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_
 
 
 _WRITTEN_AND_COMPILED_IN_ANOTHER_PROCESS = """
+from typing import Literal
+
 from conductor import Graph, InvalidCallError, NodeRegistry, make_graph, node
 
 @node("number", title="Number", description="For a test.")
@@ -2795,6 +2797,16 @@ record = make_graph(
 )
 print(record.model_dump_json())
 print(Graph.compile(record, registry).describe().nodes["either"].outputs[0].type)
+
+@node("one", title="One", description="For a test.")
+def one(value: Literal[1, True]) -> str:
+    return "a"
+
+@node("yes", title="Yes", description="For a test.")
+def yes(value: Literal[True, 1]) -> str:
+    return "a"
+
+print([[choice.id for choice in d.describe().inputs[0].choices] for d in (one, yes)])
 try:
     make_graph(("x", text), ("y", either), ("z", either), edges=[], defaults={"y.e": "1", "z.e": "2"})
 except InvalidCallError as refused:
@@ -2808,21 +2820,25 @@ def test_make_graph_writes_and_compiles_a_graph_the_same_in_every_process():
     A type variable on two inputs binds the union in the order its inputs are declared, even while an equal union
     written the other way, like ``str | int`` for ``int | str``, is in use. A problem lists its places in the
     order they were given.
+
+    ``Literal[1, True]`` and ``Literal[True, 1]`` are equal, since ``1 == True``, and each keeps its own choices.
     """
-    written = {
+    finished = [
         subprocess.run(
             [sys.executable, "-c", _WRITTEN_AND_COMPILED_IN_ANOTHER_PROCESS],
             env={**os.environ, "PYTHONHASHSEED": seed},
             capture_output=True,
             text=True,
-            check=True,
-        ).stdout
+        )
         for seed in ("1", "2", "3")
-    }
+    ]
+    assert [process.returncode for process in finished] == [0, 0, 0], finished[0].stderr
+    written = {process.stdout for process in finished}
     assert len(written) == 1
-    record, union, problem = written.pop().splitlines()
+    record, union, choices, problem = written.pop().splitlines()
     assert list(json.loads(record)["nodes"]["either"]["inputs"]) == ["a", "b", "c", "d", "e"]
     assert union == "int | str"
+    assert choices == "[[1, True], [True, 1]]"
     assert "'inputs': ['y.e', 'z.e']" in problem
 
 

@@ -161,16 +161,16 @@ def make_graph(
     )
     default_of |= _own_defaults(definitions, graph_input_of, arguments["inputs"], default_of.keys())
     given = dict.fromkeys([*constant_of, *default_of, *sources_of, *graph_input_of])
-    # each node's inputs in the order the node declares them, then any it doesn't declare, such as one a hook adds,
-    # in the order they were given
     declared_inputs = [
         (node_id, name)
         for node_id, definition in definitions.items()
         for name in definition.input_names
-        if (node_id, name) in given
     ]
+    declared_at = {place: position for position, place in enumerate(declared_inputs)}
     entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in definitions}
-    for place in dict.fromkeys([*declared_inputs, *given]):
+    # each node's inputs in the order the node declares them, then any it doesn't declare, such as one a hook adds,
+    # in the order they are gathered here: constants, defaults, edges, then graph inputs
+    for place in sorted(given, key=lambda place: declared_at.get(place, len(declared_at))):
         node_id, name = place
         entries[node_id][name] = (
             InputEntry.model_construct(  # built unchecked; the record validator below checks it, an entry of two kinds too
