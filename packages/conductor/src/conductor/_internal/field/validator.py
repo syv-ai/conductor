@@ -269,12 +269,13 @@ def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
 def _bytes_read_as_text(
     hint: Any, reading_as_text: tuple[str, str] | None = None, walked: frozenset[int] = frozenset()
 ) -> tuple[str, str] | None:
-    """Finds a ``bytes`` field that a host's pydantic model or pydantic dataclass in ``hint`` reads as text.
+    """Finds a ``bytes`` field that a class in ``hint`` with a pydantic config of its own reads as text.
 
-    Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A pydantic model and a pydantic dataclass
-    read and write their fields by their own config instead, and pydantic's default config takes bytes as text. A
-    ``TypedDict`` or a plain dataclass inside such a class takes the class's config, so its bytes are read as text
-    too. A model inside another model takes its own.
+    Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A pydantic model, a pydantic dataclass, and
+    a ``TypedDict`` or a plain dataclass given a config with pydantic's ``with_config``, read and write their fields
+    by their own config instead, and a config that doesn't set the bytes takes them as text. A ``TypedDict`` or a
+    plain dataclass with no config of its own takes the config it sits in. A class inside another with a config of
+    its own takes its own.
 
     Say ``class Attachment(BaseModel)`` has the field ``data: bytes`` and the default config. Then
     ``list[Attachment]`` gives ``("Attachment", "data")``. With ``ser_json_bytes="base64"`` and
@@ -292,34 +293,36 @@ def _bytes_read_as_text(
         if isinstance(part, type) and issubclass(part, bytes) and reading_as_text is not None:
             return reading_as_text
         cls = get_origin(part) or part
-        if (
-            not isinstance(cls, type)
-            or not dataclasses.is_dataclass(cls)
-            and not issubclass(cls, BaseModel)
-        ):
+        if not isinstance(cls, type) or id(part) in walked:
             continue
-        if id(part) in walked:
-            continue
-        walked |= {id(part)}
+        # a model, and any class pydantic's with_config gave a config, reads its fields by its own config
+        config = (
+            cls.model_config
+            if issubclass(cls, BaseModel)
+            else getattr(cls, "__pydantic_config__", None)
+        )
         if issubclass(cls, BaseModel) or is_pydantic_dataclass(cls):
             # a generic model's fields have its arguments filled in
-            config, fields = (
-                (cls.model_config, cls.model_fields)
-                if issubclass(cls, BaseModel)
-                else (cls.__pydantic_config__, cls.__pydantic_fields__)
-            )
-            as_text = (
-                config.get("ser_json_bytes") != "base64" or config.get("val_json_bytes") != "base64"
-            )
-            for name, info in fields.items():
-                inside = (cls.__name__, name) if as_text else None
-                if (found := _bytes_read_as_text(info.annotation, inside, walked)) is not None:
-                    return found
+            fields = cls.model_fields if issubclass(cls, BaseModel) else cls.__pydantic_fields__
+            hints = {name: info.annotation for name, info in fields.items()}
+        elif dataclasses.is_dataclass(cls) or typing.is_typeddict(cls) and config is not None:
+            hints = typing.get_type_hints(cls, include_extras=True)
         else:
-            # a plain dataclass reads its fields by the config it sits in
-            for field_hint in typing.get_type_hints(cls, include_extras=True).values():
-                if (found := _bytes_read_as_text(field_hint, reading_as_text, walked)) is not None:
-                    return found
+            # hint_parts walks a TypedDict with no config of its own, under the config it sits in
+            continue
+        walked |= {id(part)}
+        as_text = config is not None and (
+            config.get("ser_json_bytes") != "base64" or config.get("val_json_bytes") != "base64"
+        )
+        for name, field_hint in hints.items():
+            inside = None
+            if config is None:
+                # a plain dataclass reads its fields by the config it sits in
+                inside = reading_as_text
+            elif as_text:
+                inside = (cls.__name__, name)
+            if (found := _bytes_read_as_text(field_hint, inside, walked)) is not None:
+                return found
     return None
 
 

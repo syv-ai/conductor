@@ -1417,8 +1417,12 @@ def type_not_supported_bytes_as_text(*, cls: str, field: str) -> str:
     model, such as ``{"data": b"hello"}`` as a run's input or a record's constant, would be written as base64 and
     then read by the model as text: the node would get ``b"aGVsbG8="``.
 
+    A ``TypedDict`` or a plain dataclass given a config with pydantic's ``with_config`` reads its fields by that
+    config too, so it is refused the same way.
+
     To fix it, set ``ser_json_bytes="base64"`` and ``val_json_bytes="base64"`` in the class's config. For a class
-    from a library, declare a subclass of it with that config.
+    from a library, declare a subclass of it with that config, and build the subclass: an instance of the library's
+    class is written by its own config. A library's class nested inside it needs a subclass of its own.
 
     Args:
         cls: The model or pydantic dataclass, by its name.

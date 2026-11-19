@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional, TypedDict
 
@@ -42,7 +43,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import AfterValidator, BaseModel, ConfigDict, TypeAdapter
+from pydantic import AfterValidator, BaseModel, ConfigDict, TypeAdapter, with_config
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
@@ -1109,9 +1110,29 @@ class _BinaryFolder(BaseModel):
     attachment: _TextAttachment
 
 
+@with_config(ConfigDict(extra="forbid"))
+class _StrictAttachmentRow(TypedDict):
+    """A ``TypedDict`` with a config of its own, which reads its bytes as text."""
+
+    data: bytes
+
+
+@host_type("strict-attachment-record", title="Strict attachment record")
+@with_config(ConfigDict(extra="forbid"))
+@dataclass(frozen=True)
+class _StrictAttachmentRecord:
+    """A plain dataclass with a config of its own, which reads its bytes as text."""
+
+    data: bytes
+
+
 @pytest.mark.parametrize(
     ("hint", "where"),
     [
+        (_StrictAttachmentRow, "_StrictAttachmentRow"),
+        (list[_StrictAttachmentRow], "_StrictAttachmentRow"),
+        (_StrictAttachmentRecord, "_StrictAttachmentRecord"),
+        (list[_StrictAttachmentRecord], "_StrictAttachmentRecord"),
         (_TextAttachment, "_TextAttachment"),
         (list[_TextAttachment], "_TextAttachment"),
         (_TextAttachment | None, "_TextAttachment"),
