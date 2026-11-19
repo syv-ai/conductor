@@ -49,7 +49,7 @@ from typing_extensions import sentinel
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.graph import CollectingInput, Edge, EdgeInput
-from conductor._internal.problem import InvalidCallError, run_problems
+from conductor._internal.problem import InvalidCallError, conductor_error, run_problems, shape_error
 from conductor._internal.types import NoSuchFieldError, field_of
 
 from .blueprint import BlueprintFunctionNode, RunBlueprint, loop_body_of
@@ -256,11 +256,18 @@ class RunOutcomes:
             # Keep going: a later input may get SKIPPED, which skips the call.
             except NoSuchFieldError as missing:
                 if fault is None:
-                    reason = f"it has no field '{missing.field}'"
+                    error = shape_error(
+                        conductor_error(
+                            "no_such_field", "it has no field '{field}'", {"field": missing.field}
+                        )
+                    )
                     fault = InvalidCallError(
                         [
                             run_problems.invalid_edge_value(
-                                input=name, reason=reason, record_field=missing.field
+                                input=name,
+                                reason=error["msg"],
+                                record_field=missing.field,
+                                errors=[error],
                             )
                         ]
                     )

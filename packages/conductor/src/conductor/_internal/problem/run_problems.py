@@ -193,7 +193,7 @@ def invalid_edge_value(
     input: str,
     reason: str,
     record_field: str | None = None,
-    errors: list[dict[str, Any]] | None = None,
+    errors: list[dict[str, Any]],
     column: str | None = None,
 ) -> str:
     """The value an edge gives an input is refused by the input's type, just before the call.
@@ -204,7 +204,8 @@ def invalid_edge_value(
     - a limit or choices on the input,
     - a host type's own check,
     - a table whose columns are only known once it is made,
-    - a field of a record whose type declares no fields.
+    - a field of a record whose type declares no fields. A record without the field the edge names has
+      ``ctx.record_field``, and its one error in ``ctx.errors`` is ``no_such_field``.
 
     In the example, ``letters`` returns 12, and ``small`` takes at most 3.
 
@@ -215,7 +216,7 @@ def invalid_edge_value(
         input: The input.
         reason: Why the value is refused, without quoting it.
         record_field: The field of a record the edge names, if the record has no field by that name.
-        errors: pydantic's list of what it refused, without the value.
+        errors: What was refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the value.
         column: For a table, the column of the first value refused.
 
     Example:

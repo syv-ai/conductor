@@ -348,6 +348,14 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
         ("greet", 2),
         "name",
     )
+    assert cause.ctx["errors"] == [
+        {
+            "type": "no_such_field",
+            "loc": [],
+            "msg": "it has no field 'name'",
+            "ctx": {"field": "name"},
+        }
+    ]
     assert run.results["greet"]["result"][:3] == [
         "hi a",
         "hi b",

@@ -753,12 +753,17 @@ def saved_run_of_another_graph(*loc: str | int, graph: str, saved: str | None = 
 
 
 @CALL_PROBLEMS.problem
-def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
+def saved_run_unreadable(
+    *loc: str | int, where: str, reason: str, errors: list[dict[str, Any]]
+) -> str:
     """A saved run of this graph can't be read back.
 
     There are a few ways this happens. The text may have been changed after it was written. Other code may have written
     it, such as another version of conductor, or of a node or a type in the run. Or a value in the run may have a JSON
-    form that doesn't read back. ``ctx.where`` says where the saved run stops fitting.
+    form that doesn't read back. ``ctx.where`` says where the saved run stops fitting. ``ctx.errors`` has the fault's
+    one error, with ``loc`` ``[]``: pydantic's, such as ``int_parsing`` or ``bytes_invalid_encoding``, without the
+    value, or ``saved_lists_disagree`` where the saved lists of a node don't agree with each other or with the graph,
+    such as an output's list longer than its calls.
 
     To fix it, start a new run.
 
@@ -766,6 +771,7 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
         loc: ``"saved_run"`` and the steps to the fault inside the saved run.
         where: The same steps as one text, joined by dots. ``the run`` means the saved run as a whole.
         reason: What is wrong there.
+        errors: The fault's error, with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:
         uppering = Graph.compile(make_graph(upper), registry)

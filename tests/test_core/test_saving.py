@@ -1410,14 +1410,24 @@ def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets
 
     problem = _refused(graph, saved)
 
-    assert problem.ctx == {"where": at, "reason": "a yes or no is not a number"}
+    assert problem.ctx == {
+        "where": at,
+        "reason": "a yes or no is not a number",
+        "errors": [
+            {"type": "bool_is_not_a_number", "loc": [], "msg": "a yes or no is not a number"}
+        ],
+    }
 
 
 def test_a_null_saved_for_a_done_call_whose_output_takes_no_none_is_refused():
     graph, saved = _saved_echoes()
     saved["outcomes"]["echo"]["outputs"]["result"][1] = None
 
-    assert _refused(graph, saved).ctx["where"] == "outcomes.echo"
+    problem = _refused(graph, saved)
+    assert (problem.ctx["where"], [e["type"] for e in problem.ctx["errors"]]) == (
+        "outcomes.echo",
+        ["saved_lists_disagree"],
+    )
 
 
 @pytest.mark.parametrize(

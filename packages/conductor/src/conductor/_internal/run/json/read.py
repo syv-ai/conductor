@@ -16,7 +16,14 @@ from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.graph import CompiledFunctionNode, Graph
-from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
+from conductor._internal.problem import (
+    InvalidCallError,
+    Problem,
+    call_problems,
+    conductor_error,
+    shape_error,
+    value_free_errors,
+)
 from conductor._internal.series import SeriesItems
 
 from ..blueprint import BlueprintFunctionNode
@@ -80,11 +87,14 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
                     )
                 ]
             ) from None
-        reason = value_free_errors(error)[0]["msg"]
+        refused = value_free_errors(error)[0]
         raise InvalidCallError(
             [
                 call_problems.saved_run_unreadable(
-                    "saved_run", where=where_in(codec, first["loc"]), reason=reason
+                    "saved_run",
+                    where=where_in(codec, first["loc"]),
+                    reason=refused["msg"],
+                    errors=[refused],
                 )
             ]
         ) from None
@@ -111,22 +121,14 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
                 reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order
             )
     except ValueError as wrong:
-        raise InvalidCallError(
-            [call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]
-        ) from None
+        raise InvalidCallError([_lists_disagree(where, str(wrong))]) from None
     outcomes = RunOutcomes(blueprint, read.inputs)
     for path, node in blueprint.function_nodes.items():
         if (of_node := in_call_order.get(path)) is not None:
             every_item_indexes, _ = outcomes.item_indexes(node.loops)
             if len(of_node) != len(every_item_indexes):
                 reason = f"its lists have {len(of_node)} entries, but the saved series give the node {len(every_item_indexes)} calls"
-                raise InvalidCallError(
-                    [
-                        call_problems.saved_run_unreadable(
-                            "saved_run", where=f"outcomes.{place_text(path)}", reason=reason
-                        )
-                    ]
-                )
+                raise InvalidCallError([_lists_disagree(f"outcomes.{place_text(path)}", reason)])
             for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
                 if outcome is not None:
                     outcomes.record(node, item_indexes, outcome)
@@ -145,6 +147,21 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         reusable,
         _last_resume=read.ended_early,
         _complete_nodes=frozenset(parse_node_path(name) for name in read.complete),
+    )
+
+
+def _lists_disagree(where: str, reason: str) -> Problem:
+    """Returns the ``saved_run_unreadable`` problem for saved lists that don't agree with each other or the graph.
+
+    Pydantic read each list, so the fault is one conductor found, and its error is ``saved_lists_disagree``.
+
+    Args:
+        where: Where in the saved run, as ``ctx.where`` says it.
+        reason: What disagrees, naming only outputs, call numbers and counts.
+    """
+    error = shape_error(conductor_error("saved_lists_disagree", reason))
+    return call_problems.saved_run_unreadable(
+        "saved_run", where=where, reason=error["msg"], errors=[error]
     )
 
 
