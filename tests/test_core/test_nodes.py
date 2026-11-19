@@ -2216,7 +2216,7 @@ def test_a_fields_choices_on_its_plain_type_title_its_values_and_limit_what_it_t
     assert asked.choices == (Choice("low", "Lav"), Choice("high", "Høj"))
     for wrong, code in (
         (("low", "low", "high"), "choices_invalid"),
-        ((1, 2), "choices_invalid_not_a_value"),
+        ((1, 2), "choices_invalid"),
     ):
         with pytest.raises(NodeDeclarationError) as raised:
 
@@ -2464,8 +2464,9 @@ def test_a_declared_choice_is_read_strictly_and_checked_against_the_fields_limit
         def bad(n: Annotated[int, Param(choices=choices, **limits)]) -> int:  # type: ignore[arg-type]
             return n
 
-    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
-    assert f"a choice isn't a value of the field's type: {reason}." in str(raised.value)
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx["errors"][0]["loc"]) == ("choices_invalid", [0])
+    assert f"the choices can't be used: {reason}." in str(raised.value)
 
 
 def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> (
@@ -2696,8 +2697,8 @@ def test_a_default_or_a_choice_that_is_not_finite_is_refused_where_the_node_is_d
     assert refused == [
         "default_invalid",
         "default_invalid",
-        "choices_invalid_not_a_value",
-        "choices_invalid_not_a_value",
+        "choices_invalid",
+        "choices_invalid",
     ]
 
 
@@ -2947,14 +2948,14 @@ def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_
         class Order:
             n: Annotated[int, Param(choices=["one", "two"])]
 
-    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
+    assert raised.value.problems[0].type == "choices_invalid"
 
     def on_table(x: Annotated[Table, Param(choices=["a"])]) -> int:
         return 0
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(on_table)
-    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
+    assert raised.value.problems[0].type == "choices_invalid"
 
 
 def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared() -> None:
@@ -3014,6 +3015,25 @@ def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records
     }
 
 
+def test_every_fault_in_a_params_choices_is_one_choices_invalid_with_each_choice_by_its_index() -> (
+    None
+):
+    """A choice with no JSON form, one of another type and one that isn't finite are one problem, each fault an
+    error at the index of its choice, as an ``Ask``'s choices are reported."""
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("mixed", title="Mixed", description="For a test.")
+        def mixed(pick: Annotated[float, Param(choices=[object(), "a", float("inf")])]) -> float:
+            return pick
+
+    (problem,) = raised.value.problems
+    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+        "choices_invalid",
+        [("no_json_form", [0]), ("float_type", [1]), ("finite_number", [2])],
+    )
+    assert problem.ctx["reason"] == problem.ctx["errors"][0]["msg"]
+
+
 def test_a_reason_a_host_check_gave_is_quoted_with_one_period() -> None:
     """The text that replaces a host validator's message has no final period, so a message quoting it reads right."""
     from pydantic import AfterValidator
@@ -3027,5 +3047,5 @@ def test_a_reason_a_host_check_gave_is_quoted_with_one_period() -> None:
         def bad(pick: Annotated[str, AfterValidator(refuse), Param(choices=["x"])]) -> str:
             return pick
 
-    assert raised.value.problems[0].type == "choices_invalid_not_a_value"
+    assert raised.value.problems[0].type == "choices_invalid"
     assert "did not pass its type's own check. Give each choice" in str(raised.value)

@@ -2610,7 +2610,7 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
         def assign_by_param(who: Annotated[str, Param(choices=[ida])]) -> str:
             return who
 
-    assert declared.value.problems[0].type == "choices_invalid_not_a_value"
+    assert declared.value.problems[0].type == "choices_invalid"
 
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign() -> str:

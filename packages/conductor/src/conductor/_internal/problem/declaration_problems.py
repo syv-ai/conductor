@@ -170,22 +170,32 @@ def param_limit_value_invalid(*, limits: str, type: str, error: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def choices_invalid() -> str:
-    """A ``Param``'s choices list the same id twice, or list none at all.
+def choices_invalid(*, reason: str, errors: list[dict[str, Any]]) -> str:
+    """A ``Param``'s choices can't be used: a choice isn't a value of the input's type, can't be written as JSON or is
+    given twice, or there are none.
 
-    To fix it, give each choice once, each as a value of the input's type.
+    An editor gets the choices as JSON to show them, and a saved graph stores them as JSON, so each choice is read from
+    its JSON form, as an answer is, and a number in one must be finite. ``ctx.errors`` has every fault, each ``loc``
+    the index of the choice it is about, or ``[]`` for the list as a whole: the type's own code, such as ``int_type``
+    or ``finite_number``, ``no_json_form``, ``choice_twice``, or pydantic's ``too_short`` for no choices.
+
+    To fix it, give each choice once, as a value of the input's type that can be written as JSON.
+
+    Args:
+        reason: The first fault.
+        errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:
         from conductor import Choice
 
 
-        def doubled(pick: Annotated[str, Param(choices=[Choice("s", "Small"), Choice("s", "Short")])]) -> str:
+        def number_size(pick: Annotated[int, Param(choices=[Choice("s", "Small")])]) -> int:
             return pick
 
 
-        declaration_refused(lambda: node("doubled", title="Doubled", description="Hands back the chosen size.")(doubled))
+        declaration_refused(lambda: node("number_size", title="Number size", description="Hands back the chosen size.")(number_size))
     """
-    return "the choices give an id twice, or give none at all. Give each choice once, as a value of the field's type."
+    return f"the choices can't be used: {reason}. Give each choice once, as a value of the field's type that can be written as JSON."
 
 
 @DECLARATION_PROBLEMS.problem
@@ -354,50 +364,6 @@ def named_value_invalid_alike(*, values: list[Any]) -> str:
         f"two of the values {comma_separated(values)} are written as the same JSON, so a saved run or an answer"
         " can't tell them apart. Give values whose JSON differs."
     )
-
-
-@DECLARATION_PROBLEMS.problem
-def choices_invalid_not_a_value(*, reason: str) -> str:
-    """A ``Param``'s choice isn't a value of the input's type.
-
-    To fix it, give each choice as a value of the input's type, such as a number for an ``int``.
-
-    Args:
-        reason: What the type refused, without quoting the value.
-
-    Example:
-        from conductor import Choice
-
-
-        def number_size(pick: Annotated[int, Param(choices=[Choice("s", "Small")])]) -> int:
-            return pick
-
-
-        declaration_refused(lambda: node("number_size", title="Number size", description="Hands back the chosen size.")(number_size))
-    """
-    return f"a choice isn't a value of the field's type: {reason}. Give each choice as a value of that type."
-
-
-@DECLARATION_PROBLEMS.problem
-def choices_invalid_no_json_form() -> str:
-    """A ``Param``'s choice can't be written as JSON.
-
-    An editor gets the choices as JSON to show them, and a saved graph stores them as JSON. So each choice must have a
-    JSON form.
-
-    To fix it, give each choice as a value of the input's type that can be written as JSON.
-
-    Example:
-        from conductor import Choice
-
-
-        def object_size(pick: Annotated[str, Param(choices=[Choice(object(), "Small")])]) -> str:
-            return pick
-
-
-        declaration_refused(lambda: node("object_size", title="Object size", description="Hands back the chosen size.")(object_size))
-    """
-    return "a choice can't be written as JSON. Give each choice a value of the field's type that can be."
 
 
 @DECLARATION_PROBLEMS.problem

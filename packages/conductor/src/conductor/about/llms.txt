@@ -96,7 +96,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 
 - On a field's plain type, the choices limit what it takes.
 - Each choice is read the way an answer is: strictly, from its JSON form, and held to the field's limits. So an enum's value, or a date's ISO text, can be a choice.
-- A value is one of the choices when its JSON is. A dict's keys may come in any order. This holds for an input, a return and an answer alike. A return may hold a float that isn't finite, written as its text; an input and an answer can't ("Starting a run"), so an `Ask`'s choice or default of one is `invalid_ask`, and a `Param`'s choice of one, or a `Literal`'s value, is refused when the node is declared (`choices_invalid_not_a_value`).
+- A value is one of the choices when its JSON is. A dict's keys may come in any order. This holds for an input, a return and an answer alike. A return may hold a float that isn't finite, written as its text; an input and an answer can't ("Starting a run"), so an `Ask`'s choice or default of one is `invalid_ask`, and a `Param`'s choice of one, or a `Literal`'s value, is refused when the node is declared (`choices_invalid`, `finite_number` in `ctx.errors`).
 - A value is compared in the JSON form its type reads it into. So `1` picks a `float` choice `1.0`. But on `Annotated[Any, Param(choices=[1])]`, `True` and `1.0` are refused.
 - `{"a": 1, "b": 2}` and `{"b": 2, "a": 1}`, given as choices, are one choice given twice.
 - `None` is never a pick. A type that takes `None` takes it beside its choices. That goes for an answer and an `Ask`'s default too.
@@ -107,7 +107,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - A `Literal` beside another type, as in `Literal["auto"] | int`, names no choices: the field takes the `Literal`'s values and any value of the other type. `Param(choices=)` on it would limit it to the choices, so it is refused (`choices_on_a_literal_beside_another_type`), and the `Literal`'s values there can't have titles.
 - A `Literal` field's choices are its values. That includes `None` when the `Literal` lists it, as `Literal["a", None]` does; `Literal["a"] | None` takes `None` beside its one choice.
 - An `Ask` can give a question choices that only the run knows. Otherwise a question has its output's choices.
-- Choices that can't be used are `choices_invalid`: an id twice, or none. A choice that isn't a value of the type is `choices_invalid_not_a_value` and one with no JSON form `choices_invalid_no_json_form`.
+- Choices that can't be used are `choices_invalid`, with every fault in `ctx.errors`, each `loc` the index of the choice: a choice that isn't a value of the type (the type's own code), one with no JSON form (`no_json_form`), an id twice (`choice_twice`), or none (`too_short`); the last two are about the whole list, `loc` `[]`.
 
 **Outputs.** The return type declares the outputs.
 

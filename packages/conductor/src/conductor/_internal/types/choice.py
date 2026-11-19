@@ -191,8 +191,7 @@ def declared_choices(
     A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
 
     Raises:
-        NodeDeclarationError: ``choices_invalid_no_json_form`` when a choice can't be written as JSON,
-            ``choices_invalid_not_a_value`` when the type refuses one, else ``choices_invalid``.
+        NodeDeclarationError: ``choices_invalid``, with every fault in ``ctx.errors``.
     """
 
     def read(value: Any) -> Any:
@@ -202,15 +201,14 @@ def declared_choices(
     try:
         return read_choices(given, read, write)
     except ValidationError as refused:
-        faults = list(zip(refused.errors(), value_free_errors(refused), strict=True))
-    if any(raw["type"] == "no_json_form" for raw, _ in faults):
-        problem = declaration_problems.choices_invalid_no_json_form()
-    # an error of one choice has its index first in its loc; one of the whole list has none
-    elif refused_choice := next((free for raw, free in faults if raw["loc"]), None):
-        problem = declaration_problems.choices_invalid_not_a_value(reason=refused_choice["msg"])
-    else:
-        problem = declaration_problems.choices_invalid()
-    raise NodeDeclarationError(problem) from None
+        # an error of one choice has its index first in its loc; one of the whole list has none
+        errors = [
+            {**free, "loc": list(raw["loc"][:1])}
+            for raw, free in zip(refused.errors(), value_free_errors(refused), strict=True)
+        ]
+    raise NodeDeclarationError(
+        declaration_problems.choices_invalid(reason=errors[0]["msg"], errors=errors)
+    ) from None
 
 
 def choice_texts(choices: Iterable[Choice]) -> frozenset[str]:

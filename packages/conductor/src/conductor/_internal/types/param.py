@@ -168,8 +168,7 @@ class Param:
                 ``ge`` on a ``str``. ``param_limit_value_invalid`` if a limit's value doesn't fit ``source``.
                 ``choices_on_a_literal`` if ``source`` is a ``Literal``, and
                 ``choices_on_a_literal_beside_another_type`` if it is a union of one with another type.
-                ``choices_invalid`` or one of the ``choices_invalid_...`` codes if the choices aren't each a value of
-                ``source``, given once.
+                ``choices_invalid`` if the choices aren't each a value of ``source``, given once.
         """
         limited = handler(Annotated[(source, *self.limits)] if self.limits else source)
         names = [_KEYWORDS[type(limit)] for limit in self.limits]
