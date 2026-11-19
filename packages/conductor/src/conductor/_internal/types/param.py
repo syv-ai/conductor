@@ -80,8 +80,8 @@ class Param:
             A host's own control is a subclass of ``Widget``. Conductor passes it on to the host and never uses it.
         constant_only: Whether an input takes only a constant, from the graph record or its default, and never an
             edge or a graph input. ``None`` means no. An editor offers no edge for it.
-        choices: The values the field takes, each a plain value or a ``Choice`` with a title. They are kept as
-            given, and ``Type.choices`` checks them. They go on a plain type, like ``str``: a ``Literal``'s values
+        choices: The values the field takes, a list or a tuple, each a plain value or a ``Choice`` with a title.
+            They are kept as given, and ``Type.choices`` checks them, so text or a set is refused there. They go on a plain type, like ``str``: a ``Literal``'s values
             are its choices already, so ``Param(choices=)`` on one is refused (``choices_on_a_literal``). A
             ``Dropdown`` shows them.
         ge: The smallest value allowed. ``gt``, ``le`` and ``lt`` are the other bounds. Each works on a number, a
@@ -106,8 +106,11 @@ class Param:
     pattern: str | None = None
 
     def __post_init__(self) -> None:
-        """Stores the choices as a tuple, in the order given."""
-        if self.choices is not None:
+        """Stores a list of choices as a tuple, in the order given.
+
+        Anything else is kept as given, for ``Type.choices`` to refuse: text or a set isn't a list of choices.
+        """
+        if isinstance(self.choices, list):
             object.__setattr__(self, "choices", tuple(self.choices))
 
     def __eq__(self, other: object) -> bool:

@@ -642,7 +642,7 @@ class Type:
                 given = tuple(option)
         if given is None:
             return None
-        return declared_choices(tuple(given), self.argument_validator, self.to_json)
+        return declared_choices(given, self.argument_validator, self.to_json)
 
     def narrowed(self, choices: tuple[Choice, ...]) -> Type:
         """Returns this type with its values limited to ``choices``, as an ``Ask`` limits a question's.

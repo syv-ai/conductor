@@ -3175,6 +3175,23 @@ def test_a_choice_with_a_set_in_it_is_refused_as_set_has_no_order() -> None:
         ), choices
 
 
+def test_text_or_a_set_given_as_a_params_choices_is_refused_as_an_asks_are() -> None:
+    """Choices are a list or a tuple. Text would offer each of its characters, and a set its items in no fixed order,
+    so both are refused at ``@node``, by the rule an ``Ask``'s choices are read by."""
+    for choices, code in (("ab", "list_type"), ({"a", "b"}, "set_has_no_order")):
+        with pytest.raises(NodeDeclarationError) as raised:
+
+            @node("letters", title="Letters", description="For a test.")
+            def letters(pick: Annotated[str, Param(choices=choices)]) -> str:  # type: ignore[arg-type]
+                return pick
+
+        (problem,) = raised.value.problems
+        assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+            "choices_invalid",
+            [(code, [])],
+        ), choices
+
+
 def test_a_reason_a_host_check_gave_is_quoted_with_one_period() -> None:
     """The text that replaces a host validator's message has no final period, so a message quoting it reads right."""
     from pydantic import AfterValidator

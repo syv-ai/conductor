@@ -174,7 +174,7 @@ def read_choices(
 
 
 def declared_choices(
-    given: Iterable[Any],
+    given: Any,
     reader: SchemaValidator | TypeAdapter[Any],
     write: Callable[[Any], JsonValue],
 ) -> tuple[Choice, ...]:
@@ -185,7 +185,8 @@ def declared_choices(
     error.
 
     Args:
-        given: The choices, as ``Param``, the ``Literal`` or the enum gives them.
+        given: The choices, as ``Param``, the ``Literal`` or the enum gives them. ``Param``'s are as a developer
+            wrote them, so text or a set is refused here.
         reader: The validator of the type the choices are values of.
         write: Converts a value ``reader`` gave back to JSON.
 
