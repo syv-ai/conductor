@@ -718,7 +718,14 @@ IMPORTS = {
         "polars",
         "typing_extensions",
     },
-    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "polars", "regex"},
+    "conductor-nodes": {
+        "conductor_nodes",
+        "conductor",
+        "pydantic",
+        "polars",
+        "regex",
+        "typing_extensions",
+    },
     "conductor-providers": {
         "conductor_providers",
         "conductor",
@@ -741,7 +748,7 @@ DISTRIBUTIONS = {
         "syv-conductor-nodes",
         "syv-conductor-providers",
     },
-    "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex"},
+    "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex", "typing-extensions"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic", "typing-extensions"},
 }
 

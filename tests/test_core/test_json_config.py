@@ -6,6 +6,7 @@ import conductor
 import pytest
 from conductor import JSON_CONFIG, Graph, NodeRegistry, host_type, make_graph, node
 from pydantic import BaseModel, ConfigDict, with_config
+from typing_extensions import TypedDict as ExtensionsTypedDict
 
 
 def _registry(*definitions):
@@ -47,9 +48,12 @@ def test_json_config_can_not_be_changed():
     assert JSON_CONFIG["ser_json_bytes"] == "base64"
 
 
-def test_a_typed_dict_built_with_json_config_is_taken_and_reads_bytes_as_base64():
+@pytest.mark.parametrize("typed_dict", [TypedDict, ExtensionsTypedDict])
+def test_a_typed_dict_built_with_json_config_is_taken_and_reads_bytes_as_base64(typed_dict):
+    """A ``TypedDict`` from ``typing`` or from ``typing_extensions`` is a row either way, so either takes a config."""
+
     @with_config(JSON_CONFIG)
-    class Attachment(TypedDict):
+    class Attachment(typed_dict):  # type: ignore[misc,valid-type]
         data: bytes
 
     @node("attachment-size", title="Attachment size", description="Measures a file.")

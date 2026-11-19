@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any, NotRequired, TypeVar, get_args, get_origin
 
 import polars as pl
+import typing_extensions
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
@@ -382,7 +383,7 @@ def row_columns(row: Any, *, include_extras: bool = True) -> dict[str, Any] | No
         include_extras: Whether each hint keeps its ``Annotated`` metadata.
     """
     origin = get_origin(row) or row
-    if not typing.is_typeddict(origin):
+    if not typing_extensions.is_typeddict(origin):
         return None
     hints = typing.get_type_hints(origin, include_extras=include_extras)
     bound = dict(zip(getattr(origin, "__parameters__", ()), get_args(row), strict=False))
@@ -404,7 +405,7 @@ def check_table_row(row: Any) -> None:
     if (
         isinstance(row, TypeVar)
         or is_bare_table_row(row)
-        or typing.is_typeddict(get_origin(row) or row)
+        or typing_extensions.is_typeddict(get_origin(row) or row)
     ):
         return
     raise NodeDeclarationError(

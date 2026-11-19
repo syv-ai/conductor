@@ -16,6 +16,8 @@ from __future__ import annotations
 import typing
 from typing import Any, Literal, TypeVar, get_args, get_origin
 
+import typing_extensions
+
 from .hint import a_number, aliased, is_alias, literal_classes, union_members
 from .host_type import accepted_classes
 from .param import split_hint
@@ -99,10 +101,10 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         # a value of the right class may be one of them, so it is checked on each call
         return not exact and fit(literal_classes(target), source, bound, False)
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
-    if typing.is_typeddict(source):
+    if typing_extensions.is_typeddict(source):
         source_fields = typing.get_type_hints(source, include_extras=True)
         # a TypedDict fits by its keys: every key the target names must be there, with a type that fits
-        if typing.is_typeddict(target):
+        if typing_extensions.is_typeddict(target):
             expected = typing.get_type_hints(target, include_extras=True)
             # a check drops the keys the target doesn't name, so the value isn't the same as it was
             same = not exact or expected.keys() == source_fields.keys()
@@ -120,7 +122,7 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         return fit(key, str, bound, exact) and all(
             fit(value, hint, bound, exact) for hint in source_fields.values()
         )
-    if typing.is_typeddict(target) or not (
+    if typing_extensions.is_typeddict(target) or not (
         isinstance(target_class, type) and isinstance(source_class, type)
     ):
         return False

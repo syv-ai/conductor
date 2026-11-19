@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import datetime
 import re
-import typing
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from decimal import Decimal
@@ -36,6 +35,7 @@ from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import typing_extensions
 from pydantic import (
     AmqpDsn,
     AnyHttpUrl,
@@ -267,7 +267,7 @@ def host_type[C: type](
     check_not_blank("@host_type", id, {"title": title})
 
     def declare(cls: C) -> C:
-        if not isinstance(cls, type) or typing.is_typeddict(cls):
+        if not isinstance(cls, type) or typing_extensions.is_typeddict(cls):
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_not_on_a_class(id=id, given=repr(cls))
             )

@@ -35,6 +35,7 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
+import typing_extensions
 from annotated_types import Predicate, Timezone, Unit
 from pydantic import (
     BaseModel,
@@ -507,7 +508,8 @@ class Type:
             origin is Annotated
         ):  # a union's member keeps what checks it, which doesn't change its name
             return Type(one)._named
-        if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "row"
+        # a TypedDict has no declared name, so every one is "row"
+        if typing_extensions.is_typeddict(one):
             return "row", "Row", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
         _check_is_type(one)

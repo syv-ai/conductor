@@ -33,6 +33,7 @@ from typing import (
     get_origin,
 )
 
+import typing_extensions
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -107,7 +108,9 @@ def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
 def declares_fields(cls: Any) -> bool:
     """Says whether ``cls`` declares its fields: a pydantic model, a dataclass or a ``TypedDict``."""
     return isinstance(cls, type) and (
-        issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or typing.is_typeddict(cls)
+        issubclass(cls, BaseModel)
+        or dataclasses.is_dataclass(cls)
+        or typing_extensions.is_typeddict(cls)
     )
 
 
@@ -176,7 +179,7 @@ def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]
     if isinstance(hint, TypeVar) and hint.__bound__ is not None:
         parts.append(hint.__bound__)
     origin = get_origin(hint) or hint
-    if (is_alias(hint) or typing.is_typeddict(origin)) and id(origin) not in walked:
+    if (is_alias(hint) or typing_extensions.is_typeddict(origin)) and id(origin) not in walked:
         walked |= {id(origin)}
         if is_alias(hint):
             parts.append(hint.__value__)

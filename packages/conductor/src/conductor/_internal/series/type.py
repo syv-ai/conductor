@@ -8,10 +8,10 @@ stores what a node returned for it.
 from __future__ import annotations
 
 import functools
-import typing
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 import polars as pl
+import typing_extensions
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
@@ -113,7 +113,9 @@ class SeriesType(Type, of=_Series):
         and for rows with limits or choices.
         """
         item = self.item
-        if item.limited or not (is_bare_table_row(item.bare) or typing.is_typeddict(item.bare)):
+        if item.limited or not (
+            is_bare_table_row(item.bare) or typing_extensions.is_typeddict(item.bare)
+        ):
             return None
         table: Any = Table
         return Type(table[item.bare])

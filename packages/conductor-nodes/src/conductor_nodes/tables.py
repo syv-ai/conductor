@@ -22,6 +22,7 @@ import typing
 from typing import Any, TypedDict
 
 import polars as pl
+import typing_extensions
 from conductor import NodeError, NodeRegistry, Policy, Series, Table
 
 registry = NodeRegistry(category="table")
@@ -86,7 +87,7 @@ def _table(rows: type, columns: list[str], **added: type) -> dict[str, Any]:
     """
     if typing.get_origin(rows) is Table:
         rows = typing.get_args(rows)[0]
-    if not typing.is_typeddict(rows):
+    if not typing_extensions.is_typeddict(rows):
         return {"result": Table}
     known = typing.get_type_hints(rows)
     _refuse_taken(list(added), list(known))
