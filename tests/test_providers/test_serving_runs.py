@@ -13,16 +13,20 @@ import os
 import re
 import signal
 import socket
+import sqlite3
 import sys
 import time
 from collections.abc import AsyncIterator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 from signal import Signals
 from subprocess import Popen
 from typing import Any
 
 import pytest
+from conductor import Graph, Run
+
+from tests.test_providers.served_nodes import served as served_nodes
 
 httpx = pytest.importorskip("httpx")
 pytest.importorskip("uvicorn")
@@ -174,6 +178,14 @@ class Served:
         path = self.directory / "calls"
         return path.read_text().splitlines() if path.exists() else []
 
+    def row(self, run_id: str) -> tuple[str, str]:
+        """The run's ``run`` and ``owner`` columns, as the store has them now."""
+        with closing(sqlite3.connect(self.directory / "runs.db")) as connection:
+            saved, owner = connection.execute(
+                "SELECT run, owner FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        return str(saved), str(owner)
+
     async def until_calls(self, count: int) -> None:
         while len(self.calls) < count:
             await asyncio.sleep(0.01)
@@ -310,13 +322,20 @@ def test_a_run_whose_worker_is_killed_is_finished_by_the_other_from_its_last_che
         async with _workers(served) as (a, b):
             run_id = await a.start(_WORK, {"n": 40})
             await served.until_calls(15)
+            _, holder = served.row(run_id)
             a.stop(signal.SIGKILL)
+            made_by_a = len([call for call in served.calls if call.startswith("work")])
+            checkpoint, owner = served.row(run_id)
+            # the lease is still a's, so the row's run is a's last checkpoint, which b goes on from
+            assert owner == holder
+            kept = Run.from_json(checkpoint, Graph.compile(_WORK, served_nodes))
+            done = kept.progress.nodes["work"].finished
 
             await b.until_status(run_id, "complete")
             work_calls = [call for call in served.calls if call.startswith("work")]
             assert sorted(set(work_calls)) == sorted(f"work {i}" for i in range(40))
-            # only the calls made after the last checkpoint are made again
-            assert len(work_calls) - 40 <= 6, work_calls
+            # b makes again exactly the calls the last checkpoint doesn't keep, and none it does
+            assert len(work_calls) - made_by_a == 40 - done, (done, made_by_a, work_calls)
 
     _run(scenario)
 
