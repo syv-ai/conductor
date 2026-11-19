@@ -240,10 +240,11 @@ def _first_fault(
 
     A fault in the return's shape comes first: not the dataclass, not a mapping, an output that isn't a branch is
     ``SKIPPED``, then an output missing from a returned mapping, a key that isn't an output, and two branches with a
-    value. A fault in an output's value comes after them. An output missing, or a key that isn't an output, is
-    pydantic's own ``missing``, ``extra_forbidden`` or ``invalid_key``, at the output's name, as an answer to the
-    node gives it, while the reason says it of a return. A value that an output's type refuses is described as the
-    type describes it, with every error pydantic found in that output.
+    value. A fault in an output's value comes after them. An output missing is pydantic's own ``missing``, at the
+    output's name, as an answer to the node gives it, while the reason says it of a return. A key that isn't an
+    output is pydantic's ``extra_forbidden``, or ``invalid_key`` for one that isn't text, at ``"[key]"``: such a key
+    may be built from data, so it is never quoted, and ``ctx.output`` is left out. A value that an output's type
+    refuses is described as the type describes it, with every error pydantic found in that output.
     """
 
     def about_a_name(fault: ErrorDetails) -> str | None:
@@ -252,7 +253,7 @@ def _first_fault(
             return None
         name = fault["loc"][0]
         if name not in outputs:
-            return f"'{name}' isn't one of the node's outputs"
+            return "a key of the mapping the node returned isn't one of its outputs"
         if fault["type"] == "missing" and isinstance(returned, Mapping) and name not in returned:
             return f"'{name}' is missing from the outputs the node returned"
         return None
@@ -266,10 +267,13 @@ def _first_fault(
         )
     name = str(first["loc"][0])
     if reason := about_a_name(first):
+        # a key that is no output may be built from data, so it is named only as a key, as a key that isn't text is
+        output = name if name in outputs else None
+        loc = [name] if output else ["[key]"]
         return InvalidCallError(
             [
                 run_problems.invalid_output(
-                    reason=reason, output=name, errors=[shape_error(first, loc=[name])]
+                    reason=reason, output=output, errors=[shape_error(first, loc=loc)]
                 )
             ]
         )

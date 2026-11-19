@@ -421,17 +421,17 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
         ({"name": "Ida"}, "age", {"type": "missing", "loc": ["age"], "msg": "Field required"}),
         (
             {"name": "Ida", "age": 3, "more": 1},
-            "more",
-            {"type": "extra_forbidden", "loc": ["more"], "msg": "Extra inputs are not permitted"},
+            None,
+            {"type": "extra_forbidden", "loc": ["[key]"], "msg": "Extra inputs are not permitted"},
         ),
         (
             {"name": "Ida", "age": 3, 1: 1},
-            "1",
-            {"type": "invalid_key", "loc": ["1"], "msg": "Keys should be strings"},
+            None,
+            {"type": "invalid_key", "loc": ["[key]"], "msg": "Keys should be strings"},
         ),
     ):
         run = _computed(returned)
-        assert (run.cause.type, run.cause.ctx["output"], run.cause.ctx["errors"]) == (
+        assert (run.cause.type, run.cause.ctx.get("output"), run.cause.ctx["errors"]) == (
             "invalid_output",
             named,
             [error],
@@ -439,14 +439,17 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
     assert _computed(["Ida", 3]).cause.type == "invalid_output"
 
 
-def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_as_the_node_wrote_them():
-    """An answer to the node lists every name that isn't an output in the order it was written, so a return names
-    the first of them in that order too."""
-    run = _computed({"zeta": 1, "name": "Ida", "age": 3, "beta": 2})
+def test_a_key_that_is_no_output_is_never_quoted_since_data_may_have_built_it():
+    """A node may build its mapping's keys from data, such as a person's e-mail address. So a key that is no output is
+    refused at ``"[key]"``, with no ``ctx.output``, and the message and reason don't quote it, as a key that isn't text
+    is refused wherever conductor reads a mapping."""
+    run = _computed({"ida@example.com": 1, "name": "Ida", "age": 3, "beta": 2})
 
-    assert (run.cause.ctx["output"], run.cause.ctx["reason"]) == (
-        "zeta",
-        "'zeta' isn't one of the node's outputs",
+    assert "ida@example.com" not in run.cause.model_dump_json()
+    assert (run.cause.ctx.get("output"), run.cause.ctx["reason"], run.cause.ctx["errors"]) == (
+        None,
+        "a key of the mapping the node returned isn't one of its outputs",
+        [{"type": "extra_forbidden", "loc": ["[key]"], "msg": "Extra inputs are not permitted"}],
     )
 
 

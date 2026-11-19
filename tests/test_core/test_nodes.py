@@ -1921,7 +1921,7 @@ def test_a_hooks_node_may_declare_any_return_type_a_mapping_fits(returns: Any):
     [
         ({}, "'a' is missing from the outputs the node returned"),
         ("a", "the node must return a mapping with one key per output (a), not a str"),
-        ({"a": 1, "zzz": 2}, "'zzz' isn't one of the node's outputs"),
+        ({"a": 1, "zzz": 2}, "a key of the mapping the node returned isn't one of its outputs"),
     ],
 )
 def test_a_return_that_does_not_fit_the_outputs_says_so_whatever_is_wrong_with_it(

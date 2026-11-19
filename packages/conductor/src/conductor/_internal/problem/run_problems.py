@@ -252,8 +252,9 @@ def invalid_output(
     ``ctx.output`` names the output, and ``ctx.errors`` says where inside it the value is: a refused field of a returned
     dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``. A fault in the shape of the return is the one
     error in ``ctx.errors``, and ``ctx.output`` names the output it is about, if any. An output missing from a
-    returned mapping, or a key that is no output, is pydantic's ``missing``, ``extra_forbidden`` or ``invalid_key``
-    at the output's name, as an answer gives them, and a branch may be left out of the mapping. The others have
+    returned mapping is pydantic's ``missing`` at the output's name, as an answer gives it, and a branch may be left
+    out of the mapping. A key that is no output is pydantic's ``extra_forbidden``, or ``invalid_key`` for one that
+    isn't text, at ``"[key]"``, with no ``ctx.output``: a key may be built from data, so it is never quoted. The others have
     ``loc`` ``[]`` and conductor's code, since pydantic has none: ``not_the_class`` (not the node's dataclass),
     ``not_a_mapping``, ``skipped_not_a_branch``, ``several_branches_given`` (as an answer's and an ``Ask``'s
     default's), ``skipped_inside`` (``SKIPPED`` inside a value) and ``none_required`` (a node with no outputs returned
