@@ -311,17 +311,17 @@ def question_unwritable(*loc: str | int, error: str, input: str) -> str:
         input: The input.
 
     Example:
-        @registry.node("file-bytes", title="File bytes", description="Reads the bytes of a file.")
-        def file_bytes(name: str) -> bytes:
-            return b"\\xff" + name.encode()
+        @registry.node("half-emoji", title="Half emoji", description="Ends a text with half of an emoji's pair.")
+        def half_emoji(name: str) -> str:
+            return name + "\\ud83d"
 
 
-        @registry.node("approve-file", title="Approve file", description="Asks a person to approve sending a file.", asks=True)
-        def approve_file(data: bytes) -> bool:
-            raise Ask("Send this file?")
+        @registry.node("approve-text", title="Approve text", description="Asks a person to approve sending a text.", asks=True)
+        def approve_text(text: str) -> bool:
+            raise Ask("Send this text?")
 
 
-        why_it_stopped(Graph.compile(make_graph(file_bytes, approve_file), registry).run({"name": "a.txt"}))
+        why_it_stopped(Graph.compile(make_graph(half_emoji, approve_text), registry).run({"name": "a"}))
     """
     return (
         f"The node asked a person, but its input '{input}' can't be written as JSON to show them: writing it raised {error}. "

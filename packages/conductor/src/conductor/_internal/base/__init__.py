@@ -14,7 +14,8 @@ so this one imports nothing from conductor except ``utils``.
 
 from .hashing import json_hash, short_hash
 from .json import (
-    NON_FINITE_FLOATS,
+    JSON_CONFIG,
+    JSON_CORE_CONFIG,
     canonical_json,
     finite_json_text,
     json_text,
@@ -42,7 +43,8 @@ from .sentinels import REQUIRED, SKIPPED
 
 __all__ = [
     "FIELD_SEPARATOR",
-    "NON_FINITE_FLOATS",
+    "JSON_CONFIG",
+    "JSON_CORE_CONFIG",
     "REQUIRED",
     "SEPARATORS",
     "SKIPPED",

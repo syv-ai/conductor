@@ -11,20 +11,20 @@ from typing import Any, ClassVar, Literal, get_args
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
 
-from conductor._internal.base import NON_FINITE_FLOATS
+from conductor._internal.base import JSON_CONFIG
 
 from ..outcome import Unanswered
 from ..state import EndedEarly
 
-#: The config of every class here. A key a class doesn't declare is refused, and ``inf`` and ``nan`` are written
-#: as text. The config doesn't leave defaults out: ``run_to_json`` writes with ``exclude_defaults=True``, so a key
+#: The config of every class here. A key a class doesn't declare is refused, ``inf`` and ``nan`` are written as
+#: text, and ``bytes`` as base64 (``JSON_CONFIG``). The config doesn't leave defaults out: ``run_to_json`` writes with ``exclude_defaults=True``, so a key
 #: whose value is its default, an empty dict or list, is left out of the JSON.
 #:
 #: The classes are plain pydantic models, not ``ConductorModel``s. The codec subclasses them with the graph's own
 #: value types, and ``ConductorModel`` refuses a class with a field that has no JSON form as soon as the class is
 #: built. A node may return a host's type that has no JSON form: its run runs, and only saving it is refused, with
 #: ``run_unwritable`` naming the output.
-_SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
+_SAVED = ConfigDict(**JSON_CONFIG, extra="forbid")
 
 #: What a saved run writes for one call's state. ``"done"`` means it has its outputs, because its function
 #: returned or a person answered. ``"skipped"`` means it was skipped. Any other call is written as ``null``.

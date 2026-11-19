@@ -687,7 +687,8 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
 def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     """A run has a value that can't be written as JSON.
 
-    ``ctx.where`` names the output. In the example, ``raw`` returns bytes that aren't text.
+    ``ctx.where`` names the output. In the example, ``cut_emoji`` returns a text with half of an emoji's pair, a lone
+    surrogate, which JSON can't write.
 
     To fix it, give the output a type that pydantic can write as JSON.
 
@@ -697,12 +698,12 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
         reason: Why the value can't be written.
 
     Example:
-        @registry.node("raw", title="Raw", description="Turns a text into raw bytes.")
-        def raw(text: str) -> bytes:
-            return b"\\xff" + text.encode()
+        @registry.node("cut-emoji", title="Cut emoji", description="Ends a text with half of an emoji's pair.")
+        def cut_emoji(text: str) -> str:
+            return text + "\\ud83d"
 
 
-        unwritable = Graph.compile(make_graph(raw), registry).run({"text": "a"})
+        unwritable = Graph.compile(make_graph(cut_emoji), registry).run({"text": "a"})
         refused(lambda: unwritable.to_json())
     """
     return f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}. Give that output a type pydantic can write as JSON."

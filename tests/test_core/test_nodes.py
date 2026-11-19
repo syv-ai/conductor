@@ -2938,12 +2938,11 @@ def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_
     assert raised.value.problems[0].type == "choices_invalid_not_a_value"
 
 
-@pytest.mark.parametrize("default", [b"\xff\xfe", object()], ids=["bytes-not-utf-8", "any-object"])
-def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared(default: Any) -> None:
+def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared() -> None:
     with pytest.raises(NodeDeclarationError) as raised:
 
         @node("b", title="B", description="Takes a value.")
-        def b(data: Any = default) -> int:
+        def b(data: Any = object()) -> int:
             return 1
 
     assert raised.value.problems[0].type == "default_invalid"

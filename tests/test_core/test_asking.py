@@ -2918,7 +2918,6 @@ def test_answers_and_declines_queued_for_later_are_refused_as_the_run_refuses_th
         "\ud800",
         {"name": "\ud800", "count": 1},
         _Pair(name="\ud800", count=1),
-        b"\xff",
     ):
         queued = _refused(lambda answer=answer: Run.queued_as_json({waiting.id: answer}))
         assert queued == _refused(lambda answer=answer: run.with_answers(waiting, answer)), answer

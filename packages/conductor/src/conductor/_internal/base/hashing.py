@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic_core import to_jsonable_python
 
-from .json import canonical_json
+from .json import JSON_CONFIG, canonical_json
 
 
 def short_hash(data: bytes, size: int) -> str:
@@ -42,4 +42,5 @@ def json_hash(value: Any, size: int, *, fallback: Callable[[Any], Any] | None = 
     Raises:
         PydanticSerializationError: A value can't be written as JSON, and ``fallback`` gave nothing to write instead.
     """
-    return short_hash(canonical_json(to_jsonable_python(value, fallback=fallback)).encode(), size)
+    written = to_jsonable_python(value, fallback=fallback, bytes_mode=JSON_CONFIG["ser_json_bytes"])
+    return short_hash(canonical_json(written).encode(), size)

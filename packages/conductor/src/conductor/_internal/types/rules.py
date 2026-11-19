@@ -24,7 +24,7 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import CoreSchema, PydanticSerializationError, SchemaValidator, core_schema
 
-from conductor._internal.base import canonical_json, plain_json, validate_as_json
+from conductor._internal.base import JSON_CORE_CONFIG, canonical_json, plain_json, validate_as_json
 from conductor._internal.problem import NodeDeclarationError, conductor_error, declaration_problems
 
 from .hint import a_number
@@ -135,7 +135,7 @@ def _check_named_values(schema: dict[str, Any]) -> None:
     if kind not in ("literal", "enum"):
         return
     values = schema["expected"] if kind == "literal" else schema["members"]
-    reader = SchemaValidator(schema)
+    reader = SchemaValidator(schema, config=JSON_CORE_CONFIG)
     for value in values:
         try:
             read = validate_as_json(reader, value)

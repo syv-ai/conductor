@@ -1,9 +1,9 @@
 """How conductor writes values as JSON, whatever their type.
 
 Every value conductor saves or sends follows the same few rules, and they are written once, here. JSON has no
-number for ``inf`` or ``nan``, so conductor writes them as text. Two values are compared and hashed by one fixed
-JSON text. And a value given from Python is checked exactly as if it had come in as JSON, so it gives the same
-result as the same value sent over HTTP.
+number for ``inf`` or ``nan`` and no bytes, so conductor writes them as text (``JSON_CONFIG``). Two values are
+compared and hashed by one fixed JSON text. And a value given from Python is checked exactly as if it had come in
+as JSON, so it gives the same result as the same value sent over HTTP.
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ import json
 from collections.abc import Callable
 from typing import Any, Final, Literal
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
+    CoreConfig,
     PydanticCustomError,
     PydanticSerializationError,
     SchemaValidator,
@@ -22,11 +23,26 @@ from pydantic_core import (
     to_jsonable_python,
 )
 
-#: How conductor writes ``inf``, ``-inf`` and ``nan`` in JSON, which has no number for them. They are written as
-#: the texts ``"Infinity"``, ``"-Infinity"`` and ``"NaN"``. A ``float`` reads each one back as the float, and a
-#: ``str`` keeps the text. Every pydantic config in conductor that writes JSON uses it, as
-#: ``ser_json_inf_nan=NON_FINITE_FLOATS``.
-NON_FINITE_FLOATS: Final = "strings"
+#: How conductor writes and reads what JSON has no form for. Every pydantic config in conductor that writes or reads
+#: JSON is built from it, as ``ConfigDict(**JSON_CONFIG, frozen=True)``, and a call that takes one of its settings,
+#: like pydantic's ``to_json``, reads that setting from it. So a value is written one way wherever it goes.
+#:
+#: - ``inf``, ``-inf`` and ``nan`` are written as the texts ``"Infinity"``, ``"-Infinity"`` and ``"NaN"``. A
+#:   ``float`` reads each one back as the float, and a ``str`` keeps the text.
+#: - ``bytes`` are written as URL-safe base64 text with its padding: ``b"\xff\xfe"`` is ``"__4="``. ``bytes`` reads
+#:   base64 text back, standard or URL-safe, with or without its padding, and refuses any other text.
+JSON_CONFIG: Final = ConfigDict(
+    ser_json_inf_nan="strings", ser_json_bytes="base64", val_json_bytes="base64"
+)
+
+#: ``JSON_CONFIG`` as pydantic-core takes it, for a check or a schema built from a core schema:
+#: ``SchemaValidator(schema, config=JSON_CORE_CONFIG)``, and the ``config`` of a ``typed_dict_schema``, which reads
+#: its fields by its own config and not by the one it sits in.
+JSON_CORE_CONFIG: Final = CoreConfig(
+    ser_json_inf_nan=JSON_CONFIG["ser_json_inf_nan"],
+    ser_json_bytes=JSON_CONFIG["ser_json_bytes"],
+    val_json_bytes=JSON_CONFIG["val_json_bytes"],
+)
 
 
 def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> JsonValue:
@@ -37,8 +53,8 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
     ``{"day": "2026-01-02", "sizes": [1, "Infinity"]}``.
 
     Pydantic's ``to_jsonable_python`` would leave ``inf`` as a float, which JSON has no number for. So this writes
-    the JSON text and reads it back, and ``inf`` comes out as the text ``"Infinity"`` (``NON_FINITE_FLOATS``), in a
-    field of a host's own model too (``json_text``).
+    the JSON text and reads it back, and ``inf`` comes out as the text ``"Infinity"`` (``JSON_CONFIG``), in a field
+    of a host's own model too (``json_text``). ``bytes`` come out as their base64 text.
 
     Args:
         value: The value to convert.
@@ -48,7 +64,7 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
         PydanticSerializationError: A value can't be written as JSON and there is no ``fallback``, or ``fallback``
             raised.
     """
-    plain: JsonValue = from_json(_written(value, NON_FINITE_FLOATS, fallback))
+    plain: JsonValue = from_json(_written(value, JSON_CONFIG["ser_json_inf_nan"], fallback))
     return plain
 
 
@@ -60,7 +76,7 @@ def canonical_json(value: Any) -> str:
 
     ``value`` should already be plain data, as ``plain_json`` or pydantic's ``to_python(mode="json")`` returns it.
     The second leaves ``inf`` as a float, so a float that isn't finite is written as its text here too
-    (``NON_FINITE_FLOATS``). That way ``float("inf")`` and ``"Infinity"`` give the same text.
+    (``JSON_CONFIG``). That way ``float("inf")`` and ``"Infinity"`` give the same text.
     """
     try:
         return json.dumps(
@@ -105,6 +121,7 @@ def json_text(value: Any, fallback: Callable[[Any], Any] | None = None) -> str:
     """Writes a Python value as the JSON text it is checked from (``validate_as_json``).
 
     ``inf`` and ``nan`` are written as the bare words ``Infinity`` and ``NaN``, which pydantic reads back as floats.
+    ``bytes`` are written as their base64 text (``JSON_CONFIG``).
 
     Args:
         value: The value to write.
@@ -150,22 +167,28 @@ def finite_json_text(value: Any, title: str, fallback: Callable[[Any], Any] | No
 
 
 def _written(
-    value: Any, non_finite: Literal["constants", "strings"], fallback: Callable[[Any], Any] | None
+    value: Any,
+    non_finite: Literal["null", "constants", "strings"],
+    fallback: Callable[[Any], Any] | None,
 ) -> bytes:
-    """Writes ``value`` as JSON text, with ``inf`` and ``nan`` written as ``non_finite`` says, wherever they are.
+    """Writes ``value`` as JSON text, with ``inf`` and ``nan`` written as ``non_finite`` says, wherever they are, and
+    ``bytes`` as base64 (``JSON_CONFIG``).
 
     A pydantic model writes its own floats by its own config, whatever ``to_json`` is told, and its config writes
     ``inf`` as ``null`` by default. So a host's model with ``x=inf`` would be written as
     ``{"x": null}``, and a ``float | None`` field would read back as ``None``. The value is turned into Python's
     JSON values first (``to_jsonable_python``), which keep a float as it is, each model by its own serializer, and
-    then written as text by one rule.
+    then written as text by one rule. A model writes its ``bytes`` by its own config too, so a host's model with a
+    ``bytes`` field sets ``ser_json_bytes`` and ``val_json_bytes`` itself.
 
-    What can't be written is refused as ``to_json`` refuses it, with ``PydanticSerializationError``: a cycle, bytes
-    that aren't text, or a value ``fallback`` raises ``TypeError`` for. A ``PydanticCustomError`` that ``fallback``
-    raises to refuse a value is raised unchanged.
+    What can't be written is refused as ``to_json`` refuses it, with ``PydanticSerializationError``: a cycle, a
+    ``str`` with a lone surrogate, or a value ``fallback`` raises ``TypeError`` for. A ``PydanticCustomError`` that
+    ``fallback`` raises to refuse a value is raised unchanged.
     """
     try:
-        data = to_jsonable_python(value, fallback=fallback)
+        data = to_jsonable_python(
+            value, fallback=fallback, bytes_mode=JSON_CONFIG["ser_json_bytes"]
+        )
     except (PydanticCustomError, PydanticSerializationError):
         raise
     # what to_json raises as PydanticSerializationError, to_jsonable_python raises as it is

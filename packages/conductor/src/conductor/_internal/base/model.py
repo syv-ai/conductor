@@ -26,7 +26,7 @@ from pydantic_core.core_schema import IsSubclassSchema, ModelFieldsSchema, Model
 
 from conductor._internal.utils import comma_separated, qualified_name
 
-from .json import NON_FINITE_FLOATS
+from .json import JSON_CONFIG
 
 
 class _JsonFormSchema(GenerateJsonSchema):
@@ -85,9 +85,9 @@ class ConductorModel(BaseModel):
     writes has a JSON form.
     """
 
-    #: ``inf`` and ``nan`` are written as text (``NON_FINITE_FLOATS``). A subclass that sets its own ``model_config``
-    #: keeps these three settings, since pydantic merges a subclass's config into its base's.
-    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
+    #: ``inf`` and ``nan`` are written as text, and ``bytes`` as base64 (``JSON_CONFIG``). A subclass that sets its own
+    #: ``model_config`` keeps these settings, since pydantic merges a subclass's config into its base's.
+    model_config = ConfigDict(**JSON_CONFIG, frozen=True, extra="forbid")
 
     @classmethod
     def __pydantic_on_complete__(cls) -> None:

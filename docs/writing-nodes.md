@@ -201,7 +201,7 @@ The widget is sent to the editor as JSON, so each of its fields needs a type pyd
 
 ## Types
 
-An input or an output can have any type pydantic can check and write as JSON: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a dataclass. A pydantic model is the usual way to pass a record of your own. Declare it with `@host_type`, which gives it an id that editors know it by and a title that a person reads:
+An input or an output can have any type pydantic can check and write as JSON: `str`, `int`, `float`, `bool`, `date`, `bytes`, a pydantic model, a dataclass. JSON has no bytes, so `bytes` cross JSON as base64 text: a caller sends a file's contents as `"__4="`, and a saved run keeps them that way. A pydantic model is the usual way to pass a record of your own. Declare it with `@host_type`, which gives it an id that editors know it by and a title that a person reads:
 
 ```python
 from pydantic import BaseModel

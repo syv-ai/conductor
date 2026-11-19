@@ -939,6 +939,127 @@ def test_two_identical_runs_save_byte_identical_json():
     assert graph.run({"text": "x"}).to_json() == graph.run({"text": "x"}).to_json()
 
 
+# -- bytes are base64 in JSON ---------------------------------------------------------------
+
+#: Bytes that aren't UTF-8 text, and their URL-safe base64 text with its padding.
+_BINARY, _BINARY_TEXT = b"\xff\xfe\x00A\xfb", "__4AQfs="
+
+
+class _Attachment(TypedDict):
+    data: bytes
+
+
+@node("checksum", title="Checksum", description="For a test.")
+def checksum(data: bytes) -> bytes:
+    return bytes(255 - byte for byte in data)
+
+
+@node("attach", title="Attach", description="For a test.")
+def attach(text: str) -> _Attachment:
+    return {"data": _BINARY + text.encode()}
+
+
+@node("attach-all", title="Attach all", description="For a test.")
+def attach_all(text: str) -> list[_Attachment]:
+    return [{"data": _BINARY + text.encode()}]
+
+
+@node("approve-file", title="Approve file", description="For a test.", asks=True)
+def approve_file(data: bytes) -> bytes:
+    raise Ask("Which file?")
+
+
+def test_a_binary_input_is_given_as_its_base64_text_or_as_bytes_and_other_text_is_refused():
+    """A caller gives a ``bytes`` input as base64 text, standard or URL-safe, or as the bytes themselves.
+
+    JSON has no bytes, so a binary value crosses JSON as base64 text, and one given from Python reads as the same
+    value sent over HTTP.
+    """
+    graph = Graph.compile(make_graph(checksum), registry_of(checksum))
+    flipped = bytes(255 - byte for byte in _BINARY)
+
+    for given in (_BINARY, _BINARY_TEXT, "//4AQfs="):
+        run = graph.run({"data": given})
+        assert run.results["checksum"]["result"] == flipped, given
+        assert _round_trip(run).results["checksum"]["result"] == flipped
+    assert json.loads(run.outputs_to_json()) == {"result": "AAH_vgQ="}
+    assert json.loads(run.to_json())["inputs"] == {"data": _BINARY_TEXT}
+
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run({"data": "not base64!"})
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
+        "invalid_input",
+        "bytes_invalid_encoding",
+    )
+
+
+def test_bytes_a_node_returns_are_saved_as_base64_and_read_back_in_a_record_too():
+    """Bytes that aren't text are saved, in a record's field and in a list of records."""
+    for returning, saved, returned in (
+        (attach, {"data": "__4AQfth"}, {"data": _BINARY + b"a"}),
+        (attach_all, [{"data": "__4AQfth"}], [{"data": _BINARY + b"a"}]),
+    ):
+        run = Graph.compile(make_graph(returning), registry_of(returning)).run({"text": "a"})
+
+        outcomes = json.loads(run.to_json())["outcomes"]
+        assert outcomes[returning.id]["outputs"]["result"] == [saved]
+        assert _round_trip(run).results[returning.id]["result"] == returned
+
+
+def test_a_record_given_with_a_bytes_field_reads_the_field_from_base64():
+    @node("attached-size", title="Attached size", description="For a test.")
+    def attached_size(file: _Attachment) -> int:
+        return len(file["data"])
+
+    graph = Graph.compile(make_graph(attached_size), registry_of(attached_size))
+
+    for given in (_BINARY, _BINARY_TEXT):
+        run = graph.run({"file": {"data": given}})
+        assert run.results["attached-size"]["result"] == len(_BINARY), given
+
+
+def test_a_person_answers_a_binary_question_with_base64_text_and_a_queued_answer_is_its_base64():
+    graph = Graph.compile(make_graph(checksum, approve_file), registry_of(checksum, approve_file))
+    run = graph.run({"data": _BINARY})
+    (waiting,) = run.waiting
+
+    assert waiting.inputs == {"data": "AAH_vgQ="}
+    assert Run.queued_as_json({waiting.id: _BINARY})[0] == {waiting.id: _BINARY_TEXT}
+    for answer in (_BINARY, _BINARY_TEXT):
+        answered = run.with_answers(waiting, answer).resume()
+        assert answered.results["approve-file"]["result"] == _BINARY, answer
+        assert _round_trip(answered).results["approve-file"]["result"] == _BINARY
+
+
+def test_a_call_on_bytes_is_matched_by_their_base64_text_given_as_bytes_or_as_text():
+    """A call's arguments are hashed by their JSON text, so bytes and their base64 text make one waiting id."""
+    graph = Graph.compile(make_graph(approve_file), registry_of(approve_file))
+
+    (as_bytes,) = graph.run({"data": _BINARY}).waiting
+    (as_text,) = graph.run({"data": _BINARY_TEXT}).waiting
+
+    assert as_bytes.id == as_text.id
+
+
+def test_a_binary_constant_and_default_are_written_as_base64_and_described_as_base64url():
+    @node("padded-size", title="Padded size", description="For a test.")
+    def padded_size(data: bytes = b"\xff\x00") -> int:
+        return len(data)
+
+    record = make_graph(padded_size, constants={"padded-size.data": _BINARY})
+
+    assert record.nodes["padded-size"].inputs["data"].constant == _BINARY_TEXT
+    assert Graph.compile(record, registry_of(padded_size)).run({}).results == {
+        "padded-size": {"result": len(_BINARY)}
+    }
+    (described,) = padded_size.describe().inputs
+    assert (described.json_schema, described.default) == (
+        {"format": "base64url", "type": "string"},
+        "_wA=",
+    )
+
+
 # -- what a run cannot be saved with ----------------------------------------------------------
 
 

@@ -26,6 +26,7 @@ from typing import (
     ClassVar,
     Literal,
     NotRequired,
+    TypeAliasType,
     TypedDict,
     TypeVar,
     Union,
@@ -35,7 +36,7 @@ from typing import (
 from weakref import WeakValueDictionary
 
 from annotated_types import Predicate, Timezone, Unit
-from pydantic import ConfigDict, JsonValue, StringConstraints, TypeAdapter, ValidationError
+from pydantic import JsonValue, StringConstraints, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic_core import (
@@ -46,7 +47,13 @@ from pydantic_core import (
     SchemaValidator,
 )
 
-from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
+from conductor._internal.base import (
+    JSON_CONFIG,
+    JSON_CORE_CONFIG,
+    canonical_json,
+    plain_json,
+    validate_as_json,
+)
 from conductor._internal.problem import (
     NodeDeclarationError,
     declaration_problems,
@@ -301,7 +308,7 @@ class Type:
         It checks a constant, a default, a graph input and a value from an edge, laxly or strictly, and reads the
         type's own choices. When it refuses a value, ``Type.refusal`` explains why without quoting the value.
         """
-        return SchemaValidator(self.argument_schema)
+        return SchemaValidator(self.argument_schema, config=JSON_CORE_CONFIG)
 
     @functools.cached_property
     def output_schema(self) -> CoreSchema:
@@ -319,7 +326,7 @@ class Type:
         Validators call it with ``strict=True``, so ``"12"`` is never an ``int`` and ``"no"`` is never a ``bool``. A
         ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``Records``).
         """
-        return SchemaValidator(self.output_schema)
+        return SchemaValidator(self.output_schema, config=JSON_CORE_CONFIG)
 
     @functools.cached_property
     def exact_classes(self) -> tuple[type, ...]:
@@ -492,13 +499,17 @@ class Type:
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
-        # A record is written by its own config. Any other type writes a float that isn't finite as text.
+        # Every type writes and reads by JSON_CONFIG: a float that isn't finite as text, and bytes as base64. Pydantic
+        # refuses a config beside a record, so a record is handed to it under a type alias. A model and a pydantic
+        # dataclass still write their fields by their own config, wherever they sit. A TypedDict or a plain dataclass
+        # takes the config it sits in, as inside a list.
         try:
-            adapter = (
-                TypeAdapter(read)
+            given: Any = (
+                TypeAliasType("Record", read)
                 if len(options) == 1 and is_record(options[0])
-                else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan=NON_FINITE_FLOATS))
+                else read
             )
+            adapter = TypeAdapter(given, config=JSON_CONFIG)
         # a limit of the wrong kind for the type, like ge="a" on an int
         except SchemaError as error:
             raise NodeDeclarationError(
