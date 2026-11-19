@@ -26,10 +26,9 @@ from pydantic_core import (
     CoreSchema,
     PydanticSerializationError,
     core_schema,
-    to_jsonable_python,
 )
 
-from conductor._internal.base import canonical_json
+from conductor._internal.base import canonical_json, plain_json
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
@@ -129,7 +128,7 @@ class Param:
         if choices is not None:
             try:
                 choices = (
-                    canonical_json(to_jsonable_python(choices)),
+                    canonical_json(plain_json(choices)),
                     tuple(type(choice) for choice in choices),
                 )
             # no JSON form: compare as given; the choices are refused later, when the type is built
