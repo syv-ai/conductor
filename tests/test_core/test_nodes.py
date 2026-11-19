@@ -2144,7 +2144,9 @@ def test_a_wrongly_typed_limit_is_refused_as_a_bound():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.problems[0].type == "param_limit_value_invalid"
+    (problem,) = raised.value.problems
+    assert problem.type == "param_limit_value_invalid"
+    assert "error" not in problem.ctx and "coercible to an integer" in problem.ctx["reason"]
 
 
 def test_a_hook_reads_a_whole_table_arriving_with_its_columns():

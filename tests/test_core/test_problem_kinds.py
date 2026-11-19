@@ -187,6 +187,23 @@ def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> N
             assert "{" not in filled and "}" not in filled, kind.code
 
 
+def test_ctx_error_is_only_a_developers_code_or_an_exceptions_class() -> None:
+    """A kind takes ``error`` only when its docstring says the key holds a ``NodeError``'s ``code`` or an exception's
+    class name. Any other text, such as pydantic's reason for a schema it can't build, is a ``reason``, and a value
+    refusal says why in ``ctx.errors``."""
+    for declared in (PROBLEMS, DECLARATION_PROBLEMS, REGISTRY_CHECK_PROBLEMS):
+        for kind in declared:
+            if "error" not in kind.ctx_type.__annotations__:
+                continue
+            said = " ".join(
+                kind.__doc__.split("        error: ", 1)[1].split("\n        ")[0].split()
+            )
+            assert "class name" in said or ("``NodeError``" in said and "``code``" in said), (
+                kind.code,
+                said,
+            )
+
+
 def test_no_kind_takes_both_error_and_errors() -> None:
     """``ctx.error`` is a developer's code or an exception's class, and a value refusal says why in ``ctx.errors``,
     with pydantic's codes. So no kind has both: a key means one thing on every kind that has it."""

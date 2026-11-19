@@ -514,7 +514,7 @@ class Type:
         except SchemaError as error:
             raise NodeDeclarationError(
                 declaration_problems.param_limit_value_invalid(
-                    limits=repr(param.limits), type=self.id, error=str(error)
+                    limits=repr(param.limits), type=self.id, reason=str(error)
                 )
             ) from None
         except PydanticSchemaGenerationError:
