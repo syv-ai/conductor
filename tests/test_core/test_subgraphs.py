@@ -1597,12 +1597,13 @@ def test_answers_given_at_once_to_subgraphs_side_by_side_inside_another_complete
 def test_a_subgraph_used_twice_runs_one_node_with_one_code_fingerprint_asking_one_question_in_two_places():
     """Two uses of one subgraph, neither inside a loop, call the same nodes with the same code.
 
-    So a saved run gives the node inside each one code fingerprint, and the waiting ids of two calls given the same
-    inputs differ only by where the call is.
+    So the calls of the node inside each one, given the same inputs, have one fingerprint in a saved run, and their
+    waiting ids differ only by where the call is.
     """
     run = Graph.compile(INNER["two-asks-inner"], REGISTRY).run({"text": "ab"})
-    code = json.loads(run.to_json())["code"]
-    assert code["f/up"] == code["g/up"] and code["f/q"] == code["g/q"]
+    outcomes = json.loads(run.to_json())["outcomes"]
+    assert outcomes["f/up"]["fingerprints"] == outcomes["g/up"]["fingerprints"]
+    assert outcomes["f/q"]["fingerprints"] == outcomes["g/q"]["fingerprints"]
     first, second = (waiting_call.id.split("~") for waiting_call in run.waiting)
     assert (first[0], second[0]) == ("f/q", "g/q") and first[1] == second[1]
 

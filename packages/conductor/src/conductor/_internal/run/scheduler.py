@@ -124,7 +124,7 @@ from .call import call, jsonable
 from .node_events import NodeEvents
 from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
 from .outcomes import RunOutcomes, length
-from .reuse import ReusableOutcomes
+from .reuse import ReusableOutcomes, call_fingerprint
 from .state import EndedEarly, LastResume
 
 #: The exceptions that are never retried, whatever the node's ``Policy.retry_on`` names. They are the node's own
@@ -156,12 +156,13 @@ def _each[T](items: list[T], action: Callable[[T], object]) -> None:
 class _Attempt:
     """One attempt at one call: the first try, or a retry.
 
-    For example, ``_Attempt(shout, (1,), {"line": "b", "mark": "!"}, 0)`` is the first attempt at ``shout (1,)``.
+    For example, ``_Attempt(shout, (1,), {"line": "b", "mark": "!"}, fp_b, 0)`` is the first attempt at ``shout (1,)``.
 
     Attributes:
         node: The node to call.
         item_indexes: Which call of the node it is.
         arguments: The call's arguments.
+        fingerprint: The call's fingerprint (``call_fingerprint``), which its ``Done`` or ``Unanswered`` keeps.
         number: 0 for the first attempt at the call, 1 for its first retry, and so on.
         future: The pool's handle on the attempt, once it is handed to a thread. It lets an attempt still in the
             pool's queue be cancelled. It is ``None`` before that, and for an attempt made on the scheduler's thread.
@@ -174,6 +175,7 @@ class _Attempt:
     node: BlueprintFunctionNode
     item_indexes: ItemIndexes
     arguments: dict[str, Any]
+    fingerprint: str | None
     number: int
     future: Future[None] | None = None
     deadline: _Timer | None = None
@@ -451,6 +453,7 @@ class Scheduler:
           ``costs_nothing``.
         - If the call is skipped or has a ``None`` input, ``arguments_for`` returns that outcome, and it is recorded.
         - If an earlier run has an outcome for these arguments, that outcome is recorded, and the node isn't called.
+          The call's fingerprint is taken here, once, to find that outcome, and the outcome the call gets keeps it.
         - Otherwise an ``_Attempt`` is made, and the outcome is recorded once the node has returned.
 
         Args:
@@ -474,13 +477,11 @@ class Scheduler:
             return
         if not isinstance(arguments, dict):  # a Skipped or NoneInput outcome
             self._write_outcome(node, item_indexes, arguments)
-        elif (
+            return
+        fingerprint = call_fingerprint(node, item_indexes, arguments, self.outcomes)
+        if (
             previous := self.reusable.take(
-                node,
-                item_indexes,
-                arguments,
-                self.outcomes,
-                lambda: self._in_turn(node, item_indexes),
+                node, item_indexes, fingerprint, lambda: self._in_turn(node, item_indexes)
             )
         ) is not None:
             if previous is NotReady.NOT_ITS_TURN:
@@ -490,7 +491,7 @@ class Scheduler:
                 self.node_events.outcome_reused(node)
             self._write_outcome(node, item_indexes, previous)
         else:
-            self._make_attempt(_Attempt(node, item_indexes, arguments, 0))
+            self._make_attempt(_Attempt(node, item_indexes, arguments, fingerprint, 0))
 
     def _write_outcome(
         self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem
@@ -765,11 +766,7 @@ class Scheduler:
         node, item_indexes = attempt.node, attempt.item_indexes
         if not self._retry(attempt, error):
             del self.running[(node, item_indexes)]
-            self._write_outcome(
-                node,
-                item_indexes,
-                self._outcome(node, item_indexes, attempt.arguments, outputs, error),
-            )
+            self._write_outcome(node, item_indexes, self._outcome(attempt, outputs, error))
 
     def _on_thread(self, attempt: _Attempt) -> None:
         """Runs on a pool thread. Calls the node, counts the call out, and puts what came back on ``returned``.
@@ -891,11 +888,7 @@ class Scheduler:
                 and not self.going
                 and item_indexes not in self.outcomes.of(node.node_path)
             ):
-                self._write_outcome(
-                    node,
-                    item_indexes,
-                    self._outcome(node, item_indexes, attempt.arguments, outputs, None),
-                )
+                self._write_outcome(node, item_indexes, self._outcome(attempt, outputs, None))
             return
         self._attempt_over(attempt, outputs, error)
 
@@ -924,7 +917,9 @@ class Scheduler:
             return False
         # 2.0 ** 1024 is past what a float holds. A product past it is inf, which the cap brings down.
         delay = min(policy.retry_delay * 2.0 ** min(attempt.number, 1023), LONGEST_WAIT)
-        retry = _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1)
+        retry = _Attempt(
+            node, item_indexes, attempt.arguments, attempt.fingerprint, attempt.number + 1
+        )
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)
         # Made with or without a listener, since making it logs the error.
@@ -993,32 +988,28 @@ class Scheduler:
             self.node_events.call_failed(node, cause)
 
     def _outcome(
-        self,
-        node: BlueprintFunctionNode,
-        item_indexes: ItemIndexes,
-        arguments: dict[str, Any],
-        outputs: Any,
-        error: BaseException | Problem | None,
+        self, attempt: _Attempt, outputs: Any, error: BaseException | Problem | None
     ) -> Outcome | Problem:
-        """Returns a call's outcome, made from what ``call`` returned.
+        """Returns a call's outcome, made from what ``call`` returned for ``attempt``.
 
         That's ``Done`` with the outputs, or ``Unanswered`` with what the ``Ask`` said if the function raised one,
-        or else the problem the call failed with.
+        each with the call's fingerprint, or else the problem the call failed with.
 
         A person who is asked is shown the call's arguments, as JSON. So arguments that can't be turned into JSON
         are a problem. So is an ``Ask`` that doesn't fit the node's outputs.
         """
+        node, item_indexes = attempt.node, attempt.item_indexes
         if error is None:
-            return Done(outputs)
+            return Done(outputs, fingerprint=attempt.fingerprint)
         if isinstance(error, Ask):
             try:
                 # a person is shown the call's arguments with the question (run.waiting)
-                jsonable(arguments)
+                jsonable(attempt.arguments)
                 choices, defaults = node.compiled_node.ask_validator(error)
             except InvalidCallError as refused:  # arguments with no JSON form, or the Ask validator
                 (problem,) = refused.problems
                 return self._failure(node, item_indexes, problem)
-            return Unanswered(error.prompt, choices, defaults)
+            return Unanswered(error.prompt, choices, defaults, fingerprint=attempt.fingerprint)
         return self._failure(node, item_indexes, error)
 
     def _failure(

@@ -86,8 +86,8 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 def test_a_code_fingerprint_is_the_same_on_every_compile_and_names_the_loop_the_node_is_inside():
     """A node's code fingerprint is the same on every compile, and changes with the loop the node is inside.
 
-    A waiting call's id and a saved run both contain the fingerprint. So compiling the same record again must give the
-    same one. The same node inside a loop over another output gets another.
+    A call's fingerprint, which a saved run writes and a waiting call's id is made from, contains it. So compiling
+    the same record again must give the same one. The same node inside a loop over another output gets another.
     """
 
     @node("words", title="Words", description="For a test.")
@@ -104,7 +104,9 @@ def test_a_code_fingerprint_is_the_same_on_every_compile_and_names_the_loop_the_
 
     def digest(first: Any) -> str:
         graph = Graph.compile(make_graph(first, upper), registry_of(first, upper))
-        return json.loads(graph.run({"text": "a"}).to_json())["code"]["upper"]
+        return json.loads(graph.run({"text": "a"}).to_json())["outcomes"]["upper"]["fingerprints"][
+            0
+        ]
 
     assert digest(words) == digest(words) != digest(letters)
 
@@ -2150,13 +2152,19 @@ def test_a_docstring_of_a_node_or_of_a_function_or_class_inside_it_is_not_part_o
 
 
 def _code(function: Any) -> str:
-    """Returns the code value a saved run of a graph of ``function`` alone records, as the node ``echo``."""
+    """Returns the fingerprint a saved run of a graph of ``function`` alone records for its one call, as the node
+    ``echo``. The call takes its defaults, so the fingerprint changes only with the node's code fingerprint."""
     definition = node("echo", title="Echo", description="For a test.")(function)
-    return json.loads(_alone(definition).run().to_json())["code"]["n"]
+    return _call_fingerprint(_alone(definition).run())
+
+
+def _call_fingerprint(run: Any) -> str:
+    """Returns the fingerprint a saved run of ``run`` records for the one call of its node ``n``."""
+    return json.loads(run.to_json())["outcomes"]["n"]["fingerprints"][0]
 
 
 def _code_from_file(source: str, folder: Path) -> str:
-    """Returns the code value of the function ``echo`` written as ``source`` in a file of its own in ``folder``."""
+    """Returns the ``_code`` of the function ``echo`` written as ``source`` in a file of its own in ``folder``."""
     path = folder / f"echo_{len(list(folder.iterdir()))}.py"
     path.write_text(source)
     return _code(runpy.run_path(str(path))["echo"])
@@ -2169,9 +2177,10 @@ def _echo(text: str = "ab") -> str:
 def test_a_code_fingerprint_is_read_from_the_source_so_every_python_version_gives_the_same_one():
     """A node's code fingerprint is a hash of its parsed source, so it's the same on every Python version.
 
-    The value below is the one Python 3.12 and 3.13 both give. Bytecode differs between the two.
+    The value below is the fingerprint of its one call, which hashes the code fingerprint with the call's
+    arguments, both the same on every version. Python 3.12 and 3.13 give it, though bytecode differs between the two.
     """
-    assert _code(_echo) == "2870a948f4c6e991"
+    assert _code(_echo) == "f7bf8bb3501a7a1f8a08c42c"
 
 
 def test_a_comment_a_line_break_the_name_or_the_decorator_of_a_node_is_not_part_of_its_code(
@@ -2216,7 +2225,7 @@ def test_a_file_replaced_after_node_declared_its_function_keeps_the_code_fingerp
     )
     path.write_text("x = 1\n")
 
-    assert json.loads(_alone(declared).run().to_json())["code"]["n"] == _code(_echo)
+    assert _call_fingerprint(_alone(declared).run()) == _code(_echo)
 
 
 def test_a_function_defined_inside_another_with_a_string_at_the_left_margin_has_its_source_read():

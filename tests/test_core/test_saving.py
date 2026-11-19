@@ -1982,7 +1982,6 @@ def ok_word(word: str) -> bool:
         ("units", lambda s: s.__setitem__("units", [])),  # a key a saved run does not have
         ("reusable", lambda s: s.__setitem__("reusable", [])),
         ("inputs", lambda s: s.__setitem__("inputs", [])),
-        ("code", lambda s: s.__setitem__("code", [])),
         ("complete", lambda s: s.__setitem__("complete", 3)),
         ("ended_early", lambda s: s.__setitem__("ended_early", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", "ten")),
@@ -2031,28 +2030,36 @@ def ok_word(word: str) -> bool:
         ),  # an empty saved run: the graph's fingerprint is read first, since it says which graph the run is of
         ("inputs.split.text", lambda s: s["inputs"].__setitem__("split.text", ["a"])),
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
-        ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),
+        (
+            "outcomes.upper.fingerprints",
+            lambda s: s["outcomes"]["upper"].__setitem__("fingerprints", {}),
+        ),
+        (
+            "outcomes.upper",
+            lambda s: s["outcomes"]["upper"].__setitem__("fingerprints", []),
+        ),  # not one fingerprint per call
         ("complete.0", lambda s: s.__setitem__("complete", ["nowhere"])),
         (
             "reusable.ok",
             lambda s: s["reusable"].__setitem__(
                 "ok",
-                {
-                    "outcomes": {"states": [None], "outputs": {"result": [None]}},
-                    "fingerprints": ["f"],
-                },
+                {"states": [None], "outputs": {"result": [None]}, "fingerprints": ["f"]},
             ),
         ),  # a reusable entry with no outcome
         (
             "reusable.ok",
             lambda s: s["reusable"].__setitem__(
                 "ok",
-                {
-                    "outcomes": {"states": ["done"], "outputs": {"result": [True]}},
-                    "fingerprints": [],
-                },
+                {"states": ["done"], "outputs": {"result": [True]}, "fingerprints": []},
             ),
         ),
+        (
+            "reusable.ok",
+            lambda s: s["reusable"].__setitem__(
+                "ok",
+                {"states": ["done"], "outputs": {"result": [True]}, "fingerprints": [None]},
+            ),
+        ),  # a reusable outcome with no fingerprint
     ],
 )
 def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(

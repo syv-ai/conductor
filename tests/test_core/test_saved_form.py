@@ -265,8 +265,13 @@ def test_a_run_reads_back_as_itself_and_resumes_to_the_same_result(text: str) ->
 
 def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() -> None:
     saved = json.loads(_everything().run(_inputs("a,bb,ccc,xax,b")).to_json())
+    fingerprints = {
+        name: of_node.pop("fingerprints") for name, of_node in saved["outcomes"].items()
+    }
 
     assert saved["ended_early"] is None
+    # one fingerprint per call, for a waiting call too
+    assert len(fingerprints["ask"]) == 5 and all(isinstance(f, str) for f in fingerprints["ask"])
     assert saved["outcomes"]["maybe"] == {
         "states": ["done"] * 5,
         "outputs": {"result": ["A", None, "CCC", "XAX", None]},
@@ -355,7 +360,7 @@ def test_a_run_given_new_inputs_saves_each_outcome_it_may_reuse_once() -> None:
 
     saved = json.loads(first.with_inputs({"items": ["a", "b", "d"]}).to_json())["reusable"]["tag"]
 
-    assert saved["outcomes"]["outputs"]["result"] == ["a 0", "b 1", "c 2"]
+    assert saved["outputs"]["result"] == ["a 0", "b 1", "c 2"]
     assert len(saved["fingerprints"]) == 3
     assert saved["item_indexes"] == {"0": [0], "1": [1], "2": [2]}
 
@@ -389,12 +394,8 @@ def test_a_saved_run_reuses_each_call_s_own_outcome_whatever_order_its_fingerpri
     reversed_places = list(range(len(tag["fingerprints"])))[::-1]
     reversed_saved = {
         **tag,
-        "outcomes": {
-            "states": [tag["outcomes"]["states"][p] for p in reversed_places],
-            "outputs": {
-                "result": [tag["outcomes"]["outputs"]["result"][p] for p in reversed_places]
-            },
-        },
+        "states": [tag["states"][p] for p in reversed_places],
+        "outputs": {"result": [tag["outputs"]["result"][p] for p in reversed_places]},
         "fingerprints": [tag["fingerprints"][p] for p in reversed_places],
         "item_indexes": {
             str(place): tag["item_indexes"][str(p)] for place, p in enumerate(reversed_places)

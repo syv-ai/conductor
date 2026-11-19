@@ -18,7 +18,7 @@ indexes::
      ("join",):  {():   Done({"result": "A!+B!+C!"})}}
 
 A call has at most one outcome. Once stored, it changes only when a person answers: the answer replaces
-``Unanswered`` with ``Done``. There are four kinds, one class each:
+``Unanswered`` with ``Done``, which keeps the question's fingerprint. There are four kinds, one class each:
 
 - ``Done``: the call has its outputs. Either the function returned them, or it asked a person and the person
   answered.
@@ -33,6 +33,10 @@ the function again.
 A node is complete when every call it will have has an outcome and none of them is ``Unanswered``. A run is
 complete when every node is.
 
+``Done`` and ``Unanswered`` are the outcomes of a call that was made, and each keeps the call's fingerprint, taken
+once when the call was made (``reuse.call_fingerprint``). A later run reuses an outcome by it, and a waiting call's
+id is made from it.
+
 ``Done``, ``Skipped`` and ``NoneInput`` have ``outputs``. ``Unanswered`` has none yet. Each class says which with
 ``has_outputs``, so code that wants an output checks ``outcome.has_outputs`` and then reads
 ``outcome.outputs[name]``, whatever kind of outcome it has.
@@ -44,8 +48,9 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, ClassVar, Literal, final
+from typing import Annotated, Any, ClassVar, Literal, final
 
+from pydantic import Field as PydanticField
 from pydantic import JsonValue, SerializeAsAny
 
 from conductor._internal.types import Choice
@@ -83,10 +88,13 @@ class Done:
         outputs: The call's outputs by name. An output may be ``None``, or ``SKIPPED`` when it is a branch that
             was skipped. A ``Series`` output is stored as a ``StoredSeries``, which reads like the list the
             function returned.
+        fingerprint: The call's fingerprint, or ``None`` when its arguments or items can't be written as JSON. An
+            answer keeps the fingerprint of the question it answers.
         has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
+    fingerprint: str | None = dataclasses.field(kw_only=True)
     has_outputs: ClassVar[Literal[True]] = True
 
 
@@ -145,8 +153,9 @@ class Unanswered:
     ``Ask("Who?", choices=team)``. Its outcome is
     ``Unanswered("Who?", {"result": (Choice("ida", "ida"), Choice("bo", "bo"))})``.
 
-    The arguments the call got aren't stored. When a host asks for ``run.waiting``, they are worked out again from
-    the run's outcomes. There are no outputs yet, so a call that needs one of them isn't ready.
+    The arguments the call got aren't stored, only their fingerprint. When a host asks for ``run.waiting``, they
+    are worked out again from the run's outcomes, to show them. There are no outputs yet, so a call that needs one
+    of them isn't ready.
 
     Attributes:
         prompt: The text the person reads.
@@ -154,6 +163,8 @@ class Unanswered:
             set no choices for isn't named.
         defaults: The answer the ``Ask`` proposed, by output name, in its JSON form. An output it proposed nothing
             for isn't named.
+        fingerprint: The call's fingerprint, or ``None`` when its items can't be written as JSON. A saved run writes
+            it in the node's list of fingerprints, not with the question, so the question's JSON leaves it out.
         has_outputs: ``False``.
     """
 
@@ -162,6 +173,9 @@ class Unanswered:
         default_factory=dict
     )
     defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
+    fingerprint: Annotated[str | None, PydanticField(exclude=True, default=None)] = (
+        dataclasses.field(kw_only=True)
+    )
     has_outputs: ClassVar[Literal[False]] = False
 
 

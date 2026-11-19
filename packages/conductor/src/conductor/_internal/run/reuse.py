@@ -24,9 +24,9 @@ is made again.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Literal, assert_never, cast
+from typing import Any, Literal, cast
 
 from pydantic_core import PydanticSerializationError
 
@@ -34,7 +34,7 @@ from conductor._internal.base import ItemIndexes, NodePath, json_hash
 from conductor._internal.table import hash_fallback
 
 from .blueprint import BlueprintFunctionNode, RunBlueprint
-from .outcome import Done, NoneInput, NotReady, Skipped, Unanswered
+from .outcome import Done, NotReady, Unanswered
 from .outcomes import RunOutcomes
 
 
@@ -62,9 +62,6 @@ class ReusableOutcomes:
         reused_in_item_order: For a node that may ask: by call fingerprint, the outcomes, ``Done`` or
             ``Unanswered``, of the calls with that fingerprint, in item order. Each is reused once, by the calls
             with that fingerprint in item order, and then taken out.
-        code_changed: The nodes whose outcomes in this run were made by other code or another signature, as a
-            saved run showed, with the code fingerprint they were made with. Their outcomes are never offered for
-            reuse, and a save writes them under that old fingerprint.
     """
 
     reused_freely: dict[NodePath, dict[str, dict[ItemIndexes, Done]]] = field(
@@ -73,7 +70,6 @@ class ReusableOutcomes:
     reused_in_item_order: dict[NodePath, dict[str, list[Done | Unanswered]]] = field(
         default_factory=dict[NodePath, dict[str, list["Done | Unanswered"]]]
     )
-    code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
 
     @classmethod
     def from_previous(
@@ -107,7 +103,14 @@ class ReusableOutcomes:
                 or new_node.code_fingerprint != old_node.code_fingerprint
             ):
                 continue
-            called = () if path in previous.code_changed else _called(outcomes, old_node)
+            # Each call that was made, in item order, under the fingerprint it was made with. One made by other code
+            # has that code in its fingerprint, so no call of this code matches it.
+            called = [
+                (fingerprint, item_indexes, outcome)
+                for item_indexes, outcome in outcomes.of(path).items()
+                if isinstance(outcome, (Done, Unanswered))
+                and (fingerprint := outcome.fingerprint) is not None
+            ]
             if new_node.compiled_node.definition.asks:
                 in_item_order: dict[str, list[Done | Unanswered]] = {}
                 for fingerprint, _, outcome in called:
@@ -142,8 +145,7 @@ class ReusableOutcomes:
         self,
         node: BlueprintFunctionNode,
         item_indexes: ItemIndexes,
-        arguments: dict[str, Any],
-        outcomes: RunOutcomes,
+        fingerprint: str | None,
         in_turn: Callable[[], bool],
     ) -> Done | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
         """Returns the outcome a call reuses instead of calling the function, or ``None`` if there is none.
@@ -161,16 +163,12 @@ class ReusableOutcomes:
         Args:
             node: The node.
             item_indexes: The item indexes of the call.
-            arguments: The arguments of the call.
-            outcomes: The run's outcomes.
+            fingerprint: The call's fingerprint (``call_fingerprint``). A call with none reuses nothing.
             in_turn: Returns whether every earlier call of the node has been tried.
         """
         path = node.node_path
         freely, in_item_order = self.reused_freely.get(path), self.reused_in_item_order.get(path)
-        if freely is None and in_item_order is None:
-            return None
-        fingerprint = call_fingerprint(node, item_indexes, arguments, outcomes)
-        if fingerprint is None:
+        if (freely is None and in_item_order is None) or fingerprint is None:
             return None
         if freely is not None:
             of_fingerprint = freely.get(fingerprint)
@@ -207,29 +205,7 @@ class ReusableOutcomes:
                 path: {fingerprint: list(left) for fingerprint, left in of_node.items()}
                 for path, of_node in self.reused_in_item_order.items()
             },
-            self.code_changed,
         )
-
-
-def _called(
-    outcomes: RunOutcomes, node: BlueprintFunctionNode
-) -> Iterator[tuple[str, ItemIndexes, Done | Unanswered]]:
-    """Yields the outcome of each call of ``node`` in ``outcomes`` that called its function, in item order, with the
-    call's fingerprint and item indexes. A call whose arguments can't be written as JSON has no fingerprint, and is
-    left out."""
-    for item_indexes, outcome in outcomes.of(node.node_path).items():
-        match outcome:
-            # The function wasn't called for the item, so there is nothing to reuse.
-            case Skipped() | NoneInput():
-                continue
-            # The function was called, so the call's arguments all exist.
-            case Done() | Unanswered():
-                arguments = cast("dict[str, Any]", outcomes.arguments_for(node, item_indexes))
-                fingerprint = call_fingerprint(node, item_indexes, arguments, outcomes)
-                if fingerprint is not None:
-                    yield fingerprint, item_indexes, outcome
-            case _:
-                assert_never(outcome)
 
 
 def call_fingerprint(
@@ -247,8 +223,8 @@ def call_fingerprint(
     node doesn't take it: with ``pages -> size -> approve``, ``approve`` gets a page's length, and two pages of one
     length keep their own answers.
 
-    A waiting call's id ends with the first eight hex digits of its call fingerprint (``question_fingerprint``).
-    The hash sorts the keys of every dict, so a dict read back from a database with its keys in another order
+    The scheduler takes it once, when the call is made, and the call's ``Done`` or ``Unanswered`` keeps it. A
+    waiting call's id is made from it (``question_fingerprint``). The hash sorts the keys of every dict, so a dict read back from a database with its keys in another order
     hashes the same as before it was saved.
 
     Args:

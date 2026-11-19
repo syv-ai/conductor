@@ -17,14 +17,13 @@ from __future__ import annotations
 from typing import Any, assert_never
 
 from conductor._internal.ask import as_asked
-from conductor._internal.base import ConductorModel, ItemIndexes, write_waiting_id
+from conductor._internal.base import ConductorModel, ItemIndexes, json_hash, write_waiting_id
 from conductor._internal.field import FieldDescription
 
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .call import jsonable
 from .outcome import NoneInput, NotReady, Skipped, Unanswered
 from .outcomes import RunOutcomes
-from .reuse import call_fingerprint
 
 
 class Waiting(ConductorModel):
@@ -35,10 +34,10 @@ class Waiting(ConductorModel):
 
     Attributes:
         id: What ``run.with_answers`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
-            index of each item the call is for, then ``~`` and the start of the call's fingerprint. That is the
-            fingerprint reuse matches calls by: a hash of the node's code fingerprint
-            (``BlueprintFunctionNode.code_fingerprint`` says what that covers), the call's inputs and its item in
-            every loop it is inside, not of the ``Ask``'s prompt, choices or default. Inside a subgraph, the
+            index of each item the call is for, then ``~`` and a fingerprint of the call. That is a hash of the
+            fingerprint reuse matches calls by, taken when the call was made, and of the node's code fingerprint now
+            (``BlueprintFunctionNode.code_fingerprint`` says what that covers). So it covers the node's code, the
+            call's inputs and its item in every loop it is inside, not the ``Ask``'s prompt, choices or default. Inside a subgraph, the
             subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If any of those change, the
             call may ask something else, so the old id stops matching. An answer to it is refused with
             ``answer_stale``. A call whose inputs or items JSON can't write has no fingerprint, and its id is the
@@ -81,7 +80,7 @@ def waiting_of(
         waiting.defaults,
     )
     return Waiting(
-        id=write_waiting_id(loc, question_fingerprint(node, item_indexes, outcomes)),
+        id=write_waiting_id(loc, question_fingerprint(node, waiting)),
         loc=loc,
         prompt=waiting.prompt,
         questions=list(as_asked(outputs, choices, defaults).values()),
@@ -89,28 +88,29 @@ def waiting_of(
     )
 
 
-def question_fingerprint(
-    node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcomes: RunOutcomes
-) -> str | None:
-    """Returns the fingerprint in a waiting call's id: the first eight hex digits of its call fingerprint.
+def question_fingerprint(node: BlueprintFunctionNode, waiting: Unanswered) -> str | None:
+    """Returns the fingerprint in a waiting call's id: eight hex digits hashed from the call's fingerprint and the
+    node's code fingerprint now.
 
-    ``call_fingerprint`` says what it covers. If any of that changes, the call may ask something else, so the old
-    id stops matching. It is ``None`` when the call has no fingerprint, because a value it covers can't be written
-    as JSON. Such a call's id names just the call, as ``write_waiting_id`` writes it.
+    The call's fingerprint (``call_fingerprint`` says what it covers) was taken when the call was made, with the
+    code of that time. The code fingerprint is the node's code now, so after a deploy that changes the node's code,
+    an id written before it stops matching even though the call was made before it. If anything the id covers
+    changes, the call may ask something else. It is ``None`` when the call has no fingerprint, because a value it
+    covers can't be written as JSON. Such a call's id names just the call, as ``write_waiting_id`` writes it.
     """
-    fingerprint = call_fingerprint(
-        node, item_indexes, _arguments(node, item_indexes, outcomes), outcomes
-    )
-    return None if fingerprint is None else fingerprint[:8]
+    if waiting.fingerprint is None:
+        return None
+    return json_hash([waiting.fingerprint, node.code_fingerprint], 4)
 
 
 def _arguments(
     node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcomes: RunOutcomes
 ) -> dict[str, Any]:
-    """Returns the arguments a waiting call was given.
+    """Returns the arguments a waiting call was given, for the ``inputs`` a host is shown.
 
-    The arguments aren't stored with the call. They are worked out again from the upstream outcomes, which is safe
-    because those outcomes don't change while the call waits.
+    The arguments aren't stored with the call, only their fingerprint: storing them would write every upstream value
+    the call read, a whole table too, a second time in each saved run. So they are worked out again from the
+    upstream outcomes, which is safe because those outcomes don't change while the call waits.
 
     Raises:
         RuntimeError: The call comes out as skipped, has a ``None`` input or is not ready, so it has no arguments. That's a bug:

@@ -2143,8 +2143,8 @@ def test_a_saved_waiting_call_the_graph_has_no_call_for_is_refused_on_load():
 def test_a_saved_waiting_call_with_its_question_taken_out_is_loaded_as_a_call_not_made_yet():
     """A saved call without its question is loaded as a call not made yet.
 
-    A saved call counts as waiting only because its question is saved with it. Take the question out, and the run
-    calls the node again when it resumes.
+    A saved call counts as waiting only because its question is saved with it. Take the question and its call's
+    fingerprint out, and the run calls the node again when it resumes.
     """
     gate, _ = _counted()
     graph, run = _waiting_outcomes(gate, text="a,b")
@@ -2153,6 +2153,7 @@ def test_a_saved_waiting_call_with_its_question_taken_out_is_loaded_as_a_call_no
         saved["outcomes"]["q"]["questions"]
     ) == ["1"]
     del saved["outcomes"]["q"]["questions"]
+    saved["outcomes"]["q"]["fingerprints"][1] = None
     loaded = Run.from_json(json.dumps(saved), graph)
     assert loaded.waiting == []
     assert [place(w) for w in loaded.resume().waiting] == [

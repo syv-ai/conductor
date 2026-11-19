@@ -37,7 +37,12 @@ class SavedOutcomes(BaseModel):
 
     ``shout`` was called three times, for the lines ``a``, ``b`` and ``c``. It is saved as::
 
-        "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}}
+        "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]},
+                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>"]}
+
+    A call fingerprint (``<fp a>``) is a 24-character hash of the node's code fingerprint and the arguments as JSON,
+    and for a node that may ask, of the call's item in every loop it was inside too. It is taken when the call is
+    made, so it keeps the code of that time: a later run reuses the outcome only if its call has the same code.
 
     In memory, a run stores one outcome per call. Only the JSON has a list per output, for three reasons. Pydantic
     checks a whole list in one go, where a model per call would cost a check each. Each output's name is written
@@ -52,7 +57,7 @@ class SavedOutcomes(BaseModel):
     wasn't called for the second line, because its input ``line`` got ``None``::
 
         "shout": {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]},
-                  "none_inputs": {"1": "line"}}
+                  "fingerprints": ["<fp a>", null, "<fp c>"], "none_inputs": {"1": "line"}}
 
     A key after ``outputs`` is left out of the JSON when it is empty.
 
@@ -60,6 +65,8 @@ class SavedOutcomes(BaseModel):
         states: For each call: ``"done"`` when its function returned or a person answered, ``"skipped"`` when it was
             skipped, and ``None`` otherwise.
         outputs: By output name, the output's value for each call. ``None`` for a call with no outputs.
+        fingerprints: For each call, its call fingerprint: for a done call and a waiting one. ``None`` for any
+            other call, and for one whose arguments or items have no JSON form.
         questions: By call number, what the ``Ask`` of a waiting call said: its prompt, choices and defaults.
         none_inputs: By call number, the input that got ``None`` and doesn't take it, so the call wasn't
             made.
@@ -70,6 +77,7 @@ class SavedOutcomes(BaseModel):
     model_config = _SAVED
     states: list[SavedOutcomeState | None]
     outputs: dict[str, list[Any]]
+    fingerprints: list[str | None]
     questions: dict[NonNegativeInt, Unanswered] = PydanticField(default_factory=dict)
     none_inputs: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
     skipped: dict[str, list[NonNegativeInt]] = PydanticField(default_factory=dict)
@@ -78,36 +86,27 @@ class SavedOutcomes(BaseModel):
     )
 
 
-class SavedReusable(BaseModel):
+class SavedReusable(SavedOutcomes):
     r"""The outcomes of one node that a run may still reuse from a previous run, in a saved run.
 
     Say the README run has finished, and ``run.with_inputs({"text": "a\nb\nd"})`` makes a new run. The new run may reuse
     the three outcomes of ``shout``. Before it has called anything, it saves them as::
 
-        "shout": {"outcomes": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
-                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>"],
-                  "item_indexes": {"0": [0], "1": [1], "2": [2]}}
+        "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]},
+                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>"], "item_indexes": {"0": [0], "1": [1], "2": [2]}}
 
-    ``outcomes`` has the shape of ``SavedOutcomes``, a list per output. But here a place in the lists isn't a call
-    number of this run: these are calls of the previous run. So what tells the outcomes apart is written beside them,
-    by place: each call's fingerprint, and the item indexes it had. A call fingerprint (``<fp a>``) is a 24-character hash of the node's code
-    fingerprint and the arguments as JSON, and for a node that may ask, of the call's item in every loop it was
-    inside too.
+    It has the keys of ``SavedOutcomes``, a list per output. But here a place in the lists isn't a call number of this
+    run: these are calls of the previous run. So the item indexes each call had are written beside them, by place.
 
     Each outcome is written once. Of the outcomes with one fingerprint, the first listed is the one any call with
     that fingerprint reuses; each other one is reused only by the call with its item indexes. A node that may ask
     has no item indexes: its calls with one fingerprint take its outcomes in the order they are listed.
 
     Attributes:
-        outcomes: The outcomes, as the node's subclass of ``SavedOutcomes`` in the graph's codec.
-        fingerprints: For each outcome, its call's fingerprint.
         item_indexes: By place in the lists, the item indexes the call had in the previous run. Every outcome of a
             node that never asks has them, and no outcome of a node that may ask.
     """
 
-    model_config = _SAVED
-    outcomes: SavedOutcomes
-    fingerprints: list[str]
     item_indexes: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = PydanticField(
         default_factory=dict
     )
@@ -120,16 +119,14 @@ class SavedRun(BaseModel):
 
         {"graph": "<16 hex characters>", "ended_early": null, "max_items": null,
          "inputs": {"text": "a\nb\nc"},
-         "outcomes": {"lines": {"states": ["done"], "outputs": {"result": [["a", "b", "c"]]}},
-                      "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
-                      "join": {"states": ["done"], "outputs": {"result": ["A!+B!+C!"]}}},
+         "outcomes": {"lines": {"states": ["done"], "outputs": {"result": [["a", "b", "c"]]}, "fingerprints": ["<fp>"]},
+                      "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]},
+                                "fingerprints": ["<fp a>", "<fp b>", "<fp c>"]},
+                      "join": {"states": ["done"], "outputs": {"result": ["A!+B!+C!"]}, "fingerprints": ["<fp>"]}},
          "reusable": {},
-         "code": {"lines": "<16 hex characters>", "shout": "<16 hex characters>", "join": "<16 hex characters>"},
          "complete": ["lines", "shout", "join"]}
 
-    ``graph`` is the graph's fingerprint, a hash of the graph record and of the subgraphs it uses. Each value under
-    ``code`` is a node's code fingerprint, a hash of its ``@node`` id and version, its function's code, its inputs
-    and outputs, the loops it is inside, and whether it may ask.
+    ``graph`` is the graph's fingerprint, a hash of the graph record and of the subgraphs it uses.
 
     A node is named by its node path joined with ``/``: ``shout`` in the graph itself, ``loud/shout`` inside the
     subgraph node ``loud``. A subgraph node is never called, so it has no key of its own.
@@ -143,8 +140,6 @@ class SavedRun(BaseModel):
         inputs: The graph inputs the caller gave, by name.
         outcomes: By node, the outcomes of each node that has any.
         reusable: By node, the outcomes of the previous run that this run may still reuse.
-        code: By node, the code fingerprint of the node definition its outcomes and reusable outcomes came from.
-            That way, outcomes of other code are never reused.
         complete: The nodes that were complete when the run last stopped, so going on doesn't report them complete
             again.
         outcomes_classes: In a graph's codec, the class of each node's ``outcomes``, by node.
@@ -158,7 +153,6 @@ class SavedRun(BaseModel):
     inputs: dict[str, Any]
     outcomes: dict[str, SavedOutcomes]
     reusable: dict[str, SavedReusable]
-    code: dict[str, str]
     complete: list[str]
     outcomes_classes: ClassVar[dict[str, type[SavedOutcomes]]]
     reusable_classes: ClassVar[dict[str, type[SavedReusable]]]

@@ -8,6 +8,7 @@ node's lists are as long as its number of calls.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Callable
 from typing import Any, assert_never
@@ -99,12 +100,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             ]
         ) from None
     in_call_order: dict[NodePath, list[Outcome | None]] = {}
-    code_changed = {
-        path: fingerprint
-        for name, fingerprint in read.code.items()
-        if fingerprint != blueprint.function_nodes[path := parse_node_path(name)].code_fingerprint
-    }
-    reusable = ReusableOutcomes(code_changed=code_changed)
+    reusable = ReusableOutcomes()
     try:
         for name, saved_outcomes in read.outcomes.items():
             where, path = f"outcomes.{name}", parse_node_path(name)
@@ -112,11 +108,10 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
                 blueprint.function_nodes[path].compiled_node, saved_outcomes
             )
         for name, saved_reusable in read.reusable.items():
-            where, path = f"reusable.{name}.outcomes", parse_node_path(name)
+            where, path = f"reusable.{name}", parse_node_path(name)
             reusable_in_call_order = outcomes_from_saved(
-                blueprint.function_nodes[path].compiled_node, saved_reusable.outcomes
+                blueprint.function_nodes[path].compiled_node, saved_reusable
             )
-            where = f"reusable.{name}"
             add_reusable_from_saved(
                 reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order
             )
@@ -132,14 +127,15 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
                 if outcome is not None:
                     outcomes.record(node, item_indexes, outcome)
-    # Outcomes that other code produced are never reused, and neither are those of a node whose Policy says
-    # reuse_when_inputs_match=False now, whatever it said when the run was saved.
-    never_reused = [
-        path
-        for path, node in blueprint.function_nodes.items()
-        if not node.policy.reuse_when_inputs_match
-    ]
-    reusable.drop([*code_changed, *never_reused])
+    # Outcomes that other code produced are never reused, since their fingerprints keep that code. Nor are those of
+    # a node whose Policy says reuse_when_inputs_match=False now, whatever it said when the run was saved.
+    reusable.drop(
+        [
+            path
+            for path, node in blueprint.function_nodes.items()
+            if not node.policy.reuse_when_inputs_match
+        ]
+    )
     return run_type(
         graph,
         read.max_items,
@@ -170,23 +166,28 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
 
     A call with no outcome is ``None`` in the list. Say ``shout`` wasn't called for its second line::
 
-        {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]}, "none_inputs": {"1": "line"}}
+        {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]},
+         "fingerprints": ["<fp a>", null, "<fp c>"], "none_inputs": {"1": "line"}}
 
-    That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``.
+    That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``, each
+    ``Done`` with its fingerprint.
 
     Args:
         node: The node, as compiled.
         saved: The saved lists. Each value has already been checked by its output's type.
 
     Raises:
-        ValueError: An output's list isn't as long as ``states``. Or a done call has ``null`` for an output whose
+        ValueError: An output's list, or ``fingerprints``, isn't as long as ``states``. Or a call that is neither
+            done nor waiting has a fingerprint. Or a done call has ``null`` for an output whose
             type takes no ``None``, or for an item whose type takes none, and ``skipped`` or ``skipped_items``
             doesn't list it. Or ``skipped``, ``skipped_items``, ``questions`` or ``none_inputs`` names a
             call that doesn't exist or can't have it.
     """
-    states, values_by_output = saved.states, saved.outputs
+    states, values_by_output, fingerprints = saved.states, saved.outputs, saved.fingerprints
     if any(len(values) != len(states) for values in values_by_output.values()):
         raise ValueError("the list of an output is not as long as 'states'")
+    if len(fingerprints) != len(states):
+        raise ValueError("'fingerprints' is not as long as 'states'")
     try:
         for name, call_numbers in saved.skipped.items():
             for call_number in call_numbers:
@@ -201,9 +202,9 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
         ]
         skipped_outcome = Skipped(node.outputs_when_skipped)
         outcomes: list[Outcome | None] = []
-        for state, of_call in zip(states, outputs_by_call, strict=True):
+        for state, of_call, fingerprint in zip(states, outputs_by_call, fingerprints, strict=True):
             if state == SAVED_DONE:
-                outcomes.append(Done(of_call))
+                outcomes.append(Done(of_call, fingerprint=fingerprint))
             elif state == SAVED_SKIPPED:
                 outcomes.append(skipped_outcome)
             else:
@@ -211,7 +212,9 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
         for call_number, waiting in saved.questions.items():
             if states[call_number] is not None:
                 raise LookupError(call_number)
-            outcomes[call_number] = waiting
+            outcomes[call_number] = dataclasses.replace(
+                waiting, fingerprint=fingerprints[call_number]
+            )
         for call_number, input_name in saved.none_inputs.items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)
@@ -223,6 +226,11 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
     ):  # a call number past the end of the lists, or a call of another kind
         message = "'skipped', 'skipped_items', 'questions' or 'none_inputs' names a call that does not exist or cannot have it"
         raise ValueError(message) from None
+    if any(
+        fingerprint is not None and not isinstance(outcome, (Done, Unanswered))
+        for fingerprint, outcome in zip(fingerprints, outcomes, strict=True)
+    ):
+        raise ValueError("a call that is neither done nor waiting has a fingerprint")
     _refuse_null_where_none_is_refused(node, states, values_by_output)
     return outcomes
 
@@ -268,42 +276,43 @@ def add_reusable_from_saved(
 ) -> None:
     """Adds the outcomes one node may reuse from the previous run to ``reusable``, as they were saved.
 
-    Take the three saved outcomes of ``shout`` in ``SavedReusable``'s example. Each goes under its call's
-    fingerprint and then its item indexes, in the order they were saved, so the first saved with a fingerprint is
+    Take the three saved outcomes of ``shout`` in ``SavedReusable``'s example. Each goes under the fingerprint it
+    keeps and then its item indexes, in the order they were saved, so the first saved with a fingerprint is
     the one any call with that fingerprint reuses. For a node that may ask, each goes under its fingerprint, in the
     order the calls with it take them.
 
     Args:
         reusable: The run's reusable outcomes. Added to.
         node: The node.
-        saved: The saved outcomes, with what tells them apart.
-        in_call_order: ``saved.outcomes`` as ``outcomes_from_saved`` returned them.
+        saved: The saved outcomes, with their item indexes.
+        in_call_order: ``saved`` as ``outcomes_from_saved`` returned them.
 
     Raises:
-        ValueError: ``fingerprints`` isn't as long as the lists of ``outcomes``. Or an outcome isn't one a call
-            made, because it is skipped, a ``None`` input or missing. Or, for a node that never asks, an outcome has no
-            item indexes or is a waiting question.
+        ValueError: An outcome isn't one a call made, because it is skipped, a ``None`` input or missing, or it has
+            no fingerprint. Or, for a node that never asks, an outcome has no item indexes or is a waiting question.
     """
-    if len(saved.fingerprints) != len(in_call_order):
-        raise ValueError("'fingerprints' is not as long as the lists of 'outcomes'")
     asks = node.compiled_node.definition.asks
     reused_freely: dict[str, dict[ItemIndexes, Done]] = {}
     in_item_order: dict[str, list[Done | Unanswered]] = {}
-    for place, (fingerprint, outcome) in enumerate(
-        zip(saved.fingerprints, in_call_order, strict=True)
-    ):
+    for place, outcome in enumerate(in_call_order):
         match outcome:
-            case Done() | Unanswered() if asks:
+            case Done(fingerprint=str(fingerprint)) | Unanswered(fingerprint=str(fingerprint)) if (
+                asks
+            ):
                 in_item_order.setdefault(fingerprint, []).append(outcome)
-            case Done():
+            case Done(fingerprint=str(fingerprint)):
                 item_indexes = saved.item_indexes.get(place)
                 if item_indexes is None:
                     raise ValueError(
                         f"outcome {place} has no 'item_indexes', and every outcome of a node that never asks has them"
                     )
                 reused_freely.setdefault(fingerprint, {})[item_indexes] = outcome
-            case Unanswered():
+            case Unanswered(fingerprint=str()):
                 raise ValueError(f"outcome {place} is waiting, and the node never asks")
+            case Done() | Unanswered():
+                raise ValueError(
+                    f"outcome {place} has no fingerprint, and only a call with one is reused"
+                )
             case Skipped() | NoneInput() | None:
                 raise ValueError(
                     "an outcome is skipped, a None input or missing, and only an outcome of a call is reused"

@@ -143,12 +143,12 @@ def run_codec(
     """Builds the codec of one graph: a subclass of ``SavedRun`` whose fields have the graph's own keys and types.
 
     For the README graph ``lines -> shout -> join``, the codec only accepts a saved run whose ``graph`` is this
-    graph's fingerprint. Its ``inputs`` must have the one key ``text``, holding a ``str``. Its ``outcomes``,
-    ``reusable`` and ``code`` may have no keys but ``lines``, ``shout`` and ``join``. Under ``shout``, ``outputs`` has
+    graph's fingerprint. Its ``inputs`` must have the one key ``text``, holding a ``str``. Its ``outcomes`` and
+    ``reusable`` may have no keys but ``lines``, ``shout`` and ``join``. Under ``shout``, ``outputs`` has
     the one key ``result``, a list of ``str | None``.
 
     Each node gets a subclass of ``SavedOutcomes``, whose ``outputs``, ``skipped`` and ``skipped_items`` are keyed by
-    the node's outputs. It also gets a subclass of ``SavedReusable`` with that class as its ``outcomes``. Nodes whose
+    the node's outputs. It also gets a subclass of ``SavedReusable`` with the same fields, and ``item_indexes``. Nodes whose
     outputs have the same names and types share both classes. The codec keeps them by node in ``outcomes_classes``
     and ``reusable_classes``, and a run is written with them. So a run written and the run read back from it use the
     same classes. Each class's name ends with the graph's fingerprint.
@@ -201,7 +201,7 @@ def run_codec(
             )
             of_same_outputs[same_outputs] = (
                 of_node,
-                create_model(f"SavedReusable_{suffix}", __base__=SavedReusable, outcomes=of_node),
+                create_model(f"SavedReusable_{suffix}", __base__=SavedReusable, **fields_of_node),
             )
         outcomes_classes[node], reusable_classes[node] = of_same_outputs[same_outputs]
     names = tuple(nodes)
@@ -212,7 +212,6 @@ def run_codec(
         "inputs": _ExactKeys({name: _SavedValue(of_input) for name, of_input in inputs.items()}),
         "outcomes": _ExactKeys({}, outcomes_classes),
         "reusable": _ExactKeys({}, reusable_classes),
-        "code": _ExactKeys({}, dict.fromkeys(outcomes_classes, str)),
         "complete": complete,
     }
     namespace = {"outcomes_classes": outcomes_classes, "reusable_classes": reusable_classes}

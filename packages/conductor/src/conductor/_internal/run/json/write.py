@@ -118,17 +118,8 @@ def saved_run(run: Run) -> SavedRun:
     for path, node in function_nodes.items():
         if path in reusable.reused_freely or path in reusable.reused_in_item_order:
             saved_reusables[names[path]] = saved_reusable(
-                codec.reusable_classes[names[path]],
-                codec.outcomes_classes[names[path]],
-                node.compiled_node.outputs,
-                reusable,
-                path,
+                codec.reusable_classes[names[path]], node.compiled_node.outputs, reusable, path
             )
-    code = {
-        names[path]: reusable.code_changed.get(path) or node.code_fingerprint
-        for path, node in function_nodes.items()
-        if names[path] in saved or names[path] in saved_reusables
-    }
     return codec.model_construct(
         graph=run.graph.fingerprint,
         # a resume still going is never saved
@@ -137,7 +128,6 @@ def saved_run(run: Run) -> SavedRun:
         inputs=dict(run.inputs),
         outcomes=saved,
         reusable=saved_reusables,
-        code=code,
         complete=[names[path] for path in function_nodes if path in run._complete_nodes],
     )
 
@@ -160,7 +150,8 @@ def saved_outcomes(
     """Returns the outcomes of one node the way a saved run writes them: a list per output, with an entry per call.
 
     ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
-    ``saved_class(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, none_inputs={1: "line"})``.
+    ``saved_class(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, fingerprints=[fp_a, None,
+    fp_c], none_inputs={1: "line"})``.
 
     Args:
         saved_class: The codec's class for the node's outcomes.
@@ -168,6 +159,7 @@ def saved_outcomes(
         outcomes: The outcomes in call-number order, with ``None`` for a call with no outcome.
     """
     states: list[SavedOutcomeState | None] = []
+    fingerprints: list[str | None] = []
     values_by_output: dict[str, list[Any]] = {name: [] for name in outputs}
     questions: dict[int, Unanswered] = {}
     none_inputs: dict[int, str] = {}
@@ -175,19 +167,24 @@ def saved_outcomes(
         match outcome:
             case Done():
                 states.append(SAVED_DONE)
+                fingerprints.append(outcome.fingerprint)
                 for name, values in values_by_output.items():
                     values.append(outcome.outputs[name])
                 continue
             case Skipped():
                 states.append(SAVED_SKIPPED)
+                fingerprints.append(None)
             case Unanswered():
                 states.append(None)
+                fingerprints.append(outcome.fingerprint)
                 questions[call_number] = outcome
             case NoneInput():
                 states.append(None)
+                fingerprints.append(None)
                 none_inputs[call_number] = outcome.input
             case None:
                 states.append(None)
+                fingerprints.append(None)
             case _:
                 assert_never(outcome)
         for values in values_by_output.values():  # only a done call has its outputs saved
@@ -212,6 +209,7 @@ def saved_outcomes(
     return saved_class.model_construct(
         states=states,
         outputs=values_by_output,
+        fingerprints=fingerprints,
         questions=questions,
         none_inputs=none_inputs,
         skipped=skipped,
@@ -221,39 +219,32 @@ def saved_outcomes(
 
 def saved_reusable(
     saved_class: type[SavedReusable],
-    outcomes_class: type[SavedOutcomes],
     outputs: Mapping[str, Field],
     reusable: ReusableOutcomes,
     path: NodePath,
 ) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run, the way a saved run writes them.
 
-    ``SavedReusable`` shows the JSON. Each outcome is written once, grouped by its call's fingerprint. The first
-    written with a fingerprint is the one any call with it reuses, and the outcomes of a node that may ask are
-    written in the order its calls take them.
+    ``SavedReusable`` shows the JSON. Each outcome is written once, grouped by its call's fingerprint, which it
+    keeps. The first written with a fingerprint is the one any call with it reuses, and the outcomes of a node that
+    may ask are written in the order its calls take them.
 
     Args:
         saved_class: The codec's class for the node's reusable outcomes.
-        outcomes_class: The codec's class for the node's outcomes.
         outputs: The node's outputs, by name.
         reusable: The run's reusable outcomes.
         path: The node's path.
     """
     outcomes: list[Outcome | None] = []
-    fingerprints: list[str] = []
     item_indexes: dict[int, ItemIndexes] = {}
-    for fingerprint, of_fingerprint in reusable.reused_freely.get(path, {}).items():
+    for of_fingerprint in reusable.reused_freely.get(path, {}).values():
         for indexes, done in of_fingerprint.items():
             item_indexes[len(outcomes)] = indexes
             outcomes.append(done)
-            fingerprints.append(fingerprint)
-    for fingerprint, left in reusable.reused_in_item_order.get(path, {}).items():
+    for left in reusable.reused_in_item_order.get(path, {}).values():
         outcomes.extend(left)
-        fingerprints.extend([fingerprint] * len(left))
     return saved_class.model_construct(
-        outcomes=saved_outcomes(outcomes_class, outputs, outcomes),
-        fingerprints=fingerprints,
-        item_indexes=item_indexes,
+        **{**dict(saved_outcomes(saved_class, outputs, outcomes)), "item_indexes": item_indexes}
     )
 
 
@@ -285,9 +276,9 @@ def first_unwritable_value(saved: SavedRun, function_nodes: Iterable[NodePath]) 
             alone.extend(
                 (
                     place_text(path, output),
-                    {"reusable": {name: {"outcomes": {"outputs": {output}}}}},
+                    {"reusable": {name: {"outputs": {output}}}},
                 )
-                for output in reusable.outcomes.outputs
+                for output in reusable.outputs
             )
     for where, include in alone:
         try:

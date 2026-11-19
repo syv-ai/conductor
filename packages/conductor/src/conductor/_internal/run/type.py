@@ -415,7 +415,7 @@ class Run[C]:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
-            answered[(node, item_indexes)] = Done(read)
+            answered[(node, item_indexes)] = Done(read, fingerprint=found.fingerprint)
         if problems:
             raise InvalidCallError(problems)
         # A cancel or a timeout is dropped only once a call is answered after it.
@@ -555,7 +555,7 @@ class Run[C]:
                 )
             case _:
                 assert_never(outcome)
-        asked = question_fingerprint(node, item_indexes, self._outcomes)
+        asked = question_fingerprint(node, found)
         if fingerprint is not None and asked != fingerprint:
             raise InvalidCallError(
                 [
@@ -582,7 +582,7 @@ class Run[C]:
         for item_indexes, outcome in self._outcomes.of(nodes).items():
             if (
                 isinstance(outcome, Unanswered)
-                and question_fingerprint(node, item_indexes, self._outcomes) == fingerprint
+                and question_fingerprint(node, outcome) == fingerprint
             ):
                 return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
         return None
