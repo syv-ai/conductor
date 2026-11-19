@@ -237,16 +237,12 @@ class Run[C]:
         """
         limits = LimitsValidator()({"timeout": timeout, "checkpoint_every": checkpoint_every})
         run_scheduler = functools.partial(
-            self._run_scheduler, only_costs_nothing=only_costs_nothing
-        )
-        return stream(
-            run_scheduler,
+            self._run_scheduler,
             self.graph._context_validator(context),
-            limits["timeout"],
-            cancel,
-            hand_back,
-            limits["checkpoint_every"],
+            checkpoint_every=limits["checkpoint_every"],
+            only_costs_nothing=only_costs_nothing,
         )
+        return stream(run_scheduler, limits["timeout"], cancel, hand_back)
 
     def _run_scheduler(
         self,
