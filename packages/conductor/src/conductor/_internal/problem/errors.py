@@ -161,9 +161,11 @@ def shape_error(
 ) -> dict[str, Any]:
     """Returns one error of a problem's ``ctx.errors`` for a fault in the shape of what a host or a developer wrote.
 
-    Such a fault is in a graph record, in what a ``compute_...`` hook or an ``Upgrade``'s rewrite returned, or in what
-    a node returned, never inside a value a graph carries. So its message and ``ctx`` are kept as pydantic or
-    conductor wrote them: they name what was written, such as a node id, and never a value. Its ``loc`` is ``loc``,
+    Such a fault is in a graph record, in what a ``compute_...`` hook or an ``Upgrade``'s rewrite returned, in what a
+    node returned, or in a saved run's lists. So its message and ``ctx`` are kept as pydantic or conductor wrote them:
+    they name what was written, such as a node id, and never a value. A record's fault inside a constant is the one
+    that could quote a value, and ``NodeRecord`` frees it of the value where it reads the constant (``_CARRIED``,
+    ``_one_fault`` in ``record/node.py``), so it reaches here without one. Its ``loc`` is ``loc``,
     the steps from where the problem's own ``loc`` points, often none. A fault found outside a pydantic schema, such as
     a key written twice in a record's text, is given as the error pydantic or conductor would raise for it.
 

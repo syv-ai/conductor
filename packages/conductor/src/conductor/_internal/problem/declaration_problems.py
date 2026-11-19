@@ -175,9 +175,10 @@ def choices_invalid(*, reason: str, errors: list[dict[str, Any]]) -> str:
     given twice, or there are none.
 
     An editor gets the choices as JSON to show them, and a saved graph stores them as JSON, so each choice is read from
-    its JSON form, as an answer is, and a number in one must be finite. ``ctx.errors`` has every fault, each ``loc``
-    the index of the choice it is about, or ``[]`` for the list as a whole: the type's own code, such as ``int_type``
-    or ``finite_number``, ``no_json_form``, ``choice_twice``, or pydantic's ``too_short`` for no choices.
+    its JSON form, as an answer is, and a number in one must be finite. ``ctx.errors`` has the fault of each choice
+    that doesn't read, at the choice's index: the type's own code, such as ``int_type`` or ``finite_number``, or
+    ``no_json_form``. Only when every choice reads are repeats looked for, so ``choice_twice`` comes alone, as does
+    pydantic's ``too_short`` for no choices, each with ``loc`` ``[]``.
 
     To fix it, give each choice once, as a value of the input's type that can be written as JSON.
 

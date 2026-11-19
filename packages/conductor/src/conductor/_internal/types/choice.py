@@ -191,7 +191,8 @@ def declared_choices(
     A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
 
     Raises:
-        NodeDeclarationError: ``choices_invalid``, with every fault in ``ctx.errors``.
+        NodeDeclarationError: ``choices_invalid``, with the fault of each choice that doesn't read in
+            ``ctx.errors``, or the fault of the whole list once every choice reads.
     """
 
     def read(value: Any) -> Any:
