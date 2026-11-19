@@ -1319,6 +1319,89 @@ def type_not_supported_set(*, type: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
+def type_not_supported_secret(*, type: str) -> str:
+    """An input's or output's type is one of pydantic's secrets, or holds one, like ``SecretStr``, ``SecretBytes``
+    or ``Secret[int]``.
+
+    A secret's JSON form is a mask, ``"**********"``. A run saves its values as JSON and matches a call by its
+    arguments' JSON, so a saved run would keep only the mask, and every secret would match every other: a call given
+    a new password would reuse what the old one gave.
+
+    To fix it, give the secret to the run in its context (``context=``), which is never saved or matched, and take it
+    in the node with ``ctx: Context[X]``.
+
+    Args:
+        type: The secret type, as its developer wrote it.
+
+    Example:
+        from pydantic import SecretStr
+
+
+        def log_in(password: SecretStr) -> bool:
+            return bool(password.get_secret_value())
+
+
+        declaration_refused(lambda: node("log-in", title="Log in", description="Logs in.")(log_in))
+    """
+    return f"a run saves and matches {type} by its JSON, which is a mask. Give the secret to the run in its context."
+
+
+@DECLARATION_PROBLEMS.problem
+def type_not_supported_import_string(*, type: str) -> str:
+    """An input's or output's type is pydantic's ``ImportString``, or holds one, like ``ImportString[Callable]``.
+
+    An ``ImportString`` imports the module its value names, and importing a module runs its code. A graph record is
+    data that an editor writes, and a run's inputs come from its caller, so either could make the node run any code
+    at all. Data must never run code.
+
+    To fix it, take the name as a ``str``, or a ``Literal`` of the names you allow, and look up what it names inside
+    the node.
+
+    Args:
+        type: The type, as its developer wrote it.
+
+    Example:
+        from pydantic import ImportString
+
+
+        def plugin(entry: ImportString[float]) -> float:
+            return entry
+
+
+        declaration_refused(lambda: node("plugin", title="Plugin", description="Loads a plugin.")(plugin))
+    """
+    return f"{type} imports what its value names, and importing runs code. Take the name as a str instead."
+
+
+@DECLARATION_PROBLEMS.problem
+def type_not_supported_decoding(*, type: str) -> str:
+    """An input's or output's type decodes its value, like pydantic's ``Json[int]``, ``Base64Bytes`` or
+    ``Base64Str``, or holds one.
+
+    ``Json[int]`` reads JSON text into an ``int``, and ``Base64Bytes`` reads base64 text into ``bytes``. Conductor
+    checks a value by its type wherever it enters or leaves a node, and reads a saved run back by it, so a value that
+    was decoded once is decoded again, and the second time it fails.
+
+    To fix it, declare the type the text decodes to: ``int`` for ``Json[int]``, ``bytes`` for ``Base64Bytes`` and
+    ``str`` for ``Base64Str``.
+
+    Args:
+        type: The type, as its developer wrote it.
+
+    Example:
+        from pydantic import Json
+
+
+        def payload(body: Json[int]) -> int:
+            return body
+
+
+        declaration_refused(lambda: node("payload", title="Payload", description="Reads a payload.")(payload))
+    """
+    return f"{type} decodes its value, so a value it decoded fails it the next time. Declare the type it decodes to."
+
+
+@DECLARATION_PROBLEMS.problem
 def host_type_not_supported(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 

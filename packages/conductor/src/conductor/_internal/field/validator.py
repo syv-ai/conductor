@@ -14,17 +14,20 @@ the same from either. So ``"3"`` and ``5.0`` are refused for an ``int``, ``1`` f
 for a ``date``, and ``1`` for a ``float`` becomes ``1.0``.
 
 A field's type may hold no set, at any depth: a set has no order, so it has no JSON form a default could be written
-in and read back by. ``list`` or ``tuple`` is declared instead.
+in and read back by. ``list`` or ``tuple`` is declared instead. Nor may it hold three kinds of pydantic's types: a
+secret, whose JSON form is a mask, an ``ImportString``, which runs the code its value names, and a type that decodes
+its value, such as ``Json[int]`` or ``Base64Bytes``, which a decoded value fails the next time it is checked.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Set
-from typing import Any, TypeVar, get_args, get_origin
+from typing import Annotated, Any, TypeVar, get_args, get_origin
 
 from annotated_types import Not, Predicate
-from pydantic import ValidationError
+from pydantic import ImportString, Json, Secret, SecretBytes, SecretStr, ValidationError
+from pydantic.types import EncodedBytes, EncodedStr
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import REQUIRED, SKIPPED
@@ -63,6 +66,8 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
 
     Raises:
         NodeDeclarationError: The hint is one ``Field`` refuses, it holds a set (``type_not_supported_set``), a
+            secret (``type_not_supported_secret``), an ``ImportString`` (``type_not_supported_import_string``) or a
+            type that decodes its value (``type_not_supported_decoding``), a
             ``Table`` in it has a row type that names no columns (``table_row_not_a_typed_dict``), an input asks for
             a number that isn't finite (``predicate_refuses_every_number``), or the type
             refuses the default read as its JSON (``default_invalid``). It names the field.
@@ -74,6 +79,18 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
             elif _is_a_set(part):
                 raise NodeDeclarationError(
                     declaration_problems.type_not_supported_set(type=as_written(part))
+                )
+            elif _marked(part, (Secret, SecretStr, SecretBytes)):
+                raise NodeDeclarationError(
+                    declaration_problems.type_not_supported_secret(type=as_written(part))
+                )
+            elif _marked(part, (ImportString,)):
+                raise NodeDeclarationError(
+                    declaration_problems.type_not_supported_import_string(type=as_written(part))
+                )
+            elif _marked(part, (Json, EncodedBytes, EncodedStr)):
+                raise NodeDeclarationError(
+                    declaration_problems.type_not_supported_decoding(type=as_written(part))
                 )
             elif not is_output and any(part == never for never in _NOT_FINITE):
                 raise NodeDeclarationError(
@@ -224,6 +241,21 @@ def _is_a_set(hint: Any) -> bool:
     with its item type."""
     origin = get_origin(hint) or hint
     return isinstance(origin, type) and issubclass(origin, Set)
+
+
+def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
+    """Whether ``hint`` is one of ``classes``, bare or with its arguments, or an ``Annotated`` with one of them in its
+    metadata.
+
+    Pydantic writes some of its types either way: ``SecretStr`` and ``Secret[int]`` are classes, while
+    ``Json[int]`` is ``Annotated[int, Json()]`` and ``Base64Bytes`` is ``Annotated[bytes, EncodedBytes(...)]``.
+    """
+    origin = get_origin(hint) or hint
+    if isinstance(origin, type) and issubclass(origin, classes):
+        return True
+    return get_origin(hint) is Annotated and any(
+        isinstance(metadata, classes) for metadata in get_args(hint)[1:]
+    )
 
 
 def _read_default(whole: Type, default: Any) -> Any:

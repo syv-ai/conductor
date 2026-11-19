@@ -67,13 +67,21 @@ from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInp
 from pydantic import (
     AfterValidator,
     AnyUrl,
+    Base64Bytes,
+    Base64Str,
+    Base64UrlBytes,
+    Base64UrlStr,
     BaseModel,
     ByteSize,
     ConfigDict,
     Field,
+    ImportString,
     Json,
     JsonValue,
     PlainValidator,
+    Secret,
+    SecretBytes,
+    SecretStr,
     StringConstraints,
     ValidationError,
 )
@@ -478,12 +486,11 @@ host_type("ByteSize", title="Byte size")(ByteSize)
 
 
 def test_a_limit_pydantic_checks_is_taken_on_a_host_type_and_on_pydantics_own_types():
-    """A limit is taken where the schema pydantic built shows it: as its own rule (``Json[int]``, a fraction, an
-    address) or as its comparison over a host's own function (``Money``, ``ByteSize``)."""
+    """A limit is taken where the schema pydantic built shows it: as its own rule (a fraction, an address) or as its
+    comparison over a host's own function (``Money``, ``ByteSize``)."""
 
     def limited(
         money: Annotated[Money, Param(ge=0)],
-        number: Annotated[Json[int], Param(ge=0)],
         part: Annotated[Fraction, Param(ge=0)],
         address: Annotated[AnyUrl, Param(max_length=20)],
         size: Annotated[ByteSize, Param(ge=1)],
@@ -491,11 +498,10 @@ def test_a_limit_pydantic_checks_is_taken_on_a_host_type_and_on_pydantics_own_ty
         return 0
 
     graph = compiled_graph(declared(limited))
-    right = {"money": "5", "number": "1", "part": "1/2", "address": "http://a.b", "size": "1KB"}
+    right = {"money": "5", "part": "1/2", "address": "http://a.b", "size": "1KB"}
     assert graph.run(right).outputs == {"result": 0}
     for name, wrong in (
         ("money", "-5"),
-        ("number", "-1"),
         ("part", "-1/2"),
         ("address", "http://" + "a" * 40 + ".com"),
         ("size", 0),
@@ -2757,6 +2763,58 @@ def test_a_set_anywhere_in_an_input_or_output_type_is_refused_at_node(hint: Any)
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.problems[0].type == "type_not_supported_set"
+
+
+@pytest.mark.parametrize(
+    ("hint", "code"),
+    [
+        (SecretStr, "type_not_supported_secret"),
+        (SecretBytes, "type_not_supported_secret"),
+        (Secret[int], "type_not_supported_secret"),
+        (list[SecretStr], "type_not_supported_secret"),
+        (ImportString, "type_not_supported_import_string"),
+        (ImportString[float], "type_not_supported_import_string"),
+        (Json, "type_not_supported_decoding"),
+        (Json[int], "type_not_supported_decoding"),
+        (Base64Bytes, "type_not_supported_decoding"),
+        (Base64Str, "type_not_supported_decoding"),
+        (Base64UrlBytes, "type_not_supported_decoding"),
+        (Base64UrlStr | None, "type_not_supported_decoding"),
+    ],
+    ids=[
+        "secret-str",
+        "secret-bytes",
+        "secret-of-int",
+        "secret-in-a-list",
+        "import-string",
+        "import-string-of-float",
+        "json",
+        "json-of-int",
+        "base64-bytes",
+        "base64-str",
+        "base64-url-bytes",
+        "base64-url-str-or-none",
+    ],
+)
+def test_a_secret_an_import_string_or_a_decoding_type_is_refused_at_node(
+    hint: Any, code: str
+) -> None:
+    """A secret is saved and matched as its mask, an ``ImportString`` runs the code a record names, and a value a
+    type decoded fails it the next time it is checked, so each is refused where the node is declared, on an input
+    and an output alike."""
+
+    def takes(x: Any) -> int:
+        return 1
+
+    def returns() -> Any:
+        return None
+
+    takes.__annotations__["x"] = hint
+    returns.__annotations__["return"] = hint
+    for wrong in (takes, returns):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.problems[0].type == code
 
 
 @host_type("tag-holder", title="Tag holder")
