@@ -145,7 +145,7 @@ same node got before, under the same version and code. A node that may ask a per
 item order instead, so inserting an item keeps everyone's answer. The rules, with `with_forgotten` and
 `with_inputs(previous=)`, are in `python -m conductor.about running-again`.
 
-Errors are data. There's one `Problem` record everywhere, with stable codes in `PROBLEMS.codes` for a host to
+Errors are data. There's one `Problem` model everywhere, with stable codes in `PROBLEMS.codes` for a host to
 translate. A message says how to fix the fault. A problem never quotes a value a graph carries (an input, a constant,
 an output, an answer, a saved value) or the text of an exception other than a `NodeError`: a node's or a hook's own exception text goes to the log,
 and the problem names only the exception's class. It may name what a developer or a host wrote, such as ids, places
@@ -177,7 +177,7 @@ The type decides, never the value. A list given to an input of one value is refu
 `Series` input: it is never made a list of one. If a caller's list could start a loop, how often a node runs would
 depend on each run's inputs, and an editor couldn't show it in advance.
 
-A table is one value. It never starts a loop, and an edge can't name one of its columns. To run per record, you draw
+A table is one value. It never starts a loop, and an edge can't name one of its columns. To run per row, you draw
 a Split node. If tables started loops by themselves, how often a node runs would depend on which columns happened to
 be wired, which an author can't see in the drawing.
 
@@ -214,7 +214,7 @@ except InvalidCallError as e:
 **Worth questioning:** a list sent to a `str` input is refused, where it could have run the node once per item. It
 stands because a graph then runs the same way whatever it's given.
 
-**Worth questioning:** a table needs a Split before a node can run per record. That's where an author sees the run
+**Worth questioning:** a table needs a Split before a node can run per row. That's where an author sees the run
 fan out, and a table that's only passed along costs nothing.
 
 ## `None` and values from outside a loop
@@ -280,7 +280,7 @@ answer reads it from an edge, like any value: `approval(invoice) -> bool` asks f
 filled by a function that asks, a replayed `ok = ask(...)`, and calling the node again with `ok=None` were all
 rejected. **Worth questioning:** the question shows on `approval`, not on the step a person thinks of.
 
-A question is the same record as a field: the `FieldDescription` a palette reads, with the `Ask`'s `choices` and
+A question is the same model as a field: the `FieldDescription` a palette reads, with the `Ask`'s `choices` and
 `default`. How it looks comes from the type's `Param`, so `Ask` takes no `widget=`. One JSON Schema for the whole
 answer was rejected: it loses a host type's id, and has no place for a widget.
 
@@ -355,9 +355,9 @@ nodes that were called. Each node's outcomes are one list per output, in item or
 `"upper": {"states": ["done", "done"], "outputs": {"result": ["A", "B"]}}`. Item indexes aren't written, so a call the
 run never made can't be either. A damaged run is one `saved_run_unreadable` problem that names the place.
 
-A `Series` of records keeps the table it came as. Split returns a table, an edge from `series-split.result.email`
-reads that column, and a node that takes a record still gets a plain one. Making the records up front would cost most
-of the run. On 200,000 rows read by one field, a run took 149 ms with the records made up front and 10 ms with the
+A `Series` of rows keeps the table it came as. Split returns a table, an edge from `series-split.result.email`
+reads that column, and a node that takes a row still gets a plain dict. Making the dicts up front would cost most
+of the run. On 200,000 rows read by one field, a run took 149 ms with the dicts made up front and 10 ms with the
 table kept.
 
 A float that isn't finite is saved as its text, and its declared type reads it back: `float` gives the float, and
@@ -425,8 +425,8 @@ A node can be written for any type: `def split[T](value: Table[T] | list[T]) -> 
 edge, settled when compiling. `series-split`, `series-stack` and `control-decide` work this way, with no hooks. A hook
 is only for inputs or outputs named by a constant.
 
-A `FieldDescription` is one flat record per input or output. `null` in `default` means `None` and nothing else, and
-"no default" and "a skipped branch" are told apart by `required`, so the record needs no marker JSON lacks. A
+A `FieldDescription` is one flat model per input or output. `null` in `default` means `None` and nothing else, and
+"no default" and "a skipped branch" are told apart by `required`, so the model needs no marker JSON lacks. A
 `default` on a `required` field is where an editor starts: the one question of a node with one output is answered
 with its value, so it is required, a branch too. In
 `graph.describe()`, a node's input is `{field, source}`, and a graph input is a plain `FieldDescription`.

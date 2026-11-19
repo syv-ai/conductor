@@ -62,7 +62,7 @@ assert registry["greet"] is greet
 | Several outputs | a frozen dataclass with no `@host_type` as the return type. Put `Annotated[str, Param(title=...)]` on a field to say more. A dataclass declared with `@host_type` is one value, the output `result` |
 | To run once per item | return `Series[X]`. A node that takes one `X` from it runs once per item, and so does everything after it |
 | Every item in one call | a `Series[X]` input. It collects the items, in order |
-| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of records. A `Table` input wired to records collects them |
+| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of rows. A `Table` input wired to records collects them |
 | A branch | give each output the default `SKIPPED`, and return a value on at most one of them. Two independent ways to go are two nodes |
 | To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
 | A person's answer | `raise Ask(prompt)`, and `asks=True` on the `@node`, or `@node` refuses the function. The answer becomes the node's outputs. See "Asking a person" below |

@@ -201,7 +201,7 @@ The widget is sent to the editor as JSON, so each of its fields needs a type pyd
 
 ## Types
 
-An input or an output can have any type pydantic can check and write as JSON: `str`, `int`, `float`, `bool`, `date`, `bytes`, a pydantic model, a dataclass. JSON has no bytes, so `bytes` cross JSON as URL-safe base64 text: a caller sends a file's contents as `"__4="`, and a saved run keeps them that way. Decode it with `base64.urlsafe_b64decode` in Python or `Buffer.from(text, "base64url")` in Node, since `base64.b64decode` silently drops `-` and `_` and `atob` throws on them. Conductor reads standard and URL-safe base64, with or without padding. A pydantic model with a `bytes` field builds its `model_config` from `conductor.JSON_CONFIG`, as `ConfigDict(**JSON_CONFIG, ...)`. A pydantic model is the usual way to pass a record of your own. Declare it with `@host_type`, which gives it an id that editors know it by and a title that a person reads:
+An input or an output can have any type pydantic can check and write as JSON: `str`, `int`, `float`, `bool`, `date`, `bytes`, a pydantic model, a dataclass. JSON has no bytes, so `bytes` cross JSON as URL-safe base64 text: a caller sends a file's contents as `"__4="`, and a saved run keeps them that way. Decode it with `base64.urlsafe_b64decode` in Python or `Buffer.from(text, "base64url")` in Node, since `base64.b64decode` silently drops `-` and `_` and `atob` throws on them. Conductor reads standard and URL-safe base64, with or without padding. A pydantic model with a `bytes` field builds its `model_config` from `conductor.JSON_CONFIG`, as `ConfigDict(**JSON_CONFIG, ...)`. A pydantic model is the usual way to pass a value with fields of your own. Declare it with `@host_type`, which gives it an id that editors know it by and a title that a person reads:
 
 ```python
 from pydantic import BaseModel
@@ -269,7 +269,7 @@ print(run.outputs["result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}
 
 The CSV had a `phone` column, which `Contact` doesn't name, so it was dropped. A `Table[Contact]` always has exactly the columns `Contact` names. A missing column is refused, and a column may hold `None` only if its type says `| None`, as `email` does.
 
-A node that passes on columns it doesn't know declares a bare `Table`. A node may also return a table as a list of records, such as `[{"name": "Ida", "email": None}]`. The rest is in `python -m conductor.about types`.
+A node that passes on columns it doesn't know declares a bare `Table`. A node may also return a table as a list of rows, such as `[{"name": "Ida", "email": None}]`. The rest is in `python -m conductor.about types`.
 
 ### A text or a number of your own
 

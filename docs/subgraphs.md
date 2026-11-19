@@ -244,9 +244,9 @@ print(graph.run({"text": "hi none"}).results["both"])  # {'keen': ['hi!', 'none!
 A subgraph is compiled on its own. That happens when a registry describes it, and each time a graph that uses it is
 compiled. So it can't know what will be wired into it later.
 
-That matters when its first node takes any type. Take `each` below, which gives the records of whatever table it
+That matters when its first node takes any type. Take `each` below, which gives the rows of whatever table it
 gets. In a graph, after a node that returns contacts, it returns contacts. As the first node of a subgraph, nothing
-is wired into it yet, so it returns records whose fields aren't known:
+is wired into it yet, so it returns rows whose fields aren't known:
 
 ```python
 from typing import TypedDict, cast
@@ -258,7 +258,7 @@ class Contact(TypedDict):
     name: str
 
 
-@registry.node("each", title="Each", description="Gives the records of a table, or the items of a list, one at a time.")
+@registry.node("each", title="Each", description="Gives the rows of a table, or the items of a list, one at a time.")
 def each[T](value: Table[T] | list[T]) -> Series[T]:
     return cast("list[T]", value)
 

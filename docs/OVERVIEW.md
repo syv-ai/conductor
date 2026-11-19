@@ -54,7 +54,7 @@ A node's types say how many values it deals with. `text: str` is one value, and 
 
 - `split` returns a `Series`, and `clean` takes one value. So `clean` is called once per item. That's a loop.
 - `summarise` is wired to `clean`, so it's in the loop too. A call starts as soon as its arguments exist, so item 0 can go all the way through while item 9 is still being cleaned.
-- `join` takes a `Series`, so it collects the loop. It waits for every item, then it's called once with all of them as a list, in order. A `Table` input collects records into a table the same way.
+- `join` takes a `Series`, so it collects the loop. It waits for every item, then it's called once with all of them as a list, in order. A `Table` input collects rows into a table the same way.
 - A value from outside the loop, returned by a node before `split`, is the same on every call inside it.
 
 A node inside a loop can return a `Series` too. Say each document has lines of its own. That starts a second loop inside the first, and a call for one line has two item indexes: `(0, 3)` is document 0, line 3. Collecting ends only the inner loop, so a node that collects the lines is called once per document.
