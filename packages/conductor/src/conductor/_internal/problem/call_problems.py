@@ -379,7 +379,7 @@ def invalid_input(
     *loc: str | int,
     name: str,
     reason: str,
-    errors: list[dict[str, Any]] | None = None,
+    errors: list[dict[str, Any]],
     column: str | None = None,
 ) -> str:
     """A call gives a graph input a value its type doesn't take.

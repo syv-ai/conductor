@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from conductor import PROBLEMS, Problem, ProblemCatalogue
+from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemCatalogue
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 
 catalogue = ProblemCatalogue()
@@ -185,6 +185,19 @@ def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> N
             filled = kind.sentence.format(**{key: "x" for key in kind.ctx_type.__annotations__})
 
             assert "{" not in filled and "}" not in filled, kind.code
+
+
+def test_no_kind_takes_both_error_and_errors() -> None:
+    """``ctx.error`` is a developer's code or an exception's class, and a value refusal says why in ``ctx.errors``,
+    with pydantic's codes. So no kind has both: a key means one thing on every kind that has it."""
+    both = [
+        kind.code
+        for declared in (PROBLEMS, DECLARATION_PROBLEMS, REGISTRY_CHECK_PROBLEMS)
+        for kind in declared
+        if {"error", "errors"} <= kind.ctx_type.__annotations__.keys()
+    ]
+
+    assert both == []
 
 
 def test_joined_sections_keep_their_order_titles_and_texts_and_refuse_a_kind_two_of_them_declare() -> (
