@@ -26,7 +26,7 @@ from typing import Any
 from conductor import Graph, InvalidCallError, NodeRegistry, Problem, Run
 from conductor.events import RunCheckpoint, RunEnd
 
-from conductor_providers.fastapi.problems import no_such_run, raised_outside_a_node
+from conductor_providers.fastapi.problems import raised_outside_a_node
 from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunRow, StoreFailedError
 
 log = logging.getLogger("conductor_providers.fastapi")
@@ -324,7 +324,7 @@ class HeldRun:
             write: One try, as ``GuardedStore.change`` takes it: it writes with ``GuardedStore.update`` and returns
                 what that returns.
             read_first: Whether the first try is given the row as the store has it now, read under the same hold of
-                the lock, rather than the row as this worker last read or wrote it.
+                the lock, rather than the row as this worker last read or wrote it (``GuardedStore.change``).
 
         Raises:
             InvalidCallError: The row is gone from the store (``no_such_run``), as ``GuardedStore.change`` says.
@@ -335,10 +335,7 @@ class HeldRun:
             return row if self._released else await write(row)
 
         async with self._lock:
-            row = await self._store.get(self.run_id) if read_first else self._row
-            if row is None:
-                raise InvalidCallError([no_such_run()])
-            self._row = await self._store.change(row, one_try)
+            self._row = await self._store.change(self._row, one_try, read_first=read_first)
 
     def _take_in(self, row: RunRow[Any]) -> None:
         """Take in the row as read: what another writer changed in its state, a cancel asked of it, and whether

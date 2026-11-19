@@ -378,7 +378,11 @@ class GuardedStore(Generic[M]):
         return RunRow(written, row.state if state is None else state, self._metadata)
 
     async def change(
-        self, row: RunRow[M], step: Callable[[RunRow[M]], Awaitable[RunRow[M] | None]]
+        self,
+        row: RunRow[M],
+        step: Callable[[RunRow[M]], Awaitable[RunRow[M] | None]],
+        *,
+        read_first: bool = False,
     ) -> RunRow[M]:
         """Change a run's row by ``step``, trying again each time another writer moved its ``rev`` on first.
 
@@ -390,6 +394,8 @@ class GuardedStore(Generic[M]):
             row: The run's row as read.
             step: One try at the change. It returns the row as the try leaves it: as written, or as given when the
                 try writes nothing. It returns ``None`` when another writer moved the ``rev`` on first.
+            read_first: Whether the first try is given the row as the store has it now, read again, rather than
+                ``row``.
 
         Returns:
             The row as the last try left it.
@@ -397,12 +403,16 @@ class GuardedStore(Generic[M]):
         Raises:
             InvalidCallError: The row is gone when it is read again (``no_such_run``).
         """
-        while (left := await step(row)) is None:
-            read = await self.get(row.stored.id)
-            if read is None:
-                raise InvalidCallError([no_such_run()])
-            row = read
-        return left
+        read_again = read_first
+        while True:
+            if read_again:
+                read = await self.get(row.stored.id)
+                if read is None:
+                    raise InvalidCallError([no_such_run()])
+                row = read
+            if (left := await step(row)) is not None:
+                return left
+            read_again = True
 
     async def expired(self, now: float) -> list[RunRow[M]]:
         """``RunStore.expired``, each row read.
