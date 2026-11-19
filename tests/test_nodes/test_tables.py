@@ -172,7 +172,7 @@ def test_a_node_reading_a_field_of_a_split_record_is_a_none_input_where_the_fiel
         edges=[
             ("contacts.result", "series-split.value"),
             ("series-split.result.email", "send.email"),
-            ("series-split.result", "table-collect.records"),
+            ("series-split.result", "table-collect.rows"),
             ("send.result", "table-collect.sent"),
         ],
         constants={"table-collect.columns": ["sent"]},
@@ -358,7 +358,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
         edges=[
             ("contacts.result", "series-split.value"),
             ("series-split.result.email", "send.email"),
-            ("series-split.result", "table-collect.records"),
+            ("series-split.result", "table-collect.rows"),
             ("send.result", "table-collect.sent"),
             ("sentence.result", "table-collect.team"),
         ],
@@ -373,7 +373,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
         "team"
     ] == {"type": "string"}
     feeds = {i.field.name: i.source.mode for i in graph.describe().nodes["table-collect"].inputs}
-    assert (feeds["records"], feeds["sent"], feeds["team"]) == (
+    assert (feeds["rows"], feeds["sent"], feeds["team"]) == (
         "collected",
         "collected",
         "one_value",
@@ -399,7 +399,7 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
             edges=[
                 ("small-numbers.result", "series-split.value"),
                 ("series-split.result.name", "shout.text"),
-                ("series-split.result", "table-collect.records"),
+                ("series-split.result", "table-collect.rows"),
                 ("shout.result", "table-collect.loud"),
             ],
             constants={"table-collect.columns": ["loud"]},
@@ -411,7 +411,7 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
     assert [
         i.field.type
         for i in graph.describe().nodes["table-collect"].inputs
-        if i.field.name == "records"
+        if i.field.name == "rows"
     ] == ["Table"]
     assert made.schema == {"n": pl.Int64, "name": pl.String, "loud": pl.String} and made[
         "loud"
@@ -425,7 +425,7 @@ def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
         tables.collect,
         outputs=COLLECTED,
         edges=[
-            ("contacts.result", "table-collect.records"),
+            ("contacts.result", "table-collect.rows"),
             ("sentence.result", "table-collect.team"),
         ],
         constants={"table-collect.constant_columns": ["team"]},
@@ -447,7 +447,7 @@ def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
         outputs=COLLECTED,
         edges=[
             ("contacts.result", "series-split.value"),
-            ("series-split.result", "table-collect.records"),
+            ("series-split.result", "table-collect.rows"),
             ("series-split.result.name", "table-collect.email"),
         ],
         constants={"table-collect.columns": ["email"]},
@@ -466,14 +466,14 @@ def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
     [
         (
             (csv, sentence),
-            [("csv.result", "table-collect.records"), ("sentence.result", "table-collect.age")],
+            [("csv.result", "table-collect.rows"), ("sentence.result", "table-collect.age")],
             {"table-collect.constant_columns": ["age"]},
         ),
         (
             (csv, series.split),
             [
                 ("csv.result", "series-split.value"),
-                ("series-split.result", "table-collect.records"),
+                ("series-split.result", "table-collect.rows"),
                 ("series-split.result.name", "table-collect.age"),
             ],
             {"table-collect.columns": ["age"]},
@@ -520,8 +520,8 @@ def test_collect_refuses_a_column_named_twice():
 @pytest.mark.parametrize(
     ("people", "expected"),
     [
-        (3, {"column": "word", "records": 3, "values": 2}),
-        (1, {"column": "word", "records": 1, "values": 2}),
+        (3, {"column": "word", "rows": 3, "values": 2}),
+        (1, {"column": "word", "rows": 1, "values": 2}),
     ],
 )
 def test_collect_refuses_a_column_wired_from_another_series_than_its_records_naming_it(
@@ -552,7 +552,7 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
             outputs=COLLECTED,
             edges=[
                 ("people.result", "series-split.value"),
-                ("series-split.result", "table-collect.records"),
+                ("series-split.result", "table-collect.rows"),
                 ("words.result", "table-collect.word"),
             ],
             constants={"table-collect.columns": ["word"]},
@@ -568,8 +568,8 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     )
     assert (
         "'word' has 2 values" in cause.msg
-        and f"{people} record" in cause.msg
-        and "once for each of the same records" in cause.msg
+        and f"{people} row" in cause.msg
+        and "once for each of the same rows" in cause.msg
     )
 
 
@@ -595,7 +595,7 @@ def test_collect_refuses_a_column_wired_from_a_value_returned_once_and_takes_it_
                 outputs=COLLECTED,
                 edges=[
                     ("two-people.result", "series-split.value"),
-                    ("series-split.result", "table-collect.records"),
+                    ("series-split.result", "table-collect.rows"),
                     ("sentence.result", "table-collect.team"),
                 ],
                 constants={f"table-collect.{kind}": ["team"]},
@@ -627,7 +627,7 @@ def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
         tables.collect,
         header,
         edges=[
-            ("nobody.result", "table-collect.records"),
+            ("nobody.result", "table-collect.rows"),
             ("sentence.result", "table-collect.team"),
             ("table-collect.result", "header.table"),
         ],
@@ -650,7 +650,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
         edges=[
             ("csv.result", "series-split.value"),
             ("series-split.result.name", "shout.text"),
-            ("series-split.result", "table-collect.records"),
+            ("series-split.result", "table-collect.rows"),
             ("shout.result", "table-collect.loud"),
         ],
         constants={"table-collect.columns": ["loud"]},
@@ -669,11 +669,11 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
 
 def test_collect_takes_records_only():
     (problem,) = compile_graph(
-        words, tables.collect, outputs=COLLECTED, edges=[("words.result", "table-collect.records")]
+        words, tables.collect, outputs=COLLECTED, edges=[("words.result", "table-collect.rows")]
     ).problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == (
         "type_mismatch",
-        ("table-collect", "records"),
+        ("table-collect", "rows"),
         "Series[str]",
         "Table",
     )

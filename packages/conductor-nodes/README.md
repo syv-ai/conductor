@@ -34,7 +34,7 @@ Each module holds one kind of node. The category is what `describe()` shows for 
 - `json_ops` (category `json`): read and write JSON.
 - `regex_ops` (category `regex`): match, replace and find with regular expressions.
 - `series` (category `series`): start and end a loop.
-- `tables` (category `table`): put the records of a loop back into a table.
+- `tables` (category `table`): put the rows of a loop back into a table.
 
 To see every node with its title, loop over the registry:
 
@@ -43,9 +43,9 @@ for definition in conductor_nodes.registry:
     print(definition.id, definition.title, sep=": ")
 ```
 
-## Loops: one record at a time
+## Loops: one row at a time
 
-`series-split` takes a table or a list apart. Every node after it runs once for each record or item. `table-collect` then puts the records back into one table, with a new column for what was worked out for each.
+`series-split` takes a table or a list apart. Every node after it runs once for each row or item. `table-collect` then puts the rows back into one table, with a new column for what was worked out for each.
 
 Here we read some contacts, greet each one, and put the greetings next to the names:
 
@@ -80,7 +80,7 @@ contacts = Graph.compile(
         edges=[
             ("read-contacts.result", "series-split.value"),
             ("series-split.result.name", "greet.name"),
-            ("series-split.result", "table-collect.records"),
+            ("series-split.result", "table-collect.rows"),
             ("greet.result", "table-collect.greeting"),
         ],
         constants={"table-collect.columns": ["greeting"]},
@@ -93,10 +93,10 @@ print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())  
 
 A few things to notice:
 
-- `series-split.result.name` is the `name` field of each record. `greet` takes one name, so it runs once per contact.
-- `columns` names the new columns. Each name becomes an input of `table-collect`, here `greeting`, with one value per record.
+- `series-split.result.name` is the `name` field of each row. `greet` takes one name, so it runs once per contact.
+- `columns` names the new columns. Each name becomes an input of `table-collect`, here `greeting`, with one value per row.
 - `table-collect` works out its output when the graph is compiled, so `make_graph` needs to be told the graph returns it, with `outputs=`.
-- For a value that's the same on every record, like the name of the file the contacts came from, use `constant_columns` instead.
+- For a value that's the same on every row, like the name of the file the contacts came from, use `constant_columns` instead.
 
 If you wire a whole table or list into an input that takes one value, compiling reports a `type_mismatch`. It asks for a node in between that splits the table or list up, and `series-split` is that node.
 

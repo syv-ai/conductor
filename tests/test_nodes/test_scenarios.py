@@ -350,7 +350,7 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
             excel,
             edges=[
                 ("upload.result.text", "find-invoices.text"),
-                ("find-invoices.result", "table-collect.records"),
+                ("find-invoices.result", "table-collect.rows"),
                 ("upload.result.name", "table-collect.document"),
                 ("table-collect.result", "excel.table"),
             ],
@@ -386,7 +386,7 @@ def test_scenario_3_a_document_with_no_invoices_gets_an_excel_with_the_columns_a
             excel,
             edges=[
                 ("upload.result.text", "find-invoices.text"),
-                ("find-invoices.result", "table-collect.records"),
+                ("find-invoices.result", "table-collect.rows"),
                 ("upload.result.name", "table-collect.document"),
                 ("table-collect.result", "excel.table"),
             ],
@@ -518,7 +518,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
             edges=[
                 (f"{reader.id}.result", "series-split.value"),
                 ("series-split.result.email", "send-mail.to"),
-                ("series-split.result", "table-collect.records"),
+                ("series-split.result", "table-collect.rows"),
                 ("send-mail.result", "table-collect.sent"),
                 ("table-collect.result", "excel.table"),
             ],

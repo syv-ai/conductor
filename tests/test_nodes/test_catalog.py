@@ -50,7 +50,7 @@ EXAMPLES = {
     "series-split": [{"value": ["a", "b"]}],
     "series-collect": [{"values": ["a", "b"]}],
     "series-stack": [{"tables": [[{"name": "Ann"}], [{"name": "Bo"}]]}],
-    "table-collect": [{"records": [{"name": "Ann"}], "constant_columns": ["team"], "team": "red"}],
+    "table-collect": [{"rows": [{"name": "Ann"}], "constant_columns": ["team"], "team": "red"}],
 }
 
 

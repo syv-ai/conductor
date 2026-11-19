@@ -11,7 +11,7 @@ Here is a small loop on ``["a", "b"]``::
 ``text-uppercase`` is called twice, once for ``"a"`` and once for ``"b"``. ``series-collect`` is called once,
 with ``["A", "B"]``. How loops work in full: ``python -m conductor.about one-or-many``.
 
-``series-split`` starts a loop over a table's records or a list's items. ``series-collect`` ends one and gives
+``series-split`` starts a loop over a table's rows or a list's items. ``series-collect`` ends one and gives
 back a list. ``series-stack`` ends a loop whose nodes return a table for each item, and puts those tables into one.
 """
 
@@ -26,19 +26,19 @@ registry = NodeRegistry(category="series")
 @registry.node(
     "series-split",
     title="Split",
-    description="Takes a table or a list apart, so what follows runs once for each record or item.",
+    description="Takes a table or a list apart, so what follows runs once for each row or item.",
     policy=Policy(costs_nothing=True),
 )
 def split[T](value: Table[T] | list[T]) -> Series[T]:
-    """Returns a table's records, or a list's items, as a ``Series``.
+    """Returns a table's rows, or a list's items, as a ``Series``.
 
     ``["a", "b"]`` gives the items ``"a"`` and ``"b"``. ``T`` is the type of one of them, so a ``Table[Contact]``
-    gives ``Contact`` records and a ``list[int]`` gives ``int`` items. Any other type wired in is a
+    gives ``Contact`` rows and a ``list[int]`` gives ``int`` items. Any other type wired in is a
     ``type_mismatch`` when the graph is compiled.
     """
     return typing.cast(
         "list[T]", value
-    )  # a table returned here is read as the Series of its records, so it needs no converting
+    )  # a table returned here is read as the Series of its rows, so it needs no converting
 
 
 @registry.node(
