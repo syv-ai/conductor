@@ -66,7 +66,7 @@ def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) ->
 
 
 async def _started(worker: Worker[Any, Any], graph: GraphRecord, inputs: Mapping[str, Any]) -> str:
-    return (await worker.begin(graph, inputs, ANNA)).id
+    return (await worker.begin(graph, inputs, ANNA, allows=EVERY_RUN)).id
 
 
 async def _resume_calls(store: MemoryStore, run_id: str) -> int:
@@ -156,7 +156,9 @@ async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_caller
             ("unknown_node", "old")
         ]
         assert list(store.rows) == [first]  # nothing is stored
-        begun = await worker.begin(edited, {"n": 2}, ANNA)  # without previous=, it goes through
+        begun = await worker.begin(
+            edited, {"n": 2}, ANNA, allows=EVERY_RUN
+        )  # without previous=, it goes through
         assert (await store.ended(begun.id)).outputs == {"result": [0, 1]}
 
 
@@ -2455,7 +2457,7 @@ async def test_a_graph_with_no_node_to_call_begins_running_with_no_outputs_and_s
     store = MemoryStore()
     worker = _worker(store, NodeRegistry())
     async with worker.serving():
-        begun = await worker.begin(GraphRecord(nodes={}, outputs={}), {}, ANNA)
+        begun = await worker.begin(GraphRecord(nodes={}, outputs={}), {}, ANNA, allows=EVERY_RUN)
         completed = await store.ended(begun.id)
 
     assert (begun.status, begun.outputs) == ("running", None)
@@ -3209,8 +3211,8 @@ async def test_a_worker_whose_run_another_took_stops_resuming_it_and_writes_noth
 async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_previous_run_does_too() -> (
     None
 ):
-    """``allows=`` is required, so a host's own route can't skip the access check by leaving it out. A start from a
-    previous run needs it too, and is refused as ``previous_without_allows`` without it, conductor's own check."""
+    """``allows=`` is required, so a host's own route can't skip the access check by leaving it out. ``begin`` and
+    ``estimate`` require it too, with or without a previous run, so no method has a rule of its own."""
     registry, graph, gate, inputs, _ = asking()
     gate.set()
     store = MemoryStore()
@@ -3222,11 +3224,10 @@ async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_pre
         with pytest.raises(TypeError):
             await worker.read(run_id)  # type: ignore[call-arg]
         for start in (worker.begin, worker.estimate):
-            with pytest.raises(InvalidCallError) as refused:
-                await start(graph, inputs, ANNA, previous=run_id)
-            assert [problem.type for problem in refused.value.problems] == [
-                "previous_without_allows"
-            ]
+            with pytest.raises(TypeError, match="allows"):
+                await start(graph, inputs, ANNA, previous=run_id)  # type: ignore[call-arg]
+            with pytest.raises(TypeError, match="allows"):
+                await start(graph, inputs, ANNA)  # type: ignore[call-arg]
         assert (await worker.read(run_id, allows=EVERY_RUN)).id == run_id
 
 
@@ -3265,7 +3266,7 @@ async def test_a_views_metadata_is_the_json_the_row_keeps_not_as_the_type_reads_
     store = MemoryStore()
     worker = Worker(store, nodes_for=lambda metadata: registry, poll=0.01, metadata_type=_Owner)
     async with worker.serving():
-        run_id = (await worker.begin(graph, inputs, _Owner(user="anna"))).id
+        run_id = (await worker.begin(graph, inputs, _Owner(user="anna"), allows=EVERY_RUN)).id
         await store.ended(run_id)
         store.rows[run_id] = dataclasses.replace(
             store.rows[run_id], metadata='{"user": "anna", "legacy": 7}'

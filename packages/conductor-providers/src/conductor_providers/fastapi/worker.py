@@ -30,7 +30,6 @@ from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
 from conductor_providers.fastapi.problems import (
     RESUMABLE,
     no_such_run,
-    previous_without_allows,
     run_not_resumable,
 )
 from conductor_providers.fastapi.state import RunOutcome, RunState, RunView
@@ -153,7 +152,7 @@ class Worker(Generic[M, X]):
         metadata: M,
         *,
         previous: str | None = None,
-        allows: Callable[[M], bool] | None = None,
+        allows: Callable[[M], bool],
     ) -> RunView:
         """Start a run: store it and make its first resume call in the background.
 
@@ -166,15 +165,15 @@ class Worker(Generic[M, X]):
                 received there is not made again. It is loaded on ``metadata``'s nodes. The new run starts at this
                 worker's ``max_items``, not at a ceiling ``previous`` was resumed with; ``again`` keeps that one.
             allows: The run filter of the request, which ``previous`` must pass: a run it turns away is refused as
-                ``no_such_run``. It must be given with ``previous`` (``previous_without_allows``);
-                ``lambda metadata: True`` lets every run through.
+                ``no_such_run``. It is required, as on every other method, so a host's own route can't leave the
+                access check out by accident; ``lambda metadata: True`` lets every run through.
 
         Returns:
             The new run, as written.
 
         Raises:
-            InvalidCallError: ``previous`` is given without ``allows`` (``previous_without_allows``). The graph
-                can't run on ``metadata``'s nodes, or refuses the inputs, each with conductor's problems. Else no run has the id ``previous`` (``no_such_run``, at ``loc`` ``("previous",)``). Or the previous run
+            InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs, each with
+                conductor's problems. Else no run has the id ``previous`` (``no_such_run``, at ``loc`` ``("previous",)``). Or the previous run
                 can't be loaded on those nodes, with the problems ``Run.from_json`` gives for its saved run, such as
                 ``saved_run_unreadable``. Start without ``previous`` then.
             RuntimeError: The worker has never served.
@@ -190,7 +189,7 @@ class Worker(Generic[M, X]):
         metadata: M,
         *,
         previous: str | None = None,
-        allows: Callable[[M], bool] | None = None,
+        allows: Callable[[M], bool],
     ) -> RunProgress:
         """How many calls the run ``begin`` would start will make, from ``run.resume(only_costs_nothing=True)``,
         which calls only the nodes that cost nothing; nothing is stored.
@@ -534,7 +533,7 @@ class Worker(Generic[M, X]):
         inputs: Mapping[str, Any],
         metadata: M,
         previous: str | None,
-        allows: Callable[[M], bool] | None,
+        allows: Callable[[M], bool],
     ) -> Run[Any]:
         """The run ``begin`` starts and ``estimate`` counts: the graph compiled on the metadata's nodes, with its
         inputs, and the work of ``previous`` lent to it.
@@ -542,12 +541,9 @@ class Worker(Generic[M, X]):
         The graph's own problems and the inputs' are refused before the previous run is loaded.
 
         Raises:
-            InvalidCallError: ``previous`` is given without ``allows`` (``previous_without_allows``), the graph or
-                the inputs are refused, no run has the id ``previous`` (``no_such_run``), or it can't be loaded on
-                these nodes (conductor's problems, as they are).
+            InvalidCallError: The graph or the inputs are refused, no run has the id ``previous``
+                (``no_such_run``), or it can't be loaded on these nodes (conductor's problems, as they are).
         """
-        if previous is not None and allows is None:
-            raise InvalidCallError([previous_without_allows()])
         nodes = self.nodes_for(metadata)
         lends = None if previous is None else await self._row(previous, allows, "previous")
 

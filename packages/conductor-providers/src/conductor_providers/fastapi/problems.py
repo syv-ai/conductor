@@ -1,4 +1,4 @@
-"""The four kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
+"""The three kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
 
 Everything else a run or a call can go wrong with is conductor's own, in ``conductor.PROBLEMS``. The exceptions are
 a request body of the wrong shape and a ``Last-Event-ID`` that isn't a whole number, which FastAPI refuses with its
@@ -8,8 +8,8 @@ makes the ``Problem``::
     run_not_resumable(status="waiting")
     # Problem(type="run_not_resumable", loc=(), msg="The run is waiting, ...", ctx={"status": "waiting"})
 
-Each one is about a run as a whole, or about the call, so its ``loc`` is ``()``, but for ``no_such_run`` about the
-``previous`` a new run names, whose ``loc`` is ``("previous",)``. ``STATUS`` sits beside the codes, so a new code gets
+Each one is about a run as a whole, so its ``loc`` is ``()``, but for ``no_such_run`` about the ``previous`` a new
+run names, whose ``loc`` is ``("previous",)``. ``STATUS`` sits beside the codes, so a new code gets
 its status in the same place.
 """
 
@@ -30,23 +30,6 @@ def no_such_run(*loc: str | int) -> str:
             from a route's own run; else empty, for the run in the route's path.
     """
     return "There is no run by that id that you may see; check the id."
-
-
-@SERVING_PROBLEMS.problem
-def previous_without_allows() -> str:
-    """``Worker.begin`` or ``Worker.estimate`` is given a ``previous`` run, but no ``allows``, the request's run filter.
-
-    The previous run lends its work to the new one, so the request must be one that may see it. A route of the host's
-    own makes this call, so it is a fault in that route, never in what a client sent: ``run_router`` always passes
-    the filter.
-
-    To fix it, pass the request's run filter as ``allows=``, or ``allows=lambda metadata: True`` to let every run
-    through.
-    """
-    return (
-        "A run started from a previous one needs allows=, the request's run filter; pass `lambda metadata: True` to "
-        "let every run through."
-    )
 
 
 #: The statuses of a run that a resume goes on from: the ways a resume call ends a run early. ``Worker.resume``

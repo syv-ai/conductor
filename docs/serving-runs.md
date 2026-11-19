@@ -237,7 +237,7 @@ A decline sent while a run is running is taken when the resume call stops, so th
 
 Every refusal has the shape of FastAPI's own 422: `{"detail": [{"type", "loc", "msg", ...}, ...]}`. None quotes what the request sent: a body or a header FastAPI refuses is answered without pydantic's `input`, the value it refused. Each route's OpenAPI entry declares the refusals it can answer with. A missing run, or one the filter hides, is a 404, `no_such_run`. When that run is the `previous` of `POST /runs` or `POST /estimate`, its `loc` is `["previous"]`, so a client can tell it from a route that isn't there. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md). So is a `previous` run that can't be loaded on this request's nodes. Its problems are the ones `Run.from_json` gives for its saved run, as they are, such as `saved_run_unreadable` for a saved run someone edited.
 
-The worker has four codes of its own, in `SERVING_PROBLEMS`:
+The worker has three codes of its own, in `SERVING_PROBLEMS`:
 
 <!-- problems: conductor_providers.fastapi.SERVING_PROBLEMS -->
 
@@ -329,11 +329,12 @@ async def start_saved_graph(
     name: str,
     inputs: Annotated[dict[str, Any], Body()],
     metadata: Annotated[dict[str, str], Depends(run_metadata)],
+    allows: Annotated[Callable[[dict[str, str]], bool], Depends(own_runs)],
 ) -> RunView:
     if name not in saved_graphs:
         raise HTTPException(404, "There is no saved graph by that name.")
     try:
-        return await worker.begin(saved_graphs[name], inputs, metadata)
+        return await worker.begin(saved_graphs[name], inputs, metadata, allows=allows)
     except InvalidCallError as refused:
         raise HTTPException(422, [problem.model_dump(mode="json") for problem in refused.problems]) from None
 
@@ -343,7 +344,7 @@ app.include_router(own_routes)
 
 The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. An `InvalidCallError` is also pydantic's `ValidationError`, so a route that catches pydantic's errors too catches `InvalidCallError` first. The run this route starts is read, answered and followed through the router's routes.
 
-Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Each of them takes your run filter as `allows=`, as the router passes it, and turns away a run the request may not see; so does `begin` when you give it a `previous` run. With no logins, pass `allows=lambda metadata: True`. Following a run's events takes two steps: awaiting `worker.events(...)` checks the run, so a run that isn't there is refused before you start, and then you iterate what it gives:
+Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Each of them takes your run filter as `allows=`, as the router passes it, and turns away a run the request may not see. So do `begin` and `estimate`, which test it on a `previous` run, if you give one. With no logins, pass `allows=lambda metadata: True`. Following a run's events takes two steps: awaiting `worker.events(...)` checks the run, so a run that isn't there is refused before you start, and then you iterate what it gives:
 
 ```python
 async def print_events(run_id: str) -> None:

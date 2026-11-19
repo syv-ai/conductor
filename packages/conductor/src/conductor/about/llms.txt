@@ -1278,7 +1278,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `resume(run_id, max_items=None)` and `cancel(run_id)`.
 - `await worker.events(run_id, after=-1)` checks the run, then gives an async iterator of its events.
 - `read`, `again`, `answer`, `decline`, `resume`, `cancel` and `events` each take `allows=`, the request's filter, as a required keyword. So a host's own route can't leave the access check out by accident. A host with no logins passes `allows=lambda metadata: True`.
-- `begin` and `estimate` take `allows=` too, and refuse `previous` without it with `InvalidCallError` (`previous_without_allows`, one of the worker's own codes). It is provisional.
+- `begin` and `estimate` take `allows=` as a required keyword too, which a `previous` run must pass; a missing `allows=` is Python's own `TypeError`. It is provisional.
 - `worker.nodes_for` is what the worker was given. A run's metadata is its view's `metadata`, which a host reads by its own type.
 - Of two calls that act on one run at once, the one whose write loses reads the run again, and acts on it as it is then.
 
@@ -1303,7 +1303,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - A run whose resume raised outside a node ends `failed`, and lists what waits in its last checkpoint. Its cause is conductor's own problem where conductor refused to resume it (`context_missing`, `invalid_context`, `saved_run_unreadable`, `run_unwritable`), and `raised_outside_a_node` otherwise, with the exception's class name as `ctx.error`.
 - A queued answer whose type's check raises is refused as `raised_outside_a_node` too.
 - A previous run that can't be loaded on the new run's nodes is refused with the problems `Run.from_json` gives for its saved run, as they are: its graph's own problems, `saved_run_of_another_graph` or `saved_run_unreadable` (a 422). The worker adds no code of its own, so a client reads the same problem whether it loads the saved run itself or names it in `previous`.
-- `conductor_providers.fastapi.SERVING_PROBLEMS` is the catalogue of the worker's four codes, read as `PROBLEMS` is.
+- `conductor_providers.fastapi.SERVING_PROBLEMS` is the catalogue of the worker's three codes, read as `PROBLEMS` is.
 
 **The store.** The host writes the `conductor_providers.fastapi.RunStore`: six async methods over one row per run.
 
