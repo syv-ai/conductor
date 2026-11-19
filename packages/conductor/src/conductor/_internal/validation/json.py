@@ -11,6 +11,10 @@ its type is a table, which reads it as it is. Anything else pydantic can't write
 memory, is ``no_json_form``. And a number that enters is finite: ``inf`` and ``nan`` are refused here with
 pydantic's ``finite_number``, though what a node computes may hold them. Every refusal here is pydantic's
 ``ValidationError``, as a type's own is, so a caller handles one kind of error.
+
+The module also holds the one walk over a value and everything inside it (``_parts``), and the checks built on it:
+``holds_a_set``, which the reader here asks, and ``holds_skipped``, which a node's return check asks, since
+``SKIPPED`` inside a returned value has no JSON form.
 """
 
 from __future__ import annotations
