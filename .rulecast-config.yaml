@@ -30,7 +30,7 @@ repos:
 
       - id: touch/places
         name: Where JSON and place text are read
-        files: '^(packages/conductor/src/conductor/_internal/(base/place|record/validator|make_graph|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
+        files: '^(packages/conductor/src/conductor/_internal/(base/place|record/validator|make_graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
         stages: [touch]
         context:
           - "@conventions/validation.md#text-is-read-once-where-it-enters"
@@ -446,7 +446,7 @@ repos:
       - id: validation/place-split-by-hand
         name: A dotted place is read only by make_graph
         files: '^packages/conductor/src/conductor/.*\.py$'
-        exclude: '^packages/conductor/src/conductor/_internal/make_graph\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/make_graph/make\.py$'
         detect:
           ast-grep:
             language: python
@@ -644,7 +644,7 @@ repos:
                     if of_node.fingerprints:
                         reusable[names[path]] = of_node
               expect: { lines: [3] }
-            - path: packages/conductor/src/conductor/_internal/make_graph.py
+            - path: packages/conductor/src/conductor/_internal/make_graph/make.py
               code: |
                 for name, text in outputs.items():
                     problems = len(found)
@@ -662,7 +662,7 @@ repos:
                     text = name.strip()
                     if text:
                         print(text)
-            - path: packages/conductor/src/conductor/_internal/make_graph.py
+            - path: packages/conductor/src/conductor/_internal/make_graph/make.py
               code: |
                 for name, text in outputs.items():
                     source = _source(text, ("outputs", name), definitions, problems)

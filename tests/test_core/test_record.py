@@ -10,6 +10,7 @@ the record doesn't have, that is a problem of the graph, in ``graph.problems``. 
 
 import json
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Annotated, Any
 
 import pytest
@@ -2381,34 +2382,105 @@ def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_wr
 
 
 @pytest.mark.parametrize(
-    ("arguments", "says"),
+    ("arguments", "errors"),
     [
-        ({"outputs": None}, "outputs="),
-        ({"inputs": None}, "inputs="),
-        ({"constants": None}, "constants="),
-        ({"defaults": [("hello.name", "Ida")]}, "defaults="),
-        ({"inputs": "name"}, "inputs="),
-        ({"outputs": {"greeting": 1}}, "outputs="),
-        ({"inputs": {"who": [1]}}, "inputs="),
-        ({"constants": {1: "Ida"}}, "constants="),
-        ({"edges": "hello.result"}, "edges="),
-        ({"edges": [("hello.result",)]}, "edges="),
-        ({"edges": [(1, "hello.name")]}, "edges="),
+        ({"outputs": None}, [("outputs", "dict_type", [])]),
+        ({"inputs": None}, [("inputs", "dict_type", [])]),
+        ({"constants": None}, [("constants", "dict_type", [])]),
+        ({"defaults": [("hello.name", "Ida")]}, [("defaults", "dict_type", [])]),
+        ({"inputs": "name"}, [("inputs", "dict_type", [])]),
+        ({"outputs": {"greeting": 1}}, [("outputs", "string_type", ["greeting"])]),
+        ({"inputs": {"who": [1]}}, [("inputs", "string_type", ["who", 0])]),
+        ({"inputs": {"who": {"hello.name"}}}, [("inputs", "is_instance_of", ["who"])]),
+        ({"inputs": {"who": b"hello.name"}}, [("inputs", "sequence_str", ["who"])]),
+        # a key that isn't text is part of what was given, so the loc stops before it
+        ({"constants": {1: "Ida"}}, [("constants", "string_type", ["[key]"])]),
+        ({"edges": "hello.result"}, [("edges", "sequence_str", [])]),
+        ({"edges": {("count.result", "hello.name")}}, [("edges", "is_instance_of", [])]),
+        ({"edges": [b"hello.result"]}, [("edges", "sequence_str", [0])]),
+        ({"edges": [("hello.result",)]}, [("edges", "too_short", [0])]),
+        ({"edges": [(1, "hello.name")]}, [("edges", "string_type", [0, 0])]),
+        (
+            {"edges": [(b"count.result", "hello.name")], "outputs": None},
+            [("edges", "string_type", [0, 0]), ("outputs", "dict_type", [])],
+        ),
     ],
 )
-def test_make_graph_refuses_an_argument_of_the_wrong_type_with_a_type_error_that_names_it(
-    arguments: dict[str, Any], says: str
+def test_make_graph_refuses_an_argument_of_the_wrong_type_with_invalid_argument_and_says_where_in_it(
+    arguments: dict[str, Any], errors: list[tuple[str, str, list[str | int]]]
 ):
-    with pytest.raises(TypeError, match=f"make_graph's {says}"):
+    with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, **arguments)
 
+    found = [
+        (p.loc, p.ctx["argument"], error["type"], error["loc"])
+        for p in refused.value.problems
+        for error in p.ctx["errors"]
+    ]
+    assert found == [((argument,), argument, kind, loc) for argument, kind, loc in errors]
+    assert {p.type for p in refused.value.problems} == {"invalid_argument"}
 
-@pytest.mark.parametrize("nodes", [(None,), ("hello",), (("first",),), ((1, _hello),)])
-def test_make_graph_refuses_a_node_that_is_neither_a_definition_nor_an_id_and_a_definition(
-    nodes: tuple[Any, ...],
+
+@pytest.mark.parametrize(
+    ("nodes", "index"),
+    [
+        ((None,), 0),
+        (("hello",), 0),
+        ((_hello, ("first",)), 1),
+        (((1, _hello),), 0),
+        ((["a", _hello],), 0),
+    ],
+)
+def test_make_graph_refuses_a_node_that_is_neither_a_definition_nor_a_tuple_of_an_id_and_a_definition(
+    nodes: tuple[Any, ...], index: int
 ):
-    with pytest.raises(TypeError, match="make_graph takes node definitions"):
+    with pytest.raises(InvalidCallError) as refused:
         make_graph(*nodes)
+
+    [problem] = refused.value.problems
+    [error] = problem.ctx["errors"]
+    assert (problem.type, problem.loc, error["type"], error["loc"]) == (
+        "invalid_argument",
+        ("nodes",),
+        "not_a_node",
+        [index],
+    )
+    assert "_Version" not in str(refused.value)
+
+
+def test_make_graph_takes_every_form_of_its_arguments_a_type_checker_takes():
+    class Place(str):
+        pass
+
+    record = make_graph(
+        ("a", _hello),
+        ("b", _shout),
+        edges=[["a.result", "b.text"]],
+        constants=MappingProxyType({Place("b.times"): 2}),
+        inputs={"who": "a.name"},
+        outputs=MappingProxyType({"loud": "b.result"}),
+    )
+
+    assert record.nodes["a"].inputs["name"].graph_input == "who"
+    assert record.nodes["b"].inputs["times"].constant == 2
+    assert record.nodes["b"].inputs["text"].sources == (Source("a", "result"),)
+    assert record.outputs == {"loud": Source("b", "result")}
+    assert make_graph(_hello, inputs={"who": ("hello.name",)}) == make_graph(
+        _hello, inputs={"who": "hello.name"}
+    )
+
+
+def test_make_graph_quotes_no_argument_it_refuses():
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(SKIPPED, edges=[(SKIPPED, "a.b")], constants={SKIPPED: 1}, outputs=SKIPPED)  # type: ignore[arg-type, list-item, dict-item]
+
+    assert [p.loc for p in refused.value.problems] == [
+        ("nodes",),
+        ("edges",),
+        ("constants",),
+        ("outputs",),
+    ]
+    assert "SKIPPED" not in str(refused.value) + repr(refused.value.errors())
 
 
 def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_as_it_refuses_such_an_edge():

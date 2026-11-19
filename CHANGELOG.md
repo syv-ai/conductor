@@ -243,6 +243,12 @@ What changes in how you work, before the name-by-name tables:
   (`ProblemCatalogue.problem` refuses it). `retry_on=(ValidationError,)` retries an `InvalidCallError` a node lets
   out. `NodeDeclarationError` and `NodeError` are not `ValidationError`s. `InvalidCallError` and
   `NodeDeclarationError` pickle and copy with their problems (neither could be unpickled).
+- **`make_graph` refuses an argument of the wrong type with `invalid_argument`** (provisional), where it raised a
+  `TypeError` that quoted the argument. `outputs=None`, an edge that isn't a pair of texts, a set where a list goes
+  or a node that is neither a definition nor a tuple `(id, definition)` (a list `["a", upper]` included) is one
+  `InvalidCallError` problem per argument, at `(argument,)`, before anything else is checked. `ctx.errors` has
+  every fault in it, with pydantic's code or `not_a_node`, its `loc` an index or a key inside the argument, and no
+  value quoted. Python's own call errors, such as a keyword `make_graph` doesn't take, stay a `TypeError`.
 - **`type_not_named` gives a declaration to paste.** For a class with no `@host_type`, the message suggests an id and a title made from the class's name, `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`, where it wrote `@host_type("...", title="...")`; `ctx` gains `suggested_id` and `suggested_title`. An id that would be one of conductor's own gets `-type` after it.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,

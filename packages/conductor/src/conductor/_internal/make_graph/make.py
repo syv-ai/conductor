@@ -28,7 +28,7 @@ from conductor._internal.base import (
     is_name,
     place_text,
 )
-from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
+from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
@@ -43,6 +43,8 @@ from conductor._internal.record import (
     RecordValidator,
     WrittenValuesValidator,
 )
+
+from .validator import ArgumentsValidator
 
 
 def make_graph(
@@ -98,7 +100,9 @@ def make_graph(
     ``Graph.compile(record, registry).problems``.
 
     Raises:
-        InvalidCallError: Lists every fault in writing the record:
+        InvalidCallError: ``invalid_argument``, one for each argument that isn't of the type its annotation says,
+            such as ``outputs=None``, before anything else is checked. Otherwise it lists every fault in writing the
+            record:
             ``node_not_in_graph``: a place names a node that wasn't given.
             ``invalid_place``: a place isn't written ``"node.name"``.
             ``invalid_value``: a value has no JSON form, or has a set in it.
@@ -113,24 +117,32 @@ def make_graph(
             automatic graph input and output the same way.
             ``hook_outputs_not_named``: no edge leaves a node whose ``compute_outputs`` hook gives its outputs,
             and ``outputs`` names none of them.
-        TypeError: An argument isn't of the type its annotation says, such as ``outputs=None``. The message names
-            the argument.
     """
-    _check_argument_types(nodes, edges, constants, defaults, inputs, outputs)
+    arguments = ArgumentsValidator()(
+        {
+            "nodes": nodes,
+            "edges": edges,
+            "constants": constants,
+            "defaults": defaults,
+            "inputs": inputs,
+            "outputs": outputs,
+        }
+    )
     problems: list[Problem] = []
-    definitions = _by_id(nodes, problems)
-    constant_of = _values_by_place("constants", constants, definitions, problems)
-    default_of = _values_by_place("defaults", defaults, definitions, problems)
+    definitions = _by_id(arguments["nodes"], problems)
+    constant_of = _values_by_place("constants", arguments["constants"], definitions, problems)
+    default_of = _values_by_place("defaults", arguments["defaults"], definitions, problems)
     # A chain with a gap, or an edge that can't be written, leaves inputs unwired and outputs unread. The automatic
     # graph inputs and outputs made from those would clash for that alone. So no automatic inputs are made then,
     # and automatic outputs only for the last node of a chain; inputs=, outputs= and defaults= are still checked.
-    chained, gap = edges is None, False
-    if edges is None:
+    drawn = arguments["edges"]
+    chained, gap = drawn is None, False
+    if drawn is None:
         found_before_the_chain = len(problems)
-        edges = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
+        drawn = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
         gap = len(problems) > found_before_the_chain
     sources_of: dict[tuple[str, str], list[Source]] = {}
-    for i, (source_text, target_text) in enumerate(edges):
+    for i, (source_text, target_text) in enumerate(drawn):
         source, target = (
             _source(source_text, ("edges", i, 0), definitions, problems),
             _place(target_text, ("edges", i, 1), definitions, problems),
@@ -140,9 +152,14 @@ def make_graph(
         else:
             gap = True
     graph_input_of = _graph_inputs(
-        definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), gap, problems
+        definitions,
+        arguments["inputs"],
+        constant_of.keys() | sources_of.keys(),
+        set(default_of),
+        gap,
+        problems,
     )
-    default_of |= _own_defaults(definitions, graph_input_of, inputs, default_of.keys())
+    default_of |= _own_defaults(definitions, graph_input_of, arguments["inputs"], default_of.keys())
     entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in definitions}
     for node_id, name in (
         constant_of.keys() | default_of.keys() | sources_of.keys() | graph_input_of.keys()
@@ -161,12 +178,7 @@ def make_graph(
     # can't be written may have led out of any node, so then no node's are.
     if gap:
         led_out |= set(list(definitions)[:-1] if chained else definitions)
-    declared = _graph_outputs(
-        definitions,
-        outputs,
-        led_out,
-        problems,
-    )
+    declared = _graph_outputs(definitions, arguments["outputs"], led_out, problems)
     written = GraphRecord.model_construct(
         nodes={
             node_id: NodeRecord.model_construct(
@@ -186,77 +198,6 @@ def make_graph(
     if problems:
         raise InvalidCallError(problems)
     return record
-
-
-def _check_argument_types(
-    nodes: Sequence[Any],
-    edges: Any,
-    constants: Any,
-    defaults: Any,
-    inputs: Any,
-    outputs: Any,
-) -> None:
-    """Checks that each argument of ``make_graph`` has the type its annotation says.
-
-    A wrong type is a mistake in the calling code, which a type checker also finds. So it raises a ``TypeError``
-    that names the argument, rather than a problem about the graph. A value of the right type that says something
-    wrong, such as the place ``"upper"`` with no name after the dot, is a problem, collected with the others.
-
-    Raises:
-        TypeError: For the first argument of the wrong type, such as ``outputs=None``.
-    """
-    definition = (FunctionDefinition, SubgraphDefinition)
-    for node in nodes:
-        named = isinstance(node, tuple) and len(node) == 2 and isinstance(node[0], str)
-        if not (isinstance(node, definition) or (named and isinstance(node[1], definition))):
-            raise TypeError(
-                "make_graph takes node definitions, or (id, definition) pairs such as ('a', upper), "
-                f"and was given {node!r}"
-            )
-    if edges is not None and not (
-        isinstance(edges, Sequence)
-        and not isinstance(edges, str)
-        and all(
-            isinstance(edge, Sequence)
-            and not isinstance(edge, str)
-            and len(edge) == 2
-            and all(isinstance(end, str) for end in edge)
-            for edge in edges
-        )
-    ):
-        raise TypeError(
-            "make_graph's edges= is a list of (output, input) pairs of text, such as "
-            f"[('upper.result', 'join.texts')], and was given {edges!r}"
-        )
-    for argument, given in (("constants", constants), ("defaults", defaults)):
-        if not (isinstance(given, Mapping) and all(isinstance(key, str) for key in given)):
-            raise TypeError(
-                f"make_graph's {argument}= is a mapping from places to values, such as "
-                f"{{'upper.text': 'x'}}, and was given {given!r}"
-            )
-    if not (
-        isinstance(inputs, Mapping)
-        and all(
-            isinstance(name, str)
-            and (
-                isinstance(places, str)
-                or (isinstance(places, Sequence) and all(isinstance(p, str) for p in places))
-            )
-            for name, places in inputs.items()
-        )
-    ):
-        raise TypeError(
-            "make_graph's inputs= is a mapping from graph input names to a place or a list of places, such as "
-            f"{{'who': 'greet.name'}}, and was given {inputs!r}"
-        )
-    if not (
-        isinstance(outputs, Mapping)
-        and all(isinstance(name, str) and isinstance(place, str) for name, place in outputs.items())
-    ):
-        raise TypeError(
-            "make_graph's outputs= is a mapping from graph output names to places, such as "
-            f"{{'long': 'join.result'}}, and was given {outputs!r}"
-        )
 
 
 def _place(
@@ -336,7 +277,7 @@ def _values_by_place(
 
 def _graph_inputs(
     definitions: Mapping[str, NodeDefinition],
-    named: Mapping[str, str | Sequence[str]],
+    named: Mapping[str, Sequence[str]],
     filled: set[tuple[str, str]],
     defaulted: set[tuple[str, str]],
     gap: bool,
@@ -353,7 +294,7 @@ def _graph_inputs(
     """
     graph_input_of: dict[tuple[str, str], str] = {}
     for name, texts in named.items():
-        for text in [texts] if isinstance(texts, str) else texts:
+        for text in texts:
             place = _place(text, ("inputs", name), definitions, problems)
             if place is not None:
                 graph_input_of[(place[0], place[1])] = name
@@ -388,7 +329,7 @@ def _graph_inputs(
 def _own_defaults(
     definitions: Mapping[str, NodeDefinition],
     graph_input_of: Mapping[tuple[str, str], str],
-    named: Mapping[str, str | Sequence[str]],
+    named: Mapping[str, Sequence[str]],
     defaulted: Set[tuple[str, str]],
 ) -> dict[tuple[str, str], JsonValue]:
     """Returns the defaults the graph inputs ``named`` in ``inputs=`` take from their node's own inputs, by place.
@@ -398,12 +339,12 @@ def _own_defaults(
     default ``"!"``. A graph input that feeds several inputs takes their default when each of them declares the
     same one, and is required otherwise. One that ``defaults=`` gives a default on any of its inputs keeps that.
     """
-    places_of: dict[str, list[tuple[str, str]]] = {}
+    inputs_of: dict[str, list[tuple[str, str]]] = {}
     for place, name in graph_input_of.items():
         if name in named:
-            places_of.setdefault(name, []).append(place)
+            inputs_of.setdefault(name, []).append(place)
     found: dict[tuple[str, str], JsonValue] = {}
-    for places in places_of.values():
+    for places in inputs_of.values():
         own = [_own_default(definitions[node_id], input_name) for node_id, input_name in places]
         declared = [default for default in own if default is not MISSING]
         if (

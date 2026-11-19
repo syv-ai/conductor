@@ -650,6 +650,30 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
 
 
 @CALL_PROBLEMS.problem
+def invalid_argument(argument: str, /, *, reason: str, errors: list[dict[str, Any]]) -> str:
+    """``make_graph`` is given an argument that isn't of the type its signature says, such as ``outputs=None``.
+
+    The nodes are definitions, or tuples of an id and a definition such as ``("a", upper)``. ``edges`` is a list or
+    tuple of pairs of text. ``constants``, ``defaults`` and ``outputs`` are mappings keyed by text, and ``outputs``
+    maps to text. ``inputs`` maps text to one place, or to a list or tuple of them. A set is never taken, since it
+    has no order, and neither are bytes. A type checker finds these faults too.
+
+    To fix it, give the argument the type ``make_graph``'s signature says. ``ctx.errors`` has every fault in it, each
+    with pydantic's code, or ``not_a_node`` for a node, and its ``loc`` inside the argument: an index, or a key of a
+    mapping. A key that isn't text is not quoted: the ``loc`` stops before it, at ``"[key]"``.
+
+    Args:
+        argument: The argument: ``nodes``, ``edges``, ``constants``, ``defaults``, ``inputs`` or ``outputs``.
+        reason: What is wrong with it: the message of the first error in ``errors``.
+        errors: Every fault in it, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
+
+    Example:
+        refused(lambda: make_graph(upper, inputs={"text": {"upper.text"}}))  # type: ignore[dict-item]
+    """
+    return f"make_graph's {argument} isn't of the type it takes: {reason}. Give it the type make_graph's signature says."
+
+
+@CALL_PROBLEMS.problem
 def invalid_place(*loc: str | int, text: str) -> str:
     """``make_graph`` is given a place in the graph that isn't written ``"node.name"``.
 
