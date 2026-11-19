@@ -29,7 +29,7 @@ from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
 from pydantic import JsonValue, ValidationError
-from pydantic_core import PydanticCustomError, SchemaValidator, core_schema
+from pydantic_core import SchemaValidator, core_schema
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
@@ -38,7 +38,6 @@ from conductor._internal.problem import (
     Problem,
     call_problems,
     compile_problems,
-    refusal_errors,
 )
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, read_as_json
@@ -100,16 +99,6 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
                 try:
                     values[name] = read_as_json(
                         field.whole, field.whole.argument_validator, given[name]
-                    )
-                except PydanticCustomError as refused:
-                    problems.append(
-                        call_problems.invalid_input(
-                            "inputs",
-                            name,
-                            name=name,
-                            reason=refused.message(),
-                            errors=refusal_errors(refused),
-                        )
                     )
                 except ValidationError as error:
                     problems.append(_refused(field, given[name], error))
@@ -239,10 +228,6 @@ class ConstantValidator(Validator[JsonValue, Any]):
         whole, name = self._field.whole, self._field.name
         try:
             return read_as_json(whole, whole.argument_validator, value)
-        except PydanticCustomError as refused:  # a text JSON can't write, such as a lone surrogate
-            found = compile_problems.invalid_value(
-                self._node_id, name, reason=refused.message(), errors=refusal_errors(refused)
-            )
         except ValidationError as error:
             found = compile_problems.invalid_value(self._node_id, name, **whole.refusal(error))
         raise InvalidCallError([found])

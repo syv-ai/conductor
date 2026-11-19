@@ -22,14 +22,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import JsonValue, ValidationError
-from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import plain_json
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
     compile_problems,
-    refusal_errors,
 )
 from conductor._internal.types import Type
 from conductor._internal.validation import Validator, read_as_json
@@ -175,18 +173,9 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
                 written[name] = plain_json(
                     read_as_json(Type(Any), Type(Any).output_validator, value)
                 )
-            except ValidationError as error:  # a number that isn't finite
+            except ValidationError as error:
                 problems.append(
                     compile_problems.invalid_value(self._node_id, name, **Type(Any).refusal(error))
-                )
-            except PydanticCustomError as refused:
-                problems.append(
-                    compile_problems.invalid_value(
-                        self._node_id,
-                        name,
-                        reason=refused.message(),
-                        errors=refusal_errors(refused),
-                    )
                 )
         if problems:
             raise InvalidCallError(problems)

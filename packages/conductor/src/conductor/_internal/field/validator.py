@@ -28,7 +28,6 @@ from typing import Annotated, Any, TypeVar, get_args, get_origin
 from annotated_types import Not, Predicate
 from pydantic import ImportString, Json, Secret, SecretBytes, SecretStr, ValidationError
 from pydantic.types import EncodedBytes, EncodedStr
-from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.problem import (
@@ -275,9 +274,4 @@ def _read_default(whole: Type, default: Any) -> Any:
     """
     if default is REQUIRED or default is SKIPPED:
         return default
-    try:
-        return read_as_json(whole, whole.argument_validator, default)
-    except PydanticCustomError as refused:  # no JSON form, such as an object held in memory
-        raise ValidationError.from_exception_data(
-            whole.id, [{"type": refused, "loc": (), "input": default}]
-        ) from None
+    return read_as_json(whole, whole.argument_validator, default)

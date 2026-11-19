@@ -30,7 +30,8 @@ from .errors import (
     author_code_problem,
     conductor_error,
     is_conductor_error,
-    refusal_errors,
+    no_json_form,
+    set_has_no_order,
     value_free_errors,
 )
 from .type import Problem, ProblemCatalogue, ProblemKind
@@ -53,6 +54,7 @@ __all__ = [
     "author_code_problem",
     "conductor_error",
     "is_conductor_error",
-    "refusal_errors",
+    "no_json_form",
+    "set_has_no_order",
     "value_free_errors",
 ]

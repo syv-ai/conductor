@@ -103,14 +103,28 @@ def is_conductor_error(fault: ErrorDetails) -> bool:
     return OWN_MESSAGE.items() <= fault.get("ctx", {}).items()
 
 
-def refusal_errors(refused: PydanticCustomError) -> list[dict[str, Any]]:
-    """Returns the ``ctx.errors`` of a problem made from one refusal conductor raised itself, such as
-    ``set_has_no_order``: one error, of the refusal's type, with its message, an empty ``loc`` and its ``ctx`` if it
-    has one.
+def no_json_form(reason: str = "the value can't be written as JSON") -> PydanticCustomError:
+    """The refusal of a value that can't be written as JSON, such as a ``str`` with a lone surrogate, or an object
+    held in memory that pydantic only checks with ``isinstance``.
 
-    So a host reads such a refusal by its code, as it reads one a type made (``value_free_errors``).
+    Args:
+        reason: The message. A frame given where the type is no table says how to give it instead, and a list of
+            choices says that one of them can't be written.
     """
-    return [_written_error(refused.type, [], refused.message(), refused.context or {})]
+    return conductor_error("no_json_form", reason)
+
+
+def set_has_no_order() -> PydanticCustomError:
+    """The refusal of a set where a value is read from its JSON form, written into a graph record, or given for a
+    ``Series``.
+
+    A set's order changes from one process to the next, so its items would come in a different order each time,
+    and the same set would be written as a different JSON text.
+    """
+    return conductor_error(
+        "set_has_no_order",
+        "a set has no order, so its items could come in a different order each time",
+    )
 
 
 def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:

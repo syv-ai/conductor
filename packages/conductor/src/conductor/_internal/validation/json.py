@@ -9,7 +9,8 @@ and what reads strictly here reads the same there.
 Two things have no JSON form here. A set has no order (``set_has_no_order``), and a frame is a value only where
 its type is a table, which reads it as it is. Anything else pydantic can't write, such as an object held in
 memory, is ``no_json_form``. And a number that enters is finite: ``inf`` and ``nan`` are refused here with
-pydantic's ``finite_number``, though what a node computes may hold them.
+pydantic's ``finite_number``, though what a node computes may hold them. Every refusal here is pydantic's
+``ValidationError``, as a type's own is, so a caller handles one kind of error.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import finite_json_text, validate_as_json
-from conductor._internal.problem import conductor_error
+from conductor._internal.problem import no_json_form, set_has_no_order
 from conductor._internal.table import TableType, json_fallback
 from conductor._internal.types import Type, json_by_its_class
 
@@ -57,10 +58,9 @@ def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> An
         value: The value given.
 
     Raises:
-        PydanticCustomError: ``set_has_no_order`` if the value has a set in it, and ``no_json_form`` if it can't
-            be written as JSON, a frame where the type is no table among them.
-        ValidationError: ``validator`` refuses the value, or ``finite_number`` for a number in it that isn't
-            finite.
+        ValidationError: ``validator`` refuses the value, ``finite_number`` for a number in it that isn't finite,
+            ``set_has_no_order`` if the value has a set in it, or ``no_json_form`` if it can't be written as JSON,
+            a frame where the type is no table among them.
     """
     if isinstance(value, pl.DataFrame) and any(
         isinstance(Type(option), TableType) for option in value_type.options
@@ -70,12 +70,9 @@ def read_as_json(value_type: Type, validator: SchemaValidator, value: Any) -> An
                 value_type.id, [{"type": "finite_number", "loc": (column,), "input": value}]
             )
         return _checked(value_type, value, lambda: validator.validate_python(value, strict=True))
-    if holds_a_set(value):
-        raise set_has_no_order()
-    try:
-        text = finite_json_text(value, value_type.id, fallback=_written)
-    except PydanticSerializationError:
-        raise no_json_form() from None
+    text = _as_json(
+        value_type.id, value, lambda: finite_json_text(value, value_type.id, fallback=_written)
+    )
     read = _checked(value_type, value, lambda: validator.validate_json(text, strict=True))
     # A dict's key is text in the JSON, so the text can't show a key that isn't finite, like dict[float, str]'s
     # "Infinity", until the type has read it. A saved run is read by its own reader, so it may keep such keys.
@@ -119,38 +116,42 @@ def json_data(value: Any) -> Any:
     read (``finite_number``), as the value itself is.
 
     Raises:
-        PydanticCustomError: ``set_has_no_order`` or ``no_json_form``, as ``read_as_json`` raises them, or a
-            frame column's own refusal when a saved run can't keep it as it is.
+        ValidationError: ``set_has_no_order`` or ``no_json_form``, as ``read_as_json`` raises them, or a frame
+            column's own refusal (``column_not_saved``) when a saved run can't keep it as it is.
     """
-    if holds_a_set(value):
-        raise set_has_no_order()
-    try:
-        return validate_as_json(
-            Type(Any).output_validator,
-            value,
-            fallback=json_fallback,
-        )
-    except PydanticSerializationError:
-        raise no_json_form() from None
-
-
-def no_json_form() -> PydanticCustomError:
-    """The refusal of a value that can't be written as JSON, such as a ``str`` with a lone surrogate, or an object
-    held in memory that pydantic only checks with ``isinstance``."""
-    return conductor_error("no_json_form", "the value can't be written as JSON")
-
-
-def set_has_no_order() -> PydanticCustomError:
-    """The refusal of a set where a value is read from its JSON form, written into a graph record, or given for a
-    ``Series``.
-
-    A set's order changes from one process to the next, so its items would come in a different order each time,
-    and the same set would be written as a different JSON text.
-    """
-    return conductor_error(
-        "set_has_no_order",
-        "a set has no order, so its items could come in a different order each time",
+    any_type = Type(Any)
+    return _as_json(
+        any_type.id,
+        value,
+        lambda: validate_as_json(any_type.output_validator, value, fallback=json_fallback),
     )
+
+
+def _as_json[T](title: str, value: Any, write: Callable[[], T]) -> T:
+    """Calls ``write``, which writes ``value`` as JSON, and returns what it gives.
+
+    A value JSON can't hold is refused with pydantic's ``ValidationError``, as a type refuses a value. So a caller of ``read_as_json`` or ``json_data`` handles one kind of error. A set is looked for first, since
+    pydantic writes it as an array by itself (``holds_a_set``).
+
+    Args:
+        title: The title of the error, such as the type's id.
+        value: The value written.
+        write: Writes ``value``. It may raise ``PydanticSerializationError``, which is ``no_json_form``, or a
+            refusal of its ``fallback``, such as a frame where the type is no table.
+
+    Raises:
+        ValidationError: ``set_has_no_order``, ``no_json_form`` or the fallback's refusal, with an empty ``loc``,
+            or whatever ``write`` raises as one.
+    """
+    try:
+        if holds_a_set(value):
+            raise set_has_no_order()
+        return write()
+    except PydanticSerializationError:
+        refused = no_json_form()
+    except PydanticCustomError as error:
+        refused = error
+    raise ValidationError.from_exception_data(title, [{"type": refused, "loc": (), "input": value}])
 
 
 def holds_a_set(value: Any) -> bool:
@@ -196,8 +197,7 @@ def _written(value: Any) -> Any:
         TypeError: The object's class has no schema that writes it.
     """
     if isinstance(value, pl.DataFrame):
-        raise conductor_error(
-            "no_json_form",
-            "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of records",
+        raise no_json_form(
+            "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list of records"
         )
     return json_by_its_class(value)

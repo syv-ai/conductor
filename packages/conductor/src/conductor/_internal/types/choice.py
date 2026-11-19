@@ -29,8 +29,12 @@ from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
     declaration_problems,
+    no_json_form,
     value_free_errors,
 )
+
+#: Why a list of choices is refused when one of them can't be written as JSON.
+_ONE_HAS_NO_JSON_FORM = "one can't be written as JSON"
 
 
 class Choice(ConductorModel):
@@ -92,7 +96,7 @@ def read_choices(
     Args:
         given: The choices as a developer or a node gave them, each a value or a ``Choice``.
         read: Reads one id by the type the choices are values of, raising pydantic's ``ValidationError`` for one
-            the type refuses.
+            the type refuses, ``no_json_form`` among them.
         write: Converts a value ``read`` gave back to JSON.
         known: Choices already read, which a bare value given by its id stands for. An ``Ask`` passes its
             output's own choices, so a bare ``"ida"`` is the ``Choice("ida", "Ida B.")`` the output's type gives.
@@ -118,13 +122,13 @@ def read_choices(
                     )
                 )
     except PydanticSerializationError:
-        raise conductor_error("no_json_form", "one can't be written as JSON") from None
-    except PydanticCustomError as refused:  # ``read`` refused it as no JSON could hold it
-        if refused.type != "no_json_form":
-            raise
-        raise conductor_error("no_json_form", "one can't be written as JSON") from None
+        raise no_json_form(_ONE_HAS_NO_JSON_FORM) from None
     except ValidationError as refused:
-        raise conductor_error("not_its_type", value_free_errors(refused)[0]["msg"]) from None
+        first = value_free_errors(refused)[0]
+        # ``read`` refused it as no JSON could hold it, which is said of one choice among the rest
+        if first["type"] == "no_json_form":
+            raise no_json_form(_ONE_HAS_NO_JSON_FORM) from None
+        raise conductor_error("not_its_type", first["msg"]) from None
     if not chosen:
         raise conductor_error("no_choices", "none is given")
     if len(choice_texts(chosen)) != len(chosen):

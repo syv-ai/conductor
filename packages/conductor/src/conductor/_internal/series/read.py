@@ -14,7 +14,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.validation import set_has_no_order
+from conductor._internal.problem import set_has_no_order
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:

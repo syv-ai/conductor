@@ -42,6 +42,7 @@ from conductor._internal.problem import (
     call_problems,
     conductor_error,
     run_problems,
+    value_free_errors,
 )
 from conductor._internal.types import (
     Choice,
@@ -394,9 +395,8 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
         node returned.
 
     Raises:
-        PydanticCustomError: As ``read_as_json`` raises it, for a value that can't be written as JSON. Else
-            ``not_its_type`` if the type refuses it, with the type's reason as the message, quoting nothing of the
-            value.
+        PydanticCustomError: ``not_its_type`` if the type refuses it or it can't be written as JSON, with the
+            type's reason as the message, quoting nothing of the value.
     """
     try:
         return read_as_json(value_type, value_type.output_validator, value)
@@ -455,8 +455,8 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
         answer = _branches_left_out(answer)
         try:
             return json_data(answer)
-        except PydanticCustomError as refused:
-            reason = refused.message()
+        except ValidationError as error:
+            reason = value_free_errors(error)[0]["msg"]
         # A mapping is answered by question name, so the problem names each question whose value can't be written.
         named = (
             {key: why for key, value in answer.items() if (why := _unwritable(value)) is not None}
@@ -483,8 +483,8 @@ def _unwritable(value: Any) -> str | None:
     """Why ``value`` can't be written as JSON (``json_data``), or ``None`` when it can."""
     try:
         json_data(value)
-    except PydanticCustomError as refused:
-        return refused.message()
+    except ValidationError as error:
+        return value_free_errors(error)[0]["msg"]
     return None
 
 
