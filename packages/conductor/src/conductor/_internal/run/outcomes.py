@@ -40,7 +40,7 @@ one item of a list, and no index says which one. So once the list exists, ``line
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, Literal, Self, assert_never
 
@@ -65,8 +65,7 @@ class RunOutcomes:
 
     A run holds one, and never changes it. ``resume()`` gives the scheduler a ``copy()`` to ``record`` the new
     outcomes in, and the run it returns holds a copy of that. ``with_answers`` and ``with_decline`` make theirs with
-    ``replacing``. A copy shares each node's outcomes with the table it was copied from, until one of the two
-    records an outcome of that node: then it gets a dict of its own first. So a copy costs one step per node.
+    ``replacing``.
 
     Every copy has each node's outcomes in item order. Calls on threads come back in any order, so the table
     being recorded into may hold them out of order until it is copied.
@@ -79,7 +78,7 @@ class RunOutcomes:
             the loop.
     """
 
-    __slots__ = ("_by_node", "_out_of_order", "_own", "blueprint", "for_any_item", "graph_inputs")
+    __slots__ = ("_by_node", "_out_of_order", "blueprint", "for_any_item", "graph_inputs")
 
     def __init__(self, blueprint: RunBlueprint, graph_inputs: Mapping[str, Any]) -> None:
         """Makes the outcomes of a run that has made no call yet."""
@@ -87,7 +86,6 @@ class RunOutcomes:
             blueprint,
             MappingProxyType(dict(graph_inputs)),
             {path: {} for path in blueprint.function_nodes},
-            set(blueprint.function_nodes),
         )
 
     def _shaped(
@@ -95,7 +93,6 @@ class RunOutcomes:
         blueprint: RunBlueprint,
         graph_inputs: Mapping[str, Any],
         by_node: dict[NodePath, dict[ItemIndexes, Outcome]],
-        own: set[NodePath],
     ) -> None:
         """Sets every attribute. ``__init__``, ``copy`` and ``sharing`` make their tables with it.
 
@@ -103,14 +100,8 @@ class RunOutcomes:
             blueprint: The blueprint of the run's graph.
             graph_inputs: The graph inputs, read-only.
             by_node: The outcomes of each function node, by node path and then by item indexes.
-            own: The nodes whose dict of outcomes no other table shares, so ``record`` may write into it.
         """
-        self.blueprint, self.graph_inputs, self._by_node, self._own = (
-            blueprint,
-            graph_inputs,
-            by_node,
-            own,
-        )
+        self.blueprint, self.graph_inputs, self._by_node = blueprint, graph_inputs, by_node
         #: The nodes whose outcomes ``record`` wrote out of item order. ``copy`` sorts them.
         self._out_of_order: set[NodePath] = set()
         self.for_any_item: dict[
@@ -126,7 +117,7 @@ class RunOutcomes:
         for any item of a loop.
         """
         shared = object.__new__(cls)
-        shared._shaped(outcomes.blueprint, outcomes.graph_inputs, outcomes._by_node, set())
+        shared._shaped(outcomes.blueprint, outcomes.graph_inputs, outcomes._by_node)
         return shared
 
     # -- the outcomes ------------------------------------------------------------------------------------------
@@ -138,10 +129,6 @@ class RunOutcomes:
         with no outcome has no key. The result is in item order, except in a table being recorded into.
         """
         return self._by_node[path]
-
-    def __len__(self) -> int:
-        """Returns how many calls have an outcome."""
-        return sum(len(of_node) for of_node in self._by_node.values())
 
     def calls[O](self, kind: type[O]) -> Iterator[tuple[BlueprintFunctionNode, ItemIndexes, O]]:
         """Yields every call whose outcome is of ``kind``, with its node and item indexes.
@@ -159,44 +146,41 @@ class RunOutcomes:
     ) -> None:
         """Stores the outcome of the call of ``node`` at ``item_indexes``, in place of any it had."""
         path = node.node_path
-        of_node = self._own_dict(path)
+        of_node = self._by_node[path]
         if item_indexes not in of_node and of_node and item_indexes < next(reversed(of_node)):
             self._out_of_order.add(path)
         of_node[item_indexes] = outcome
 
     def copy(self) -> RunOutcomes:
         """Returns a copy to record into, with every node's outcomes in item order. This table is left as it is."""
-        by_node = dict(self._by_node)
-        for path in self._out_of_order:
-            by_node[path] = dict(sorted(by_node[path].items()))
         copied = object.__new__(RunOutcomes)
-        copied._shaped(self.blueprint, self.graph_inputs, by_node, set(self._out_of_order))
-        # From here on, neither this table nor the copy writes into a dict the other has.
-        self._own = set()
+        copied._shaped(
+            self.blueprint,
+            self.graph_inputs,
+            {
+                path: dict(sorted(of_node.items()) if path in self._out_of_order else of_node)
+                for path, of_node in self._by_node.items()
+            },
+        )
         return copied
 
     def replacing(
-        self, changes: Mapping[tuple[BlueprintFunctionNode, ItemIndexes], Outcome | None]
+        self,
+        changes: Mapping[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = MappingProxyType({}),
+        *,
+        removing: Iterable[tuple[BlueprintFunctionNode, ItemIndexes]] = (),
     ) -> RunOutcomes:
-        """Returns a copy in which each call in ``changes`` has its new outcome. ``None`` takes a call's outcome away.
+        """Returns a copy in which each call in ``changes`` has its new outcome, and each call in ``removing`` none.
 
-        ``with_answers`` replaces a waiting call's ``Unanswered`` with ``Done`` this way, and ``with_decline`` takes
-        every ``Unanswered`` away.
+        ``with_answers`` replaces a waiting call's ``Unanswered`` with ``Done`` this way, and ``with_decline`` removes
+        every ``Unanswered``.
         """
         copied = self.copy()
         for (node, item_indexes), outcome in changes.items():
-            if outcome is not None:
-                copied.record(node, item_indexes, outcome)
-                continue
-            del copied._own_dict(node.node_path)[item_indexes]
+            copied.record(node, item_indexes, outcome)
+        for node, item_indexes in removing:
+            del copied._by_node[node.node_path][item_indexes]
         return copied
-
-    def _own_dict(self, path: NodePath) -> dict[ItemIndexes, Outcome]:
-        """Returns the dict of outcomes of the node at ``path`` to write into, copying it first if another table shares it."""
-        if path not in self._own:
-            self._by_node[path] = dict(self._by_node[path])
-            self._own.add(path)
-        return self._by_node[path]
 
     def item_indexes(
         self, loops: tuple[tuple[NodePath, str], ...], prefix: ItemIndexes = ()
@@ -454,8 +438,8 @@ class RunOutcomes:
 
         In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node inside
         that loop. ``for_any_item`` is what ``shout.result`` gives for any line (``_for_any_item_of``). If
-        ``shout.mark`` gets ``SKIPPED``, every call of ``shout`` is skipped. Then ``for_any_item`` is ``SKIPPED``, and so
-        is ``join.texts``, with two lines just as with none.
+        ``shout.mark`` gets ``SKIPPED``, every call of ``shout`` is skipped. Then ``for_any_item`` is ``SKIPPED``,
+        and so is ``join.texts``, with two lines just as with none.
 
         Args:
             loop: The list looped over: the path of the function node that returns it, and the output's name.

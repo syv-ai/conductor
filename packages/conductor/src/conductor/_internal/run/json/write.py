@@ -1,20 +1,20 @@
 """Writes a run as JSON (``run_to_json``), and a complete run's graph outputs as JSON (``outputs_to_json``).
 
 ``saved_run`` turns the run into an instance of its graph's codec, the subclass of ``SavedRun`` made for the
-graph. That instance then writes itself as text.
+graph. That instance then writes itself as text. This package is the run's own JSON form, so it reads every field
+of the ``Run``, the private ones too, as ``read.py`` builds a ``Run`` from them.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, assert_never
+from typing import TYPE_CHECKING, Any, assert_never
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, place_text
 from conductor._internal.field import Field
-from conductor._internal.graph import Graph
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
@@ -22,7 +22,6 @@ from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
-from ..state import LastResume
 from .codec import saved_type
 from .type import (
     SAVED_DONE,
@@ -33,38 +32,25 @@ from .type import (
     SavedRun,
 )
 
+if TYPE_CHECKING:
+    from ..type import Run
 
-def run_to_json(
-    graph: Graph[Any],
-    outcomes: RunOutcomes,
-    reusable: ReusableOutcomes,
-    *,
-    max_items: int | None,
-    last_resume: LastResume,
-    complete_nodes: frozenset[NodePath],
-) -> str:
-    r"""Returns a whole run of ``graph`` as JSON text, from what the run holds.
+
+def run_to_json(run: Run) -> str:
+    r"""Returns the whole run as JSON text.
 
     For the finished README run on ``"a\nb\nc"``, the text starts
     ``{"graph":"<16 hex characters>","ended_early":null,"max_items":null,"inputs":{"text":"a\nb\nc"},`` and goes on
     with every node's outcomes. ``SavedRun`` shows all of it.
 
-    Args:
-        graph: The run's graph.
-        outcomes: The run's outcomes, with its graph inputs.
-        reusable: The outcomes of the previous run that the run may still reuse.
-        max_items: The run's item limit.
-        last_resume: How the run's last ``resume()`` left it.
-        complete_nodes: The nodes that were complete when the last ``resume()`` ended.
-
     Raises:
         InvalidCallError: ``run_unwritable``, naming the input or output, if a value can't be written as JSON.
     """
-    saved = saved_run(graph, outcomes, reusable, max_items, last_resume, complete_nodes)
+    saved = saved_run(run)
     try:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
-        where = first_unwritable_value(saved, outcomes.blueprint.function_nodes)
+        where = first_unwritable_value(saved, run.graph._blueprint.function_nodes)
         raise InvalidCallError(
             [
                 call_problems.run_unwritable(
@@ -74,20 +60,21 @@ def run_to_json(
         ) from None
 
 
-def outputs_to_json(graph: Graph[Any], outputs: dict[str, Any]) -> str:
-    """Returns the graph outputs of a complete run of ``graph`` (``run.outputs``) as JSON text, by name.
+def outputs_to_json(run: Run) -> str:
+    """Returns the graph outputs of a complete run (``run.outputs``) as JSON text, by name.
 
     For the README run, it returns ``{"result":"A!+B!+C!"}``. Each value is written by its output's type, the same
     way a saved run writes it. A table is written as its columns, ``inf`` and ``nan`` as text, and a host's own type
     by its own schema.
 
     Raises:
-        InvalidCallError: ``run_unwritable``, naming the output, if a value can't be written as JSON.
+        InvalidCallError: ``run_not_complete`` if the run isn't complete. ``run_unwritable``, naming the output, if a
+            value can't be written as JSON.
     """
     written = {}
-    for text, value in outputs.items():
-        edge = graph._edge_reading(text)
-        function = graph._blueprint.function_nodes[edge.node]
+    for text, value in run.outputs.items():
+        edge = run.graph._edge_reading(text)
+        function = run.graph._blueprint.function_nodes[edge.node]
         hint: Any = saved_type(function.compiled_node.outputs[edge.output]).hint
         # one list, or None in its place, for each loop the function node is inside
         for _ in function.loops:
@@ -105,25 +92,17 @@ def outputs_to_json(graph: Graph[Any], outputs: dict[str, Any]) -> str:
     return pydantic_core.to_json(written).decode()
 
 
-def saved_run(
-    graph: Graph[Any],
-    outcomes: RunOutcomes,
-    reusable: ReusableOutcomes,
-    max_items: int | None,
-    last_resume: LastResume,
-    complete_nodes: frozenset[NodePath],
-) -> SavedRun:
-    """Returns a run as an instance of its graph's codec, ready to write itself as JSON. ``run_to_json`` says what each
-    argument is.
+def saved_run(run: Run) -> SavedRun:
+    """Returns ``run`` as an instance of its graph's codec, ready to write itself as JSON.
 
-    For the README run, the result's ``outcomes["shout"]`` has ``states=["done", "done", "done"]`` and
+    For the README run, ``saved_run(run).outcomes["shout"]`` has ``states=["done", "done", "done"]`` and
     ``outputs={"result": ["A!", "B!", "C!"]}``. Every part is an instance of the codec's own class for it, so this is
     the same object the codec would read back from the JSON.
 
     Only function nodes are saved, since only they are called. A node inside a subgraph is saved like any other,
     under its node path as text (``"loud/shout"``). A node with no outcome and nothing to reuse has no key at all.
     """
-    codec = graph._codec
+    codec, outcomes, reusable = run.graph._codec, run._outcomes, run._reusable
     function_nodes = outcomes.blueprint.function_nodes
     names = {path: place_text(path) for path in function_nodes}
     saved = {
@@ -151,15 +130,15 @@ def saved_run(
         if names[path] in saved or names[path] in saved_reusables
     }
     return codec.model_construct(
-        graph=graph.fingerprint,
+        graph=run.graph.fingerprint,
         # a resume still going is never saved
-        ended_early=None if last_resume == "running" else last_resume,
-        max_items=max_items,
-        inputs=dict(outcomes.graph_inputs),
+        ended_early=None if run._last_resume == "running" else run._last_resume,
+        max_items=run.max_items,
+        inputs=dict(run.inputs),
         outcomes=saved,
         reusable=saved_reusables,
         code=code,
-        complete=[names[path] for path in function_nodes if path in complete_nodes],
+        complete=[names[path] for path in function_nodes if path in run._complete_nodes],
     )
 
 

@@ -50,8 +50,9 @@ class DisplayReader(RunOutcomes):
     """Reads a run's outputs for a host, for ``run.results`` and ``run.outputs``, whatever the run's status.
 
     It reads a run's outcomes as ``RunOutcomes`` reads them for a call, but its ``display_value`` never says "not
-    ready". Where a call hasn't returned or waits for a person, it shows ``None``. So a host is shown the values so far. In the example, while ``shout`` has
-    only returned for the first line, ``results["shout"]["result"]`` is ``["A!", None]``.
+    ready". Where a call hasn't returned or waits for a person, it shows ``None``. So a host is shown the values so
+    far. In the example, while ``shout`` has only returned for the first line, ``results["shout"]["result"]`` is
+    ``["A!", None]``.
 
     An edge can name one field of a record (``give.result.name``). If the record has no such field, the node the
     edge leads to fails, and the run ends ``failed`` with that as its cause. Showing the run afterwards mustn't

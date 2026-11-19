@@ -18,9 +18,10 @@ then calls ``shout`` with those arguments, and writes what it returns as the cal
 
     outcomes.record(shout, (1,), Done({"result": "B!"}))
 
-Outcomes are the only thing the scheduler writes, into the copy of the run's outcomes (``RunOutcomes``) it is given. The one other thing it changes is the pool of outcomes
-from an earlier run that its calls may reuse. When a call reuses an outcome of a node that may ask a person, that
-outcome is taken out of the pool, so no other call reuses it too (job 3).
+Outcomes are the only thing the scheduler writes, into the copy of the run's outcomes (``RunOutcomes``) it is given.
+The one other thing it changes is the pool of outcomes from an earlier run that its calls may reuse. When a call
+reuses an outcome of a node that may ask a person, that outcome is taken out of the pool, so no other call reuses it
+too (job 3).
 
 The scheduler has five jobs, described below. Its methods come in the same order.
 
@@ -261,7 +262,8 @@ class Scheduler:
             reusable: The outcomes of the previous run that a call may reuse. Some can only be reused once, and the
                 scheduler takes those out as it reuses them.
             max_items: The item limit: the most items a series that a loop runs over may have. ``None`` for no limit.
-            arguments_for: Returns the arguments of one call, or why it can't be called yet (``RunOutcomes.arguments_for``).
+            arguments_for: Returns the arguments of one call, or why it can't be called yet
+                (``RunOutcomes.arguments_for``).
             node_events: Makes the events about each node, for the listener of ``run.stream()``. ``None`` for
                 ``run.resume()``, which has no listener.
             stop: Asked before each call, and every so often while waiting for threads. It returns ``None`` to go

@@ -119,7 +119,10 @@ class Run[C]:
         return self._outcomes.graph_inputs
 
     def __repr__(self) -> str:
-        return f"<Run {self.status}: {len(self._outcomes)} outcomes>"
+        outcomes = sum(
+            len(self._outcomes.of(path)) for path in self.graph._blueprint.function_nodes
+        )
+        return f"<Run {self.status}: {outcomes} outcomes>"
 
     @property
     def status(self) -> RunStatus:
@@ -461,12 +464,10 @@ class Run[C]:
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         cause = run_problems.answer_declined(*loc, reason=reason)
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome.
-        asked = {
-            (node, item_indexes): None for node, item_indexes, _ in self._outcomes.calls(Unanswered)
-        }
+        asked = [(node, item_indexes) for node, item_indexes, _ in self._outcomes.calls(Unanswered)]
         return dataclasses.replace(
             self,
-            _outcomes=self._outcomes.replacing(asked),
+            _outcomes=self._outcomes.replacing(removing=asked),
             _last_resume=EndedEarly(status="declined", cause=cause),
         )
 
@@ -720,7 +721,7 @@ class Run[C]:
             InvalidCallError: ``run_not_complete`` if the run isn't complete. ``run_unwritable``, naming the output,
                 if a value can't be written as JSON.
         """
-        return outputs_to_json(self.graph, self.outputs)
+        return outputs_to_json(self)
 
     # -- JSON -------------------------------------------------------------------
 
@@ -752,14 +753,7 @@ class Run[C]:
         Raises:
             InvalidCallError: ``run_unwritable``, naming the input or output, if a value can't be written as JSON.
         """
-        return run_to_json(
-            self.graph,
-            self._outcomes,
-            self._reusable,
-            max_items=self.max_items,
-            last_resume=self._last_resume,
-            complete_nodes=self._complete_nodes,
-        )
+        return run_to_json(self)
 
 
 def _only_costs_nothing(

@@ -42,8 +42,8 @@ from .outcomes import RunOutcomes
 class ReusableOutcomes:
     """The outcomes of a previous run that a run may reuse instead of calling a node, by node path.
 
-    A run made from another gets them with ``from_previous``. As it runs, the scheduler takes each outcome it reuses with
-    ``take``. Once a node is complete, its outcomes are dropped with ``drop``.
+    A run made from another gets them with ``from_previous``. As it runs, the scheduler takes each outcome it reuses
+    with ``take``. Once a node is complete, its outcomes are dropped with ``drop``.
 
     A node that never asks reuses an outcome two ways. The call with the same item indexes reuses its own outcome if
     it gets the same arguments, and any other call with those arguments reuses the first outcome with that
@@ -82,21 +82,21 @@ class ReusableOutcomes:
         """Returns what a run made from a previous run may reuse, given that run's outcomes and what it could reuse.
 
         That is each node's finished and waiting calls in item order, then the outcomes in ``previous``, which the
-        previous run itself could have reused and didn't. A node that may ask keeps every one of them, since each is reused once. A node that never
-        asks keeps an outcome if it is the first with its fingerprint, which any call with that fingerprint reuses,
-        or the first with its item indexes, which the call with those item indexes reuses. No call would reuse any
-        other: a call with the same item indexes finds the first outcome with them, and any other call the first
-        with its fingerprint.
+        previous run itself could have reused and didn't. A node that may ask keeps every one of them, since each is
+        reused once. A node that never asks keeps an outcome if it is the first with its fingerprint, which any call
+        with that fingerprint reuses, or the first with its item indexes, which the call with those item indexes
+        reuses. No call would reuse any other: a call with the same item indexes finds the first outcome with them,
+        and any other call the first with its fingerprint.
 
         Say ``shout`` ran on ``"a\\na"``, then on ``"b\\na"``, which reused the first run's outcome at ``(1,)``, and
         a third run is made from the second. The second run's own outcomes come first: ``(fp_b, (0,))`` and
         ``(fp_a, (1,))``. Then come the two it could reuse: ``(fp_a, (0,))``, which is dropped, since ``fp_a`` and
         ``(0,)`` both have an outcome already, and ``(fp_a, (1,))``, dropped too.
 
-        ``into`` is the blueprint of the new run's graph, which may be the previous run's graph or an edited one. A node is only
-        kept if ``into`` has it unchanged (the same ``code_fingerprint``) and its ``Policy`` says
-        ``reuse_when_inputs_match``. The other nodes' outcomes could never be reused there, and keeping them would only
-        make the save bigger.
+        ``into`` is the blueprint of the new run's graph, which may be the previous run's graph or an edited one. A
+        node is only kept if ``into`` has it unchanged (the same ``code_fingerprint``) and its ``Policy`` says
+        ``reuse_when_inputs_match``. The other nodes' outcomes could never be reused there, and keeping them would
+        only make the save bigger.
         """
         reusable = cls()
         for path, old_node in outcomes.blueprint.function_nodes.items():
@@ -214,8 +214,9 @@ class ReusableOutcomes:
 def _called(
     outcomes: RunOutcomes, node: BlueprintFunctionNode
 ) -> Iterator[tuple[str, ItemIndexes, Done | Unanswered]]:
-    """Yields the outcome of each call of ``node`` in ``outcomes`` that called its function, in item order, with the call's
-    fingerprint and item indexes. A call whose arguments can't be written as JSON has no fingerprint, and is left out."""
+    """Yields the outcome of each call of ``node`` in ``outcomes`` that called its function, in item order, with the
+    call's fingerprint and item indexes. A call whose arguments can't be written as JSON has no fingerprint, and is
+    left out."""
     for item_indexes, outcome in outcomes.of(node.node_path).items():
         match outcome:
             # The function wasn't called for the item, so there is nothing to reuse.
