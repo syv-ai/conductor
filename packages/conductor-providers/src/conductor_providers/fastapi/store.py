@@ -3,7 +3,9 @@
 A stored run is one row of text and numbers, ``StoredRun``, so any database holds it. Every
 change is a compare-and-set on ``rev``: ``update`` writes only while the row is
 still at the ``rev`` the writer read, and moves it one on. That one rule is
-what lets several workers act on one run. An ``update`` can append one event
+what lets several workers act on one run. A writer that loses reads the row
+again and works its change out again from what it reads: ``GuardedStore.change``
+is that loop, and every write the worker retries goes through it. An ``update`` can append one event
 in the same write, which is how a run's ``run_end`` lands with the row that
 says how the run stopped.
 
@@ -19,14 +21,15 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any, Generic, Protocol, TypedDict
 
-from conductor import RunStatus
+from conductor import InvalidCallError, RunStatus
 from conductor.events import RunEnd
 from pydantic import TypeAdapter, ValidationError
 
+from conductor_providers.fastapi.problems import no_such_run
 from conductor_providers.fastapi.state import M, RunOutcome, RunRow, RunState
 
 log = logging.getLogger("conductor_providers.fastapi")
@@ -232,7 +235,7 @@ class GuardedStore(Generic[M]):
     """A host's store as the worker uses it: rows read into ``RunRow``, and outages raised as ``StoreFailedError``.
 
     It has the six methods of ``RunStore``. ``get`` and ``expired`` read each row into a ``RunRow``, and ``create``
-    and ``update`` write a ``RunRow``'s columns back as text. Code that holds a ``GuardedStore`` works on a row's
+    and ``update`` write a ``RunRow``'s columns back as text. ``change`` tries a write again until it lands. Code that holds a ``GuardedStore`` works on a row's
     metadata, state and outcome as their types, and can tell an outage apart from a fault in its own code by the
     exception's class alone.
 
@@ -324,6 +327,33 @@ class GuardedStore(Generic[M]):
         if outcome is not None:
             written["outcome_json"] = columns["outcome"]
         return replace(row, **written)
+
+    async def change(
+        self, row: RunRow[M], step: Callable[[RunRow[M]], Awaitable[RunRow[M] | None]]
+    ) -> RunRow[M]:
+        """Change a run's row by ``step``, trying again each time another writer moved its ``rev`` on first.
+
+        ``step`` is one try. It is given the row as read, works out what to write from it, and writes it with
+        ``update``. When ``update`` loses, the row is read again and ``step`` is called on what was read, so a
+        change made meanwhile, such as a cancel, is never written over.
+
+        Args:
+            row: The run's row as read.
+            step: One try at the change. It returns the row as the try leaves it: as written, or as given when the
+                try writes nothing. It returns ``None`` when another writer moved the ``rev`` on first.
+
+        Returns:
+            The row as the last try left it.
+
+        Raises:
+            InvalidCallError: The row is gone when it is read again (``no_such_run``).
+        """
+        while (left := await step(row)) is None:
+            read = await self.get(row.id)
+            if read is None:
+                raise InvalidCallError([no_such_run()])
+            row = read
+        return left
 
     async def expired(self, now: float) -> list[RunRow[M]]:
         """``RunStore.expired``, each row read.

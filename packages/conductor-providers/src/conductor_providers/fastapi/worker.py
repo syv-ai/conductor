@@ -15,7 +15,7 @@ import time
 import uuid
 from asyncio import Event as AsyncioEvent
 from asyncio import Task
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from threading import Event
 from types import MappingProxyType
@@ -274,8 +274,9 @@ class Worker(Generic[M, X]):
         """
         if not answers:
             return await self.read(run_id, allows=allows)
-        return await self._until_written(
-            run_id, allows, lambda row: self._reply(row, answers=answers)
+        row = await self._row(run_id, allows)
+        return self._view(
+            await self._store.change(row, lambda row: self._reply(row, answers=answers))
         )
 
     async def decline(
@@ -322,7 +323,8 @@ class Worker(Generic[M, X]):
             )
             return await self._store.update(row, state=ended, run=saved, outcome=outcome)
 
-        return await self._until_written(run_id, allows, declined)
+        row = await self._row(run_id, allows)
+        return self._view(await self._store.change(row, declined))
 
     async def resume(
         self,
@@ -355,7 +357,8 @@ class Worker(Generic[M, X]):
                 raise InvalidCallError([run_not_resumable(status=row.state.status)])
             return await self._reply(row, max_items=max_items)
 
-        return await self._until_written(run_id, allows, resumed)
+        row = await self._row(run_id, allows)
+        return self._view(await self._store.change(row, resumed))
 
     async def cancel(self, run_id: str, *, allows: Callable[[M], bool]) -> RunView:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
@@ -397,7 +400,8 @@ class Worker(Generic[M, X]):
                 await held.heard_of_a_change()
             return written
 
-        return await self._until_written(run_id, allows, cancelled)
+        row = await self._row(run_id, allows)
+        return self._view(await self._store.change(row, cancelled))
 
     async def events(
         self, run_id: str, after: int = -1, *, allows: Callable[[M], bool]
@@ -651,33 +655,6 @@ class Worker(Generic[M, X]):
         if claimed is not None:
             self._resume_in_background(claimed)
         return claimed
-
-    async def _until_written(
-        self,
-        run_id: str,
-        allows: Callable[[M], bool],
-        step: Callable[[RunRow[M]], Awaitable[RunRow[M] | None]],
-    ) -> RunView:
-        """Read a run's row and try ``step`` on it, reading the row again each time another writer moved its
-        ``rev`` on first. ``answer``, ``decline``, ``resume`` and ``cancel`` each go through it.
-
-        Args:
-            run_id: The run's id.
-            allows: The request's run filter, asked on the first read.
-            step: One try at the call, given the row as read. It returns the row as the call leaves it, written or
-                not, or ``None`` when another writer wrote the row first.
-
-        Returns:
-            The run's view, as the step left it.
-
-        Raises:
-            InvalidCallError: No run has the id, or ``allows`` turns it away (``no_such_run``), or the step refuses
-                the call.
-        """
-        row = await self._row(run_id, allows)
-        while (written := await step(row)) is None:
-            row = await self._row(run_id)
-        return self._view(written)
 
     async def _reply(
         self,
