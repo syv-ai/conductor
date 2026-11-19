@@ -142,13 +142,14 @@ class HeldRun:
 
     async def _resume_call(
         self,
-    ) -> tuple[RunEnd | None, str | None, Problem | None, Run[Any] | None]:
+    ) -> tuple[tuple[RunEnd, str] | None, tuple[Problem, Run[Any] | None] | None]:
         """Make one resume call and store its events and checkpoints.
 
         Returns:
-            What ``_finish`` takes. A call that ended: its own ``run_end``, which carries the run it returned, and
-            that run as JSON. A call that failed: why, and the run as the row has it (``None`` when it couldn't be
-            loaded). A run handed back, as the worker shuts down: none of the four.
+            What ``_finish`` takes, ``(ended, failed)``. A call that ended gives ``ended``: its own ``run_end``,
+            which carries the run it returned, and that run as JSON. A call that failed gives ``failed``: why, and
+            the run as the row has it (``None`` when it couldn't be loaded). A run handed back, as the worker shuts
+            down, gives neither.
 
         Raises:
             StoreFailedError: The store failed. Anything else that raises fails the run: conductor's refusal with
@@ -184,12 +185,12 @@ class HeldRun:
                     elif isinstance(event, RunEnd):
                         # written here, so a run that can't be written fails this call (run_unwritable)
                         saved = await asyncio.to_thread(event.run.to_json)
-                        return event, saved, None, None
+                        return (event, saved), None
                     elif not await self._store.add_event(
                         self.run_id, settings.worker_id, event.model_dump_json()
                     ):
                         self._stop.set()  # another worker holds the run
-            return None, None, None, None
+            return None, None
         except StoreFailedError:
             raise
         except InvalidCallError as refusal:
@@ -202,14 +203,12 @@ class HeldRun:
         except Exception as error:
             log.exception("resuming run %s failed", self.run_id)
             cause = raised_outside_a_node(error=type(error).__name__)
-        return None, None, cause, last
+        return None, (cause, last)
 
     async def _finish(
         self,
-        run_end: RunEnd | None,
-        saved: str | None,
-        cause: Problem | None,
-        last: Run[Any] | None,
+        ended: tuple[RunEnd, str] | None,
+        failed: tuple[Problem, Run[Any] | None] | None,
     ) -> None:
         """Write how a resume call ended.
 
@@ -221,11 +220,10 @@ class HeldRun:
         is to go on as the worker shuts down is handed back for another worker.
 
         Args:
-            run_end: The call's own ``run_end``, which ``RunState.ended_with`` takes the run of; ``None`` for a call
-                that failed or a run handed back.
-            saved: The run of ``run_end``, as JSON.
-            cause: Why the call failed, which ``RunState.failed`` takes; ``None`` for a call that didn't.
-            last: The run as the row has it, for a call that failed.
+            ended: For a call that ended, its own ``run_end`` and the run it returned as JSON, which
+                ``RunState.ended_with`` takes; ``None`` for a call that failed or a run handed back.
+            failed: For a call that failed, why and the run as the row has it, which ``RunState.failed`` takes;
+                ``None`` for a call that didn't.
         """
         settings = self._settings
         async with (
@@ -237,10 +235,12 @@ class HeldRun:
             state: RunState = self._row.state
             run: str | None = None
             outcome: RunOutcome | None = None
-            if cause is not None:
-                state, run, outcome = await asyncio.to_thread(state.failed, cause, last)
-            elif run_end is not None and saved is not None:
-                state, run, outcome = await asyncio.to_thread(state.ended_with, run_end.run, saved)
+            call_end: RunEnd | None = None
+            if failed is not None:
+                state, run, outcome = await asyncio.to_thread(state.failed, *failed)
+            elif ended is not None:
+                call_end, saved = ended
+                state, run, outcome = await asyncio.to_thread(state.ended_with, call_end.run, saved)
             goes_on = state.is_running and not settings.handing_back.is_set()
             if goes_on:
                 holder = settings.holder()
@@ -250,7 +250,7 @@ class HeldRun:
                 holder = _UNHELD
             async with self._lock:  # no renewal lands after the write that lets the run go
                 if self._reads == reads and await self._write_once(
-                    holder, state=state, run=run, outcome=outcome, call_end=run_end
+                    holder, state=state, run=run, outcome=outcome, call_end=call_end
                 ):
                     self._released = not goes_on
                     if not state.cancel_asked:
