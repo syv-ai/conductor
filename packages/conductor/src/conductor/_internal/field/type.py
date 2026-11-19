@@ -19,7 +19,6 @@ from conductor._internal.types import (
     Choice,
     Param,
     Type,
-    merged_param,
     split_hint,
     union_members,
     union_of,
@@ -197,36 +196,27 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     The types keep only what limits a value: its limits, its choices and any other metadata. A title or a widget is
     left out of them, so two fields that differ only in what a person reads get the same type.
 
-    On a ``Series``, everything in its ``Annotated`` is for its items: limits, choices and any other metadata, such as
-    a validator. ``Annotated[Series[int], Param(ge=0)]`` and ``Series[Annotated[int, Param(ge=0)]]`` both say each
-    item is at least 0.
+    A ``Series``' type reads its own ``Annotated`` as its items' (``SeriesType``), so the field's ``Param`` is its
+    item's, with what the Series sets winning.
 
     Raises:
         NodeDeclarationError: ``nested_series`` for a ``Series`` of ``Series``. ``widget_outside_param`` for a
             widget put in ``Annotated`` on its own, not on a ``Param``. ``widget_without_json_form`` for a widget
             that can't be written as JSON.
     """
-    bare, param, others = split_hint(hint)
-    beside_param = (
-        others  # the metadata in Annotated that isn't a Param, on the field and on a Series' item
-    )
-    written, of_items = bare, Type(bare).item is not None
-    if of_items:  # read the item's own hint, with its type variables not yet filled in
-        (items,) = (option for option in union_members(written) if option is not type(None))
-        bare, of_item, of_item_others = split_hint((get_args(items) or (Any,))[0])
-        # the field's own metadata is for its items too, and comes last, so it wins as pydantic's last one does
-        others = beside_param = (*of_item_others, *others)
-        if Type(bare).item is not None:
-            raise NodeDeclarationError(declaration_problems.nested_series())
-        param = merged_param(of_item, param)  # the field's own Param wins over its item's
+    written = Type(hint)
+    items = written.item
+    bare, param, others = split_hint(hint if items is None else items.hint)
+    if items is not None and Type(bare).item is not None:
+        raise NodeDeclarationError(declaration_problems.nested_series())
     on_members = [  # what stays on a union's member, like the Textarea of Annotated[str, Textarea()] | None
         metadata
-        for option in (*union_members(written), *union_members(bare))
+        for option in union_members(bare)
         if get_origin(option) is Annotated
         for metadata in get_args(option)[1:]
     ]
     if any(
-        isinstance(metadata, Widget) for metadata in (*beside_param, *on_members)
+        isinstance(metadata, Widget) for metadata in (*others, *on_members)
     ):  # pydantic would ignore it, and describe() would show no widget for the field
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
     if param.widget is not None:
@@ -239,10 +229,10 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     choices = [] if param.choices is None else [Param(choices=param.choices)]
     metadata = (*others, *param.limits, *choices)
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)
-    if not of_items:
+    if items is None:
         return param, one, one
     whole = union_of(
         (get_origin(option) or option)[one.hint] if option is not type(None) else option
-        for option in union_members(written)
+        for option in union_members(written.bare)
     )
     return param, Type(whole), one

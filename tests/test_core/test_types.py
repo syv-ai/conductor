@@ -363,6 +363,20 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
         assert raised.value.problems[0].type == "pydantic_field_in_hint", returned
 
 
+def test_a_series_limit_is_for_its_items_inside_a_list_too() -> None:
+    """``Annotated[Series[int], Param(ge=0)]`` limits each item wherever the Series is read, so a list of them takes
+    the limit and checks it on every item."""
+
+    @node("lists", title="Lists", description="For a test.")
+    def lists(groups: list[Annotated[Series[int], Param(ge=0)]]) -> int:
+        return len(groups)
+
+    assert _run(lists, groups=[[1, 2], [3]]).outputs == {"result": 2}
+    record = make_graph(lists, constants={"lists.groups": [[1, -1]]})
+    graph = Graph.compile(record, registry_of(lists))
+    assert [problem.type for problem in graph.problems] == ["invalid_value"]
+
+
 def test_choices_a_converting_check_moves_off_are_refused_when_the_node_is_declared() -> None:
     """A check that converts a value, like one that adds ``"!"``, would make every choice refuse itself, so the
     choices are read through the type's whole check and refused at ``@node``, not at every call."""

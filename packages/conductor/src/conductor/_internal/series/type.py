@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import functools
 import typing
-from typing import TYPE_CHECKING, Any, get_args
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.table import Table, is_bare_table_row
-from conductor._internal.types import Type, union_of
+from conductor._internal.types import Param, Type, split_hint, union_members, union_of
 
 from .read import series_schema
 from .stored import Records, SeriesItems
@@ -47,12 +47,39 @@ else:
 
 
 class SeriesType(Type, of=_Series):
-    """The ``Type`` of a ``Series[T]`` hint, with or without ``| None``."""
+    """The ``Type`` of a ``Series[T]`` hint, with or without ``| None``.
+
+    Everything in a Series' ``Annotated`` is for its items: limits, choices, a title and any other metadata, such as
+    a validator. So ``Annotated[Series[int], Param(ge=0)]`` is read as ``Series[Annotated[int, Param(ge=0)]]``: each
+    item is at least 0.
+    """
 
     @functools.cached_property
     def item(self) -> Type:
-        """The type of one item, ``T``."""
-        return Type((get_args(self.options[0]) or (Any,))[0])
+        """The type of one item, ``T``, with the Series' own metadata on it.
+
+        The item's hint is read as written, so a type variable in it is kept for a graph to fill in. The item's own
+        metadata comes first and the Series' after it, so the Series' wins where both set one thing, as pydantic's
+        last one does.
+        """
+        bare, param, others = split_hint(self.hint)
+        on_items = (*others, *([] if param == Param() else [param]))
+        (series,) = (option for option in union_members(bare) if option is not type(None))
+        item = (get_args(series) or (Any,))[0]
+        return Type(Annotated[(item, *on_items)] if on_items else item)
+
+    @functools.cached_property
+    def _parts(self) -> tuple[Any, Param, tuple[Any, ...]]:
+        """The closed hint taken apart as ``Type._parts`` does, with the Series' own metadata on its items
+        (``item``)."""
+        bare, param, others = split_hint(self.closed)
+        if not others and param == Param():
+            return bare, param, others
+        lifted = union_of(
+            option if option is type(None) else (get_origin(option) or option)[self.item.closed]
+            for option in union_members(bare)
+        )
+        return lifted, Param(), ()
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
@@ -62,7 +89,7 @@ class SeriesType(Type, of=_Series):
         classes are the ones the item type names.
         """
         return (
-            ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"),
+            ("Series" if self.item.closed is Any else f"Series[{self.item.text}]"),
             "Series",
             self.item.classes,
         )
@@ -91,7 +118,7 @@ class SeriesType(Type, of=_Series):
         since the node may have returned either a list or a frame.
         """
         items: Any = SeriesItems
-        stored = items[union_of((self.item.hint, type(None)))]
+        stored = items[union_of((self.item.closed, type(None)))]
         if self._table is None:
             return stored
         records: Any = Records
