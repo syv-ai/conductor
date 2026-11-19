@@ -1,13 +1,11 @@
 """``RunStore``: where the worker keeps runs and their events, written by the host, and the row it keeps.
 
-A stored run is one row of text and numbers, ``StoredRun``, so any database holds it. Every
-change is a compare-and-set on ``rev``: ``update`` writes only while the row is
-still at the ``rev`` the writer read, and moves it one on. That one rule is
-what lets several workers act on one run. A writer that loses reads the row
-again and works its change out again from what it reads: ``GuardedStore.change``
-is that loop, and every write the worker retries goes through it. An ``update`` can append one event
-in the same write, which is how a run's ``run_end`` lands with the row that
-says how the run stopped.
+A stored run is one row of text and numbers, ``StoredRun``, so any database holds it. Every change is a
+compare-and-set on ``rev``: ``update`` writes only while the row is still at the ``rev`` the writer read, and moves
+it one on. That one rule is what lets several workers act on one run. A writer that loses reads the row again, and
+works its change out again from what it reads. ``GuardedStore.change`` is that loop, and every write the worker
+tries again goes through it. An ``update`` can append one event in the same write, which is how a run's ``run_end``
+lands with the row that says how the run stopped.
 
 ``GuardedStore`` is the worker's one door to a host's store. It reads each row
 into a ``RunRow``, writes a row's changes back as text, and turns anything the
@@ -234,8 +232,9 @@ def refuse_an_update_without_an_event(store: RunStore) -> None:
 class GuardedStore(Generic[M]):
     """A host's store as the worker uses it: rows read into ``RunRow``, and outages raised as ``StoreFailedError``.
 
-    It has the six methods of ``RunStore``. ``get`` and ``expired`` read each row into a ``RunRow``, and ``create``
-    and ``update`` write a ``RunRow``'s columns back as text. ``change`` tries a write again until it lands. Code that holds a ``GuardedStore`` works on a row's
+    It has the six methods of ``RunStore``. ``get`` and ``expired`` read each row into a ``RunRow``, and
+    ``create`` and ``update`` write a ``RunRow``'s columns back as text. ``change`` tries a write again until it
+    lands. Code that holds a ``GuardedStore`` works on a row's
     metadata, state and outcome as their types, and can tell an outage apart from a fault in its own code by the
     exception's class alone.
 
