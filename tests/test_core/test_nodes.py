@@ -256,12 +256,14 @@ def _whisper(text: str) -> str:
     return text.lower()
 
 
-def _faults(declaration: Callable[[], object]) -> list[tuple[str, list[str | int]]]:
-    """The code and loc of every fault in the ``invalid_declaration_argument`` a declaration raises."""
+def _faults(
+    declaration: Callable[[], object], loc: tuple[str, ...] = ("x",)
+) -> list[tuple[str, list[str | int]]]:
+    """The code and loc of every fault in the ``invalid_declaration_argument`` a declaration raises at ``loc``."""
     with pytest.raises(NodeDeclarationError) as raised:
         declaration()
     (problem,) = raised.value.problems
-    assert (problem.type, problem.loc) == ("invalid_declaration_argument", ())
+    assert (problem.type, problem.loc) == ("invalid_declaration_argument", loc)
     return [(e["type"], e["loc"]) for e in problem.ctx["errors"]]
 
 
@@ -322,7 +324,9 @@ def test_an_argument_only_node_takes_is_held_to_its_type_too(arguments, faults):
 
 
 def test_a_registry_holds_its_defaults_to_the_types_a_node_does():
-    assert _faults(lambda: NodeRegistry(tags="ab", extra={"when": datetime.date(2026, 1, 1)})) == [  # type: ignore[arg-type]
+    assert _faults(
+        lambda: NodeRegistry(tags="ab", extra={"when": datetime.date(2026, 1, 1)}), ()
+    ) == [  # type: ignore[arg-type]
         ("sequence_str", ["tags"]),
         ("invalid-json-value", ["extra", "when"]),
     ]
@@ -335,6 +339,13 @@ def test_a_refused_argument_is_never_quoted():
         lambda: node("x", title="X", description="For a test.", extra={"k": secret}),  # type: ignore[dict-item]
         lambda: node("x", title="X", description="For a test.", extra={secret: 1}),  # type: ignore[dict-item]
         lambda: node(secret, title="X", description="For a test."),  # type: ignore[arg-type]
+        lambda: node(
+            "x",
+            title="X",
+            description="For a test.",
+            extra={"a": {secret: datetime.date(2026, 1, 1)}},
+        ),  # type: ignore[dict-item]
+        lambda: node("x", title="X", description="For a test.", extra={"a": [{secret: 1}]}),  # type: ignore[dict-item]
     ):
         with pytest.raises(NodeDeclarationError) as raised:
             declaration()
@@ -362,10 +373,38 @@ def test_lists_tuples_and_any_mapping_of_json_are_taken():
     assert node("y", title="Y", description="For a test.", tags=("a",))(_whisper).tags == ("a",)
 
 
-def test_a_node_id_that_isnt_text_is_an_argument_of_the_wrong_type():
-    assert _faults(lambda: node(5, title="Five", description="For a test.")) == [
+def test_a_node_id_that_isnt_text_is_an_argument_of_the_wrong_type_placed_at_no_node():
+    assert _faults(lambda: node(5, title="Five", description="For a test."), ()) == [  # type: ignore[arg-type]
         ("string_type", ["id"])
-    ]  # type: ignore[arg-type]
+    ]
+
+
+def test_an_argument_of_the_wrong_type_names_the_node_unless_the_id_is_refused():
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("tagged_twice", title="X", description="For a test.", tags="x")  # type: ignore[arg-type]
+    assert str(raised.value).startswith("tagged_twice: @node can't take its arguments: tags:")
+    assert _faults(lambda: node("a.b", title="X", description="For a test.", tags="x"), ()) == [  # type: ignore[arg-type]
+        ("sequence_str", ["tags"])
+    ]
+
+
+@pytest.mark.parametrize(
+    ("extra", "faults"),
+    [
+        # a key that isn't text, nested in extra, was quoted, and an int key read as an index
+        ({"a": {_Secret(): datetime.date(2026, 1, 1)}}, [("string_type", ["extra", "a", "[key]"])]),
+        ({"a": {7: 1}}, [("string_type", ["extra", "a", "[key]"])]),
+        ({"a": [{7: (1,)}]}, [("string_type", ["extra", "a", 0, "[key]"])]),
+        # JsonValue's labels, "dict" and "list", are left out of the loc
+        ({"a": [1, (2,)]}, [("invalid-json-value", ["extra", "a", 1])]),
+        (
+            {"dict": {"b": [{"c": datetime.date(2026, 1, 1)}]}},
+            [("invalid-json-value", ["extra", "dict", "b", 0, "c"])],
+        ),
+    ],
+)
+def test_a_fault_deep_in_extra_names_only_keys_and_indexes_and_quotes_no_key(extra, faults):
+    assert _faults(lambda: node("x", title="X", description="For a test.", extra=extra)) == faults
 
 
 def test_a_node_id_in_a_record_with_a_tilde_is_refused_by_the_record_validator():

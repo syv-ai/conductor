@@ -2398,6 +2398,8 @@ def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_wr
         ({"constants": {1: "Ida"}}, [("constants", "string_type", ["[key]"])]),
         ({"edges": "hello.result"}, [("edges", "sequence_str", [])]),
         ({"edges": {("count.result", "hello.name")}}, [("edges", "is_instance_of", [])]),
+        # a mapping given for edges raised a raw IndexError
+        ({"edges": {"a": "b"}}, [("edges", "is_instance_of", [])]),
         ({"edges": [b"hello.result"]}, [("edges", "sequence_str", [0])]),
         ({"edges": [("hello.result",)]}, [("edges", "too_short", [0])]),
         ({"edges": [(1, "hello.name")]}, [("edges", "string_type", [0, 0])]),

@@ -249,12 +249,17 @@ What changes in how you work, before the name-by-name tables:
   `InvalidCallError` problem per argument, at `(argument,)`, before anything else is checked. `ctx.errors` has
   every fault in it, with pydantic's code or `not_a_node`, its `loc` an index or a key inside the argument, and no
   value quoted. Python's own call errors, such as a keyword `make_graph` doesn't take, stay a `TypeError`.
+- **`make_graph(edges={...})` is `invalid_argument`** (provisional), where a mapping given for `edges` raised a raw
+  `IndexError` from inside conductor.
 - **`@node`, `subgraph`, `NodeRegistry` and `@host_type` hold every argument to its type, with
   `invalid_declaration_argument`** (provisional). Each argument is checked strictly where it is declared, and every
-  fault is one `NodeDeclarationError` at `()`, with every fault in `ctx.errors` (pydantic's code, or `not_a_node`
+  fault is one `NodeDeclarationError`, with every fault in `ctx.errors` (pydantic's code, or `not_a_node`
   for a `replaces=` that isn't a node definition) and no value quoted. `tags="abc"` was taken as `("a", "b", "c")`;
   a `deprecation="soon"`, or a date, tuple or other object in `extra`, was taken and failed only at
   `registry.describe()`, as pydantic's raw error quoting the value; `policy={...}` was Python's `AttributeError`.
+  The problem is at the node's id, and at `()` when the id itself is refused or for a registry. A key of `extra`
+  that isn't text is never quoted, at any depth, and `JsonValue`'s labels `dict` and `list` are left out of a
+  `loc`.
   `extra` is read as JSON a host is shown: its values are JSON values, and `inf` or `nan` in it is refused
   (`finite_number`). The codes `invalid_version` and `type_declaration_invalid` are gone into it, as is an id or a
   title that isn't text (was `invalid_node_id` and `empty_title_or_description`). `@host_type` uses `@node`'s codes:

@@ -45,7 +45,7 @@ Asking a person isn't an error. A node raises ``Ask``, its call waits, and the r
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Self, cast
 
@@ -186,8 +186,8 @@ def argument_errors(
 
     ``make_graph``, ``@node``, ``subgraph`` and ``NodeRegistry`` check their arguments this way. A key of a mapping
     that isn't text is part of what was given, and pydantic writes it into a ``loc`` as text, its ``repr`` for an
-    object. So the key's own fault stops at it, ``[..., "[key]"]``, and a fault in the value under such a key is left
-    out.
+    object, at any depth. So the key's own fault stops at it, ``[..., "[key]"]``, and a fault in the value under such
+    a key is left out (``_steps_given``).
 
     Args:
         error: What pydantic raised, for a schema whose fields are the arguments.
@@ -196,17 +196,39 @@ def argument_errors(
     faults: dict[str, list[dict[str, Any]]] = {}
     for fault in error.errors():
         argument, *steps = fault["loc"]
-        given = arguments[str(argument)]
-        if steps[-1:] == ["[key]"]:
-            steps = [*steps[:-2], "[key]"]
-        elif (
-            isinstance(given, Mapping)
-            and steps
-            and not (isinstance(steps[0], str) and steps[0] in given)
-        ):
-            continue
-        faults.setdefault(str(argument), []).append(shape_error(fault, steps))
+        given = _steps_given(arguments[str(argument)], steps)
+        if given is not None:
+            faults.setdefault(str(argument), []).append(shape_error(fault, given))
     return faults
+
+
+def _steps_given(given: Any, steps: list[str | int]) -> list[str | int] | None:
+    """Returns the steps of a fault's ``loc`` that name a place in ``given``, walking ``given`` along them.
+
+    A step is a key of a mapping, as text, or an index of a sequence. Pydantic's label of a union's member, ``"dict"``
+    or ``"list"`` in a ``JsonValue``, names no place and is left out, so ``{"a": [1, (2,)]}`` is refused at
+    ``["a", 1]``. A step that is neither is a key that isn't text: its own fault ends at ``"[key]"``, and a fault
+    under it gives ``None``. A step into anything else, such as a model, is kept as pydantic wrote it.
+    """
+    kept: list[str | int] = []
+    for at, step in enumerate(steps):
+        if step == "[key]":
+            return [*kept, "[key]"]
+        if isinstance(given, Mapping):
+            if isinstance(step, str) and step in given:
+                kept.append(step)
+                given = given[step]
+            elif step != "dict":
+                return [*kept, "[key]"] if steps[at + 1 :] == ["[key]"] else None
+        elif isinstance(given, Sequence) and not isinstance(given, (str, bytes)):
+            if isinstance(step, int):
+                kept.append(step)
+                given = given[step]
+            elif step != "list":
+                return [*kept, *steps[at:]]
+        else:
+            return [*kept, *steps[at:]]
+    return kept
 
 
 def _ctx_its_message_reads(fault: ErrorDetails) -> Mapping[str, Any]:

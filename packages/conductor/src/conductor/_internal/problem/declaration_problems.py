@@ -785,14 +785,17 @@ def invalid_declaration_argument(
     is a mapping keyed by text whose values are JSON values: a tuple, a date or another object is refused
     (``invalid-json-value``), and so is ``inf`` or ``nan`` (``finite_number``), as any number that enters is. A type
     checker finds most of these faults too. ``@host_type`` put above a class conductor names itself, such as
-    ``HttpUrl``, is refused here too (``conductors_own_type``, at ``loc`` ``[]``): declare a subclass of it to give it
-    an id of your own.
+    ``HttpUrl``, is refused here too (``conductors_own_type``, at ``loc`` ``["cls"]``, the class): declare a subclass
+    of it to give it an id of your own.
 
     ``ctx.errors`` has every fault, each with pydantic's code, or ``not_a_node`` for a ``replaces=`` that isn't a node
     definition, and its ``loc``: the argument, then where in it, such as ``["tags", 1]``. A key of ``extra`` that isn't
-    text is not quoted: the ``loc`` stops at ``"[key]"``. The problem's own ``loc`` is ``()``.
+    text is not quoted, at any depth: the ``loc`` stops at ``"[key]"``, and a fault in the value under it is left out.
+    ``JsonValue``'s own labels, ``dict`` and ``list``, are left out of a ``loc``, so it names only keys and indexes.
+    The problem's own ``loc`` is the node's id, and ``()`` when the id itself is refused, for a registry, and for
+    ``@host_type``.
 
-    To fix it, give each argument the type the signature says.
+    To fix it, give each argument the type the signature says, or as its fault says.
 
     Args:
         declared_with: ``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type``.
@@ -802,7 +805,9 @@ def invalid_declaration_argument(
     Example:
         declaration_refused(lambda: node("tagged", title="Tagged", description="Has one tag.", tags="text"))  # type: ignore[arg-type]
     """
-    return f"{declared_with} can't take its arguments: {reason}. Give each argument the type the signature says."
+    return (
+        f"{declared_with} can't take its arguments: {reason}. Fix each argument as its fault says."
+    )
 
 
 @DECLARATION_PROBLEMS.problem

@@ -45,7 +45,7 @@ from pydantic import (
 )
 from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
-from conductor._internal.base import REQUIRED, SKIPPED, Name, finite_json_text
+from conductor._internal.base import REQUIRED, SKIPPED, Name, finite_json_text, is_name
 from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
@@ -498,7 +498,8 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
     the id is a valid name or ``replaces=`` names the same node, is checked after it, by the caller.
 
     Raises (when called):
-        NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors``.
+        NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors``. Its ``loc``
+            is the node's id, or ``()`` when the id itself is refused or there is no id, as for a registry.
     """
 
     def __init__(self, declared_with: str) -> None:
@@ -523,10 +524,14 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
                 for argument, inside in argument_errors(error, arguments).items()
                 for fault in inside
             ]
+        node_id = arguments.get("id")
+        # an id that isn't a valid name can't place the fault, and is refused itself, here or by invalid_node_id
+        place = (node_id,) if isinstance(node_id, str) and is_name(node_id) else ()
         raise NodeDeclarationError(
             declaration_problems.invalid_declaration_argument(
                 declared_with=self._declared_with,
                 reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}",
                 errors=faults,
-            )
+            ),
+            *place,
         )

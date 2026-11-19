@@ -278,11 +278,12 @@ def host_type[C: type](
                     "conductors_own_type",
                     "{cls} is one of conductor's own types; declare a subclass of it to give it an id of your own",
                     {"cls": cls.__qualname__},
-                )
+                ),
+                ["cls"],
             )
             raise NodeDeclarationError(
                 declaration_problems.invalid_declaration_argument(
-                    declared_with="@host_type", reason=own["msg"], errors=[own]
+                    declared_with="@host_type", reason=f"cls: {own['msg']}", errors=[own]
                 )
             )
         try:

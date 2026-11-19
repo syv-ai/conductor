@@ -491,8 +491,12 @@ def test_host_type_on_a_class_conductor_names_is_refused_and_says_to_declare_a_s
     refused = _refused(lambda: host_type("mine", title="Mine")(named))
 
     assert refused.problems[0].type == "invalid_declaration_argument"
-    assert [e["type"] for e in refused.problems[0].ctx["errors"]] == ["conductors_own_type"]
+    assert [(e["type"], e["loc"]) for e in refused.problems[0].ctx["errors"]] == [
+        ("conductors_own_type", ["cls"])
+    ]
+    assert "can't take its arguments: cls: " in str(refused)
     assert "declare a subclass" in str(refused)
+    assert "the type the signature says" not in str(refused)
 
 
 def test_a_hosts_subclass_of_a_class_conductor_names_is_its_own_type() -> None:
