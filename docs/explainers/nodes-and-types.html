@@ -1174,8 +1174,8 @@ except NodeDeclarationError as error:
     print(error.problems[0].type)
     print(error)</pre>
       <p class="label">raised at import</p>
-      <pre class="out">invalid_node_id
-@node got 'a.b' as an id it can't take. A node's id can't be empty, and can't contain any of '.', '/', '@', '~', since those mean something in sources and waiting ids. A type's id is one word of letters, digits, '_', '.' or '-', and isn't one of conductor's own, since it is written inside other ids. Pick another.</pre>
+      <pre class="out">invalid_declaration_argument
+@node can't take its arguments: id: 'a.b' isn't a valid name. A name can't be empty, and can't contain any of '.', '/', '@', '~'. Fix each argument as its fault says.</pre>
     </div>
     </div>
   </div>

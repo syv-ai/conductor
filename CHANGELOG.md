@@ -263,10 +263,13 @@ What changes in how you work, before the name-by-name tables:
   that isn't text is never quoted, at any depth, and `JsonValue`'s labels `dict` and `list` are left out of a
   `loc`.
   `extra` is read as JSON a host is shown: its values are JSON values, and `inf` or `nan` in it is refused
-  (`finite_number`). The codes `invalid_version` and `type_declaration_invalid` are gone into it, as is an id or a
-  title that isn't text (was `invalid_node_id` and `empty_title_or_description`). `@host_type` uses `@node`'s codes:
-  an id that isn't one word or is one of conductor's own is `invalid_node_id`, and a blank title
-  `empty_title_or_description`.
+  (`finite_number`). The codes `invalid_version` and `type_declaration_invalid` are gone into it.
+- **A node's or a type's id, and a blank title or description, are faults inside `invalid_declaration_argument`**
+  (provisional). A node's id that isn't a name, such as `"a.b"`, is `not_a_name` in `ctx.errors`, the code a node's
+  id in a graph record has; a type's id that isn't one word of letters, digits, `_`, `.` or `-`, or is one of
+  conductor's own, is `not_a_type_id`; and a title or description that is empty or only spaces is pydantic's
+  `string_too_short`. So a declaration with a bad id, a blank title and `tags="text"` reports all three in one
+  `NodeDeclarationError`, and the codes `invalid_node_id` and `empty_title_or_description` are gone.
 - **`type_not_named` gives a declaration to paste.** For a class with no `@host_type`, the message suggests an id and a title made from the class's name, `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`, where it wrote `@host_type("...", title="...")`; `ctx` gains `suggested_id` and `suggested_title`. An id that would be one of conductor's own gets `-type` after it.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
@@ -299,9 +302,9 @@ What changes in how you work, before the name-by-name tables:
   `policy`, `compute_added_inputs` or `compute_outputs` argument, so passing one is Python's own `TypeError`,
   and the declaration code `not_for_a_graph` is gone.
 - **A node's title and description are not empty.** `@node`, `@registry.node`, `subgraph` and
-  `registry.subgraph` raise `NodeDeclarationError` with the code `empty_title_or_description` for a
-  `title` or `description` that is empty or only spaces [provisional]; the message names the node and which one.
-  `@host_type` raises it for a blank title too, by the same rule.
+  `registry.subgraph` refuse a `title` or `description` that is empty or only spaces [provisional], as
+  `string_too_short` in `invalid_declaration_argument`, at the argument. `@host_type` refuses a blank title too, by
+  the same rule.
 - **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
   that node once per item, and everything after it; the node never sees the difference. A
   `Series[X]` input collects every item in one call, and a `Table[R]` input collects rows into a

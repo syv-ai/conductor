@@ -45,7 +45,7 @@ from pydantic import (
 )
 from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
-from conductor._internal.base import REQUIRED, SKIPPED, Name, finite_json_text, is_name
+from conductor._internal.base import REQUIRED, SKIPPED, Name, finite_json_text
 from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
@@ -64,6 +64,7 @@ from conductor._internal.problem import (
     shape_error,
 )
 from conductor._internal.record import WrittenValuesValidator
+from conductor._internal.types import NotBlank
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, holds_skipped
 
@@ -489,12 +490,13 @@ class DeclarationArguments(TypedDict, total=False):
     """The arguments ``@node``, ``subgraph`` and ``NodeRegistry`` take, by name, as their signatures declare them.
 
     Each caller gives only the arguments it has: ``subgraph`` has no ``policy``, hooks or ``asks``, and a registry only
-    ``category``, ``tags`` and ``extra``. Each argument's default is in its caller's signature.
+    ``category``, ``tags`` and ``extra``. Each argument's default is in its caller's signature. The id is a name, as a
+    node's id in a graph record is, and the title and description are text a person reads, so they aren't blank.
     """
 
-    id: StrictStr
-    title: StrictStr
-    description: StrictStr
+    id: Name
+    title: NotBlank
+    description: NotBlank
     version: Annotated[int, Ge(1)] | None
     category: StrictStr
     tags: Sequence[StrictStr]
@@ -517,8 +519,9 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
 
     Each argument is held to its annotation, strictly, so ``tags="abc"``, ``version=True``, ``policy={}`` and
     ``extra={"when": date.today()}`` are refused where the node is declared, never later. ``extra`` is JSON a host is
-    shown: its values are JSON values, and a number in it is finite. What the arguments say together, such as whether
-    the id is a valid name or ``replaces=`` names the same node, is checked after it, by the caller.
+    shown: its values are JSON values, and a number in it is finite. The id is refused if it isn't a name
+    (``not_a_name``), and a title or description that is empty or only spaces (``string_too_short``). What the
+    arguments say together, such as whether ``replaces=`` names the same node, is checked after it, by the caller.
 
     Raises (when called):
         NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors``. Its ``loc``
@@ -547,9 +550,9 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
                 for argument, inside in argument_errors(error, arguments).items()
                 for fault in inside
             ]
-        node_id = arguments.get("id")
-        # an id that isn't a valid name can't place the fault, and is refused itself, here or by invalid_node_id
-        place = (node_id,) if isinstance(node_id, str) and is_name(node_id) else ()
+        # an id that is refused can't place the fault
+        refused = {fault["loc"][0] for fault in faults}
+        place = (arguments["id"],) if "id" in arguments and "id" not in refused else ()
         raise NodeDeclarationError(
             declaration_problems.invalid_declaration_argument(
                 declared_with=self._declared_with,

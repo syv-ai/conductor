@@ -198,14 +198,10 @@ def test_two_versions_of_a_node_with_the_same_fault_read_apart_by_their_version(
 
 def test_a_node_id_must_have_something_in_it_and_no_character_a_source_or_waiting_id_uses():
     for wrong in ("", "a.b", "a/b", "a@b", "a~b"):
-        with pytest.raises(NodeDeclarationError) as raised:
-            node(wrong, title="Wrong", description="For a test.")
         # an id that isn't a name can't be a place, so the problem has no loc
-        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
-            "invalid_node_id",
-            (),
-        )
-        assert "can't contain any of '.', '/', '@', '~', since" in raised.value.problems[0].msg
+        assert _faults(lambda: node(wrong, title="Wrong", description="For a test."), ()) == [
+            ("not_a_name", ["id"])
+        ]
 
     def amount() -> int:
         return 1
@@ -218,31 +214,6 @@ def test_node_given_a_record_in_place_of_a_function_raises_pythons_own_error_tha
         node("enrich", title="Enrich", description="For a test.")(
             GraphRecord.model_validate({"nodes": {}})
         )  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize(
-    ("title", "description", "empty"),
-    [
-        ("", "Does something.", "title"),
-        ("Something", "", "description"),
-        ("   ", "Does something.", "title"),
-        ("Something", "   ", "description"),
-    ],
-)
-def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_declared(
-    title, description, empty
-):
-    for declaration in (
-        lambda: node("x", title=title, description=description),
-        lambda: subgraph("x", title=title, description=description),
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declaration()
-        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
-            "empty_title_or_description",
-            ("x",),
-        )
-        assert f"('x') has no {empty}" in str(raised.value)
 
 
 class _Secret:
@@ -295,6 +266,10 @@ def _faults(
         ({"deprecation": "soon"}, [("is_instance_of", ["deprecation"])]),
         ({"replaces": "x"}, [("not_a_node", ["replaces"])]),
         ({"upgrade": {}}, [("is_instance_of", ["upgrade"])]),
+        ({"title": ""}, [("string_too_short", ["title"])]),
+        ({"title": "   "}, [("string_too_short", ["title"])]),
+        ({"description": ""}, [("string_too_short", ["description"])]),
+        ({"description": "   "}, [("string_too_short", ["description"])]),
         (
             {"tags": "ab", "version": 0},
             [("greater_than_equal", ["version"]), ("sequence_str", ["tags"])],
@@ -307,6 +282,16 @@ def test_an_argument_of_the_wrong_type_is_refused_where_a_node_or_a_subgraph_is_
     given = {"title": "X", "description": "For a test.", **arguments}
     assert _faults(lambda: node("x", **given)) == faults
     assert _faults(lambda: subgraph("x", **given)) == faults
+
+
+@pytest.mark.parametrize("declare", [node, subgraph])
+def test_every_fault_in_a_declaration_is_found_in_one_pass(declare: Callable[..., object]):
+    given: dict[str, Any] = {"title": " ", "description": "For a test.", "tags": "ab"}
+    assert _faults(lambda: declare("a.b", **given), ()) == [
+        ("not_a_name", ["id"]),
+        ("string_too_short", ["title"]),
+        ("sequence_str", ["tags"]),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -379,13 +364,10 @@ def test_a_node_id_that_isnt_text_is_an_argument_of_the_wrong_type_placed_at_no_
     ]
 
 
-def test_an_argument_of_the_wrong_type_names_the_node_unless_the_id_is_refused():
+def test_an_argument_of_the_wrong_type_names_the_node():
     with pytest.raises(NodeDeclarationError) as raised:
         node("tagged_twice", title="X", description="For a test.", tags="x")  # type: ignore[arg-type]
     assert str(raised.value).startswith("tagged_twice: @node can't take its arguments: tags:")
-    assert _faults(lambda: node("a.b", title="X", description="For a test.", tags="x"), ()) == [  # type: ignore[arg-type]
-        ("sequence_str", ["tags"])
-    ]
 
 
 @pytest.mark.parametrize(

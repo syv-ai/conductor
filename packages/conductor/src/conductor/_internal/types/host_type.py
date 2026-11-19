@@ -31,12 +31,13 @@ from ipaddress import (
 )
 from pathlib import Path
 from re import Pattern
-from typing import Any, Literal
+from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import typing_extensions
 from pydantic import (
+    AfterValidator,
     AmqpDsn,
     AnyHttpUrl,
     AnyUrl,
@@ -152,6 +153,48 @@ OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()} | {"row"}
 #: The attribute ``@host_type`` stores a class's ``TypeDeclaration`` in, read only by ``_own_declaration``.
 _DECLARATION = "__conductor_type__"
 
+#: The pattern of a type's id: one word of letters, digits, ``_``, ``.`` and ``-``, starting with a letter or ``_``.
+_TYPE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+
+
+def _not_blank(text: str) -> str:
+    """Returns ``text`` if it has a character other than a space, so that pydantic can use it as a check.
+
+    Raises:
+        PydanticCustomError: Pydantic's ``string_too_short``, for text that is empty or only spaces.
+    """
+    if not text.strip():
+        raise conductor_error(
+            "string_too_short",
+            "String should have at least 1 character other than spaces",
+            {"min_length": 1},
+        )
+    return text
+
+
+#: A title or description a person reads about a node or a type in a palette, so it isn't empty or only spaces.
+#: ``@node``, ``subgraph`` and ``@host_type`` declare their title with it, and a node its description.
+NotBlank = Annotated[str, AfterValidator(_not_blank)]
+
+
+def _a_type_id(text: str) -> str:
+    """Returns ``text`` if a host can declare it as a type's id, so that pydantic can use it as a check.
+
+    A type's id is written inside other ids, as in ``list[money]``, so it is one word. It isn't the id of one of
+    conductor's own types, such as ``str``.
+
+    Raises:
+        PydanticCustomError: ``not_a_type_id``, for any other text.
+    """
+    if not _TYPE_ID.match(text) or text in OWN_IDS:
+        raise conductor_error(
+            "not_a_type_id",
+            "'{text}' can't be a type's id. A type's id is one word of letters, digits, '_', '.' or '-' that starts "
+            "with a letter or '_', and isn't the id of one of conductor's own types, such as 'str'",
+            {"text": text},
+        )
+    return text
+
 
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True, "strict": True})
 class TypeDeclaration:
@@ -167,44 +210,9 @@ class TypeDeclaration:
         accepts: Other classes whose values an edge may pass to an input of this type.
     """
 
-    id: str
-    title: str
+    id: Annotated[str, AfterValidator(_a_type_id)]
+    title: NotBlank
     accepts: tuple[type, ...] = ()
-
-
-#: The pattern of a type's id: one word of letters, digits, ``_``, ``.`` and ``-``, starting with a letter or ``_``.
-_TYPE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
-
-
-def check_not_blank(
-    declared_with: str,
-    id: str,
-    shown: Mapping[Literal["title", "description"], str],
-    *place: str,
-    version: int | None = None,
-) -> None:
-    """Checks that the title, and a node's description, are not blank: the one rule for the text a person reads about a
-    node or a type, which ``@node``, ``subgraph`` and ``@host_type`` each call.
-
-    Args:
-        declared_with: ``"@node"``, ``"subgraph"`` or ``"@host_type"``.
-        id: The node's or the type's id.
-        shown: The texts, by which one each is.
-        place: Where the fault is placed, as ``NodeDeclarationError`` takes it: the node's id, or nothing for a type.
-        version: The node's version, as ``NodeDeclarationError`` takes it.
-
-    Raises:
-        NodeDeclarationError: ``empty_title_or_description``, for the first text that is empty or only spaces.
-    """
-    for empty, text in shown.items():
-        if not text.strip():
-            raise NodeDeclarationError(
-                declaration_problems.empty_title_or_description(
-                    declared_with=declared_with, id=id, empty=empty
-                ),
-                *place,
-                version=version,
-            )
 
 
 def host_type[C: type](
@@ -240,12 +248,13 @@ def host_type[C: type](
         A decorator that stores the declaration on the class and returns the class.
 
     Raises:
-        NodeDeclarationError: Right away, when the class is defined. ``invalid_declaration_argument`` if the id or
-            the title isn't text, ``accepts`` has something that isn't a class, or the class is one conductor names
-            itself. ``invalid_node_id`` if the id isn't one word or is one of conductor's own, and
-            ``empty_title_or_description`` if the title is blank. ``type_declaration_not_on_a_class`` if it isn't put
-            above a class it can name, ``type_declaration_not_writable`` if the class can't take a new attribute, and
-            ``host_type_not_supported`` if pydantic can't check values of the class.
+        NodeDeclarationError: Right away, when the class is defined. ``invalid_declaration_argument``, with every
+            fault in ``ctx.errors``, if the id isn't one word or is one of conductor's own (``not_a_type_id``), the
+            title is blank (``string_too_short``), either isn't text, or ``accepts`` has something that isn't a
+            class. Then, once the class is given, ``invalid_declaration_argument`` if it is one conductor names
+            itself, ``type_declaration_not_on_a_class`` if it isn't a class it can name,
+            ``type_declaration_not_writable`` if it can't take a new attribute, and ``host_type_not_supported`` if
+            pydantic can't check its values.
     """
     try:
         stored = TypeDeclaration(
@@ -260,11 +269,6 @@ def host_type[C: type](
                 errors=faults,
             )
         ) from None
-    if not _TYPE_ID.match(id) or id in OWN_IDS:
-        raise NodeDeclarationError(
-            declaration_problems.invalid_node_id(declared_with="@host_type", id=id)
-        )
-    check_not_blank("@host_type", id, {"title": title})
 
     def declare(cls: C) -> C:
         if not isinstance(cls, type) or typing_extensions.is_typeddict(cls):

@@ -35,12 +35,12 @@ from typing import Annotated, Any, Protocol
 
 from pydantic import JsonValue
 
-from conductor._internal.base import REQUIRED, is_name
+from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, RecordValidator
-from conductor._internal.types import Param, Type, check_not_blank, fit, is_declared
+from conductor._internal.types import Param, Type, fit, is_declared
 
 from .hook import Hook
 from .policy import Deprecation, Policy
@@ -142,7 +142,7 @@ def node(
             "asks": asks,
         }
     )
-    number = _version_number("@node", id, title, description, version, replaces, upgrade)
+    number = _version_number("@node", id, version, replaces, upgrade)
 
     def make[**P, R](target: NodeFunction[P, R], /) -> FunctionDefinition[P, R]:
         try:
@@ -277,7 +277,7 @@ def subgraph(
             "upgrade": upgrade,
         }
     )
-    number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
+    number = _version_number("subgraph", id, version, replaces, upgrade)
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
         definition = SubgraphDefinition(
@@ -307,21 +307,17 @@ def subgraph(
 def _version_number(
     declared_with: str,
     id: str,
-    title: str,
-    description: str,
     version: int | None,
     replaces: NodeDefinition | None,
     upgrade: Upgrade | None,
 ) -> int:
     """Checks what the arguments ``@node`` and ``subgraph`` share say together, and returns the node's version number.
 
-    Their types are checked first, by ``DeclarationValidator``.
+    Each argument is checked first, on its own, by ``DeclarationValidator``.
 
     Args:
         declared_with: ``"@node"`` or ``"subgraph"``. Each message starts with it.
         id: The node's id.
-        title: The node's title.
-        description: The node's description.
         version: The version number given, or ``None``.
         replaces: The version this one replaces, or ``None``.
         upgrade: The upgrade given, or ``None``.
@@ -330,14 +326,8 @@ def _version_number(
         ``version`` if it is given. Otherwise one more than the version replaced, or 1 for a first version.
 
     Raises:
-        NodeDeclarationError: The id isn't a valid node id, the title or description is blank, or ``replaces``,
-            ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id, except for an id that isn't valid,
-            which can't name a place.
+        NodeDeclarationError: ``replaces``, ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id.
     """
-    if not is_name(id):
-        raise NodeDeclarationError(
-            declaration_problems.invalid_node_id(declared_with=declared_with, id=id)
-        )
     # the version comes first, so each fault below names it
     if version is not None:
         number = version
@@ -345,9 +335,6 @@ def _version_number(
         number = replaces.version + 1
     else:
         number = 1
-    check_not_blank(
-        declared_with, id, {"title": title, "description": description}, id, version=number
-    )
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(
             declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id),
