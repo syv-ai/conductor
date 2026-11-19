@@ -403,16 +403,22 @@ class GuardedStore(Generic[M]):
         Raises:
             InvalidCallError: The row is gone when it is read again (``no_such_run``).
         """
-        read_again = read_first
-        while True:
-            if read_again:
-                read = await self.get(row.stored.id)
-                if read is None:
-                    raise InvalidCallError([no_such_run()])
-                row = read
-            if (left := await step(row)) is not None:
-                return left
-            read_again = True
+        if read_first:
+            row = await self._read_again(row)
+        while (left := await step(row)) is None:
+            row = await self._read_again(row)
+        return left
+
+    async def _read_again(self, row: RunRow[M]) -> RunRow[M]:
+        """The run's row as the store has it now, read again.
+
+        Raises:
+            InvalidCallError: The row is gone (``no_such_run``).
+        """
+        read = await self.get(row.stored.id)
+        if read is None:
+            raise InvalidCallError([no_such_run()])
+        return read
 
     async def expired(self, now: float) -> list[RunRow[M]]:
         """``RunStore.expired``, each row read.
