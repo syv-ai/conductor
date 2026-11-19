@@ -92,12 +92,12 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
     def _choices(self) -> SchemaValidator:
         """Checks an ``Ask``'s choices, by output name. Built when the node first asks.
 
-        They are given as an answer is: a node of one output's alone, a node of several's by output name. On a
-        ``Series`` output the choices are for its items, so each id is read as one item.
+        A node of one output is given its list alone, a node of several a mapping by output name. On a ``Series``
+        output the choices are for its items, so each id is read as one item.
         """
         return SchemaValidator(
             core_schema.no_info_before_validator_function(
-                _by_output(self._outputs),
+                _by_output(self._outputs, lambda choices: choices),
                 core_schema.typed_dict_schema(
                     {
                         name: core_schema.typed_dict_field(
@@ -151,7 +151,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 )
                 for name, field in outputs.items()
             }
-            proposed = SchemaValidator(outputs_schema(outputs, fields, _by_output(outputs)))
+            proposed = SchemaValidator(outputs_schema(outputs, fields, _answered(outputs)))
             try:
                 read: dict[str, Any] = proposed.validate_python(ask.default)
             except ValidationError as error:
@@ -235,7 +235,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         """
         self._outputs = outputs
         self._schema = SchemaValidator(
-            outputs_schema(outputs, _answer_fields(outputs, choices, defaults), _by_output(outputs))
+            outputs_schema(outputs, _answer_fields(outputs, choices, defaults), _answered(outputs))
         )
         self._loc = loc
         self._waiting_id = waiting_id
@@ -300,23 +300,31 @@ def _answer_fields(
     return fields
 
 
-def _by_output(outputs: Mapping[str, Field]) -> Callable[[Any], Any]:
-    """Returns the function that splits what an ``Ask`` sets, or a person answers, by output name.
+def _answered(outputs: Mapping[str, Field]) -> Callable[[Any], Any]:
+    """Returns the function that splits a person's answer, or an ``Ask``'s default, by output name.
+
+    A node of several outputs is answered with a mapping by output name, or a dataclass or a model of them
+    (``_as_mapping``). A node with no outputs is answered with nothing: the person only says to go on.
+    """
+
+    def by_name(answer: Any) -> Any:
+        if answer is None and not outputs:
+            return {}
+        return _as_mapping(answer)
+
+    return _by_output(outputs, by_name)
+
+
+def _by_output(outputs: Mapping[str, Field], several: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Returns the function that gives what an ``Ask`` sets, or a person answers, by output name.
 
     A node of one output is given its one value, never a mapping, so the value is put under the output's name. A
-    node of several is given a mapping by output name, or a dataclass or a model of them (``_as_mapping``). A node
-    with no outputs is answered with nothing: the person only says to go on.
+    node of several is given a mapping by output name, which ``several`` returns.
     """
     if len(outputs) == 1:
         (name,) = outputs
         return lambda value: {name: value}
-
-    def by_name(value: Any) -> Any:
-        if value is None and not outputs:
-            return {}
-        return _as_mapping(value)
-
-    return by_name
+    return several
 
 
 def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:

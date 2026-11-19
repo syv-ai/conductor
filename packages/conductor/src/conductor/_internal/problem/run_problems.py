@@ -253,9 +253,11 @@ def invalid_output(
     dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``. A fault in the shape of the return is the one
     error in ``ctx.errors``, and ``ctx.output`` names the output it is about, if any. An output missing from a
     returned mapping, or a key that is no output, is pydantic's ``missing``, ``extra_forbidden`` or ``invalid_key``
-    at the output's name, as an answer gives them, and a branch may be left out of the mapping. The others have ``loc`` ``[]`` and conductor's code, since pydantic has none:
-    ``not_the_class`` (not the node's dataclass), ``not_a_mapping``, ``skipped_not_a_branch``, ``several_branches_given`` (as an answer's and an ``Ask``'s default's), ``skipped_inside``
-    (``SKIPPED`` inside a value) and ``none_required`` (a node with no outputs returned something).
+    at the output's name, as an answer gives them, and a branch may be left out of the mapping. The others have
+    ``loc`` ``[]`` and conductor's code, since pydantic has none: ``not_the_class`` (not the node's dataclass),
+    ``not_a_mapping``, ``skipped_not_a_branch``, ``several_branches_given`` (as an answer's and an ``Ask``'s
+    default's), ``skipped_inside`` (``SKIPPED`` inside a value) and ``none_required`` (a node with no outputs returned
+    something).
 
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
     branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. ``SKIPPED`` is an

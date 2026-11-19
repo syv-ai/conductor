@@ -545,6 +545,27 @@ def test_an_asks_choices_are_a_list_so_text_a_set_or_an_iterator_is_refused(
     )
 
 
+@dataclass(frozen=True)
+class Assignment:
+    owner: str
+    hours: int
+
+
+def test_an_asks_choices_on_several_outputs_are_a_mapping_so_a_dataclass_of_the_outputs_is_refused_whole():
+    """Choices are a list per output, and a dataclass of the outputs holds one value per output, so it is no mapping
+    of choices, and is refused as a whole, not field by field."""
+
+    @node("assign", title="Assign", description="For a test.", asks=True)
+    def assign() -> Assignment:
+        raise Ask("Who?", choices=Assignment("bo", 2))
+
+    cause = _once(assign)[1].cause
+    assert (cause.type, cause.ctx["reason"]) == (
+        "invalid_ask",
+        "the choices are wrong (Input should be a valid dictionary)",
+    )
+
+
 def test_two_dict_choices_with_their_keys_in_another_order_are_one_choice_given_twice():
     twice = [{"a": 1, "b": 2}, {"b": 2, "a": 1}]
     with pytest.raises(NodeDeclarationError) as declared:
