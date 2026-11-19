@@ -317,12 +317,9 @@ class Worker(Generic[M, X]):
                 )
             run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
 
-            def given() -> tuple[RunState, str, RunOutcome]:
-                ended = run.with_decline(waiting_id, reason=reason)
-                declined = state.declined(ended)
-                return declined, ended.to_json(), RunOutcome.of(ended, declined.status)
-
-            ended, saved, outcome = await asyncio.to_thread(given)
+            ended, saved, outcome = await asyncio.to_thread(
+                lambda: state.declined(run.with_decline(waiting_id, reason=reason))
+            )
             return await self._store.update(row, state=ended, run=saved, outcome=outcome)
 
         return await self._until_written(run_id, allows, declined)

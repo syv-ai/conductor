@@ -101,10 +101,12 @@ def test_a_failed_resume_call_gives_the_run_its_queue_then_and_there_and_clears_
     run, waiting_id = _waiting()
     cause = Problem(type="raised_outside_a_node", msg="It raised.", ctx={"error": "KeyError"})
 
-    answered, given = (
+    answered, given, _ = (
         RunState.started().with_queued({waiting_id: True}).asked_to_stop().failed(cause, run)
     )
-    declined, ended = RunState.started().with_queued(declines={waiting_id: "No"}).failed(cause, run)
+    declined, ended, _ = (
+        RunState.started().with_queued(declines={waiting_id: "No"}).failed(cause, run)
+    )
 
     assert (answered.status, answered.cause, answered.cancel_asked, answered.queued) == (
         "failed",
@@ -112,13 +114,13 @@ def test_a_failed_resume_call_gives_the_run_its_queue_then_and_there_and_clears_
         False,
         [],
     )
-    assert given is not None and given.to_json() == run.with_answers(waiting_id, True).to_json()
+    assert given == run.with_answers(waiting_id, True).to_json()
     assert (declined.status, declined.cause.type, declined.queued) == (
         "declined",
         "answer_declined",
         [],
     )
-    assert ended is not None and ended.status == "declined"
+    assert ended == run.with_decline(waiting_id, reason="No").to_json()
 
 
 def test_a_failed_resume_call_whose_run_cant_be_loaded_refuses_each_queued_reply_with_its_cause() -> (
@@ -127,7 +129,7 @@ def test_a_failed_resume_call_whose_run_cant_be_loaded_refuses_each_queued_reply
     """There is no run to give the queue to, so each reply is refused loudly rather than kept or dropped unseen."""
     cause = Problem(type="saved_run_unreadable", msg="It can't be read.", ctx={})
 
-    state, given = (
+    state, given, outcome = (
         RunState.started()
         .with_queued({"a~1": True})
         .with_queued(declines={"b~2": None})
@@ -135,6 +137,7 @@ def test_a_failed_resume_call_whose_run_cant_be_loaded_refuses_each_queued_reply
     )
 
     assert (state.status, state.cause, state.queued, given) == ("failed", cause, [], None)
+    assert outcome == RunOutcome(waiting=[], outputs=None, progress=None)
     assert state.refused == {"a~1": [cause], "b~2": [cause]}
 
 

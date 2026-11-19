@@ -38,10 +38,6 @@ _UNHELD: RunChanges = {"owner": None, "lease_until": None}
 #: The owner and lease of a row handed back: its lease has already run out, so the next sweep of any worker takes it.
 _HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
 
-#: How a resume call's end changes the row, worked out from the row's state as it is when it is written: the new
-#: state, and the row's new ``run`` (as JSON) and ``outcome``, each ``None`` to keep the row's.
-_After = Callable[[RunState], tuple[RunState, str | None, RunOutcome | None]]
-
 
 @dataclass(frozen=True)
 class ResumeSettings:
@@ -144,13 +140,15 @@ class HeldRun:
         async with self._lock:
             await self._read_again()
 
-    async def _resume_call(self) -> tuple[RunEnd | None, _After]:
+    async def _resume_call(
+        self,
+    ) -> tuple[RunEnd | None, str | None, Problem | None, Run[Any] | None]:
         """Make one resume call and store its events and checkpoints.
 
         Returns:
-            The call's own ``run_end``, and how the row's state changes with it, as a function of the state as it is
-            when it is written (one of ``RunState.ended_with`` and ``RunState.failed``). A run handed back, as the
-            worker shuts down, has no ``run_end`` and keeps its state.
+            What ``_finish`` takes. A call that ended: its own ``run_end``, which carries the run it returned, and
+            that run as JSON. A call that failed: why, and the run as the row has it (``None`` when it couldn't be
+            loaded). A run handed back, as the worker shuts down: none of the four.
 
         Raises:
             StoreFailedError: The store failed. Anything else that raises fails the run: conductor's refusal with
@@ -184,14 +182,14 @@ class HeldRun:
                         progressed = stopped.model_copy(update={"progress": progress})
                         await self._write(run=saved, outcome=progressed)
                     elif isinstance(event, RunEnd):
-                        returned = event.run
-                        saved = await asyncio.to_thread(returned.to_json)
-                        return event, lambda state: state.ended_with(returned, saved)
+                        # written here, so a run that can't be written fails this call (run_unwritable)
+                        saved = await asyncio.to_thread(event.run.to_json)
+                        return event, saved, None, None
                     elif not await self._store.add_event(
                         self.run_id, settings.worker_id, event.model_dump_json()
                     ):
                         self._stop.set()  # another worker holds the run
-            return None, lambda state: (state, None, None)
+            return None, None, None, None
         except StoreFailedError:
             raise
         except InvalidCallError as refusal:
@@ -204,18 +202,15 @@ class HeldRun:
         except Exception as error:
             log.exception("resuming run %s failed", self.run_id)
             cause = raised_outside_a_node(error=type(error).__name__)
+        return None, None, cause, last
 
-        def failed(state: RunState) -> tuple[RunState, str | None, RunOutcome | None]:
-            ended, given = state.failed(cause, last)
-            if given is not None:
-                return ended, given.to_json(), RunOutcome.of(given, ended.status)
-            if last is None:
-                return ended, None, RunOutcome(waiting=[], outputs=None, progress=None)
-            return ended, None, RunOutcome.of(last, ended.status)
-
-        return RunEnd(status="failed", cause=cause), failed
-
-    async def _finish(self, run_end: RunEnd | None, after: _After) -> None:
+    async def _finish(
+        self,
+        run_end: RunEnd | None,
+        saved: str | None,
+        cause: Problem | None,
+        last: Run[Any] | None,
+    ) -> None:
         """Write how a resume call ended.
 
         What is written is worked out again from the row's state as it is on each try of the write, so a cancel or
@@ -226,8 +221,11 @@ class HeldRun:
         is to go on as the worker shuts down is handed back for another worker.
 
         Args:
-            run_end: The call's own ``run_end``; ``None`` for a run handed back.
-            after: How the row changes, from its state as it is.
+            run_end: The call's own ``run_end``, which ``RunState.ended_with`` takes the run of; ``None`` for a call
+                that failed or a run handed back.
+            saved: The run of ``run_end``, as JSON.
+            cause: Why the call failed, which ``RunState.failed`` takes; ``None`` for a call that didn't.
+            last: The run as the row has it, for a call that failed.
         """
         settings = self._settings
         async with (
@@ -236,7 +234,13 @@ class HeldRun:
             await self._read_again()
         while not self._released:
             reads = self._reads
-            state, run, outcome = await asyncio.to_thread(after, self._row.state)
+            state: RunState = self._row.state
+            run: str | None = None
+            outcome: RunOutcome | None = None
+            if cause is not None:
+                state, run, outcome = await asyncio.to_thread(state.failed, cause, last)
+            elif run_end is not None and saved is not None:
+                state, run, outcome = await asyncio.to_thread(state.ended_with, run_end.run, saved)
             goes_on = state.is_running and not settings.handing_back.is_set()
             if goes_on:
                 holder = settings.holder()
