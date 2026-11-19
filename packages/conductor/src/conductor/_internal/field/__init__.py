@@ -14,7 +14,7 @@ The package has four parts:
   compiled.
 """
 
-from .branch import branches_given
+from .branch import check_branches
 from .describe import FieldDescription
 from .type import Field
 from .validator import BoundDefaultValidator, DeclaredInputValidator, DeclaredOutputValidator
@@ -25,5 +25,5 @@ __all__ = [
     "DeclaredOutputValidator",
     "Field",
     "FieldDescription",
-    "branches_given",
+    "check_branches",
 ]

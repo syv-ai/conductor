@@ -119,7 +119,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 
 **Branches.** A node can send its value one way or another. Each way is a branch: an output whose default is `SKIPPED`, a field `large: int = SKIPPED` of a returned dataclass, or `(int, SKIPPED)` from a `compute_outputs` hook.
 
-- A call gives a value to at most one branch of a node. The others are skipped, and so is what is wired to them. Two branches with a value are `invalid_output`.
+- A call gives a value to at most one branch of a node. The others are skipped, and so is what is wired to them. Two branches with a value are `invalid_output`. A person's answer and an `Ask`'s default are held to the same rule ("Asking a person"), and all three are refused in the same words, which name the branches: "'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node".
 - So branches of one node may be wired into one input ("Several edges into one input").
 - `SKIPPED` means a way not taken, and `None` means no value. An output that may be missing beside other outputs isn't a branch: type it `X | None`, and return `None`. `SKIPPED` on an output that isn't a branch is `invalid_output`. `SKIPPED` is an output's whole value or one item of a `Series`, never inside a value: a field of a returned model or dataclass (a declared one's fields aren't branches), an item of a list or a value of a dict holding `SKIPPED` is `invalid_output`, since it has no JSON form and the run couldn't be saved.
 - A branch typed `X | None` and returned as `None` was taken: it counts as given, so `None` on one branch beside a value on another is two branches with a value.

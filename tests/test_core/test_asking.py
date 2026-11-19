@@ -774,7 +774,7 @@ def test_an_ask_proposing_defaults_for_two_branches_fails_the_node():
     _, run = _once(route, text="a")
     assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
     assert run.cause.ctx["reason"] == (
-        "the default fills keep, drop, but they default to SKIPPED, so they are branches of one node"
+        "the default is wrong ('keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node)"
     )
 
 
@@ -1067,7 +1067,7 @@ def test_answering_one_branch_skips_the_other_and_answering_none_skips_both():
     )
     assert (
         _refused(lambda: run.with_answers("q", {"keep": "a", "drop": "a"}))[0].msg
-        == "That isn't a valid answer: keep, drop default to SKIPPED, so they are branches, and at most one of them can be answered."
+        == "That isn't a valid answer: 'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node."
     )
     neither = run.with_answers("q", {}).resume()
     assert neither.status == "complete" and neither.results["k"] == neither.results["d"] == {
@@ -1115,8 +1115,8 @@ def test_two_ways_to_go_are_two_nodes_and_an_answer_to_each_is_checked_on_its_ow
         )
     )
     assert sorted(problem.ctx["reason"] for problem in problems) == [
-        "keep, drop default to SKIPPED, so they are branches, and at most one of them can be answered",
-        "left, right default to SKIPPED, so they are branches, and at most one of them can be answered",
+        "'keep' and 'drop' both have a value, but they default to SKIPPED, so they are branches of one node",
+        "'left' and 'right' both have a value, but they default to SKIPPED, so they are branches of one node",
     ]
     done = run.with_answers({"r": {"keep": "a"}, "s": {"left": "b"}}).resume()
     assert done.outputs == {"keep": "a", "left": "b"}

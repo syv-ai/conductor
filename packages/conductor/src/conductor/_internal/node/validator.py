@@ -37,7 +37,7 @@ from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
     Field,
-    branches_given,
+    check_branches,
 )
 from conductor._internal.problem import (
     InvalidCallError,
@@ -185,17 +185,8 @@ def _several_outputs(
                 "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
                 {"name": not_branches[0]},
             )
-        taken = branches_given(outputs, given)
-        if len(taken) <= 1:
-            return given
-        quoted = [f"'{name}'" for name in taken]
-        holders = f"{comma_separated(quoted[:-1])} and {quoted[-1]}"
-        holding = "both" if len(quoted) == 2 else "all"
-        raise conductor_error(
-            "several_branches_given",
-            f"{holders} {holding} have a value, but they default to SKIPPED, so they are branches of one node",
-            {"given": taken},
-        )
+        check_branches(outputs, given)
+        return given
 
     def with_skipped(read: dict[str, Any]) -> dict[str, Any]:
         return (

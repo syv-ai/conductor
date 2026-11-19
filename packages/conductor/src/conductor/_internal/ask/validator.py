@@ -36,7 +36,7 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, validate_as_json
-from conductor._internal.field import Field, branches_given
+from conductor._internal.field import Field, check_branches
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
@@ -123,9 +123,11 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
         if ask.default is not REQUIRED:
             proposed = self._by_output(ask.default, "default")
             # The defaults fill an answer in, so they are held to the branch rule an answer is.
-            if len(filled := branches_given(outputs, proposed)) > 1:
-                reason = f"the default fills {comma_separated(filled)}, but they default to SKIPPED, so they are branches of one node"
-                raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
+            try:
+                check_branches(outputs, proposed)
+            except PydanticCustomError as refused:
+                reason = f"the default is wrong ({refused.message()})"
+                raise InvalidCallError([run_problems.invalid_ask(reason=reason)]) from None
             for name, default in proposed.items():
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
         return choices, defaults
@@ -292,7 +294,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         ]
         read: dict[str, Any] = {}
         questions = as_asked(outputs, self._choices, self._defaults)
-        given = branches_given(outputs, answer)
+        given = [name for name in answer if name in outputs and outputs[name].is_branch]
         for name, field in outputs.items():
             try:
                 if name in answer:
@@ -309,13 +311,10 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
                     faults.append((name, f"'{name}' has no answer"))
             except PydanticCustomError as refused:
                 faults.append((name, f"'{name}': {refused.message()}"))
-        if len(given) > 1:
-            faults.append(
-                (
-                    None,
-                    f"{comma_separated(given)} default to SKIPPED, so they are branches, and at most one of them can be answered",
-                )
-            )
+        try:
+            check_branches(outputs, answer)
+        except PydanticCustomError as refused:
+            faults.append((None, refused.message()))
         return read, faults
 
 
