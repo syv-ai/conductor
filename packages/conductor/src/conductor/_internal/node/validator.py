@@ -10,7 +10,7 @@ registry is declared. ``tags="abc"`` is refused, since ``tags`` is a list or tup
 instead, the call fails with an ``invalid_output`` problem on the output ``result``.
 
 Values are checked strictly. A value that already has the right class is kept as it is, a dict becomes a model,
-but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass with no ``@host_type``, or
+but ``"12"`` is never an ``int``. A node with several outputs returns a dataclass with no ``@host_type``, or
 a mapping when a ``compute_outputs`` hook gave its outputs. Its whole return is checked in one go, by the rules a
 person's answer to the node is checked by too (``outputs_schema``), and only the first fault is reported: a fault in
 the shape before a fault in a value. ``SKIPPED`` may be an output's whole value, or an item of a
@@ -89,12 +89,12 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
     ) -> None:
         """Builds the validator for one node.
 
-        A function returns its outputs in one of four shapes. It returns a frozen dataclass if it declares one with
+        A function returns its outputs in one of four shapes. It returns a dataclass if it declares one with
         no ``@host_type``, a mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none.
         Otherwise it returns one value, the output ``result``.
 
         Args:
-            outputs_dataclass: The frozen dataclass the function returns its outputs in, or ``None``.
+            outputs_dataclass: The dataclass the function returns its outputs in, or ``None``.
             computes_outputs: Whether the node's ``compute_outputs`` hook gave its outputs.
             outputs: The node's outputs, by name.
         """

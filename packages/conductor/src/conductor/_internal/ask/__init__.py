@@ -5,7 +5,7 @@ Such a node raises ``Ask`` with a prompt, and its call stops there to wait. When
 becomes the node's output, just as if the function had returned it.
 
 The node's return type decides what kind of answer it takes. ``-> bool`` asks for a yes or no, ``-> str`` for a
-line of text, and a frozen dataclass for a small form with one question per field. Here is a node that asks for a
+line of text, and a dataclass for a small form with one question per field. Here is a node that asks for a
 yes or no::
 
     @node("approve", title="Approve", description="Asks a person to approve an invoice.", asks=True)

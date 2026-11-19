@@ -282,7 +282,7 @@ What changes in how you work, before the name-by-name tables:
   keeps (pydantic metadata, so its limits and choices apply inside your own `BaseModel` or dataclass
   too, and a field's `json_schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
   winning, and a `Param` on a `Series` item is the field's; a table's column
-  typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several (kept as the definition's `outputs_dataclass`). A
+  typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a dataclass with no `@host_type` for several (kept as the definition's `outputs_dataclass`). A
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
   `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, whose
@@ -802,7 +802,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.types.NamedFile` | gone: declare your own pydantic model or dataclass |
 | `conductor.types.NodeResult` | gone: a node returns its value; a run's are `run.results` and `run.outputs` |
 | `conductor.types.OUTPUT_PREFIX` | gone: outputs are named by their fields |
-| `conductor.types.RESULT_KEY` | an output of `-> X` is named `result`; a frozen dataclass names several |
+| `conductor.types.RESULT_KEY` | an output of `-> X` is named `result`; a dataclass names several |
 | `FlowStore` | the run's context: a node's first parameter `Context[AppContext]`, the class named by `NodeRegistry(context_type=)`, the object passed as `context=` |
 | `NodeCategory` | a plain string, `@node("id", title=, description=, category="text")` |
 | `NodeRegistry` | `NodeRegistry(category=, tags=, extra=, types=)`, empty until nodes are added |

@@ -186,7 +186,7 @@ class FunctionDefinition[**P, R](_Version):
             ``context``. An input a hook adds isn't here either. It exists only on the node in a compiled graph.
         outputs: Each output by name: ``result`` for one value, or one per field of a returned dataclass
             with no ``@host_type``.
-        outputs_dataclass: The frozen dataclass the function returns its outputs in. ``None`` when it returns one
+        outputs_dataclass: The dataclass the function returns its outputs in. ``None`` when it returns one
             value (a dataclass declared with ``@host_type`` is one), a mapping from its ``compute_outputs`` hook,
             or nothing.
         policy: How the engine calls the node: how many calls at once, retries, a time limit, and whether it
