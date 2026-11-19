@@ -1189,7 +1189,7 @@ async def test_one_call_that_answers_one_waiting_call_twice_is_refused_on_a_stop
         with pytest.raises(InvalidCallError) as refused:
             await worker.answer(run_id, {ids["a_first"]: True, "a_first": False}, allows=EVERY_RUN)
 
-    assert [problem.type for problem in refused.value.problems] == ["invalid_answer"]
+    assert [problem.type for problem in refused.value.problems] == ["answer_given_twice"]
     assert store.rows[run_id] == before
 
 

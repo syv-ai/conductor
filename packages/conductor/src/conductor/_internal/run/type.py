@@ -392,8 +392,8 @@ class Run[C]:
 
         Raises:
             TypeError: A call is named without its answer, or a mapping is given with one.
-            InvalidCallError: Every fault at once, and the run is left as it was. ``invalid_answer`` for a call
-                answered twice in one ``with_answers``, or an answer its question refuses. ``not_waiting`` for an id
+            InvalidCallError: Every fault at once, and the run is left as it was. ``answer_given_twice`` for a call
+                answered twice in one ``with_answers``, and ``invalid_answer`` for an answer its question refuses. ``not_waiting`` for an id
                 that names no waiting call. ``answer_stale`` for an id whose call now asks another question, with
                 ``ctx.moved_to`` when that question now waits on another call.
         """
@@ -417,11 +417,7 @@ class Run[C]:
                 problems.extend(refused.problems)
                 continue
             if (node, item_indexes) in answered:
-                problems.append(
-                    call_problems.invalid_answer(
-                        *loc, waiting_id=waiting_id, reason="the same call is answered twice"
-                    )
-                )
+                problems.append(call_problems.answer_given_twice(*loc, waiting_id=waiting_id))
                 continue
             try:
                 read = AnswerValidator(

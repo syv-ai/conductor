@@ -2280,7 +2280,9 @@ def test_one_item_answered_twice_in_one_call_is_refused_and_nothing_is_answered(
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
     faults = _refused(lambda: run.with_answers({"q@0": "one", run.waiting[0].id: "two"}))
-    assert [(f.type, f.loc) for f in faults] == [("invalid_answer", ("q", 0))]
+    assert [(f.type, f.loc, f.ctx) for f in faults] == [
+        ("answer_given_twice", ("q", 0), {"waiting_id": run.waiting[0].id})
+    ]
     assert [place(w) for w in run.waiting] == ["q@0", "q@1"]
 
 

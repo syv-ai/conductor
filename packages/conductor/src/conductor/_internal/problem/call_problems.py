@@ -29,6 +29,26 @@ CALL_PROBLEMS = ProblemCatalogue(
 
 
 @CALL_PROBLEMS.problem
+def answer_given_twice(*loc: str | int, waiting_id: str) -> str:
+    """One ``run.with_answers`` answers the same call twice, under two waiting ids that name it.
+
+    A call can be named by its whole waiting id or by the id without its ``~`` part, so a mapping of answers can
+    name one call twice. Neither answer is taken, since it isn't clear which one is meant.
+
+    To fix it, give the call one answer.
+
+    Args:
+        loc: The node and the item indexes of the call.
+        waiting_id: The second waiting id that names the call.
+
+    Example:
+        waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
+        refused(lambda: waiting.with_answers({waiting.waiting[0].id: True, "approve": False}))
+    """
+    return f"The call {waiting_id!r} names is answered twice in one run.with_answers. Give it one answer."
+
+
+@CALL_PROBLEMS.problem
 def answer_stale(
     *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
 ) -> str:
