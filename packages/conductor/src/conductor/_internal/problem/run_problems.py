@@ -168,7 +168,8 @@ def invalid_ask(*loc: str | int, reason: str, errors: list[dict[str, Any]]) -> s
     ``"maybe"`` isn't one. Every fault is reported at once, in ``ctx.errors``, each ``loc`` starting with
     ``choices`` or ``default``, then the output's name, then a choice's index.
 
-    To fix it, fix the ``Ask``. ``ctx.reason`` says which part doesn't fit first.
+    To fix it, fix the ``Ask``. ``ctx.reason`` says which part doesn't fit first. A node of several outputs takes
+    ``choices=`` and ``default=`` as mappings by output name; a node of one output takes a list and a value.
 
     Args:
         loc: The call that asked.

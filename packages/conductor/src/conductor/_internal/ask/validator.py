@@ -47,7 +47,6 @@ from conductor._internal.problem import (
     call_problems,
     conductor_error,
     run_problems,
-    value_free_errors,
 )
 from conductor._internal.types import (
     Choice,
@@ -62,11 +61,8 @@ from conductor._internal.validation import Validator, json_data, read_as_json
 from .question import as_asked
 from .type import Ask
 
-#: How an ``invalid_ask``'s reason names the argument its first fault is in.
-_ARGUMENT_IS = {
-    "choices": "the choices {for_output}are wrong",
-    "default": "the default {for_output}is wrong",
-}
+#: Explains a fault no output's type explains, such as an answer of several questions that isn't a mapping.
+_ANY = Type(Any)
 
 
 class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]):
@@ -140,7 +136,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
         outputs = self._outputs
         choices: dict[str, tuple[Choice, ...]] = {}
         defaults: dict[str, JsonValue] = {}
-        faults: list[tuple[str, tuple[str | int, ...], dict[str, Any]]] = []
+        faults: list[dict[str, Any]] = []
         if ask.choices is not None:
             try:
                 choices = self._choices.validate_python(ask.choices)
@@ -158,13 +154,15 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     name: outputs[name].whole.to_json(value) for name, value in read.items()
                 }
         if faults:
-            argument, place, first = faults[0]
-            for_output = f"for '{place[0]}' " if place and place[0] in outputs else ""
+            # each fault's loc is the argument, then the output it is for, if it is about one
+            argument, *inside = faults[0]["loc"]
+            for_output = f" for '{inside[0]}'" if inside and inside[0] in outputs else ""
+            wrong = "are wrong" if argument == "choices" else "is wrong"
             raise InvalidCallError(
                 [
                     run_problems.invalid_ask(
-                        reason=f"{_ARGUMENT_IS[argument].format(for_output=for_output)} ({first['msg']})",
-                        errors=[error for _, _, error in faults],
+                        reason=f"the {argument}{for_output} {wrong} ({faults[0]['msg']})",
+                        errors=faults,
                     )
                 ]
             )
@@ -173,21 +171,18 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
 
 def _ask_faults(
     argument: str, error: ValidationError, outputs: Mapping[str, Field], *, items: bool = False
-) -> list[tuple[str, tuple[str | int, ...], dict[str, Any]]]:
-    """Returns the faults in one argument of an ``Ask``, each with its ``loc`` written from the argument down.
+) -> list[dict[str, Any]]:
+    """Returns the faults in one argument of an ``Ask``, as ``ctx.errors`` holds them, each ``loc`` written from the
+    argument down: ``["choices", "result", 1]``.
 
     Args:
         argument: ``"choices"`` or ``"default"``.
         error: What the argument's schema raised.
         outputs: The node's outputs, by name.
         items: Whether the argument is the choices, a list per output.
-
-    Returns:
-        One ``(argument, place, error)`` per fault, where ``place`` is where in the argument it is (``_refusals``),
-        and ``error`` is the fault as ``ctx.errors`` holds it, its ``loc`` starting with ``argument`` and ``place``.
     """
     return [
-        (argument, place, {**fault, "loc": [argument, *place, *fault["loc"]]})
+        {**fault, "loc": [argument, *place, *fault["loc"]]}
         for place, refusal in _refusals(error, outputs, items=items)
         for fault in refusal["errors"]
     ]
@@ -313,26 +308,30 @@ def _answer_schema(
     def all_at_once(answer: Any, read_by_name: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
         errors: list[InitErrorDetails] = []
         read: dict[str, Any] = {}
+        branches: list[str] = []
         try:
             read = read_by_name(answer)
         except ValidationError as error:
-            errors = [_in_own_words(fault) for fault in error.errors()]
+            errors = [_raised_again(fault) for fault in error.errors()]
         if isinstance(answer, Mapping):
             try:
-                check_branches(outputs, answer)
+                branches = check_branches(outputs, answer)
             except PydanticCustomError as fault:
                 errors.append({"type": fault, "loc": (), "input": answer})
         if errors:
             raise ValidationError.from_exception_data("answer", errors)
         if proposed:
             return read
-        branch_given = any(field.is_branch and name in answer for name, field in outputs.items())
-        return {
-            name: read[name]
-            if name in read and not (field.is_branch and branch_given and name not in answer)
-            else SKIPPED
-            for name, field in outputs.items()
-        }
+        filled: dict[str, Any] = {}
+        for name, field in outputs.items():
+            # a branch left out is skipped when another is answered, even one with a default
+            if field.is_branch and branches and name not in branches:
+                filled[name] = SKIPPED
+            elif name in read:
+                filled[name] = read[name]
+            else:
+                filled[name] = SKIPPED
+        return filled
 
     return core_schema.no_info_before_validator_function(
         as_mapping,
@@ -428,18 +427,13 @@ def _as_mapping(answer: Any) -> Any:
     return {name: value for name in names if (value := getattr(answer, name)) is not SKIPPED}
 
 
-def _in_own_words(fault: ErrorDetails) -> InitErrorDetails:
-    """Returns one of pydantic's errors from reading an answer by question name, ready to raise again.
+def _raised_again(fault: ErrorDetails) -> InitErrorDetails:
+    """Returns one of pydantic's errors as it can be raised again, beside an error of conductor's own.
 
-    A question left out with no default (``missing``) and a name that isn't a question (``extra_forbidden``) are
-    said in conductor's words, since the problem names the question. Any other error is raised as it was.
+    Pydantic raises again only an error whose type it knows, so each is given as the custom error of its own type,
+    message and ``ctx``.
     """
-    if fault["type"] == "missing":
-        error = conductor_error("missing", "the question has no answer")
-    elif fault["type"] == "extra_forbidden":
-        error = conductor_error("extra_forbidden", "there is no such question")
-    else:
-        error = PydanticCustomError(fault["type"], fault["msg"], fault.get("ctx"))
+    error = PydanticCustomError(fault["type"], fault["msg"], fault.get("ctx"))
     return {"type": error, "loc": fault["loc"], "input": fault["input"]}
 
 
@@ -474,19 +468,14 @@ def _refusals(
         else:
             by_place.setdefault(loc, None)
     return [
-        (place, value_type.refusal(error, under=place) if value_type else _refusal_at(error, place))
+        (
+            place,
+            value_type.refusal(error, under=place)
+            if value_type
+            else _ANY.refusal(error, under=place, exactly=True),
+        )
         for place, value_type in by_place.items()
     ]
-
-
-def _refusal_at(error: ValidationError, place: tuple[str | int, ...]) -> TypeRefusal:
-    """Says why ``error`` refused what is at ``place``, without the value, for a fault no type explains."""
-    errors = [
-        free
-        for free, raw in zip(value_free_errors(error), error.errors(), strict=True)
-        if raw["loc"] == place
-    ]
-    return TypeRefusal(reason=errors[0]["msg"], errors=errors)
 
 
 class AnswerAsJsonValidator(Validator[Any, Any]):
@@ -525,7 +514,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
             raise InvalidCallError(
                 [
                     call_problems.invalid_answer(
-                        *self._loc, waiting_id=self._waiting_id, **_refusal_at(error, ())
+                        *self._loc, waiting_id=self._waiting_id, **_ANY.refusal(error, exactly=True)
                     )
                 ]
             ) from None

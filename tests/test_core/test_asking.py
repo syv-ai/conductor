@@ -686,7 +686,7 @@ def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_a
     assert [(f.ctx.get("question"), f.msg, f.ctx["errors"][0]["type"]) for f in faults] == [
         (
             "approved",
-            "That isn't a valid answer to 'approved': the question has no answer.",
+            "That isn't a valid answer to 'approved': Field required.",
             "missing",
         ),
         (
@@ -696,7 +696,7 @@ def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_a
         ),
         (
             "colour",
-            "That isn't a valid answer to 'colour': there is no such question.",
+            "That isn't a valid answer to 'colour': Extra inputs are not permitted.",
             "extra_forbidden",
         ),
     ]
@@ -1595,7 +1595,7 @@ def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_tak
     assert [q.required for q in run.waiting[0].questions] == [True, False]
     assert (
         _refused(lambda: run.with_answers("q", {}))[0].msg
-        == "That isn't a valid answer to 'who': the question has no answer."
+        == "That isn't a valid answer to 'who': Field required."
     )
     assert run.with_answers("q", {"who": "a"}).resume().outputs == {"who": "a", "note": None}
 

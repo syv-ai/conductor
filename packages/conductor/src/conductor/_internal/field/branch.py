@@ -19,8 +19,8 @@ from conductor._internal.utils import comma_separated
 from .type import Field
 
 
-def check_branches(outputs: Mapping[str, Field], given: Container[str]) -> None:
-    """Refuses a call that gives more than one branch among ``outputs`` a value.
+def check_branches(outputs: Mapping[str, Field], given: Container[str]) -> list[str]:
+    """Refuses a call that gives more than one branch among ``outputs`` a value, and returns the one it gives, if any.
 
     For ``route`` returning a value on both ``long`` and ``short``, the message is "'long' and 'short' both have a
     value, but they default to SKIPPED, so they are branches of one node". One branch or none keeps the rule.
@@ -30,13 +30,16 @@ def check_branches(outputs: Mapping[str, Field], given: Container[str]) -> None:
         given: The names of the outputs that got a value on the call. A return gives an output a value when the
             value isn't ``SKIPPED``. An answer and an ``Ask``'s default give a value to each output they name.
 
+    Returns:
+        The branch given a value, in a list, or an empty list when none is.
+
     Raises:
         PydanticCustomError: ``several_branches_given``, with ``ctx.given`` the branches given a value, in the order
             the node declares them.
     """
     taken = [name for name, field in outputs.items() if field.is_branch and name in given]
     if len(taken) <= 1:
-        return
+        return taken
     quoted = [f"'{name}'" for name in taken]
     holding = "both" if len(quoted) == 2 else "all"
     raise conductor_error(

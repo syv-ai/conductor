@@ -698,7 +698,9 @@ class Type:
         """Returns this type with its type variables replaced by what ``bound`` binds them to."""
         return Type(substituted(self.hint, bound))
 
-    def refusal(self, error: ValidationError, under: tuple[str | int, ...] = ()) -> TypeRefusal:
+    def refusal(
+        self, error: ValidationError, under: tuple[str | int, ...] = (), *, exactly: bool = False
+    ) -> TypeRefusal:
         """Explains why the type refused a value, without quoting the value.
 
         Say ``Type(list[int])`` refuses ``[1, "x"]``. The ``TypeRefusal`` has the ``reason``
@@ -717,12 +719,15 @@ class Type:
             under: The ``loc`` steps from what pydantic checked down to the value of this type. Say pydantic
                 checked a mapping of outputs, and this is the type of the output ``count``: then ``under`` is
                 ``("count",)``. Only the errors inside that value are used, and their ``loc`` starts there.
+            exactly: Use only the errors at ``under`` itself, none inside it. A fault of a whole that holds values
+                of other types, such as an answer of several questions that isn't a mapping, is explained this way,
+                by ``Type(Any)``.
         """
         start = len(under)
         pairs = [
             (free, raw)
             for free, raw in zip(value_free_errors(error), error.errors(), strict=True)
-            if raw["loc"][:start] == under
+            if (raw["loc"] if exactly else raw["loc"][:start]) == under
         ]
         value_free = [free for free, _ in pairs]
         columns: list[str] = []

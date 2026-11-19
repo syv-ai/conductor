@@ -629,7 +629,7 @@ except InvalidCallError as refused:
         print(problem.msg)
     # That isn't a valid answer to 'approved': Input should be a valid boolean.
     # That isn't a valid answer to 'owner': the value is not "ida" or "bo".
-    # That isn't a valid answer to 'colour': there is no such question.
+    # That isn't a valid answer to 'colour': Extra inputs are not permitted.
 ```
 
 An `Ask` whose choices or default don't fit fails the node the same way, with one [`invalid_ask`](problems.md#invalid_ask) that lists every fault.
