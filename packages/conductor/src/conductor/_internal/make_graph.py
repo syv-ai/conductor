@@ -29,7 +29,13 @@ from conductor._internal.base import (
     place_text,
 )
 from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
-from conductor._internal.problem import InvalidCallError, Problem, call_problems
+from conductor._internal.problem import (
+    InvalidCallError,
+    Problem,
+    call_problems,
+    conductor_error,
+    shape_error,
+)
 from conductor._internal.record import (
     GraphRecord,
     InputEntry,
@@ -510,15 +516,19 @@ def _by_id(
             numbered[definition.id] += 1
             node_id = f"{definition.id}-{numbered[definition.id]}"
         if node_id in by_id:
-            reason = f"the id {node_id!r} is given to two nodes"
+            fault = shape_error(
+                conductor_error(
+                    "repeated_key", "the id '{id}' is given to two nodes", {"id": node_id}
+                )
+            )
             problems.append(
                 call_problems.invalid_record(
                     "record",
                     "nodes",
                     node_id,
                     where=f"nodes.{node_id}",
-                    reason=reason,
-                    error="repeated_key",
+                    reason=fault["msg"],
+                    errors=[fault],
                     written_by="make_graph's arguments",
                 )
             )

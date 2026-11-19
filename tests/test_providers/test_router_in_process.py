@@ -839,7 +839,8 @@ async def test_a_graph_that_writes_one_node_id_twice_is_refused_by_every_route_t
     for answer in answers:
         assert answer.status_code == 422, answer.text
         assert [
-            (problem["type"], problem["ctx"]["error"]) for problem in answer.json()["detail"]
+            (problem["type"], problem["ctx"]["errors"][0]["type"])
+            for problem in answer.json()["detail"]
         ] == [("invalid_record", "repeated_key")]
     assert store.rows == {}
 
@@ -856,9 +857,10 @@ async def test_a_run_body_that_writes_graph_twice_is_refused_and_nothing_is_stor
         )
 
     assert answer.status_code == 422, answer.text
-    assert [(problem["type"], problem["ctx"]["error"]) for problem in answer.json()["detail"]] == [
-        ("invalid_record", "repeated_key")
-    ]
+    assert [
+        (problem["type"], problem["ctx"]["errors"][0]["type"])
+        for problem in answer.json()["detail"]
+    ] == [("invalid_record", "repeated_key")]
     assert store.rows == {}
 
 
@@ -885,7 +887,7 @@ async def test_a_run_of_a_graph_record_of_the_wrong_shape_is_refused_with_conduc
 
     assert answer.status_code == 422, answer.text
     detail = answer.json()["detail"]
-    assert [(problem["type"], problem["ctx"]["error"]) for problem in detail] == [
+    assert [(problem["type"], problem["ctx"]["errors"][0]["type"]) for problem in detail] == [
         ("invalid_record", error)
     ]
     assert all(problem["loc"][0] == "record" for problem in detail)
@@ -1039,7 +1041,8 @@ async def test_text_that_isnt_json_is_refused_as_conductor_refuses_a_record() ->
 
             assert refused.status_code == 422, path
             assert [
-                (problem["type"], problem["ctx"]["error"]) for problem in refused.json()["detail"]
+                (problem["type"], problem["ctx"]["errors"][0]["type"])
+                for problem in refused.json()["detail"]
             ] == [("invalid_record", "json_invalid")]
 
 

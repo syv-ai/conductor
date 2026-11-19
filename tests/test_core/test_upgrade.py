@@ -225,7 +225,7 @@ def test_upgrade_reads_the_record_through_the_record_validator_and_refuses_two_n
 
     with pytest.raises(InvalidCallError) as refused:
         _registry().upgrade(two_of_one_id, "r")
-    assert [(p.type, p.ctx["error"]) for p in refused.value.problems] == [
+    assert [(p.type, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
         ("invalid_record", "repeated_key")
     ]
     with pytest.raises(InvalidCallError) as refused:
@@ -1083,7 +1083,12 @@ def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
     with pytest.raises(InvalidCallError) as refused:
         registry.upgrade(graph, "f")
     [problem] = refused.value.problems
-    assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["written_by"]) == (
+    assert (
+        problem.type,
+        problem.loc,
+        problem.ctx["errors"][0]["type"],
+        problem.ctx["written_by"],
+    ) == (
         "invalid_record",
         ("record", "nodes", "f", "inputs", "text"),
         "one_of_constant_graph_input_sources",

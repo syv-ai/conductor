@@ -87,13 +87,13 @@ def _problems(record: GraphRecord) -> list[tuple[str, tuple]]:
 
 
 def _refused(record: Any) -> list[tuple[str, tuple, str]]:
-    """Returns the problems the record validator raises for ``record``, as ``(type, loc, ctx["error"])``.
+    """Returns the problems the record validator raises for ``record``, as ``(type, loc, ctx["errors"][0]["type"])``.
 
     ``record`` may be JSON text or plain data.
     """
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record if isinstance(record, str) else json.dumps(record), REGISTRY)
-    return [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems]
+    return [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems]
 
 
 # -- the record's shape ---------------------------------------------------------
@@ -332,7 +332,7 @@ def test_an_input_written_twice_in_one_node_is_refused_as_a_key_written_twice():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(text, REGISTRY)
     [problem] = refused.value.problems
-    assert (problem.type, problem.ctx["error"]) == (
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
         "invalid_record",
         "repeated_key",
     )
@@ -1331,13 +1331,13 @@ def test_make_graph_refuses_a_constant_together_with_a_graph_input_or_an_edge():
             inputs={"name": "hello.name", "text": "shout.text"},
         )
 
-    assert [(p.loc, p.ctx["error"]) for p in with_input.value.problems] == [
+    assert [(p.loc, p.ctx["errors"][0]["type"]) for p in with_input.value.problems] == [
         (("record", "nodes", "hello", "inputs", "name"), one_of)
     ]
-    assert [(p.loc, p.ctx["error"]) for p in with_edge.value.problems] == [
+    assert [(p.loc, p.ctx["errors"][0]["type"]) for p in with_edge.value.problems] == [
         (("record", "nodes", "shout", "inputs", "text"), one_of)
     ]
-    assert [(p.loc, p.ctx["error"]) for p in edge_and_input.value.problems] == [
+    assert [(p.loc, p.ctx["errors"][0]["type"]) for p in edge_and_input.value.problems] == [
         (("record", "nodes", "shout", "inputs", "text"), one_of)
     ]
 
@@ -2225,7 +2225,7 @@ def test_make_graph_refuses_a_constant_and_a_default_for_one_input():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"hello.name": "a"}, defaults={"hello.name": "b"})
 
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [
+    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
         (
             "invalid_record",
             ("record", "nodes", "hello", "inputs", "name"),
@@ -2470,7 +2470,7 @@ def test_make_graph_takes_a_node_with_an_id_of_its_own_and_refuses_one_id_for_tw
     assert list(record.nodes) == ["first", "second"] and record.nodes["second"].node == "hello"
     with pytest.raises(InvalidCallError) as refused:
         make_graph(("a", _hello), ("a", _hello), edges=[])
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [
+    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
         ("invalid_record", ("record", "nodes", "a"), "repeated_key")
     ]
 
@@ -2506,7 +2506,12 @@ def test_a_record_validator_refusal_of_what_make_graph_wrote_says_to_fix_make_gr
         )
 
     [problem] = refused.value.problems
-    assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["written_by"]) == (
+    assert (
+        problem.type,
+        problem.loc,
+        problem.ctx["errors"][0]["type"],
+        problem.ctx["written_by"],
+    ) == (
         "invalid_record",
         ("record", "nodes", "shout", "inputs", "text"),
         "one_of_constant_graph_input_sources",
@@ -2560,7 +2565,8 @@ def test_make_graph_refuses_an_output_with_a_field_as_the_record_does():
         make_graph(_hello, outputs={"r": "hello.result.x"})
 
     assert [
-        (p.type, p.loc, p.ctx["error"], p.ctx["written_by"]) for p in refused.value.problems
+        (p.type, p.loc, p.ctx["errors"][0]["type"], p.ctx["written_by"])
+        for p in refused.value.problems
     ] == [
         (
             "invalid_record",

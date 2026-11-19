@@ -22,12 +22,16 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import JsonValue, ValidationError
+from pydantic_core import PydanticCustomError, PydanticKnownError
 
 from conductor._internal.base import plain_json
 from conductor._internal.problem import (
     InvalidCallError,
+    Problem,
     call_problems,
     compile_problems,
+    conductor_error,
+    shape_error,
 )
 from conductor._internal.types import Type
 from conductor._internal.validation import Validator, read_as_json
@@ -50,11 +54,8 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             # The object may be a constant's value, so the problem doesn't quote the key.
             raise InvalidCallError(
                 [
-                    call_problems.invalid_record(
-                        "record",
-                        where="the record",
-                        reason="a key is written twice in one object",
-                        error="repeated_key",
+                    _refused_text(
+                        conductor_error("repeated_key", "a key is written twice in one object")
                     )
                 ]
             )
@@ -73,8 +74,8 @@ def read_json(text: str | bytes) -> Any:
     ``body = read_json(await request.body())``, and hand the data on to ``Graph.compile``.
 
     Raises:
-        InvalidCallError: One ``invalid_record`` problem at ``("record",)``. Its error is ``json_invalid`` if the
-            text isn't JSON (bytes that aren't UTF-8 included), or ``repeated_key`` if a key is written twice.
+        InvalidCallError: One ``invalid_record`` problem at ``("record",)``. Its ``ctx.errors`` has ``json_invalid``
+            if the text isn't JSON (bytes that aren't UTF-8 included), or ``repeated_key`` if a key is written twice.
     """
     try:
         return json.loads(text, object_pairs_hook=_each_key_once)
@@ -82,15 +83,16 @@ def read_json(text: str | bytes) -> Any:
         raise
     except ValueError as not_json:
         raise InvalidCallError(
-            [
-                call_problems.invalid_record(
-                    "record",
-                    where="the record",
-                    reason=f"it isn't JSON ({not_json})",
-                    error="json_invalid",
-                )
-            ]
+            [_refused_text(PydanticKnownError("json_invalid", {"error": str(not_json)}))]
         ) from None
+
+
+def _refused_text(error: PydanticCustomError | PydanticKnownError) -> Problem:
+    """Returns the ``invalid_record`` problem for record text ``read_json`` refuses as a whole."""
+    fault = shape_error(error)
+    return call_problems.invalid_record(
+        "record", where="the record", reason=fault["msg"], errors=[fault]
+    )
 
 
 class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], GraphRecord]):
@@ -132,7 +134,7 @@ class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], G
                     *error["loc"],
                     where=".".join(map(str, error["loc"])) or "the record",
                     reason=error["msg"],
-                    error=error["type"],
+                    errors=[shape_error(error)],
                     written_by=self._written_by,
                 )
                 for error in invalid.errors()

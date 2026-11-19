@@ -294,7 +294,7 @@ def test_a_node_id_in_a_record_with_a_tilde_is_refused_by_the_record_validator()
 
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"a~b": {"node": "upper"}}}), registry)
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [
+    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
         ("invalid_record", ("record", "nodes", "a~b", "[key]"), "not_a_name")
     ]
 

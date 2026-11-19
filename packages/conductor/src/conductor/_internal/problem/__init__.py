@@ -32,6 +32,7 @@ from .errors import (
     is_conductor_error,
     no_json_form,
     set_has_no_order,
+    shape_error,
     value_free_errors,
 )
 from .type import Problem, ProblemCatalogue, ProblemKind
@@ -56,5 +57,6 @@ __all__ = [
     "is_conductor_error",
     "no_json_form",
     "set_has_no_order",
+    "shape_error",
     "value_free_errors",
 ]

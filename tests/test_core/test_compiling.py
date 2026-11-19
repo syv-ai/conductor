@@ -268,7 +268,7 @@ def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
         Graph.compile(
             json.dumps({"nodes": {"u": {"node": "upper", "valuse": {"text": "x"}}}}), REGISTRY
         )
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [
+    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
         ("invalid_record", ("record", "nodes", "u", "valuse"), "extra_forbidden")
     ]
 
@@ -314,7 +314,7 @@ def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_er
     problems = refused.value.problems
     assert all(p.type == "invalid_record" for p in problems) and (
         problems[0].loc,
-        problems[0].ctx["error"],
+        problems[0].ctx["errors"][0]["type"],
     ) == (loc, error)
     assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith(
         "This isn't a valid graph record. At"
@@ -2104,7 +2104,7 @@ def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
             OUTSIDE,
         )
     [problem] = refused.value.problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+    assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "invalid_record",
         ("record", "nodes", "u", "inputs", "text", "sources", 0, "node"),
         "not_a_name",

@@ -416,7 +416,11 @@ def invalid_limit_seconds(limit: str, /, *, errors: list[dict[str, Any]]) -> str
 
 @CALL_PROBLEMS.problem
 def invalid_record(
-    *loc: str | int, where: str, reason: str, error: str, written_by: str | None = None
+    *loc: str | int,
+    where: str,
+    reason: str,
+    errors: list[dict[str, Any]],
+    written_by: str | None = None,
 ) -> str:
     """What was given as a graph record isn't one, because its JSON doesn't have a graph record's shape.
 
@@ -424,13 +428,15 @@ def invalid_record(
     ``graph.problems``. This problem is only for JSON that isn't shaped like a record at all. In the example, the node
     says ``type`` where a graph record says ``node``.
 
-    To fix it, fix the JSON. ``ctx.where`` says where it stops being a graph record.
+    To fix it, fix the JSON. ``ctx.where`` says where it stops being a graph record. There is one problem per fault,
+    and its ``ctx.errors`` has the fault's error, with ``loc`` ``[]``: pydantic's, such as ``extra_forbidden``, or
+    conductor's own, such as ``json_invalid`` for text that isn't JSON or ``repeated_key`` for a key written twice.
 
     Args:
         loc: ``"record"`` and the steps to the fault inside the graph record.
         where: The same steps as one text, joined by dots. ``the record`` means the graph record as a whole.
         reason: What is wrong there.
-        error: The type of pydantic's error, such as ``extra_forbidden``.
+        errors: The fault's error, with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
         written_by: What wrote the record, when it wasn't given as JSON: ``make_graph``'s arguments, or a node's
             ``Upgrade``.
 

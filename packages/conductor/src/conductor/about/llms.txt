@@ -388,7 +388,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
   - Several inputs may name one graph input, and the caller's one value feeds them all.
   - Two of them must agree, else they are `graph_input_used_two_ways`. They clash when they read different types from their hints (a different type, limits, choices or validators), are shown differently (a different title, description or widget), or have different record defaults.
   - `int` and `Annotated[int, Param()]` agree, and so do `Annotated[int, annotated_types.Ge(0)]` and `Annotated[int, Param(ge=0)]`.
-- An entry has exactly one of `constant`, `graph_input` and `sources` (`invalid_record`, `ctx.error` `one_of_constant_graph_input_sources`). It has `default` only beside `graph_input` (`default_without_graph_input`).
+- An entry has exactly one of `constant`, `graph_input` and `sources` (`invalid_record`, `one_of_constant_graph_input_sources` in `ctx.errors`). It has `default` only beside `graph_input` (`default_without_graph_input`).
 - With nothing set, the input takes its declared default. A required input with nothing set, on any node, is `input_has_no_value`.
 - `display` is the host's own. It is stored, and never read. What a host keeps about the whole graph, such as a name or a viewport, it stores beside the record.
 
@@ -507,7 +507,7 @@ Everything else is in `Graph.compile(record, registry).problems`: an input or ou
 
 It never raises for a fault in the graph. Each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) in `graph.problems`, and `graph.is_runnable` says whether there are none.
 
-**Faults in the shape raise.** The rule: the shape is the call's, and what the shape says is the graph's. What doesn't have a record's shape raises `InvalidCallError`, with one `invalid_record` problem per fault. Its `loc` is `("record", *where)`, and pydantic's code is in `ctx.error`. That covers:
+**Faults in the shape raise.** The rule: the shape is the call's, and what the shape says is the graph's. What doesn't have a record's shape raises `InvalidCallError`, with one `invalid_record` problem per fault. Its `loc` is `("record", *where)`, and `ctx.errors` has the fault's error, with pydantic's code or conductor's own as its `type` and the `loc` `[]`. That covers:
 
 - text that isn't JSON (`json_invalid`);
 - a key a record doesn't have, such as `vaules`, or `type` for `node`;
@@ -520,7 +520,7 @@ It never raises for a fault in the graph. Each fault is a `Problem` (`type`, `lo
 
 The `loc` goes down to the fault. An entry of no kind or of two ends at its input, `("record", "nodes", "b", "inputs", "text")`. A fault inside an entry goes on, as `("record", "nodes", "b", "inputs", "text", "sources")` for a source listed twice. A node id or input that is not a name ends in `"[key]"`. A record that `make_graph` or an `Upgrade` wrote says so in `ctx.written_by`. Its message ends "Fix make_graph's arguments." or "Fix the Upgrade of 'split' to version 2.".
 
-`read_json(text)` reads JSON text as data, with every object's keys seen. For a key written twice, or text that is not JSON, it raises `InvalidCallError` of `invalid_record`, with `ctx.error` `repeated_key` or `json_invalid`.
+`read_json(text)` reads JSON text as data, with every object's keys seen. For a key written twice, or text that is not JSON, it raises `InvalidCallError` of `invalid_record`, with `repeated_key` or pydantic's `json_invalid` in `ctx.errors`.
 
 **The graph.**
 
