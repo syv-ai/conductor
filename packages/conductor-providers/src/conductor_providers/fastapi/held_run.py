@@ -26,7 +26,7 @@ from typing import Any
 from conductor import InvalidCallError, NodeRegistry, Problem, Run
 from conductor.events import RunCheckpoint, RunEnd
 
-from conductor_providers.fastapi.problems import raised_outside_a_node
+from conductor_providers.fastapi.problems import no_such_run, raised_outside_a_node
 from conductor_providers.fastapi.state import RunRow
 from conductor_providers.fastapi.store import GuardedStore, RunChanges, StoreFailedError
 
@@ -73,8 +73,8 @@ class ResumeSettings:
 class HeldRun:
     """One worker's lease on one run, while the worker resumes it.
 
-    The worker starts ``run()`` as a task, and calls ``heard_of_a_change()`` when it has written a cancel into the
-    run's row. Nothing else of it is used from outside.
+    The worker starts ``run()`` as a task, and calls ``cancel()`` when it has written a cancel into the run's row.
+    Nothing else of it is used from outside.
 
     Args:
         store: The worker's store, guarded.
@@ -133,10 +133,13 @@ class HeldRun:
         finally:
             renewing.cancel()
 
-    async def heard_of_a_change(self) -> None:
-        """Read the row again, and stop the resume call if a cancel was asked or another worker took the run."""
-        async with self._lock:
-            await self._read_again()
+    def cancel(self) -> None:
+        """End the resume call before its next node call: the worker has just written a cancel into the run's row.
+
+        It takes no lock, so a cancel is answered at once, even while the end of a resume call is being written.
+        The row itself is taken in by the next write, whose compare-and-set finds the cancel there.
+        """
+        self._stop.set()
 
     async def _resume_call(
         self,
@@ -254,28 +257,30 @@ class HeldRun:
                     self._stop = Event()
             return written
 
-        async with self._lock:
-            await self._read_again()
-        await self._write(end)
+        # read first: this worker's own calls may have queued an answer, and the end is the largest write
+        await self._write(end, read_first=True)
 
     async def _renew(self) -> None:
         """Renew the lease three times a lease, until the run is let go or taken.
 
         A renewal the store fails is logged, and the next one is tried, so one failed statement doesn't cost the
-        run. A renewal the store hasn't answered within a third of a lease is given up, and the next is made at
-        once. It doesn't hold up the other writes, so a worker whose run was taken meanwhile learns it at its next
-        checkpoint or event.
+        run. A write of the lease the store hasn't answered within a third of a lease is given up, and the next
+        renewal is made at once. Only the store's answer is timed, not the wait for another write of this worker,
+        such as the end of a resume call. A renewal doesn't hold up the other writes, so a worker whose run was taken
+        meanwhile learns it at its next checkpoint or event.
         """
         lease = self._settings.lease
+
+        async def renewed(row: RunRow[Any]) -> RunRow[Any] | None:
+            async with asyncio.timeout(lease / 3):
+                return await self._store.update(row, {"lease_until": time.time() + lease})
+
         wait = lease / 3
         while not self._released:
             await asyncio.sleep(wait)
             wait = lease / 3
             try:
-                async with asyncio.timeout(lease / 3):
-                    await self._write(
-                        lambda row: self._store.update(row, {"lease_until": time.time() + lease})
-                    )
+                await self._write(renewed)
             except TimeoutError:
                 log.error(
                     "the store did not answer a renewal of the lease of run %s; the next is made at once",
@@ -287,7 +292,12 @@ class HeldRun:
                     "the lease of run %s was not renewed; the next renewal tries again", self.run_id
                 )
 
-    async def _write(self, write: Callable[[RunRow[Any]], Awaitable[RunRow[Any] | None]]) -> None:
+    async def _write(
+        self,
+        write: Callable[[RunRow[Any]], Awaitable[RunRow[Any] | None]],
+        *,
+        read_first: bool = False,
+    ) -> None:
         """Write to the run's row by ``write``, under the lock, as ``GuardedStore.change`` writes: again on the row
         read again, each time another writer moved its ``rev`` on first.
 
@@ -297,6 +307,11 @@ class HeldRun:
         Args:
             write: One try, as ``GuardedStore.change`` takes it: it writes with ``GuardedStore.update`` and returns
                 what that returns.
+            read_first: Whether the first try is given the row as the store has it now, read under the same hold of
+                the lock, rather than the row as this worker last read or wrote it.
+
+        Raises:
+            InvalidCallError: The row is gone from the store (``no_such_run``), as ``GuardedStore.change`` says.
         """
 
         async def one_try(row: RunRow[Any]) -> RunRow[Any] | None:
@@ -304,14 +319,10 @@ class HeldRun:
             return row if self._released else await write(row)
 
         async with self._lock:
-            self._row = await self._store.change(self._row, one_try)
-
-    async def _read_again(self) -> None:
-        """Read the row, under the lock, and take it in."""
-        row = await self._store.get(self.run_id)
-        if row is None:
-            raise RuntimeError(f"run {self.run_id} is gone from the store while it is running")
-        self._take_in(row)
+            row = await self._store.get(self.run_id) if read_first else self._row
+            if row is None:
+                raise InvalidCallError([no_such_run()])
+            self._row = await self._store.change(row, one_try)
 
     def _take_in(self, row: RunRow[Any]) -> None:
         """Take in the row as read: what another writer changed in its state, a cancel asked of it, and whether
