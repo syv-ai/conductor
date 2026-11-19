@@ -377,39 +377,43 @@ def invalid_input_list_for_one_value(*loc: str | int, name: str, expected: str, 
 
 
 @CALL_PROBLEMS.problem
-def invalid_limit(limit: str, /, *, value: Any) -> str:
+def invalid_limit(limit: str, /, *, errors: list[dict[str, Any]]) -> str:
     """A call gives ``max_items`` a value that isn't a whole number of at least 1, such as ``0``, ``2.5`` or ``True``.
 
-    A yes or no isn't a number, so ``True`` is refused too.
+    A yes or no isn't a number, so ``True`` is refused too. ``ctx.errors`` has pydantic's error, such as
+    ``greater_than_equal`` for ``0`` or ``int_type`` for ``True``, without the value.
 
     To fix it, give a whole number of 1 or more. Or leave it out, for no limit on items.
 
     Args:
         limit: ``max_items``.
-        value: The value given, of any type. ``True`` and ``"5"`` are refused as they are.
+        errors: What pydantic refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the
+            value.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run({"text": "a"}, max_items=0))
     """
-    return f"{limit} must be a whole number of 1 or more, not {value}. Leave it out for no limit on items."
+    return f"{limit} must be a whole number of 1 or more. Leave it out for no limit on items."
 
 
 @CALL_PROBLEMS.problem
-def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
+def invalid_limit_seconds(limit: str, /, *, errors: list[dict[str, Any]]) -> str:
     """A call gives ``timeout`` or ``checkpoint_every`` a value that isn't a finite number of seconds above 0.
 
-    So ``0``, ``inf``, ``nan`` and ``True`` are all refused. A yes or no isn't a number.
+    So ``0``, ``inf``, ``nan`` and ``True`` are all refused. A yes or no isn't a number. ``ctx.errors`` has pydantic's
+    error, such as ``greater_than`` for ``0`` or ``finite_number`` for ``inf``, without the value.
 
     To fix it, give a number of seconds above 0. Or leave the limit out, for no time limit or no checkpoints.
 
     Args:
         limit: ``timeout`` or ``checkpoint_every``.
-        value: The value given, of any type. ``True`` and ``"5"`` are refused as they are.
+        errors: What pydantic refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the
+            value.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs({"text": "a"}).resume(timeout=0))
     """
-    return f"{limit} must be a finite number of seconds above 0, not {value}. Leave it out for no limit."
+    return f"{limit} must be a finite number of seconds above 0. Leave it out for no limit."
 
 
 @CALL_PROBLEMS.problem

@@ -2899,8 +2899,20 @@ def test_with_max_items_none_removes_the_item_limit_and_with_inputs_none_keeps_i
     assert unlimited.resume().results["u"]["result"] == ["A", "B", "C"]
 
 
-@pytest.mark.parametrize("max_items", [0, -1, True, False, 2.5, "5"])
-def test_max_items_is_a_whole_number_of_at_least_one_and_a_bool_is_not_one(max_items: Any) -> None:
+@pytest.mark.parametrize(
+    ("max_items", "error"),
+    [
+        (0, "greater_than_equal"),
+        (-1, "greater_than_equal"),
+        (True, "int_type"),
+        (False, "int_type"),
+        (2.5, "int_type"),
+        ("5", "int_type"),
+    ],
+)
+def test_max_items_is_a_whole_number_of_at_least_one_and_a_bool_is_not_one(
+    max_items: Any, error: str
+) -> None:
     compiled = graph(
         {"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, edges=(("s.result", "u.text"),)
     )
@@ -2914,9 +2926,11 @@ def test_max_items_is_a_whole_number_of_at_least_one_and_a_bool_is_not_one(max_i
     for call in calls:
         with pytest.raises(InvalidCallError) as refused:
             call()
+        refusal = refused.value.problems[0].ctx["errors"][0]
         assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
-            ("invalid_limit", ("max_items",), {"limit": "max_items", "value": max_items})
+            ("invalid_limit", ("max_items",), {"limit": "max_items", "errors": [refusal]})
         ]
+        assert refusal["type"] == error and "value" not in refused.value.problems[0].ctx
 
 
 def test_the_item_limit_is_on_each_series_never_on_all_their_items_together():

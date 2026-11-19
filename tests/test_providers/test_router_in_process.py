@@ -404,7 +404,21 @@ async def test_every_action_answers_with_the_run_as_it_wrote_it() -> None:
             (problem["type"], problem["loc"], problem["ctx"])
             for problem in below_one.json()["detail"]
         ] == [
-            ("invalid_limit", ["max_items"], {"limit": "max_items", "value": 0}),
+            (
+                "invalid_limit",
+                ["max_items"],
+                {
+                    "limit": "max_items",
+                    "errors": [
+                        {
+                            "type": "greater_than_equal",
+                            "loc": [],
+                            "msg": "Input should be greater than or equal to 1",
+                            "ctx": {"ge": 1},
+                        }
+                    ],
+                },
+            ),
         ]
         for not_a_whole_number in (True, 2.5, "5"):
             refused = await client.post(

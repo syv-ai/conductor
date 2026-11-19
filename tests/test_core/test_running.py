@@ -2559,16 +2559,28 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
     assert last.type == "run_end" and last.run.status == "cancelled"
 
 
-@pytest.mark.parametrize("every", [0, -1, math.inf, True, "5"])
-def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
+@pytest.mark.parametrize(
+    ("every", "error"),
+    [
+        (0, "greater_than"),
+        (-1, "greater_than"),
+        (math.inf, "finite_number"),
+        (True, "float_type"),
+        ("5", "float_type"),
+    ],
+)
+def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any, error: str) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs({"text": "a"}).stream(checkpoint_every=every)
-    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
+    assert [
+        (p.type, p.loc, [p.ctx["limit"], *(e["type"] for e in p.ctx["errors"])])
+        for p in refused.value.problems
+    ] == [
         (
             "invalid_limit_seconds",
             ("checkpoint_every",),
-            {"limit": "checkpoint_every", "value": every},
+            ["checkpoint_every", error],
         ),
     ]
 
@@ -2584,8 +2596,7 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
         assert [(p.type, p.loc, p.ctx["limit"]) for p in refused.value.problems] == [
             ("invalid_limit_seconds", ("timeout",), "timeout")
         ]
-        if not (isinstance(timeout, float) and math.isnan(timeout)):
-            assert refused.value.problems[0].ctx["value"] == timeout
+        assert "value" not in refused.value.problems[0].ctx
 
 
 def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_order_of_the_limits():
@@ -2593,8 +2604,29 @@ def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_o
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs({"text": "a"}).stream(checkpoint_every=True, timeout=0)
     assert [(p.type, p.ctx) for p in refused.value.problems] == [
-        ("invalid_limit_seconds", {"limit": "timeout", "value": 0}),
-        ("invalid_limit_seconds", {"limit": "checkpoint_every", "value": True}),
+        (
+            "invalid_limit_seconds",
+            {
+                "limit": "timeout",
+                "errors": [
+                    {
+                        "type": "greater_than",
+                        "loc": [],
+                        "msg": "Input should be greater than 0",
+                        "ctx": {"gt": 0.0},
+                    }
+                ],
+            },
+        ),
+        (
+            "invalid_limit_seconds",
+            {
+                "limit": "checkpoint_every",
+                "errors": [
+                    {"type": "float_type", "loc": [], "msg": "Input should be a valid number"}
+                ],
+            },
+        ),
     ]
 
 

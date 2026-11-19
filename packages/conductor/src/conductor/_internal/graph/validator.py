@@ -39,6 +39,7 @@ from conductor._internal.problem import (
     call_problems,
     compile_problems,
 )
+from conductor._internal.types import Type
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, read_as_json
 
@@ -165,8 +166,8 @@ class LimitsValidator(Validator[Limits, Limits]):
     It returns ``timeout`` and ``checkpoint_every`` as a ``float``, so ``timeout=Decimal("1.5")`` becomes ``1.5``.
 
     Raises (when called):
-        InvalidCallError: One ``invalid_limit`` for each limit refused, in the order above. It quotes the value
-            given. For ``timeout`` and ``checkpoint_every``, it's ``invalid_limit_seconds``.
+        InvalidCallError: One ``invalid_limit`` for each limit refused, in the order above, with pydantic's errors
+            and not the value. For ``timeout`` and ``checkpoint_every``, it's ``invalid_limit_seconds``.
     """
 
     def __call__(self, limits: Limits) -> Limits:
@@ -197,7 +198,7 @@ class LimitsValidator(Validator[Limits, Limits]):
                         call_problems.invalid_limit
                         if name == "max_items"
                         else call_problems.invalid_limit_seconds
-                    )(name, value=given[name])
+                    )(name, errors=Type(Any).refusal(error, (name,))["errors"])
                     for name in refused
                 ]
             ) from None
