@@ -40,7 +40,7 @@ class SavedOutcomes(BaseModel):
         "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}}
 
     In memory, a run stores one outcome per call. Only the JSON has a list per output, for three reasons. Pydantic
-    checks a whole list in one go, where a record per call would cost a check each. Each output's name is written
+    checks a whole list in one go, where a model per call would cost a check each. Each output's name is written
     once. And there is no key per call to get wrong: a call too many or too few makes a list of the wrong length,
     which reading refuses.
 

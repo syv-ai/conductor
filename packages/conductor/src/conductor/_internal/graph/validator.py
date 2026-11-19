@@ -54,7 +54,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     (``read_as_json``). So a value given from Python and the same value sent over HTTP read the same, and so does
     the value a saved run reads back. ``3`` is an ``int``, but ``"3"`` and ``3.0`` are refused. ``True`` is a
     ``bool``, but ``"yes"`` and ``1`` are refused. A ``date`` may be given as a ``date`` or as its ISO text, and a
-    record as its class or as a mapping of its fields. A value JSON can't write, such as an object held in memory,
+    model as its class or as a mapping of its fields. A value JSON can't write, such as an object held in memory,
     is refused: what a node needs from the host that isn't data goes in the run's context. So is a set, which has
     no order and so no one JSON text: give a list.
 

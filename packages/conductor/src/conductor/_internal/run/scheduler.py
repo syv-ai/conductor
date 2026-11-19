@@ -465,7 +465,7 @@ class Scheduler:
             return
         try:
             arguments = self.outcomes.arguments_for(node, item_indexes)
-        # An edge reads a field that the record it reads from doesn't have.
+        # An edge reads a field that the value it reads from doesn't have.
         except InvalidCallError as missing:
             (problem,) = missing.problems
             self._write_outcome(node, item_indexes, self._failure(node, item_indexes, problem))

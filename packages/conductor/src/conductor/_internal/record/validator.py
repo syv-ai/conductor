@@ -8,7 +8,7 @@ that it has a record's shape and returns a ``GraphRecord``. Say a host compiles 
 ``WrittenValuesValidator`` checks the Python values that ``make_graph`` and ``registry.upgrade`` write into a
 record, and converts them to JSON, as a caller's value for an ``Any`` input is. A date becomes its ISO text. A set
 is refused, since it has no order and the record could list it differently in another process, and so is a frame:
-a record holds a table as a list of records.
+a record holds a table as a list of rows.
 
 Only the shape is checked here. A record can have the right shape and still be wrong as a graph, for example with
 an edge from a node it doesn't have. That isn't refused: compiling lists it in ``graph.problems``, so an editor can

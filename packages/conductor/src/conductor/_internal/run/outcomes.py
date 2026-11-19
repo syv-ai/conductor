@@ -21,7 +21,7 @@ Sometimes a node can't be called, and ``arguments_for`` says why instead. It che
 1. An input gets only ``SKIPPED``, because every edge into it comes from a skipped branch. The call is
    ``Skipped``, whatever the other inputs get.
 2. A value an input needs doesn't exist yet. The call is ``NOT_READY``, and the run tries it again later.
-3. An edge reads a field of a record (``lines.result.name``) that the record doesn't have. The call fails with
+3. An edge reads a field of a value (``lines.result.name``) that the value doesn't have. The call fails with
    ``invalid_edge_value``.
 4. An input gets ``None``, and its parameter doesn't take ``None``. The call is a ``NoneInput``, and the
    function isn't called.
@@ -240,8 +240,8 @@ class RunOutcomes:
             doesn't take it.
 
         Raises:
-            InvalidCallError: ``invalid_edge_value`` if an edge reads a field of a record (``lines.result.name``) and
-                the record has no such field.
+            InvalidCallError: ``invalid_edge_value`` if an edge reads a field of a value (``lines.result.name``) and
+                the value has no such field.
         """
         arguments = node.constants.copy()
         graph_inputs = self.graph_inputs
@@ -358,7 +358,7 @@ class RunOutcomes:
             returns the ``None`` or ``SKIPPED`` that every item would get.
 
         Raises:
-            NoSuchFieldError: The edge reads a field of a record, and the record has no such field.
+            NoSuchFieldError: The edge reads a field of a value, and the value has no such field.
         """
         depth = len(node.loops)
         outcome = self._by_node[node.node_path].get(item_indexes[:depth])

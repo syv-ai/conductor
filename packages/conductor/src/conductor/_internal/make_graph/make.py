@@ -6,7 +6,7 @@ inputs and outputs.
 
 This is the one place in conductor that reads a place in a graph from dotted text. ``"lines.result"`` is the output
 ``result`` of the node ``lines``. ``"shout.mark"`` is the input ``mark`` of ``shout``. ``"read.result.email"`` is
-the field ``email`` of the record that ``read`` returns. No name may have a dot in it, so the text is cut at its
+the field ``email`` of the value that ``read`` returns. No name may have a dot in it, so the text is cut at its
 first two dots, and nothing has to be guessed.
 """
 
@@ -62,7 +62,7 @@ def make_graph(
         make_graph(lines, shout, join)                                # a chain
         make_graph(lines, shout, edges=[("lines.result", "shout.line")])
         make_graph(lines, shout, join, constants={"shout.mark": "?"})
-        make_graph(read, send, edges=[("read.result.email", "send.to")])     # the field email of read's record
+        make_graph(read, send, edges=[("read.result.email", "send.to")])     # the field email of read's result
         make_graph(("a", shout), ("b", shout), edges=[("a.result", "b.line")])
 
     Node ids. A node's id in the graph is the one given with it, as in ``("a", shout)``, or else its definition's
@@ -70,7 +70,7 @@ def make_graph(
     id another node already has.
 
     Edges. An edge is ``(output, input)``, each written ``"node.name"``. The output may be followed by one field of
-    the record it returns. With no ``edges``, the nodes form a chain. Each node's one required input that an edge
+    the value it returns. With no ``edges``, the nodes form a chain. Each node's one required input that an edge
     can feed, and that no constant or default fills, gets an edge from the one output of the node before it. With
     ``edges``, those are all the edges. Nothing is ever matched by name.
 

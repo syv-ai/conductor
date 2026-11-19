@@ -21,7 +21,7 @@ used as one node::
   graph, and the node inside it there is ``loud``. So the call is ``("loud", 1, "shout")``, written
   ``"loud@1/shout"``. A host is given a loc whenever it is told about one call, as in
   ``NoneInputCall(loc=("loud", 1, "shout"), input="line")`` in ``run.none_input_calls``.
-- A **source** is where an edge or a graph output gets its value: one output of a node, or one field of the record
+- A **source** is where an edge or a graph output gets its value: one output of a node, or one field of the value
   that output returns. ``Source("lines", "result")`` is written ``"lines.result"``. A graph record stores where
   each edge comes from as a ``Source``. Inside the engine, an output deep in a graph is named by its node path and
   its name instead, as in ``(("loud", "shout"), "result")``.
@@ -59,7 +59,7 @@ ItemIndexes = tuple[int, ...]
 Loc = tuple[str | int, ...]
 
 
-#: Comes between a node and the name of its output, and between an output and a record field: ``"read.result.email"``.
+#: Comes between a node and the name of its output, and between an output and a field of its value: ``"read.result.email"``.
 FIELD_SEPARATOR = "."
 
 #: Comes between the ids of a node path: ``"loud/shout"``.
@@ -88,7 +88,7 @@ def is_name(text: str) -> bool:
 
 
 def is_field(text: str) -> bool:
-    """Whether ``text`` can be the name of a field of a record that an edge reads.
+    """Whether ``text`` can be the name of a field of a value that an edge reads.
 
     A field's name isn't empty and doesn't start with a dot. It may have dots elsewhere, as in ``"Amount in USD."``,
     since a field is the last part of a place's text.
@@ -120,10 +120,10 @@ Name = Annotated[str, AfterValidator(_a_name)]
 
 @dataclass(frozen=True, slots=True, config=ConfigDict(extra="forbid"))
 class Source:
-    """Where an edge or a graph output gets its value: one output of a node, or one field of the record it returns.
+    """Where an edge or a graph output gets its value: one output of a node, or one field of the value it returns.
 
     In a graph record, ``{"node": "lines", "output": "result"}`` is the output ``result`` of the node ``lines``.
-    Add ``"field": "email"`` to take only the ``email`` field of the record that output returns. A subgraph node's
+    Add ``"field": "email"`` to take only the ``email`` field of the value that output returns. A subgraph node's
     outputs are the graph outputs its graph record declares, and they are named like any other output.
 
     Every part is checked when a ``Source`` is made, from Python or from JSON. ``Source("loud/shout", "result")``
@@ -133,7 +133,7 @@ class Source:
     Attributes:
         node: The node's id.
         output: The output's name.
-        field: The field of the record the output returns; ``None`` for the whole output.
+        field: The field of the value the output returns; ``None`` for the whole output.
     """
 
     node: Name
@@ -143,7 +143,7 @@ class Source:
     @field_validator("field")
     @classmethod
     def _a_field(cls, text: str | None) -> str | None:
-        """Checks the name of a field of a record (see ``is_field``).
+        """Checks the name of a field of a value (see ``is_field``).
 
         Raises:
             PydanticCustomError: ``not_a_field`` if the name is empty or starts with a dot.
@@ -164,7 +164,7 @@ def place_text(loc: Loc, name: str | None = None, field: str | None = None) -> s
     """Writes a node, one of its inputs or outputs, or one call of a node as text.
 
     The node ids are joined with ``/``, and each item index follows the id before it after an ``@``. The name of
-    an input or an output follows after a dot, and a record field after another dot. A node path is a loc with no
+    an input or an output follows after a dot, and a field of its value after another dot. A node path is a loc with no
     item indexes, and a saved run writes a node this way.
 
     ``place_text(("loud", "shout"))`` returns ``"loud/shout"``, ``place_text(("lines",), "result")`` returns
@@ -174,7 +174,7 @@ def place_text(loc: Loc, name: str | None = None, field: str | None = None) -> s
     Args:
         loc: The node's path, or the loc of one call of it.
         name: The name of an input or an output of the node; ``None`` for the node itself.
-        field: The field of the record the output returns; ``None`` for the whole output.
+        field: The field of the value the output returns; ``None`` for the whole output.
     """
     text = "".join(
         f"{INDEX_SEPARATOR}{part}" if isinstance(part, int) else f"{NODE_SEPARATOR}{part}"

@@ -59,7 +59,7 @@ class Edge:
 
     Say ``shout`` is inside the subgraph node ``loud``, and the edge is wired to ``loud.result``. Then the edge is
     ``Edge(Source("loud", "result"), ("loud", "shout"), "result", ...)``. An edge from the field ``email`` of the
-    record ``split.result`` has ``Source("split", "result", "email")``.
+    output ``split.result`` has ``Source("split", "result", "email")``.
 
     Attributes:
         wired_to: What the graph record wires the edge to: an output, and the field of the record it returns, or
@@ -258,7 +258,7 @@ class CollectingInput:
 
     In the example, ``join.texts`` collects the loop over ``lines.result``. Its ``series`` is ``lines.result`` and
     its one source is ``shout.result``, so ``join`` is called once, with ``["A!", "B!"]``. A ``Table`` input wired
-    to records collects them the same way.
+    to rows collects them the same way.
 
     Attributes:
         field: The input, as its node declares it.

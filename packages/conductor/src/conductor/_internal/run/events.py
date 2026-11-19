@@ -78,7 +78,7 @@ class _NodeEvent(EventBase):
         loc: Which node the event is about, by its id: ``("shout",)``. For a node inside a subgraph, the subgraph
             node's id comes first, so ``shout`` inside the subgraph node ``loud`` is ``("loud", "shout")``. The loc
             names the node, not one of its calls. A node inside a loop gets one ``NodeStart``, one ``NodeComplete``
-            and one ``NodeFailed`` for all its calls together. When an event is about one call, the record it
+            and one ``NodeFailed`` for all its calls together. When an event is about one call, the model it
             carries says which call: the ``loc`` of its ``Problem`` or of its ``Waiting``.
     """
 

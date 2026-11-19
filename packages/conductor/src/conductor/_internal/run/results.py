@@ -54,7 +54,7 @@ class DisplayReader(RunOutcomes):
     far. In the example, while ``shout`` has only returned for the first line, ``results["shout"]["result"]`` is
     ``["A!", None]``.
 
-    An edge can name one field of a record (``give.result.name``). If the record has no such field, the node the
+    An edge can name one field of a value (``give.result.name``). If the value has no such field, the node the
     edge leads to fails, and the run ends ``failed`` with that as its cause. Showing the run afterwards mustn't
     raise the same error again, so here the missing field is shown as ``None``.
     """
@@ -88,7 +88,7 @@ class DisplayReader(RunOutcomes):
     def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input would get for the call at ``item_indexes``.
 
-        It is ``None`` when the edge names a field that a record in the list doesn't have.
+        It is ``None`` when the edge names a field that an item of the list doesn't have.
         """
         try:
             return RunOutcomes.collect(self, node_input, item_indexes)

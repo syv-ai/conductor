@@ -50,7 +50,7 @@ def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
     check. An edge from ``-> int`` into ``Annotated[int, Param(le=3)]`` does, and so does an edge from ``-> Any``.
 
     An input that collects a loop gets one item of its value from each edge, not the whole value. Then each output
-    is compared with the input's item type. An input that collects records into a table is always checked, since
+    is compared with the input's item type. An input that collects rows into a table is always checked, since
     each row has to be checked against the table's columns.
     """
     field, sources = node_input.field, [edge.type for edge in node_input.sources]

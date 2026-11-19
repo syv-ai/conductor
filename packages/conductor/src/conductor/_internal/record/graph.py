@@ -16,7 +16,7 @@ from .node import JSON_ONLY, NodeRecord
 def _whole_output(source: Source) -> Source:
     """Checks that a graph output is a whole output, not one field of it.
 
-    An edge into a node may take one field of a record, but a graph output can't.
+    An edge into a node may take one field of an output, but a graph output can't.
 
     Raises:
         PydanticCustomError: ``output_has_field`` if ``source`` names a field.

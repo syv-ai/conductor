@@ -24,7 +24,7 @@ Only the declared types decide the loops, never the values:
   inside the loop over that output. A ``Table`` input wired to a ``Series`` of tables gets one table per call.
 - An input wired to an output of a node outside the loop gets the same value on every call inside it. That's an
   outer value.
-- An input declared ``Series[T]``, or a ``Table[R]`` wired to records, collects. What it's wired to must be inside
+- An input declared ``Series[T]``, or a ``Table[R]`` wired to rows, collects. What it's wired to must be inside
   a loop. It gets one value per item of the innermost of those loops, as a list, and its node is outside that loop.
   Wired to one value per call, because what it's wired to is in no loop or its node is inside that loop too, it gets
   the problem ``type_mismatch_series_given_one_value``. A ``Series`` output wired to it is passed whole.
@@ -787,7 +787,7 @@ class Compiler:
         For the first edge that doesn't, the graph gets the problem.
 
         ``expected`` is the input's type when it takes one value. When the input collects, it's the type of one item
-        of the ``Series``, or the record type of the ``Table`` (see ``_collects_and_expected_type``).
+        of the ``Series``, or the row type of the ``Table`` (see ``_collects_and_expected_type``).
         """
         for source in sources:
             if (
@@ -798,7 +798,7 @@ class Compiler:
         return True
 
     def _edge(self, source: Source, node_id: str, name: str) -> Edge | None:
-        """Returns the edge from ``source``, which is an output, or one field of the record an output returns.
+        """Returns the edge from ``source``, which is an output, or one field of the value an output returns.
 
         Returns:
             The edge. It gives one item per call when the output is a ``Series``. ``None``, with a problem, when the
@@ -818,7 +818,7 @@ class Compiler:
         field = node.outputs[source.output]
         if source.field is not None and (
             parts := _taken_apart(field.type)
-        ):  # only a record has fields to wire; a table or list must be taken apart first
+        ):  # only a value with fields has fields to wire; a table or list must be taken apart first
             self.problems.append(
                 compile_problems.unknown_output_field_of_whole_table_or_list(
                     node_id,
@@ -846,7 +846,7 @@ class Compiler:
         """Returns where an edge goes among several into one input.
 
         Edges are sorted by their node's place among the node ids, then by their output's place on that node, then
-        by the record field they read, with the whole output first.
+        by the field they read, with the whole output first.
         """
         wired_to = edge.wired_to
         return (
@@ -981,11 +981,11 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     """Returns whether ``field`` collects what ``sources`` carry, and the type each source must fit.
 
     The type is the input's whole type when it takes one value. When it collects, it's the type of one item of the
-    ``Series``, or of one record of the table.
+    ``Series``, or of one row of the table.
 
     A ``Table`` input takes a whole table when every edge carries one, either as one value or as each item of a
-    ``Series`` of tables. An edge declared ``Any`` could carry a table or a record, so it doesn't decide. A ``Table``
-    input whose edges are all ``Any`` (``_only_any``) collects records from a loop it is outside, and takes a whole
+    ``Series`` of tables. An edge declared ``Any`` could carry a table or a row, so it doesn't decide. A ``Table``
+    input whose edges are all ``Any`` (``_only_any``) collects rows from a loop it is outside, and takes a whole
     table where they give each call one value (``Compiler._inputs_given_one_value``).
     """
     row = field.whole.row
@@ -1002,9 +1002,9 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
 
 
 def _only_any(sources: list[Edge]) -> bool:
-    """Returns whether every edge into an input is declared ``Any``, so none says whether it carries a table or a record.
+    """Returns whether every edge into an input is declared ``Any``, so none says whether it carries a table or a row.
 
-    Into a ``Table`` input, such edges are records where the input collects a loop, and a whole table where they
+    Into a ``Table`` input, such edges are rows where the input collects a loop, and a whole table where they
     give each call one value.
     """
     return all(source.type.bare is Any for source in sources)
@@ -1060,8 +1060,8 @@ def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     A problem uses this to suggest such a node.
 
     Returns:
-        ``"table"`` or ``"list"``, and the fields of each record or item it gives. There are none for a table whose
-        columns aren't known, or for a list whose items aren't records. ``None`` for a type that's neither a table
+        ``"table"`` or ``"list"``, and the fields of each row or item it gives. There are none for a table whose
+        columns aren't known, or for a list whose items declare no fields. ``None`` for a type that's neither a table
         nor a list.
     """
     if whole.row is not None:
@@ -1085,7 +1085,7 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
     """Returns the ``type_mismatch`` problem for ``edge`` into ``field``.
 
     Where one mistake explains it, the problem says the fix. A whole table or list wired to an input that takes one
-    value needs a node first that takes it apart into a ``Series``. A table input wired to records that lack one of
+    value needs a node first that takes it apart into a ``Series``. A table input wired to rows that lack one of
     its columns needs that column added. A ``Series`` wired to an input that takes a list of its items needs the
     input declared a ``Series``.
     """

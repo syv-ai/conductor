@@ -86,7 +86,7 @@ class InputEntry(ConductorModel):
       Add ``"default"`` for a value to use when the caller gives none. Without one, the caller must give it.
       Several inputs may name the same graph input, and then they all get the caller's one value.
     - ``{"sources": [{"node": "lines", "output": "result"}]}`` lists the outputs whose edges lead into the input.
-      A source may also name one field of a record, as in ``{"node": "read", "output": "result", "field":
+      A source may also name one field of the output's value, as in ``{"node": "read", "output": "result", "field":
       "email"}``. Several sources come from different branches of one node.
 
     Attributes:

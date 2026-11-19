@@ -1,4 +1,4 @@
-"""``ConductorModel``, the base class of every record a host saves or sends as JSON.
+"""``ConductorModel``, the base class of every model a host saves or sends as JSON.
 
 A graph record, a problem, an event, a call waiting for a person and a widget are all ``ConductorModel``s. Each is
 a frozen pydantic model, written with pydantic's ``model_dump_json`` and read back with ``model_validate_json``.
