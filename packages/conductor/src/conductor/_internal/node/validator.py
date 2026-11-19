@@ -46,6 +46,7 @@ from conductor._internal.problem import (
     compile_problems,
     conductor_error,
     run_problems,
+    shape_error,
 )
 from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.utils import comma_separated
@@ -315,10 +316,11 @@ class HookValidator(Validator[Any, dict[str, Field]]):
     with ``DeclaredOutputValidator``.
 
     Raises (when called):
-        InvalidCallError: ``compute_hook_returned_invalid`` problems. There is one at each name that isn't a valid name
-            (``error`` ``not_a_name``). If the hook returned no mapping, there is one at the node (``not_a_mapping``).
-            If ``@node`` would refuse a field, its ``error`` is the declaration's code, like ``default_invalid``, and
-            its message names the field but quotes none of the declaration's text, which can quote the default.
+        InvalidCallError: ``compute_hook_returned_invalid`` problems, each with one error in ``ctx.errors``. There is
+            one at each name that isn't a valid name (``not_a_name``). If the hook returned no mapping, there is one
+            at the node (``dict_type``). If ``@node`` would refuse a field, its error's ``type`` is the declaration's
+            code, like ``default_invalid``, and its message names the field but quotes none of the declaration's
+            text, which can quote the default.
     """
 
     def __init__(self, node_id: str, hook: HookName) -> None:
@@ -351,7 +353,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 raise InvalidCallError(
                     [
                         compile_problems.compute_hook_returned_invalid(
-                            self._node_id, reason=reason, error="not_a_mapping"
+                            self._node_id, reason=reason, errors=[shape_error(invalid.errors()[0])]
                         )
                     ]
                 ) from None
@@ -360,7 +362,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                     self._node_id,
                     str(fault["loc"][0]),
                     reason=f"its {self._hook} hook returned a name a field can't have ({fault['msg']})",
-                    error="not_a_name",
+                    errors=[shape_error(fault)],
                 )
                 for fault in invalid.errors()
             ) from None
@@ -372,13 +374,17 @@ class HookValidator(Validator[Any, dict[str, Field]]):
             # @node would refuse the field, so the hook failed. The declaration's message can quote the default the
             # hook gave, so the problem keeps only its code.
             except NodeDeclarationError as error:
-                reason = (
-                    f"its {self._hook} hook gave '{name}' a type or a default that @node refuses"
+                refused = shape_error(
+                    conductor_error(
+                        error.problems[0].type,
+                        "its {hook} hook gave '{name}' a type or a default that @node refuses",
+                        {"hook": self._hook, "name": name},
+                    )
                 )
                 raise InvalidCallError(
                     [
                         compile_problems.compute_hook_returned_invalid(
-                            self._node_id, reason=reason, error=error.problems[0].type
+                            self._node_id, reason=refused["msg"], errors=[refused]
                         )
                     ]
                 ) from None

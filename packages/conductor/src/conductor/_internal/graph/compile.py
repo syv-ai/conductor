@@ -68,6 +68,8 @@ from conductor._internal.problem import (
     Problem,
     author_code_problem,
     compile_problems,
+    conductor_error,
+    shape_error,
 )
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
 from conductor._internal.types import Type, choices_in_message
@@ -341,11 +343,16 @@ class Compiler:
                 )
             )
             if taken:
+                exists = shape_error(
+                    conductor_error(
+                        "added_input_exists",
+                        "it adds '{name}', which the node already declares",
+                        {"name": taken[0]},
+                    )
+                )
                 self.problems.append(
                     compile_problems.compute_hook_returned_invalid(
-                        node_id,
-                        reason=f"it adds {taken[0]!r}, which the node already declares",
-                        error="added_input_exists",
+                        node_id, reason=exists["msg"], errors=[exists]
                     )
                 )
                 return

@@ -161,7 +161,7 @@ def test_an_added_input_named_as_the_context_parameter_is_the_hooks_failure():
     [problem] = Graph.compile(
         make_graph(adds, constants={"adds.formula": "x"}), app_registry(adds)
     ).problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+    assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         ("adds",),
         "added_input_exists",

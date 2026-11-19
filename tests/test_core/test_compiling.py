@@ -2026,7 +2026,7 @@ def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failur
         ),
         OUTSIDE,
     ).problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+    assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         ("d",),
         "added_input_exists",

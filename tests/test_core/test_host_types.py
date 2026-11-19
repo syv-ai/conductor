@@ -321,7 +321,7 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
     (problem,) = Graph.compile(
         make_graph(made, outputs={"result": "made.result"}), registry
     ).problems
-    assert (problem.type, problem.ctx["error"]) == (
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         "type_not_named",
     )

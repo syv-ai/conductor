@@ -97,12 +97,14 @@ def compute_hook_failed(
 
 
 @COMPILE_PROBLEMS.problem
-def compute_hook_returned_invalid(*loc: str | int, reason: str, error: str) -> str:
+def compute_hook_returned_invalid(
+    *loc: str | int, reason: str, errors: list[dict[str, Any]]
+) -> str:
     """A node's ``compute_...`` hook returned something compiling can't use.
 
-    ``ctx.error`` says what:
+    ``ctx.errors`` has one error, with ``loc`` ``[]``, whose ``type`` says what:
 
-    - ``not_a_mapping``: the hook didn't return a mapping of each field's name to its type.
+    - ``dict_type``: the hook didn't return a mapping of each field's name to its type.
     - ``not_a_name``: the hook gave a field a name it can't have. Then the problem is at that name. A name must not be
       empty, and must not contain ``.``, ``/``, ``@`` or ``~``, since those are used to write sources, node paths and
       waiting ids.
@@ -115,8 +117,7 @@ def compute_hook_returned_invalid(*loc: str | int, reason: str, error: str) -> s
     Args:
         loc: The node. If the hook gave a field a name it can't have, that name comes next.
         reason: Why compiling can't use what the hook returned.
-        error: What is wrong with it: ``not_a_mapping``, ``not_a_name``, ``added_input_exists``, or the code ``@node``
-            would refuse the field with.
+        errors: What is wrong with it, as one error whose ``type`` is one of the codes above.
 
     Example:
         def named_by_text(names: str) -> dict[str, type]:

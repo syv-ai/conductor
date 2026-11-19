@@ -1431,7 +1431,7 @@ def test_an_added_input_whose_default_is_skipped_is_the_hooks_failure_and_the_fu
         return text
 
     [problem] = compiled_graph(adds).problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+    assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         ("adds",),
         "default_skipped_on_input",
@@ -1725,10 +1725,10 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
     returned: Any,
 ):
     [problem] = _computing(lambda: returned).problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+    assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         ("h",),
-        "not_a_mapping",
+        "dict_type",
     )
     assert f"returned a {type(returned).__name__}, not a mapping" in problem.msg
 
@@ -1801,18 +1801,18 @@ def test_a_return_that_does_not_fit_the_outputs_says_so_whatever_is_wrong_with_i
 
 
 def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
-    assert [(p.type, p.loc, p.ctx["error"]) for p in _computing(lambda: {1: int}).problems] == [
-        ("compute_hook_returned_invalid", ("h", "1"), "not_a_name")
-    ]
+    assert [
+        (p.type, p.loc, p.ctx["errors"][0]["type"]) for p in _computing(lambda: {1: int}).problems
+    ] == [("compute_hook_returned_invalid", ("h", "1"), "string_type")]
 
 
 @pytest.mark.parametrize("key", [1.5, None, (1, 2)], ids=["float", "none", "tuple"])
 def test_a_hook_whose_field_name_is_no_text_or_int_is_the_hooks_failure_not_a_raise(key: Any):
     [problem] = _computing(lambda: {"ok": int, key: int}).problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+    assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         ("h", str(key)),
-        "not_a_name",
+        "string_type",
     )
 
 
@@ -1871,7 +1871,7 @@ def test_a_field_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its
     The declaration's own message quotes the default, a value, so the problem names only the field.
     """
     [problem] = _computing(lambda: {"count": (int, "secret-default")}).problems
-    assert (problem.type, problem.ctx["error"]) == (
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         "default_invalid",
     )
@@ -1889,7 +1889,7 @@ def test_a_hook_that_gives_a_field_no_type_at_all_fails_with_the_declarations_co
     It is the code ``@node`` gives the same value in a signature, and compiling reports it rather than raising.
     """
     [problem] = _computing(lambda: {"count": not_a_type}).problems
-    assert (problem.type, problem.ctx["error"]) == (
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         "type_not_supported",
     )
@@ -2868,7 +2868,7 @@ def test_a_set_in_a_type_variables_bound_or_in_an_input_a_hook_adds_is_refused_a
     (problem,) = compiled_graph(
         node("tagged", title="Tagged", description="For a test.", compute_added_inputs=adds)(tagged)
     ).problems
-    assert (problem.type, problem.ctx["error"]) == (
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
         "type_not_supported_set",
     )
