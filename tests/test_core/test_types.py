@@ -557,7 +557,7 @@ def test_a_table_of_no_rows_has_every_declared_column_of_its_declared_type() -> 
     assert _run(count_people, people=[]).outputs == {"result": 0}
 
 
-def test_records_collected_into_a_table_are_read_once_each_cell_by_its_columns_type() -> None:
+def test_rows_collected_into_a_table_are_read_once_each_cell_by_its_columns_type() -> None:
     @node("person", title="Person", description="For a test.")
     def person() -> Series[Dated]:
         return [

@@ -235,7 +235,7 @@ def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_
     )
 
 
-def test_records_collected_without_a_column_the_table_input_names_say_the_same():
+def test_rows_collected_without_a_column_the_table_input_names_say_the_same():
     found = problem(
         {"read": "contacts", "records": "records", "report": "report"},
         [("read.result", "records.table"), ("records.result", "report.table")],

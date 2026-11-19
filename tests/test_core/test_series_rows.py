@@ -1,8 +1,8 @@
-"""Tests for a node that returns a table where its type says a ``Series`` of records.
+"""Tests for a node that returns a table where its type says a ``Series`` of rows.
 
-A node declared ``-> Series[Contact]`` may return a polars table, one row per record. The run stores the table as it
+A node declared ``-> Series[Contact]`` may return a polars table, one row per item. The run stores the table as it
 is. An edge that names a field, such as ``contacts.result.email``, reads that column. A node further on still gets
-plain records. And the table is checked column by column when the node returns it.
+plain rows. And the table is checked column by column when the node returns it.
 """
 
 import json
@@ -40,7 +40,7 @@ RECEIVED: list[Any] = []
 
 @node("contacts", title="Contacts", description="For a test.")
 def contacts(text: str) -> Series[Contact]:
-    return FRAME  # type: ignore[return-value]  a table may stand for a Series of its records
+    return FRAME  # type: ignore[return-value]  a table may stand for a Series of its rows
 
 
 @node("listed", title="Listed", description="For a test.")
@@ -106,7 +106,7 @@ def _graph(source: Any = contacts) -> Any:
 @pytest.mark.parametrize(
     "source", [contacts, listed], ids=["returned as a table", "returned as a list"]
 )
-def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(source: Any) -> None:
+def test_a_node_receives_plain_rows_whichever_way_the_series_was_returned(source: Any) -> None:
     RECEIVED.clear()
     run = _graph(source).run({"text": "x"})
 
@@ -117,11 +117,11 @@ def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(sou
         "names": "ida+bo",
         "mails": 2,
     }
-    records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert RECEIVED == [records, ["ida@x.dk", None], ["ida", "bo"], *records] and all(
-        type(record) is dict for record in RECEIVED[3:]
+    rows = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert RECEIVED == [rows, ["ida@x.dk", None], ["ida", "bo"], *rows] and all(
+        type(row) is dict for row in RECEIVED[3:]
     )  # the nodes are called in the order of their ids
-    assert run.results["c"]["result"] == records  # a host reads plain records too
+    assert run.results["c"]["result"] == rows  # a host reads plain rows too
 
 
 def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_its_declared_columns() -> (
@@ -169,7 +169,7 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
         ),
     ],
 )
-def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_and_fails_the_run(
+def test_a_table_returned_for_a_series_of_rows_is_checked_column_by_column_and_fails_the_run(
     frame: pl.DataFrame, reason: str
 ) -> None:
     @node("wrong", title="Wrong", description="For a test.")
@@ -187,9 +187,9 @@ def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_an
 
 
 @pytest.mark.parametrize(
-    "returned", [pl.DataFrame({"email": ["a"]}), [{"email": "a"}]], ids=["frame", "records"]
+    "returned", [pl.DataFrame({"email": ["a"]}), [{"email": "a"}]], ids=["frame", "rows"]
 )
-def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_records(
+def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_rows(
     returned: Any,
 ) -> None:
     """A table that lacks a column fails the same way in both forms, so a host checks one code."""
@@ -207,7 +207,7 @@ def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_reco
 
 
 def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
-    """A record in a cell that lacks a field names the column and the field, and doesn't say the column is missing.
+    """A value in a cell that lacks a field names the column and the field, and doesn't say the column is missing.
 
     The error keeps pydantic's type ``missing``, since the column is there.
     """
@@ -245,17 +245,17 @@ def test_a_table_returned_for_texts_or_dicts_of_one_type_fails_the_run(returns: 
 
 
 @pytest.mark.parametrize("returns", [Series[Any], Series[dict], Series[dict[str, Any]]])
-def test_a_table_of_any_columns_is_a_series_of_its_records(returns: Any) -> None:
+def test_a_table_of_any_columns_is_a_series_of_its_rows(returns: Any) -> None:
     @node("anything", title="Anything", description="For a test.")
     def anything(text: str) -> returns:  # type: ignore[valid-type]
         return FRAME
 
     @node("show", title="Show", description="For a test.")
-    def show(record: Any) -> str:
-        return repr(record)
+    def show(row: Any) -> str:
+        return repr(row)
 
     graph = Graph.compile(
-        make_graph(anything, show, edges=[("anything.result", "show.record")]),
+        make_graph(anything, show, edges=[("anything.result", "show.row")]),
         registry_of(anything, show),
     )
     run = graph.run({"text": "x"})
@@ -267,13 +267,13 @@ def test_a_table_of_any_columns_is_a_series_of_its_records(returns: Any) -> None
     assert Run.from_json(run.to_json(), graph).results == run.results
 
 
-def test_a_series_of_records_kept_as_a_table_counts_its_rows_against_the_item_limit() -> None:
+def test_a_series_of_rows_kept_as_a_table_counts_its_rows_against_the_item_limit() -> None:
     run = _graph().run({"text": "x"}, max_items=1)
 
     assert (run.status, run.cause.type, run.cause.ctx["items"]) == ("stopped", "item_limit", 2)
 
 
-def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_series_input_outside_as_plain_records() -> (
+def test_a_series_of_rows_returned_per_item_inside_a_subgraph_reaches_a_series_input_outside_as_plain_rows() -> (
     None
 ):
     @node("parts", title="Parts", description="For a test.")
@@ -317,10 +317,10 @@ def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_serie
     RECEIVED.clear()
     run = graph.run({"text": "x,y"})
 
-    records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    rows = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
     assert (run.status, run.outputs["result"]) == ("complete", [2, 2]) and RECEIVED == [
-        records,
-        records,
+        rows,
+        rows,
     ]  # one call per part
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
@@ -328,9 +328,7 @@ def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_serie
 # -- how a run stores a Series, and what reads it ---------------------------------------------------------
 
 
-def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_for_that_record() -> (
-    None
-):
+def test_one_row_of_five_without_the_field_an_edge_reads_fails_only_the_call_for_that_row() -> None:
     @node("five", title="Five", description="For a test.")
     def five(text: str) -> Series[dict]:
         return [{"name": "a"}, {"name": "b"}, {"other": "c"}, {"name": "d"}, {"name": "e"}]
@@ -360,7 +358,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
         "hi a",
         "hi b",
         None,
-    ]  # the calls for the two records before it ran
+    ]  # the calls for the two rows before it ran
 
 
 def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_table() -> None:
@@ -446,51 +444,51 @@ def people(text: str) -> Table[Contact]:
     return FRAME.select("name", "email")
 
 
-@node("records", title="Records", description="For a test.")
-def records(table: Table[Contact]) -> Series[Contact]:
-    return table  # type: ignore[return-value]  a table may stand for a Series of its records
+@node("rows", title="Rows", description="For a test.")
+def rows(table: Table[Contact]) -> Series[Contact]:
+    return table  # type: ignore[return-value]  a table may stand for a Series of its rows
 
 
-def _people_as_records() -> Any:
+def _people_as_rows() -> Any:
     return Graph.compile(
         make_graph(
             people,
-            records,
+            rows,
             greet,
-            edges=[("people.result", "records.table"), ("records.result.name", "greet.name")],
+            edges=[("people.result", "rows.table"), ("rows.result.name", "greet.name")],
         ),
-        registry_of(people, records, greet),
+        registry_of(people, rows, greet),
     )
 
 
-def test_a_table_returned_as_the_records_of_another_output_is_written_under_both_and_reads_back_equal() -> (
+def test_a_table_returned_as_the_rows_of_another_output_is_written_under_both_and_reads_back_equal() -> (
     None
 ):
-    graph = _people_as_records()
+    graph = _people_as_rows()
     run = graph.run({"text": "x"})
     saved = json.loads(run.to_json())
 
     assert (
-        saved["outcomes"]["records"]["outputs"]["result"]
+        saved["outcomes"]["rows"]["outputs"]["result"]
         == saved["outcomes"]["people"]["outputs"]["result"]
     )
     read_back = Run.from_json(run.to_json(), graph)
     table, again = run.results["people"]["result"], read_back.results["people"]["result"]
     assert again.equals(table) and again.schema == table.schema
-    assert read_back.results["records"]["result"] == run.results["records"]["result"]
+    assert read_back.results["rows"]["result"] == run.results["rows"]["result"]
     assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
     assert read_back.with_forgotten("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
 
 
 def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused() -> None:
-    graph = _people_as_records()
+    graph = _people_as_rows()
     saved = json.loads(graph.run({"text": "x"}).to_json())
-    saved["outcomes"]["records"]["outputs"]["result"] = [None]  # not listed under "skipped"
+    saved["outcomes"]["rows"]["outputs"]["result"] = [None]  # not listed under "skipped"
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
     (found,) = refused.value.problems
-    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.records")
+    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.rows")
     assert "call 0 is done and has null for 'result'" in found.msg
 
 

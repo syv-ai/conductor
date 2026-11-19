@@ -696,7 +696,7 @@ def test_a_frame_given_as_a_graph_input_is_kept_as_a_saved_run_reads_it_back():
         ([{"a": {"x": 1}}, {"a": {"y": 2}}], {"a": [{"x": 1, "y": None}, {"x": None, "y": 2}]}),
     ],
 )
-def test_records_given_for_a_table_are_read_as_polars_reads_rows_one_type_per_column(
+def test_rows_given_for_a_table_are_read_as_polars_reads_rows_one_type_per_column(
     records: list[dict[str, Any]], read: dict[str, Any]
 ):
     @node("rows", title="Rows", description="For a test.")
@@ -753,7 +753,7 @@ def test_a_json_column_of_a_table_given_as_json_takes_a_type_that_fits_every_cel
     assert run.results["rows"]["result"]["a"].to_list() == read
 
 
-def test_records_given_for_a_table_keep_every_key_of_a_mapping_column():
+def test_rows_given_for_a_table_keep_every_key_of_a_mapping_column():
     class Counts(TypedDict):
         m: dict[str, int]
 

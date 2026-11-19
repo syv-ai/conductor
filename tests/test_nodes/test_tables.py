@@ -146,7 +146,7 @@ def columns_of(field) -> dict[str, Any]:
 # -- split ---------------------------------------------------------------------------------------------
 
 
-def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
+def test_split_gives_a_tables_rows_typed_as_its_row_type_declares_them():
     graph = compile_graph(contacts, series.split, edges=[("contacts.result", "series-split.value")])
     described = output(graph, "series-split")
     assert graph.problems == [] and (described.is_series, described.type) == (True, "row")
@@ -161,7 +161,7 @@ def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     ]
 
 
-def test_a_node_reading_a_field_of_a_split_record_is_a_none_input_where_the_field_is_none_and_collect_keeps_the_record():
+def test_a_node_reading_a_field_of_a_split_row_is_a_none_input_where_the_field_is_none_and_collect_keeps_the_row():
     SENT.clear()
     graph = compile_graph(
         contacts,
@@ -189,7 +189,7 @@ def test_a_node_reading_a_field_of_a_split_record_is_a_none_input_where_the_fiel
     ]
 
 
-def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_of_one_is_read_when_it_arrives():
+def test_split_gives_rows_of_unknown_columns_for_a_table_of_any_and_a_field_of_one_is_read_when_it_arrives():
     graph = compile_graph(
         csv,
         series.split,
@@ -272,7 +272,7 @@ def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table():
     ]
 
 
-def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back_equal():
+def test_a_table_split_into_rows_is_written_under_both_outputs_and_reads_back_equal():
     graph = _split_members()
     run = graph.run()
     saved = json.loads(run.to_json())
@@ -347,7 +347,7 @@ def test_collect_takes_the_type_of_the_values_it_collects():
 # -- table-collect ---------------------------------------------------------------------------------------
 
 
-def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_column():
+def test_collect_types_its_table_by_the_rows_and_what_arrives_on_each_new_column():
     graph = compile_graph(
         contacts,
         series.split,
@@ -381,7 +381,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
 
-def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are():
+def test_collect_takes_the_rows_as_a_table_and_keeps_its_columns_as_they_are():
     @_node("small-numbers")
     def small_numbers() -> Table:
         return pl.DataFrame({"n": [1, 2], "name": ["a", "b"]})
@@ -439,7 +439,7 @@ def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
 
-def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
+def test_collect_refuses_a_new_column_the_rows_already_have_naming_it():
     graph = compile_graph(
         contacts,
         series.split,
@@ -524,13 +524,13 @@ def test_collect_refuses_a_column_named_twice():
         (1, {"column": "word", "rows": 1, "values": 2}),
     ],
 )
-def test_collect_refuses_a_column_wired_from_another_series_than_its_records_naming_it(
+def test_collect_refuses_a_column_wired_from_another_series_than_its_rows_naming_it(
     people: int, expected: dict[str, Any]
 ):
-    """A column wired from a different Series than the records fails, whether it is longer or shorter.
+    """A column wired from a different Series than the rows fails, whether it is longer or shorter.
 
-    A column needs exactly one value per record. That only holds when the column comes from a node called once for
-    each of those records.
+    A column needs exactly one value per row. That only holds when the column comes from a node called once for
+    each of those rows.
     """
 
     @_node("people")
@@ -620,7 +620,7 @@ def test_collect_refuses_a_column_wired_from_a_value_returned_once_and_takes_it_
     ]
 
 
-def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
+def test_collect_of_no_rows_is_a_table_with_every_column_and_no_lines():
     graph = compile_graph(
         nobody,
         sentence,
@@ -640,7 +640,7 @@ def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
     ] == ["name", "email", "team"]
 
 
-def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
+def test_collect_of_rows_of_unknown_columns_is_a_table_of_any_columns():
     graph = compile_graph(
         csv,
         series.split,
@@ -667,7 +667,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
     ]
 
 
-def test_collect_takes_records_only():
+def test_collect_takes_rows_only():
     (problem,) = compile_graph(
         words, tables.collect, outputs=COLLECTED, edges=[("words.result", "table-collect.rows")]
     ).problems
