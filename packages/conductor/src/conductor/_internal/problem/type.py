@@ -1,4 +1,4 @@
-"""``Problem``, the record of one thing that is wrong, and how a package declares its kinds of problem.
+"""``Problem``, one thing that is wrong, and how a package declares its kinds of problem.
 
 A problem looks like one of pydantic's errors. It has the same four fields: ``type`` (a code), ``loc`` (where),
 ``msg`` (the message) and ``ctx`` (the values the message was made from).

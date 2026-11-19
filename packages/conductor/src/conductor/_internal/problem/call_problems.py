@@ -679,7 +679,7 @@ def invalid_place(*loc: str | int, text: str) -> str:
     """``make_graph`` is given a place in the graph that isn't written ``"node.name"``.
 
     Each end of an edge, each key of ``constants`` or ``defaults``, and each place in ``inputs`` or ``outputs`` is a
-    node's id and a name, joined by a dot. An edge's source may add one field of the record its output returns, like
+    node's id and a name, joined by a dot. An edge's source may add one field of the value its output returns, like
     ``"read.result.email"``. Neither the id nor the name may be empty or contain a character places are written
     with, so ``"upper.result~"`` isn't a place either. The message lists those characters.
 

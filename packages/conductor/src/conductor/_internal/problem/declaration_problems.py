@@ -269,7 +269,7 @@ def named_value_invalid(*, value: str, instead: str) -> str:
     couldn't be saved, described or asked. Text, numbers, yes or no and ``None`` do, and so does the member of an
     enum that is also ``str`` or ``int``, like an ``IntEnum``'s or a ``StrEnum``'s. A plain enum's member, ``bytes``,
     a tuple, a date and ``nan`` don't. This holds at any depth: on the field, a list's or a ``Series``'s item, a
-    record's field and a table's column.
+    ``TypedDict``'s field and a table's column.
 
     To fix it, take the value's type, or the enum itself, as the type, with ``Param(choices=[...])`` for some of its
     values.
@@ -1213,7 +1213,7 @@ def table_row_not_a_typed_dict(*, row: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def row_field_optional(*, row: str, field: str) -> str:
-    """The row type of a ``Table``, or of a ``Series`` of records, lets a field be left out.
+    """The row type of a ``Table``, or of a ``Series`` of rows, lets a field be left out.
 
     That is a ``NotRequired`` field, or any field of a ``TypedDict`` declared ``total=False``. But every row of a table
     has every column, so every field of its row type is required. A table with a column that some rows leave out isn't
@@ -1245,7 +1245,7 @@ def row_field_optional(*, row: str, field: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def type_not_supported(*, type: str) -> str:
-    """An input's or output's type is one pydantic can't validate or write as JSON, such as a record with a field of a plain
+    """An input's or output's type is one pydantic can't validate or write as JSON, such as a ``TypedDict`` with a field of a plain
     class, or a hint that is no type at all, like ``-> 5``.
 
     To fix it, use a type pydantic can validate and write as JSON: a pydantic model, a dataclass, or a subclass of a

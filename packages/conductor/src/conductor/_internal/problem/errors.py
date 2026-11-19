@@ -1,6 +1,6 @@
 """The exceptions conductor raises, and how it keeps a run's values out of what it reports.
 
-Every ``ConductorError`` has ``Problem`` records, just like a graph's problems. So a host has one type to
+Every ``ConductorError`` has a list of ``Problem``, just like a graph's problems. So a host has one type to
 translate. Conductor can also raise Python's own exceptions, such as a ``TypeError`` or a ``KeyError``, and
 pydantic's ``ValidationError``. Here is who meets what, and when:
 
@@ -28,7 +28,7 @@ failure is of this sort by raising ``ExternalError``, or by naming the client's 
 
 **What a person is told.** A problem may be shown to anyone, since a host may stream problems to a browser. So a
 problem never quotes a value a graph carries: a graph input or its default, a constant, an output, an answer or a
-value in a saved run. Where a fault is inside such a value, the problem says where by list indexes, record fields and
+value in a saved run. Where a fault is inside such a value, the problem says where by list indexes, declared fields and
 positions, never by the value's own dict keys. A problem never quotes the text of an exception other than a
 ``NodeError`` either, since it might quote a value. Such an exception from a node, a hook or an ``Upgrade``'s rewrite
 goes to the ``conductor`` logger with its traceback, and the problem names only the exception's class:
@@ -79,7 +79,7 @@ def conductor_error(
 ) -> PydanticCustomError:
     """Makes a pydantic error whose message conductor wrote.
 
-    Every pydantic error conductor raises is made here, whether it refuses a value, a record or what a node returned.
+    Every pydantic error conductor raises is made here, whether it refuses a value, a graph record or what a node returned.
     Conductor writes ``message`` to name only what a developer or a host wrote, such as a column of a row type, and
     never a value. So ``value_free_errors`` keeps it, where it replaces the message of an error a host's validator
     raised.
@@ -311,7 +311,7 @@ _CTX = TypeAdapter(dict[str, JsonValue])
 class ConductorError(Exception):
     """The base class of every exception conductor raises.
 
-    Each one says what went wrong as a list of ``Problem`` records. So a host translates an exception the same way
+    Each one says what went wrong as a list of ``Problem``. So a host translates an exception the same way
     it translates a graph's problems.
 
     Attributes:

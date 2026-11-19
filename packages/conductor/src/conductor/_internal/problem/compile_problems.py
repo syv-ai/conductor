@@ -654,7 +654,7 @@ def type_mismatch_whole_table_or_list(
 
     A table or a list is one value. To call the node once for each row or item, put a node in between that returns the
     rows or items as a ``Series``, that is, a node declared ``-> Series[R]``. Then wire that node's result into the
-    input, or one field of each record, like ``each.result.email``.
+    input, or one field of each row or item, like ``each.result.email``.
 
     Args:
         node_id: The node the edge leads into.
@@ -768,7 +768,7 @@ def type_mismatch_series_given_one_value(
     """A ``Series`` or ``Table`` input is wired to an output that gives each call of its node one value.
 
     A ``Series[T]`` input takes a list: a ``Series`` output passed whole, or the values of a loop its node is outside,
-    collected. A ``Table[R]`` input takes a table, or collects records the same way. One value is never made into a
+    collected. A ``Table[R]`` input takes a table, or collects rows the same way. One value is never made into a
     list of one. An edge gives each call one value in two cases:
 
     - Its source is in no loop, so it has one value in the run. Inside a subgraph, that's a node the subgraph calls
@@ -787,7 +787,7 @@ def type_mismatch_series_given_one_value(
     - If it should get every item of the loop, collect them first in a node outside the loop, one that takes only
       that ``Series``, such as ``series-collect`` in ``syv-conductor-nodes``, and wire that node's result in.
     - If the node has an option for one value, use it. ``table-collect`` in ``syv-conductor-nodes`` takes a column
-      that is the same for every record in ``constant_columns``.
+      that is the same for every row in ``constant_columns``.
 
     Args:
         node_id: The node the edge leads into.
@@ -795,7 +795,7 @@ def type_mismatch_series_given_one_value(
         source: The edge's source, as text, like ``"a.result"``.
         got: The type the source gives.
         expected: The type the input takes.
-        item: The type of one item of the list the input takes, like ``str`` or ``Any``. ``record`` for a table.
+        item: The type of one item of the list the input takes, like ``str`` or ``Any``. The row type for a table, like ``row``.
 
     Example:
         @registry.node("rank", title="Rank", description="Ranks a word among all the words.")

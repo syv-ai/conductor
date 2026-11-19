@@ -2,7 +2,7 @@
 
 Whatever goes wrong, conductor reports it the same way, as a ``Problem``. A problem has a code such as
 ``unknown_input``, a place, a message for a person, and the values the message was made from. So a host handles one
-kind of record, whether the fault is in a graph, in a call or in a run.
+model, whether the fault is in a graph, in a call or in a run.
 
 Each kind of problem is a small function that writes its message, and calling it makes the problem. The kinds live
 in one module for each section of the problems page:
