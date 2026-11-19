@@ -98,6 +98,16 @@ _CONTAINERS = (list, dict, tuple, set, frozenset)
 _KINDS: dict[Any, type[Type]] = {}
 
 
+def _made_key(hint: Any) -> tuple[Any, tuple[Any, ...]]:
+    """Returns the key ``Type`` keeps the ``Type`` of ``hint`` by: the hint, with its arguments in the order written.
+
+    Python counts some hints equal that are written in another order: ``int | str == str | int``, and
+    ``Literal["a", "b"] == Literal["b", "a"]``, at any depth. Keyed by the hint alone, ``Type(int | str)`` would
+    return the ``Type`` made for ``str | int`` while that one lives, and its ``hint`` would read ``str | int``.
+    """
+    return hint, tuple(_made_key(arg) for arg in get_args(hint))
+
+
 def _written(hint: Any) -> str:
     """Writes one bare hint as text, for ``Type.reads_as``.
 
@@ -171,8 +181,8 @@ class TypeRefusal(TypedDict):
 class Type:
     """One type hint, with everything conductor needs to know about it.
 
-    ``Type(hint)`` returns the same object for equal hints, so the work of reading a hint is done once. Nothing is
-    worked out until it is asked for. The object lives as long as something uses it, such as a field or a loaded
+    ``Type(hint)`` returns the same object for equal hints written in the same order, so the work of reading a hint
+    is done once. Nothing is worked out until it is asked for. The object lives as long as something uses it, such as a field or a loaded
     graph. A hint made while a graph loads goes away with the graph.
 
     ``Series`` and ``Table`` each have a subclass, registered with the class it is for::
@@ -208,13 +218,14 @@ class Type:
     def __new__(cls, hint: Any) -> Type:
         """Returns the ``Type`` of ``hint``.
 
-        If an equal hint already has one, that object is returned. Otherwise a new one is made, of the subclass
-        registered for the hint.
+        If a hint written the same already has one, that object is returned. Otherwise a new one is made, of the
+        subclass registered for the hint.
         """
+        key = _made_key(hint)
         try:
-            return Type._made[hint]
+            return Type._made[key]
         except KeyError:
-            made = Type._made[hint] = super().__new__(_kind_of(hint))
+            made = Type._made[key] = super().__new__(_kind_of(hint))
         # a hint that can't be hashed, like a Param whose Choice has a dict, gets a new object each time
         except TypeError:
             made = super().__new__(_kind_of(hint))

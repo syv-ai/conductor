@@ -9,6 +9,9 @@ the record doesn't have, that is a problem of the graph, in ``graph.problems``. 
 """
 
 import json
+import os
+import subprocess
+import sys
 from collections import UserList, deque
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -2756,6 +2759,71 @@ def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_
     assert list(graph.inputs) == ["name", "no"] and graph.run(
         {"name": "ida", "no": "!"}
     ).outputs == {"result": "hello ida!"}
+
+
+_WRITTEN_AND_COMPILED_IN_ANOTHER_PROCESS = """
+from conductor import Graph, InvalidCallError, NodeRegistry, make_graph, node
+
+@node("number", title="Number", description="For a test.")
+def number() -> int:
+    return 3
+
+@node("text", title="Text", description="For a test.")
+def text() -> str:
+    return "a"
+
+@node("either", title="Either", description="For a test.")
+def either[T](a: T, b: T, c: str, d: str, e: str = "-") -> T:
+    return a
+
+@node("other_way", title="Other way", description="For a test.")
+def other_way() -> str | int:
+    return 1
+
+registry = NodeRegistry()
+registry.add(number, text, either, other_way)
+# a hint equal to int | str but written the other way, alive while the graph below compiles
+Graph.compile(make_graph(other_way), registry)
+record = make_graph(
+    number,
+    text,
+    either,
+    edges=[("number.result", "either.a"), ("text.result", "either.b")],
+    constants={"either.d": "x"},
+    defaults={"either.e": "y"},
+    inputs={"c": "either.c"},
+)
+print(record.model_dump_json())
+print(Graph.compile(record, registry).describe().nodes["either"].outputs[0].type)
+try:
+    make_graph(("x", text), ("y", either), ("z", either), edges=[], defaults={"y.e": "1", "z.e": "2"})
+except InvalidCallError as refused:
+    print([problem.ctx for problem in refused.problems if problem.type == "graph_inputs_share_a_name"])
+"""
+
+
+def test_make_graph_writes_and_compiles_a_graph_the_same_in_every_process():
+    """A record lists each node's inputs in the order the node declares them, whatever order its places are kept in.
+
+    A type variable on two inputs binds the union in the order its inputs are declared, even while an equal union
+    written the other way, like ``str | int`` for ``int | str``, is in use. A problem lists its places in the
+    order they were given.
+    """
+    written = {
+        subprocess.run(
+            [sys.executable, "-c", _WRITTEN_AND_COMPILED_IN_ANOTHER_PROCESS],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for seed in ("1", "2", "3")
+    }
+    assert len(written) == 1
+    record, union, problem = written.pop().splitlines()
+    assert list(json.loads(record)["nodes"]["either"]["inputs"]) == ["a", "b", "c", "d", "e"]
+    assert union == "int | str"
+    assert "'inputs': ['y.e', 'z.e']" in problem
 
 
 def test_a_source_is_an_output_of_a_node_by_its_id_and_a_path_cannot_be_written_in_one():
