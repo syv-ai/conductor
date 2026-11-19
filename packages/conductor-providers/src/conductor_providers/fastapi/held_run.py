@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from threading import Event
 from typing import Any
 
-from conductor import InvalidCallError, NodeRegistry, Problem, Run
+from conductor import Graph, InvalidCallError, NodeRegistry, Problem, Run
 from conductor.events import RunCheckpoint, RunEnd
 
 from conductor_providers.fastapi.problems import no_such_run, raised_outside_a_node
@@ -41,6 +41,9 @@ _HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
 @dataclass(frozen=True)
 class ResumeSettings:
     """What every resume call of one worker is made with.
+
+    The worker loads every stored run through ``load``, for a resume call and for any other call that needs the run
+    itself, so a run is compiled and read in one place.
 
     Attributes:
         worker_id: The worker's id, written as the ``owner`` of the runs it holds.
@@ -63,6 +66,20 @@ class ResumeSettings:
     def holder(self) -> RunChanges:
         """The ``owner`` and ``lease_until`` of a row this worker holds, from now."""
         return {"owner": self.worker_id, "lease_until": time.time() + self.lease}
+
+    async def load(self, row: RunRow[Any], metadata: Any) -> Run[Any]:
+        """The run ``row`` keeps, loaded on a thread on the registry for ``metadata``.
+
+        A resume call, an answer and a decline load a row on its own metadata. ``again`` and ``begin`` with
+        ``previous`` load it on the metadata of the run they start.
+
+        Raises:
+            InvalidCallError: The row's graph doesn't compile on that registry, or its saved run can't be read.
+        """
+        nodes = self.nodes_for(metadata)
+        return await asyncio.to_thread(
+            lambda: Run.from_json(row.stored.run, Graph.compile(row.stored.graph, nodes))
+        )
 
     def context_for(self, metadata: Any, stop: Event) -> Any:
         """The context of a resume call: ``context(metadata, stop)``, or ``None`` when the worker has none."""
@@ -161,7 +178,7 @@ class HeldRun:
         # the run as the row has it, which a failed run lists and is given its queue; nothing, until it is loaded
         last: Run[Any] | None = None
         try:
-            run = await asyncio.to_thread(row.loaded, settings.nodes_for(row.metadata))
+            run = await settings.load(row, row.metadata)
             last = run
             stream = run.stream(
                 context=settings.context_for(row.metadata, self._stop),

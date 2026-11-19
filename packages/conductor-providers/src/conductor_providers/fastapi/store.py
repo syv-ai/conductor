@@ -21,9 +21,9 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from typing import Any, Generic, Protocol, TypedDict
+from typing import Generic, Protocol, TypedDict
 
-from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunStatus
+from conductor import InvalidCallError, RunStatus
 from conductor.events import RunEnd
 from pydantic import TypeAdapter, ValidationError
 from typing_extensions import TypeVar
@@ -117,14 +117,6 @@ class RunRow(Generic[M]):
             ValidationError: The row's outcome can't be read.
         """
         return RunOutcome.model_validate_json(self.stored.outcome)
-
-    def loaded(self, nodes: NodeRegistry[Any]) -> Run[Any]:
-        """The run this row keeps, loaded on ``nodes``.
-
-        Raises:
-            InvalidCallError: The graph doesn't compile on ``nodes``, or the saved run can't be read.
-        """
-        return Run.from_json(self.stored.run, Graph.compile(self.stored.graph, nodes))
 
 
 class RunChanges(TypedDict, total=False):

@@ -61,10 +61,6 @@ class Worker(Generic[M, X]):
     A worker works only inside ``serving()``, which your server's lifespan enters. While this worker resumes a run, it
     holds a lease on it and saves it every few seconds. When a worker dies, another one takes the run over once the
     lease runs out.
-
-    Attributes:
-        nodes_for: The function that gives the registry for a run's metadata, as given; ``/nodes`` describes it and
-            ``/compile`` compiles on it.
     """
 
     def __init__(
@@ -102,7 +98,6 @@ class Worker(Generic[M, X]):
                 limit.
             poll: The seconds between a follower's reads of new events.
         """
-        self.nodes_for = nodes_for
         self._metadata = TypeAdapter(metadata_type)
         self._store = GuardedStore(store, self._metadata)
         self._settings = ResumeSettings(
@@ -119,6 +114,12 @@ class Worker(Generic[M, X]):
         self._served = False
         # every run this worker holds, by id, with the task that resumes it
         self._held: dict[str, tuple[HeldRun, Task[None]]] = {}
+
+    @property
+    def nodes_for(self) -> Callable[[M], NodeRegistry[X]]:
+        """The function that gives the registry for a run's metadata, as given; ``/nodes`` describes it and
+        ``/compile`` compiles on it."""
+        return self._settings.nodes_for
 
     # -- what a host calls ------------------------------------------------------------------------
 
@@ -242,8 +243,9 @@ class Worker(Generic[M, X]):
             RuntimeError: The worker has never served.
         """
         metadata = self._checked(metadata)
-        row, nodes = await self._row(run_id, allows), self.nodes_for(metadata)
-        again = await asyncio.to_thread(lambda: row.loaded(nodes).with_inputs(inputs))
+        row = await self._row(run_id, allows)
+        loaded = await self._settings.load(row, metadata)
+        again = await asyncio.to_thread(loaded.with_inputs, inputs)
         return await self._create(row.stored.graph, metadata, again)
 
     async def answer(
@@ -316,8 +318,7 @@ class Worker(Generic[M, X]):
                 return await self._store.update(
                     row, state=state.with_queued(declines={waiting_id: reason})
                 )
-            run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
-
+            run = await self._settings.load(row, row.metadata)
             ended, saved, outcome = await asyncio.to_thread(
                 lambda: state.declined(run.with_decline(waiting_id, reason=reason))
             )
@@ -544,15 +545,17 @@ class Worker(Generic[M, X]):
         nodes = self.nodes_for(metadata)
         lends = None if previous is None else await self._row(previous, allows, "previous")
 
-        def ready() -> Run[Any]:
+        def checked() -> tuple[Graph[Any], Run[Any]]:
             compiled = Graph.compile(graph, nodes)
-            run = compiled.with_inputs(inputs, max_items=self._max_items)
-            if lends is None:
-                return run
-            previous_run = lends.loaded(nodes)
-            return compiled.with_inputs(inputs, max_items=self._max_items, previous=previous_run)
+            return compiled, compiled.with_inputs(inputs, max_items=self._max_items)
 
-        return await asyncio.to_thread(ready)
+        compiled, run = await asyncio.to_thread(checked)
+        if lends is None:
+            return run
+        previous_run = await self._settings.load(lends, metadata)
+        return await asyncio.to_thread(
+            compiled.with_inputs, inputs, max_items=self._max_items, previous=previous_run
+        )
 
     async def _row(
         self, run_id: str, allows: Callable[[M], bool] | None = None, *loc: str
@@ -683,7 +686,7 @@ class Worker(Generic[M, X]):
             return await self._store.update(row, state=queued)
         changed = None
         if answers or max_items is not None:
-            run = await asyncio.to_thread(row.loaded, self.nodes_for(row.metadata))
+            run = await self._settings.load(row, row.metadata)
 
             def given() -> str:
                 answered = run.with_answers(answers)
