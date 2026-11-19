@@ -3192,6 +3192,38 @@ def test_text_or_a_set_given_as_a_params_choices_is_refused_as_an_asks_are() -> 
         ), choices
 
 
+@pytest.mark.parametrize(
+    ("hint", "valid", "with_a_set"),
+    [
+        (str, ("a", "b"), {"a", "b"}),
+        (Any, [["x", [[1]]]], [["x", [frozenset({1})]]]),
+    ],
+    ids=["top-level", "nested"],
+)
+@pytest.mark.parametrize("set_first", [False, True], ids=["valid-first", "set-first"])
+def test_valid_choices_and_their_set_twin_are_told_apart_in_one_process(
+    hint: Any, valid: Any, with_a_set: Any, set_first: bool
+) -> None:
+    """``typing`` keeps one ``Annotated[...]`` for arguments that compare equal, and a set's JSON text is a list's.
+    So a ``Param`` whose choices hold a set must not equal its twin with a list or tuple there, or whichever is
+    declared first would decide for both: the set taken, or the valid choices refused."""
+
+    def declare(choices: Any) -> list[str]:
+        try:
+
+            @node("twin", title="Twin", description="For a test.")
+            def twin(pick: Annotated[hint, Param(choices=choices)]) -> Any:
+                return pick
+
+        except NodeDeclarationError as raised:
+            return [error["type"] for error in raised.problems[0].ctx["errors"]]
+        return []
+
+    order = [(with_a_set, ["set_has_no_order"]), (valid, [])]
+    for choices, expected in order if set_first else order[::-1]:
+        assert declare(choices) == expected, choices
+
+
 def test_a_reason_a_host_check_gave_is_quoted_with_one_period() -> None:
     """The text that replaces a host validator's message has no final period, so a message quoting it reads right."""
     from pydantic import AfterValidator

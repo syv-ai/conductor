@@ -28,7 +28,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import canonical_json, plain_json
+from conductor._internal.base import canonical_json, plain_json, value_parts
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
@@ -123,16 +123,19 @@ class Param:
     def _compared(self) -> tuple[Any, ...]:
         """The values two ``Param``s are compared by.
 
-        The choices are compared by their JSON text (``canonical_json``) and by the class of each. The class
-        counts, so two ``Param``s that differ only in a ``Choice`` subclass aren't taken for one, and a host is
-        shown the right class.
+        The choices are compared by their JSON text (``canonical_json``) and by the class of every part of them
+        (``value_parts``): the container, each choice and each value inside one. The class counts, so two ``Param``s
+        that differ only in a ``Choice`` subclass aren't taken for one, and a host is shown the right class. It counts
+        for a set too, whose JSON text is a list's: ``typing`` keeps one ``Annotated[...]`` for arguments that
+        compare equal, so a set equal to a tuple would take the tuple's place, or the tuple the set's, and the set's
+        refusal would be missed or given to the tuple.
         """
         choices: Any = self.choices
         if choices is not None:
             try:
                 choices = (
                     canonical_json(plain_json(choices)),
-                    tuple(type(choice) for choice in choices),
+                    tuple(type(part) for part in value_parts(choices)),
                 )
             # no JSON form: compare as given; the choices are refused later, when the type is built
             except PydanticSerializationError:
