@@ -1408,6 +1408,45 @@ def type_not_supported_decoding(*, type: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
+def type_not_supported_bytes_as_text(*, cls: str, field: str) -> str:
+    """An input's or output's type holds a pydantic model or a pydantic dataclass of the host's with a ``bytes``
+    field, and the class's config reads and writes bytes as text, as pydantic's default config does.
+
+    JSON has no bytes, so conductor writes them as base64 text and reads them back from it. A pydantic model reads
+    and writes its own fields by its own config, whatever conductor's says. So bytes given in a mapping for the
+    model, such as ``{"data": b"hello"}`` as a run's input or a record's constant, would be written as base64 and
+    then read by the model as text: the node would get ``b"aGVsbG8="``.
+
+    To fix it, set ``ser_json_bytes="base64"`` and ``val_json_bytes="base64"`` in the class's config. For a class
+    from a library, declare a subclass of it with that config.
+
+    Args:
+        cls: The model or pydantic dataclass, by its name.
+        field: Its field that holds the bytes.
+
+    Example:
+        from pydantic import BaseModel
+
+
+        @host_type("attachment", title="Attachment")
+        class Attachment(BaseModel):
+            name: str
+            data: bytes
+
+
+        def attachment_size(file: Attachment) -> int:
+            return len(file.data)
+
+
+        declaration_refused(lambda: node("attachment-size", title="Attachment size", description="Measures a file.")(attachment_size))
+    """
+    return (
+        f"{cls} reads and writes its field {field!r} as text, and conductor carries bytes as base64 text. "
+        f'Set ser_json_bytes="base64" and val_json_bytes="base64" in the config of {cls}.'
+    )
+
+
+@DECLARATION_PROBLEMS.problem
 def host_type_not_supported(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 

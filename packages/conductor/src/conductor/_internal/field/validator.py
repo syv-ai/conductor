@@ -21,12 +21,15 @@ its value, such as ``Json[int]`` or ``Base64Bytes``, which a decoded value fails
 
 from __future__ import annotations
 
+import dataclasses
 import math
+import typing
 from collections.abc import Mapping, Set
 from typing import Annotated, Any, TypeVar, get_args, get_origin
 
 from annotated_types import Not, Predicate
-from pydantic import ImportString, Json, Secret, SecretBytes, SecretStr, ValidationError
+from pydantic import BaseModel, ImportString, Json, Secret, SecretBytes, SecretStr, ValidationError
+from pydantic.dataclasses import is_pydantic_dataclass
 from pydantic.types import EncodedBytes, EncodedStr
 
 from conductor._internal.base import REQUIRED, SKIPPED
@@ -66,7 +69,8 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
     Raises:
         NodeDeclarationError: The hint is one ``Field`` refuses, it holds a set (``type_not_supported_set``), a
             secret (``type_not_supported_secret``), an ``ImportString`` (``type_not_supported_import_string``) or a
-            type that decodes its value (``type_not_supported_decoding``), a
+            type that decodes its value (``type_not_supported_decoding``), a host's pydantic model holds a ``bytes``
+            field it reads as text (``type_not_supported_bytes_as_text``), a
             ``Table`` in it has a row type that names no columns (``table_row_not_a_typed_dict``), an input asks for
             a number that isn't finite (``predicate_refuses_every_number``), or the type
             refuses the default read as its JSON (``default_invalid``). It names the field.
@@ -95,6 +99,11 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
                 raise NodeDeclarationError(
                     declaration_problems.predicate_refuses_every_number(predicate=repr(part))
                 )
+        if (as_text := _bytes_read_as_text(hint)) is not None:
+            cls, field = as_text
+            raise NodeDeclarationError(
+                declaration_problems.type_not_supported_bytes_as_text(cls=cls, field=field)
+            )
     except NodeDeclarationError as error:
         raise error.within(name) from None
     whole = Field(name, hint, is_output=is_output).whole
@@ -255,6 +264,63 @@ def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
     return get_origin(hint) is Annotated and any(
         isinstance(metadata, classes) for metadata in get_args(hint)[1:]
     )
+
+
+def _bytes_read_as_text(
+    hint: Any, reading_as_text: tuple[str, str] | None = None, walked: frozenset[int] = frozenset()
+) -> tuple[str, str] | None:
+    """Finds a ``bytes`` field that a host's pydantic model or pydantic dataclass in ``hint`` reads as text.
+
+    Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A pydantic model and a pydantic dataclass
+    read and write their fields by their own config instead, and pydantic's default config takes bytes as text. A
+    ``TypedDict`` or a plain dataclass inside such a class takes the class's config, so its bytes are read as text
+    too. A model inside another model takes its own.
+
+    Say ``class Attachment(BaseModel)`` has the field ``data: bytes`` and the default config. Then
+    ``list[Attachment]`` gives ``("Attachment", "data")``. With ``ser_json_bytes="base64"`` and
+    ``val_json_bytes="base64"`` in its config, it gives ``None``.
+
+    Args:
+        hint: The hint to look in.
+        reading_as_text: The class and field that ``hint`` is inside, when that class reads bytes as text.
+        walked: The classes already looked in (by ``id``), so a class that holds itself ends.
+
+    Returns:
+        The class's name and its field, or ``None`` when no bytes in ``hint`` are read as text.
+    """
+    for part in hint_parts(hint):
+        if isinstance(part, type) and issubclass(part, bytes) and reading_as_text is not None:
+            return reading_as_text
+        cls = get_origin(part) or part
+        if (
+            not isinstance(cls, type)
+            or not dataclasses.is_dataclass(cls)
+            and not issubclass(cls, BaseModel)
+        ):
+            continue
+        if id(part) in walked:
+            continue
+        walked |= {id(part)}
+        if issubclass(cls, BaseModel) or is_pydantic_dataclass(cls):
+            # a generic model's fields have its arguments filled in
+            config, fields = (
+                (cls.model_config, cls.model_fields)
+                if issubclass(cls, BaseModel)
+                else (cls.__pydantic_config__, cls.__pydantic_fields__)
+            )
+            as_text = (
+                config.get("ser_json_bytes") != "base64" or config.get("val_json_bytes") != "base64"
+            )
+            for name, info in fields.items():
+                inside = (cls.__name__, name) if as_text else None
+                if (found := _bytes_read_as_text(info.annotation, inside, walked)) is not None:
+                    return found
+        else:
+            # a plain dataclass reads its fields by the config it sits in
+            for field_hint in typing.get_type_hints(cls, include_extras=True).values():
+                if (found := _bytes_read_as_text(field_hint, reading_as_text, walked)) is not None:
+                    return found
+    return None
 
 
 def _read_default(whole: Type, default: Any) -> Any:

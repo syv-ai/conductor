@@ -29,6 +29,7 @@ from conductor import (
     GraphRecord,
     InputEntry,
     InvalidCallError,
+    NodeDeclarationError,
     NodeRecord,
     NoneInputCall,
     Param,
@@ -41,7 +42,8 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import AfterValidator, BaseModel, TypeAdapter
+from pydantic import AfterValidator, BaseModel, ConfigDict, TypeAdapter
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
@@ -1057,6 +1059,117 @@ def test_a_binary_constant_and_default_are_written_as_base64_and_described_as_ba
     assert (described.json_schema, described.default) == (
         {"format": "base64url", "type": "string"},
         "_wA=",
+    )
+
+
+def test_binary_choices_are_written_and_compared_as_base64():
+    @node("pick-bytes", title="Pick bytes", description="For a test.")
+    def pick_bytes(data: Annotated[bytes, Param(choices=[b"\xff", b"a"])]) -> bytes:
+        return data
+
+    graph = Graph.compile(make_graph(pick_bytes), registry_of(pick_bytes))
+
+    assert pick_bytes.describe().inputs[0].json_schema["enum"] == ["_w==", "YQ=="]
+    assert graph.run({"data": "_w=="}).results["pick-bytes"]["result"] == b"\xff"
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run({"data": b"b"})
+    assert refused.value.problems[0].type == "invalid_input"
+
+
+@host_type("text-attachment", title="Text attachment")
+class _TextAttachment(BaseModel):
+    """A host's model with pydantic's default config, which reads and writes bytes as text."""
+
+    data: bytes
+
+
+@host_type("text-attachment-record", title="Text attachment record")
+@pydantic_dataclass
+class _TextAttachmentRecord:
+    data: bytes
+
+
+@host_type("binary-attachment", title="Binary attachment")
+class _BinaryAttachment(BaseModel):
+    """A host's model whose config reads and writes bytes as base64, as conductor does."""
+
+    model_config = ConfigDict(ser_json_bytes="base64", val_json_bytes="base64")
+    data: bytes
+
+
+class _Holder(TypedDict):
+    attachment: _TextAttachment
+
+
+@host_type("binary-folder", title="Binary folder")
+class _BinaryFolder(BaseModel):
+    """A model that reads bytes as base64, holding one that reads them as text."""
+
+    model_config = ConfigDict(ser_json_bytes="base64", val_json_bytes="base64")
+    attachment: _TextAttachment
+
+
+@pytest.mark.parametrize(
+    ("hint", "where"),
+    [
+        (_TextAttachment, "_TextAttachment"),
+        (list[_TextAttachment], "_TextAttachment"),
+        (_TextAttachment | None, "_TextAttachment"),
+        (list[_TextAttachmentRecord], "_TextAttachmentRecord"),
+        (_Holder, "_TextAttachment"),
+        (_BinaryFolder, "_TextAttachment"),
+    ],
+)
+@pytest.mark.parametrize("on", ["input", "output"])
+def test_a_host_model_that_reads_its_bytes_as_text_is_refused_where_the_node_is_declared(
+    hint: Any, where: str, on: str
+) -> None:
+    """A dict given for such a model, as a run's input or a record's constant, would read the base64 text as bytes."""
+    with pytest.raises(NodeDeclarationError) as raised:
+        if on == "input":
+
+            @node("upload", title="Upload", description="For a test.")
+            def upload(file: hint) -> int:  # type: ignore[valid-type]
+                return 1
+
+        else:
+
+            @node("upload", title="Upload", description="For a test.")
+            def upload_out(text: str) -> hint:  # type: ignore[valid-type]
+                raise AssertionError
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx) == (
+        "type_not_supported_bytes_as_text",
+        {"cls": where, "field": "data"},
+    )
+
+
+def test_a_host_model_that_reads_its_bytes_as_base64_takes_them_at_every_door():
+    @node("attachment-size", title="Attachment size", description="For a test.", asks=True)
+    def attachment_size(files: list[_BinaryAttachment]) -> _BinaryAttachment:
+        if files[0].data == b"ask":
+            raise Ask("Which file?")
+        return _BinaryAttachment(data=b"".join(file.data for file in files))
+
+    registry = registry_of(attachment_size)
+    graph = Graph.compile(make_graph(attachment_size), registry)
+    returned = _BinaryAttachment(data=_BINARY + _BINARY)
+
+    for given in ({"data": _BINARY}, {"data": _BINARY_TEXT}, _BinaryAttachment(data=_BINARY)):
+        run = graph.run({"files": [given, given]})
+        assert run.results["attachment-size"]["result"] == returned, given
+        assert _round_trip(run).results["attachment-size"]["result"] == returned
+    record = make_graph(attachment_size, constants={"attachment-size.files": [{"data": _BINARY}]})
+    assert record.nodes["attachment-size"].inputs["files"].constant == [{"data": _BINARY_TEXT}]
+    assert Graph.compile(record, registry).run({}).results["attachment-size"]["result"] == (
+        _BinaryAttachment(data=_BINARY)
+    )
+    waiting_run = graph.run({"files": [{"data": b"ask"}]})
+    (waiting,) = waiting_run.waiting
+    answered = waiting_run.with_answers(waiting, {"data": _BINARY_TEXT}).resume()
+    assert _round_trip(answered).results["attachment-size"]["result"] == _BinaryAttachment(
+        data=_BINARY
     )
 
 

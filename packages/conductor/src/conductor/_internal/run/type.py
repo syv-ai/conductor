@@ -475,7 +475,7 @@ class Run[C]:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
                 whose call now asks another question, as ``with_answers`` refuses them. ``invalid_decline_reason``
                 for a reason that isn't text JSON can write, or ``None``. It is checked as its JSON text
-                would be, so ``bytes`` and a ``str`` enum member are taken as their text, and ``1.5`` and a ``str``
+                would be, so ``bytes`` are taken as their base64 text and a ``str`` enum member as its text, and ``1.5`` and a ``str``
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
