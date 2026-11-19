@@ -228,7 +228,7 @@ def branch_outputs(names: str, value: type) -> dict:   # all the outputs; value:
     return {name: (value, SKIPPED) for name in names.split(",")}
 ```
 
-- A hook is a plain function, given per version as `compute_added_inputs=` or `compute_outputs=` on `@node`. It is called when a graph is compiled, never per call.
+- A hook is a plain function, given per version as `compute_added_inputs=` or `compute_outputs=` on `@node`. It is called when a graph is compiled, never per call. The definition keeps it in the attribute of the same name, `definition.compute_outputs`, as conductor read it (provisional): an object with the function given at `.function`, or `None` when the node has no such hook.
 - `compute_added_inputs` returns the inputs to add, and the node's function takes them as `**values`. `compute_outputs` returns all the outputs.
 - Each parameter of a hook names an input, and gets that input's constant, else its declared default.
 - A parameter annotated `type` gets the type arriving on that input by its edge, and `Any` until an edge brings one. `**added: type` on `compute_outputs` gets the type arriving on each input that `compute_added_inputs` added.

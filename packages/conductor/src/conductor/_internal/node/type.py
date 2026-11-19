@@ -191,10 +191,14 @@ class FunctionDefinition[**P, R](_Version):
             or nothing.
         policy: How the engine calls the node: how many calls at once, retries, a time limit, and whether it
             reuses earlier results.
-        compute_added_inputs: The hook that adds inputs from the node's constants, when a graph is compiled. The
-            function takes them as ``**kwargs``.
+        compute_added_inputs: The hook that adds inputs from the node's constants, when a graph is compiled, or
+            ``None``. It holds the hook as conductor read it from ``@node(compute_added_inputs=...)``, with what each
+            of its parameters gets, and the function given there is its ``.function``. The node's function takes the
+            added inputs as ``**kwargs``.
         compute_outputs: The hook that gives every output, from the node's constants and the types its edges bring,
-            when a graph is compiled. The function returns them as a mapping.
+            when a graph is compiled, or ``None``. Like ``compute_added_inputs``, it holds the hook as conductor read
+            it, and the function given to ``@node`` is its ``.function``. The node's function returns the outputs
+            as a mapping.
         context: The first parameter, when it is ``Context[X]``. Each call gets the run's context there, first by
             position. ``None`` for a node that takes no context.
         asks: Whether the function may raise ``Ask`` to wait for a person, as ``@node(asks=True)`` says. The answer
