@@ -2949,6 +2949,26 @@ def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared(defau
     assert raised.value.problems[0].type == "default_invalid"
 
 
+def test_a_default_of_a_hosts_class_with_no_json_form_is_refused_as_no_json_form_not_by_the_classs_check():
+    @host_type("Handle", title="Handle")
+    class Handle:
+        @classmethod
+        def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
+            return core_schema.is_instance_schema(cls)
+
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("held", title="Held", description="Takes a handle.")
+        def held(handle: Handle = Handle()) -> int:
+            return 1
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx["reason"]) == (
+        "default_invalid",
+        "the value can't be written as JSON",
+    )
+
+
 def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records_default_as_its_json():
     class Row(TypedDict):
         n: int

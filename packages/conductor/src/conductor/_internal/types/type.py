@@ -754,7 +754,8 @@ class Type:
         Say a host's ``Colour`` reads only text, and a node returns ``Colour("red")``. Pydantic's message,
         "Input should be a valid string", says nothing of the cause: the class's schema doesn't take a ``Colour``. A
         type with a limit, choices or other metadata may refuse a value of its class, so it is left out, and so is one
-        of Python's own classes, whose check refuses its own value only by conductor's rules, like an ``inf``.
+        of Python's own classes, whose check refuses its own value only by conductor's rules, like an ``inf``. So is a
+        refusal conductor raised itself, such as ``no_json_form``: the class's own check never ran.
 
         Args:
             first: The first of pydantic's raw errors, with the value it refused in ``input``.
@@ -765,6 +766,7 @@ class Type:
         refused = type(first.get("input"))
         if (
             first["loc"][start:]
+            or is_conductor_error(first)
             or self.limited
             or refused in PYTHON_NAMES
             or refused not in self.options
