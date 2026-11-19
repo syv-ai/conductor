@@ -3209,7 +3209,8 @@ async def test_a_worker_whose_run_another_took_stops_resuming_it_and_writes_noth
 async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_previous_run_does_too() -> (
     None
 ):
-    """``allows=`` is required, so a host's own route can't skip the access check by leaving it out."""
+    """``allows=`` is required, so a host's own route can't skip the access check by leaving it out. A start from a
+    previous run needs it too, and is refused as ``previous_without_allows`` without it, conductor's own check."""
     registry, graph, gate, inputs, _ = asking()
     gate.set()
     store = MemoryStore()
@@ -3220,8 +3221,12 @@ async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_pre
 
         with pytest.raises(TypeError):
             await worker.read(run_id)  # type: ignore[call-arg]
-        with pytest.raises(TypeError, match="allows="):
-            await worker.begin(graph, inputs, ANNA, previous=run_id)
+        for start in (worker.begin, worker.estimate):
+            with pytest.raises(InvalidCallError) as refused:
+                await start(graph, inputs, ANNA, previous=run_id)
+            assert [problem.type for problem in refused.value.problems] == [
+                "previous_without_allows"
+            ]
         assert (await worker.read(run_id, allows=EVERY_RUN)).id == run_id
 
 
