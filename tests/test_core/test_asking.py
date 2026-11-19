@@ -3095,6 +3095,34 @@ def test_answers_and_declines_queued_for_later_are_refused_when_json_cant_write_
     assert (problem.type, problem.loc) == ("invalid_answer", ("approval",))
 
 
+def test_a_queued_frame_whose_column_a_saved_run_cant_keep_is_refused_naming_the_column():
+    """The column is named as every refusal of a column names it, by ``ctx.column`` and the error's ``loc``."""
+
+    class Row(TypedDict):
+        a: int
+
+    @dataclass(frozen=True)
+    class Rows:
+        rows: Table[Row]
+        count: int = 0
+
+    @node("rows", title="Rows", description="For a test.", asks=True)
+    def rows(x: int) -> Rows:
+        raise Ask("?")
+
+    run = Graph.compile(make_graph(rows), registry_of(rows)).run({"x": 1})
+    (waiting,) = run.waiting
+    frame = pl.DataFrame({"a": [1], "b": [object()]}, schema={"a": pl.Int64, "b": pl.Object})
+    (problem,) = _refused(lambda: Run.queued_as_json({waiting.id: {"rows": frame}}))
+    (error,) = problem.ctx["errors"]
+    assert (problem.type, problem.ctx["column"], error["type"], error["loc"]) == (
+        "invalid_answer",
+        "b",
+        "column_not_saved",
+        ["b"],
+    )
+
+
 def test_an_answer_queued_for_later_is_read_by_the_run_as_the_answer_itself():
     run = Graph.compile(make_graph(_ask_for_a_pair), registry_of(_ask_for_a_pair)).run({"x": 1})
     (waiting,) = run.waiting
