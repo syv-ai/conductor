@@ -128,28 +128,44 @@ def test_var_keyword_on_a_hook_is_only_the_added_types():
     )
 
 
-def test_the_definition_says_what_each_hook_parameter_receives():
+def test_each_hook_parameter_receives_a_constant_an_arriving_type_or_the_added_types():
+    called: dict[str, dict[str, Any]] = {}
+
+    def columns(names: list[str]) -> dict[str, Any]:
+        called["compute_added_inputs"] = {"names": names}
+        return {name: Any for name in names}
+
     def outputs(names: list[str], first: type, **added: type) -> dict[str, Any]:
+        called["compute_outputs"] = {"names": names, "first": first, **added}
         return {}
 
     @node(
         "c",
         title="C",
         description="For a test.",
-        compute_added_inputs=_columns,
+        compute_added_inputs=columns,
         compute_outputs=outputs,
     )
     def c(names: list[str], first: Any, **values: Any) -> dict[str, Any]:
         return {}
 
-    assert c.compute_added_inputs is not None and c.compute_outputs is not None
-    assert (
-        c.compute_added_inputs.values_of,
-        c.compute_added_inputs.types_of,
-        c.compute_added_inputs.types_of_added,
-    ) == ({"names"}, set(), False)
-    assert (
-        c.compute_outputs.values_of,
-        c.compute_outputs.types_of,
-        c.compute_outputs.types_of_added,
-    ) == ({"names"}, {"first"}, True)
+    registry = NodeRegistry()
+    registry.add(c, number)
+    nodes = {
+        "n": {"node": "number"},
+        "c": {
+            "node": "c",
+            "inputs": {
+                "names": {"constant": ["a", "b"]},
+                "first": {"sources": [{"node": "n", "output": "result"}]},
+                "a": {"sources": [{"node": "n", "output": "result"}]},
+                "b": {"constant": "x"},
+            },
+        },
+    }
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes}), registry)
+    assert graph.problems == []
+    assert called == {
+        "compute_added_inputs": {"names": ["a", "b"]},
+        "compute_outputs": {"names": ["a", "b"], "first": int, "a": int, "b": Any},
+    }

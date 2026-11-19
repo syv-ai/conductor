@@ -52,12 +52,6 @@ class Hook:
         function: The function the node's developer wrote.
         values_of: The inputs whose values the hook gets, each by a parameter of the input's name. Each of them takes
             only a constant, since the hook reads it before any run.
-        types_of: The inputs whose arriving type the hook gets, each by a parameter of the input's name annotated
-            ``type``. ``Any`` when no edge leads into the input.
-        types_of_added: Whether the hook takes ``**added: type``, the type arriving on each input that
-            ``compute_added_inputs`` added.
-        taken: The names the hook can't give, since the node declares them itself: its inputs and its ``Context``
-            parameter, for ``compute_added_inputs``.
         failure_codes: The codes of the problems a call of a hook can give: it raised a ``NodeError``, it raised any
             other exception, or it returned what compiling can't use.
     """
@@ -65,9 +59,13 @@ class Hook:
     name: HookName
     function: Callable[..., Mapping[Any, Any]]
     values_of: frozenset[str]
-    types_of: frozenset[str]
-    types_of_added: bool
-    taken: frozenset[str]
+    #: The inputs whose arriving type the hook gets, each by a parameter of the input's name annotated ``type``.
+    _types_of: frozenset[str]
+    #: Whether the hook takes ``**added: type``, the type arriving on each input ``compute_added_inputs`` added.
+    _types_of_added: bool
+    #: The names the hook can't give, since the node declares them itself: its inputs and its ``Context``
+    #: parameter, for ``compute_added_inputs``.
+    _taken: frozenset[str]
 
     failure_codes: ClassVar[frozenset[str]] = frozenset(
         {
@@ -167,8 +165,8 @@ class Hook:
                 ``compute_hook_returned_invalid`` when ``HookValidator`` refuses what it returns.
         """
         kwargs = {name: values[name] for name in self.values_of}
-        kwargs |= {name: arriving.get(name, Any) for name in self.types_of}
-        if self.types_of_added:
+        kwargs |= {name: arriving.get(name, Any) for name in self._types_of}
+        if self._types_of_added:
             kwargs |= {name: arriving.get(name, Any) for name in added}
         try:
             returned = self.function(**kwargs)
@@ -185,4 +183,4 @@ class Hook:
                     )
                 ]
             ) from None
-        return HookValidator(node_id, self.name, self.taken)(returned)
+        return HookValidator(node_id, self.name, self._taken)(returned)

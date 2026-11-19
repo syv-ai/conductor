@@ -167,23 +167,26 @@ def node(
                 )
             if compute_added_inputs is None and takes_kwargs:
                 raise NodeDeclarationError(declaration_problems.var_keyword_without_hook())
-            adds = None
+            added_inputs_hook = None
             if compute_added_inputs is not None:
-                adds = Hook.read(
+                added_inputs_hook = Hook.read(
                     compute_added_inputs, "compute_added_inputs", inputs, context, adds_inputs=True
                 )
-            gives = None
+            outputs_hook = None
             if compute_outputs is not None:
-                gives = Hook.read(
+                outputs_hook = Hook.read(
                     compute_outputs,
                     "compute_outputs",
                     inputs,
                     context,
-                    adds_inputs=adds is not None,
+                    adds_inputs=added_inputs_hook is not None,
                 )
             # An input a hook reads takes only a constant, since the hook reads it when the graph is compiled.
             read_by_a_hook = {
-                name for hook in (adds, gives) if hook is not None for name in hook.values_of
+                name
+                for hook in (added_inputs_hook, outputs_hook)
+                if hook is not None
+                for name in hook.values_of
             }
             for name in read_by_a_hook:
                 field = inputs[name]
@@ -212,8 +215,8 @@ def node(
                 replaces=replaces,
                 upgrade=upgrade or Upgrade(),
                 policy=policy,
-                compute_added_inputs=adds,
-                compute_outputs=gives,
+                compute_added_inputs=added_inputs_hook,
+                compute_outputs=outputs_hook,
                 asks=asks,
             )
             if replaces is not None:
