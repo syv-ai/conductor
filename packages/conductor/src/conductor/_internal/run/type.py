@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from functools import cache
 from threading import Event as ThreadEvent
 from types import MappingProxyType
-from typing import Any, Literal, assert_never, overload
+from typing import Any, assert_never, overload
 
 from conductor._internal.ask import AnswerAsJsonValidator, AnswerValidator, DeclineValidator
 from conductor._internal.base import (
@@ -49,7 +49,7 @@ from .events import (
 )
 from .json import outputs_to_json, run_from_json, run_to_json
 from .node_events import NodeEvents
-from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
+from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from .outcomes import RunOutcomes
 from .progress import RunProgress, call_count, is_complete, progress_of
 from .results import outputs_of, results_of
@@ -313,9 +313,7 @@ class Run[C]:
                 outcomes=outcomes,
                 reusable=reusable,
                 max_items=self.max_items,
-                arguments_for=_only_costs_nothing(outcomes)
-                if only_costs_nothing
-                else outcomes.arguments_for,
+                only_costs_nothing=only_costs_nothing,
                 node_events=node_events,
                 stop=stop,
                 context=context,
@@ -754,30 +752,6 @@ class Run[C]:
             InvalidCallError: ``run_unwritable``, naming the input or output, if a value can't be written as JSON.
         """
         return run_to_json(self)
-
-
-def _only_costs_nothing(
-    outcomes: RunOutcomes,
-) -> Callable[
-    [BlueprintFunctionNode, ItemIndexes],
-    dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY],
-]:
-    """Wraps ``outcomes.arguments_for`` so that a node whose ``Policy`` doesn't say ``costs_nothing`` is never ready.
-
-    ``resume(only_costs_nothing=True)`` gives this to the scheduler. If only ``lines`` costs nothing, the scheduler
-    then calls ``lines`` and never ``shout``.
-    """
-
-    def restricted(
-        node: BlueprintFunctionNode, item_indexes: ItemIndexes
-    ) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
-        return (
-            outcomes.arguments_for(node, item_indexes)
-            if node.policy.costs_nothing
-            else NotReady.NOT_READY
-        )
-
-    return restricted
 
 
 def make_run[C](

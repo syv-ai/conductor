@@ -12,9 +12,9 @@ Here is an example graph::
 A run of it has five calls. A call is a node plus its item indexes, which say which item of each loop it is for:
 ``lines ()``, ``shout (0,)``, ``shout (1,)``, ``shout (2,)`` and ``join ()``.
 
-For each call, the scheduler asks ``arguments_for(node, item_indexes)`` for its arguments. For ``shout (1,)`` the
-answer is ``NOT_READY`` until ``lines`` has an outcome, and ``{"line": "b", "mark": "!"}`` after that. The scheduler
-then calls ``shout`` with those arguments, and writes what it returns as the call's outcome::
+For each call, the scheduler asks ``outcomes.arguments_for(node, item_indexes)`` for its arguments. For
+``shout (1,)`` the answer is ``NOT_READY`` until ``lines`` has an outcome, and ``{"line": "b", "mark": "!"}`` after
+that. The scheduler then calls ``shout`` with those arguments, and writes what it returns as the call's outcome::
 
     outcomes.record(shout, (1,), Done({"result": "B!"}))
 
@@ -245,10 +245,7 @@ class Scheduler:
         outcomes: RunOutcomes,
         reusable: ReusableOutcomes,
         max_items: int | None,
-        arguments_for: Callable[
-            [BlueprintFunctionNode, ItemIndexes],
-            dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY],
-        ],
+        only_costs_nothing: bool,
         node_events: NodeEvents | None,
         stop: Callable[[], LastResume] | None,
         context: Any,
@@ -262,8 +259,8 @@ class Scheduler:
             reusable: The outcomes of the previous run that a call may reuse. Some can only be reused once, and the
                 scheduler takes those out as it reuses them.
             max_items: The item limit: the most items a series that a loop runs over may have. ``None`` for no limit.
-            arguments_for: Returns the arguments of one call, or why it can't be called yet
-                (``RunOutcomes.arguments_for``).
+            only_costs_nothing: Whether to call only the nodes whose ``Policy`` says ``costs_nothing``. A call of any
+                other node is left untried, as if it weren't ready (``run.resume(only_costs_nothing=True)``).
             node_events: Makes the events about each node, for the listener of ``run.stream()``. ``None`` for
                 ``run.resume()``, which has no listener.
             stop: Asked before each call, and every so often while waiting for threads. It returns ``None`` to go
@@ -277,7 +274,8 @@ class Scheduler:
         self.nodes = list(outcomes.blueprint.function_nodes.values())
         #: How many pool threads the graph needs (``RunBlueprint.threads``).
         self.threads = outcomes.blueprint.threads
-        self.outcomes, self.max_items, self.arguments_for = outcomes, max_items, arguments_for
+        self.outcomes, self.max_items = outcomes, max_items
+        self.only_costs_nothing = only_costs_nothing
         self.stop, self.context = stop, context
 
         # 1. Choosing the next call.
@@ -449,7 +447,8 @@ class Scheduler:
         One of four things happens:
 
         - Nothing, if the call already has an outcome, is running, isn't ready, or is out of turn for an answer it
-          could reuse.
+          could reuse. With ``only_costs_nothing``, nothing either for a node whose ``Policy`` doesn't say
+          ``costs_nothing``.
         - If the call is skipped or has a ``None`` input, ``arguments_for`` returns that outcome, and it is recorded.
         - If an earlier run has an outcome for these arguments, that outcome is recorded, and the node isn't called.
         - Otherwise an ``_Attempt`` is made, and the outcome is recorded once the node has returned.
@@ -458,10 +457,14 @@ class Scheduler:
             node: The node to call.
             item_indexes: Which call of the node.
         """
-        if item_indexes in self.outcomes.of(node.node_path) or (node, item_indexes) in self.running:
+        if (
+            item_indexes in self.outcomes.of(node.node_path)
+            or (node, item_indexes) in self.running
+            or (self.only_costs_nothing and not node.policy.costs_nothing)
+        ):
             return
         try:
-            arguments = self.arguments_for(node, item_indexes)
+            arguments = self.outcomes.arguments_for(node, item_indexes)
         # An edge reads a field that the record it reads from doesn't have.
         except InvalidCallError as missing:
             (problem,) = missing.problems
