@@ -11,15 +11,63 @@ import functools
 import operator
 import typing
 from collections.abc import Iterable, Iterator, Mapping
+from datetime import date, datetime
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv4Network,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+)
 from types import UnionType
-from typing import Any, Literal, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    TypeAliasType,
+    TypeGuard,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
-from pydantic import BaseModel, JsonValue
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    EmailStr,
+    FutureDate,
+    FutureDatetime,
+    IPvAnyAddress,
+    IPvAnyInterface,
+    IPvAnyNetwork,
+    JsonValue,
+    NaiveDatetime,
+    PastDate,
+    PastDatetime,
+)
 
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 
 #: Classes that mean another hint when written as a hint, such as ``polars.DataFrame``, which means ``Table``.
-READ_AS: dict[type, Any] = {}
+#:
+#: Pydantic's marker classes are here. A value of one is never of the marker's own class: ``EmailStr`` checks a
+#: ``str`` and gives a ``str``. So each is read as the class of its values with the marker's check on it, the way
+#: pydantic's ``PositiveInt`` is an ``int`` with a check: ``EmailStr`` has the id ``str``, and an edge from it lands
+#: on a ``str`` input.
+READ_AS: dict[Any, Any] = {
+    EmailStr: Annotated[str, EmailStr],
+    PastDate: Annotated[date, PastDate],
+    FutureDate: Annotated[date, FutureDate],
+    PastDatetime: Annotated[datetime, PastDatetime],
+    FutureDatetime: Annotated[datetime, FutureDatetime],
+    AwareDatetime: Annotated[datetime, AwareDatetime],
+    NaiveDatetime: Annotated[datetime, NaiveDatetime],
+    IPvAnyAddress: Annotated[IPv4Address | IPv6Address, IPvAnyAddress],
+    IPvAnyInterface: Annotated[IPv4Interface | IPv6Interface, IPvAnyInterface],
+    IPvAnyNetwork: Annotated[IPv4Network | IPv6Network, IPvAnyNetwork],
+}
 
 
 def union_members(hint: Any) -> tuple[Any, ...]:

@@ -480,11 +480,6 @@ class Money:
         )
 
 
-host_type("Fraction", title="Fraction")(Fraction)
-host_type("Url", title="Url")(AnyUrl)
-host_type("ByteSize", title="Byte size")(ByteSize)
-
-
 def test_a_limit_pydantic_checks_is_taken_on_a_host_type_and_on_pydantics_own_types():
     """A limit is taken where the schema pydantic built shows it: as its own rule (a fraction, an address) or as its
     comparison over a host's own function (``Money``, ``ByteSize``)."""

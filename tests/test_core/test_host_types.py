@@ -5,13 +5,39 @@ declaration fails right away, at the class statement, rather than later when a g
 """
 
 import dataclasses
+import datetime
+from collections import OrderedDict, deque
 from enum import Enum
+from fractions import Fraction
+from http import HTTPStatus
 from ipaddress import IPv4Address
+from pathlib import Path
+from re import Pattern
 from typing import Any, Generic, TypeVar
+from zoneinfo import ZoneInfo
 
 import pytest
-from conductor import Graph, NodeDeclarationError, NodeRegistry, host_type, make_graph, node
-from pydantic import BaseModel
+from conductor import (
+    Graph,
+    NodeDeclarationError,
+    NodeRegistry,
+    Run,
+    host_type,
+    make_graph,
+    node,
+)
+from pydantic import (
+    AnyUrl,
+    AwareDatetime,
+    BaseModel,
+    ByteSize,
+    FtpUrl,
+    HttpUrl,
+    IPvAnyAddress,
+    NaiveDatetime,
+    PastDate,
+    PostgresDsn,
+)
 from pydantic_core import core_schema
 
 from tests.test_core.test_nodes import declared
@@ -65,7 +91,7 @@ class Temperature(BaseModel):
     degrees: float
 
 
-IP = host_type("ip", title="IP address")(IPv4Address)
+Status = host_type("http-status", title="HTTP status")(HTTPStatus)
 
 T = TypeVar("T")
 
@@ -84,7 +110,7 @@ class Box(BaseModel, Generic[T]):
         (Colour, "colour"),
         (Upload, "upload"),
         (Temperature, "temperature"),
-        (IP, "ip"),
+        (Status, "http-status"),
         (list[Point], "list[point]"),
     ],
 )
@@ -214,7 +240,7 @@ def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says
 
 
 def test_a_class_python_lets_nobody_write_on_is_refused_with_the_way_out() -> None:
-    refused = _refused(lambda: host_type("whole", title="Whole")(int))
+    refused = _refused(lambda: host_type("ordered", title="Ordered")(OrderedDict))
     assert refused.problems[
         0
     ].type == "type_declaration_not_writable" and "a class of your own" in str(refused)
@@ -331,3 +357,139 @@ def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused()
     for wrong in (42, list[int], a_function, Row):
         refused = _refused(lambda wrong=wrong: host_type("thing", title="Thing")(wrong))
         assert refused.problems[0].type == "type_declaration_not_on_a_class", wrong
+
+
+@pytest.mark.parametrize(
+    ("hint", "type_id", "given"),
+    [
+        (HttpUrl, "HttpUrl", "https://example.com/a"),
+        (PostgresDsn, "PostgresDsn", "postgres://db/main"),
+        (ByteSize, "ByteSize", "1KB"),
+        (Path, "Path", "reports/2026.csv"),
+        (IPv4Address, "IPv4Address", "10.0.0.1"),
+        (ZoneInfo, "ZoneInfo", "Europe/Copenhagen"),
+        (Fraction, "Fraction", "1/3"),
+        (complex, "complex", "1+2j"),
+        (Pattern, "Pattern", "a+"),
+        (deque[int], "deque[int]", [1, 2]),
+    ],
+)
+def test_pydantics_own_types_and_the_standard_librarys_need_no_declaration(
+    hint: Any, type_id: str, given: Any
+) -> None:
+    """Conductor names them, by the name a host imports, so a node takes them with no ``@host_type``; ``Pattern``,
+    ``complex`` and ``deque`` are written in C, so ``@host_type`` could never name them."""
+
+    def passes(value: hint) -> hint:  # type: ignore[valid-type]
+        return value
+
+    definition = node("passes", title="Passes", description="For a test.")(passes)
+    registry = NodeRegistry()
+    registry.add(definition)
+    graph = Graph.compile(make_graph(definition), registry)
+    run = graph.run({"value": given})
+
+    assert definition.describe().inputs[0].type == type_id
+    assert run.status == "complete"
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+def test_a_marker_class_is_read_as_the_class_of_its_values_with_its_check() -> None:
+    """``AwareDatetime`` gives a ``datetime``, so it has the id ``datetime``: an edge from it lands on a ``datetime``
+    input, and an edge from a ``datetime`` lands on it with its check on each call."""
+
+    @node("stamp", title="Stamp", description="For a test.")
+    def stamp(naive: bool) -> datetime.datetime:
+        moment = datetime.datetime(2026, 1, 2, 3, 4)
+        return moment if naive else moment.replace(tzinfo=datetime.UTC)
+
+    @node("aware", title="Aware", description="For a test.")
+    def aware(moment: AwareDatetime) -> AwareDatetime:
+        return moment
+
+    @node("plain", title="Plain", description="For a test.")
+    def plain(moment: datetime.datetime) -> str:
+        return moment.isoformat()
+
+    @node("closest", title="Closest", description="For a test.")
+    def closest(address: IPvAnyAddress, day: PastDate) -> str:
+        return f"{address} {day}"
+
+    registry = NodeRegistry()
+    registry.add(stamp, aware, plain, closest)
+    graph = Graph.compile(
+        make_graph(
+            stamp,
+            aware,
+            plain,
+            edges=[("stamp.result", "aware.moment"), ("aware.result", "plain.moment")],
+        ),
+        registry,
+    )
+    described = closest.describe().inputs
+
+    assert aware.describe().inputs[0].type == "datetime"
+    assert [field.type for field in described] == ["IPv4Address | IPv6Address", "date"]
+    assert graph.problems == []
+    assert graph.run({"naive": False}).outputs == {"result": "2026-01-02T03:04:00+00:00"}
+    assert graph.run({"naive": True}).cause.type == "invalid_edge_value"
+
+
+def test_a_value_of_pydantics_own_class_built_by_hand_is_still_checked() -> None:
+    """``ByteSize(-5)`` can be built, and its own check refuses it, so only Python's own classes skip the check."""
+
+    @node("size", title="Size", description="For a test.")
+    def size() -> ByteSize:
+        return ByteSize(-5)
+
+    registry = NodeRegistry()
+    registry.add(size)
+    run = Graph.compile(make_graph(size), registry).run()
+
+    assert (run.status, run.cause.type) == ("failed", "invalid_output")
+
+
+@pytest.mark.parametrize("named", [HttpUrl, FtpUrl, int, Path, NaiveDatetime, IPvAnyAddress])
+def test_host_type_on_a_class_conductor_names_is_refused_and_says_to_declare_a_subclass(
+    named: Any,
+) -> None:
+    """A declaration is stored on the class, so on one of conductor's own it would rename the class for every
+    registry in the process, depending on what read it first."""
+    refused = _refused(lambda: host_type("mine", title="Mine")(named))
+
+    assert refused.problems[0].type == "type_declaration_invalid"
+    assert "declare a subclass" in str(refused)
+
+
+def test_a_hosts_subclass_of_a_class_conductor_names_is_its_own_type() -> None:
+    """A subclass of a named class, or of a marker class, is the host's own type under the host's id, so it is not
+    read as the marker's value class, and an edge from ``str`` lands on it only through ``accepts``. A saved run reads
+    back under the host's ids."""
+
+    @host_type("site", title="Site")
+    class Site(AnyUrl):
+        pass
+
+    @host_type("local-time", title="Local time", accepts=[datetime.datetime])
+    class LocalTime(NaiveDatetime):
+        pass
+
+    @node("fetch", title="Fetch", description="For a test.")
+    def fetch(site: Site, at: LocalTime) -> Site:
+        return site
+
+    @node("now", title="Now", description="For a test.")
+    def now() -> datetime.datetime:
+        return datetime.datetime(2026, 1, 2, 3, 4)
+
+    registry = NodeRegistry()
+    registry.add(fetch, now)
+    graph = Graph.compile(make_graph(fetch), registry)
+    run = graph.run({"site": "https://a.example", "at": "2026-01-02T03:04:00"})
+    titles = {described.id: described.title for described in registry.describe().types}
+    wired = Graph.compile(make_graph(now, fetch, edges=[("now.result", "fetch.at")]), registry)
+
+    assert [field.type for field in fetch.describe().inputs] == ["site", "local-time"]
+    assert (titles["site"], titles["local-time"]) == ("Site", "Local time")
+    assert Run.from_json(run.to_json(), graph).outputs == {"result": Site("https://a.example")}
+    assert wired.problems == []

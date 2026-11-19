@@ -66,7 +66,7 @@ from .hint import (
     union_members,
     union_of,
 )
-from .host_type import NAMES, OWN_IDS, declaration_of
+from .host_type import NAMES, OWN_IDS, PYTHON_NAMES, declaration_of
 from .param import LIMITS, Param, as_written, not_taken, split_hint
 from .rules import with_rules
 
@@ -328,13 +328,14 @@ class Type:
         A value whose class is exactly one of these needs no checking. ``Type(str)`` gives ``(str,)``, and
         ``Type(int | None)`` gives ``(int, type(None))``.
 
-        Only conductor's own classes (``NAMES``) are trusted this way, since every value of one is a value of its
-        type. A host's class may make a value its own check refuses, like a ``str`` subclass whose constructor checks
-        nothing, so pydantic checks every value of it. It is ``()`` when any option of the type is not one of
-        conductor's own classes, or when the type has a limit, choices or other metadata.
+        Only Python's own classes (``PYTHON_NAMES``) are trusted this way, since every value of one is a value of its
+        type. Any other class may make a value its own check refuses, like pydantic's ``ByteSize(-5)`` or a host's
+        ``str`` subclass whose constructor checks nothing, so pydantic checks every value of it. It is ``()`` when any
+        option of the type is not one of Python's own classes, or when the type has a limit, choices or other
+        metadata.
         """
         options = union_members(self.bare)
-        own = all(isinstance(option, type) and option in NAMES for option in options)
+        own = all(isinstance(option, type) and option in PYTHON_NAMES for option in options)
         return options if own and not self.limited else ()
 
     @functools.cached_property
@@ -753,7 +754,7 @@ class Type:
         Say a host's ``Colour`` reads only text, and a node returns ``Colour("red")``. Pydantic's message,
         "Input should be a valid string", says nothing of the cause: the class's schema doesn't take a ``Colour``. A
         type with a limit, choices or other metadata may refuse a value of its class, so it is left out, and so is one
-        of conductor's own classes, whose check refuses its own value only by conductor's rules, like an ``inf``.
+        of Python's own classes, whose check refuses its own value only by conductor's rules, like an ``inf``.
 
         Args:
             first: The first of pydantic's raw errors, with the value it refused in ``input``.
@@ -762,7 +763,12 @@ class Type:
             start: How many steps of its ``loc`` lead down to the value of this type, as ``refusal``'s ``under``.
         """
         refused = type(first.get("input"))
-        if first["loc"][start:] or self.limited or refused in NAMES or refused not in self.options:
+        if (
+            first["loc"][start:]
+            or self.limited
+            or refused in PYTHON_NAMES
+            or refused not in self.options
+        ):
             return None
         return f"the type's own check refuses a {refused.__name__}, a value of its own class ({message})"
 

@@ -1,8 +1,9 @@
 """Names for types: conductor's own, and the ones a host declares with ``@host_type``.
 
 Every type on an input or output needs an id, which an editor and a graph record know it by, and a title, which a
-person sees. Conductor names the common Python types itself (``NAMES``): an ``int`` is ``"int"``, titled "Whole
-number". A host names a class of its own with ``@host_type``::
+person sees. Conductor names Python's common types, the standard library's classes pydantic checks and pydantic's own
+classes itself (``NAMES``): an ``int`` is ``"int"``, titled "Whole number", and a ``pathlib.Path`` is ``"Path"``. A
+host names a class of its own with ``@host_type``::
 
     @host_type("money", title="Money")
     class Money(BaseModel):
@@ -17,23 +18,64 @@ from __future__ import annotations
 import datetime
 import re
 import typing
-from collections.abc import Callable, Mapping
+from collections import deque
+from collections.abc import Callable, Mapping, Sequence
 from decimal import Decimal
+from fractions import Fraction
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv4Network,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+)
+from pathlib import Path
+from re import Pattern
 from typing import Annotated, Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
+from pydantic import (
+    AmqpDsn,
+    AnyHttpUrl,
+    AnyUrl,
+    AnyWebsocketUrl,
+    ByteSize,
+    ClickHouseDsn,
+    CockroachDsn,
+    FileUrl,
+    FtpUrl,
+    HttpUrl,
+    KafkaDsn,
+    MariaDBDsn,
+    MongoDsn,
+    MySQLDsn,
+    NameEmail,
+    NatsDsn,
+    PostgresDsn,
+    RedisDsn,
+    SnowflakeDsn,
+    TypeAdapter,
+    ValidationError,
+    WebsocketUrl,
+    field_validator,
+)
 from pydantic import Field as PydanticField
-from pydantic import TypeAdapter, ValidationError, field_validator
 from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
-from pydantic_core import core_schema
+from pydantic_core import MultiHostUrl, Url, core_schema
 
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.utils import qualified_name
 
-#: The id and title of each class conductor names itself. ``Series`` and ``Table`` are named in their own
-#: packages. Any other class on a field must be declared with ``@host_type``.
-NAMES: Mapping[Any, tuple[str, str]] = {
+from .hint import READ_AS
+
+#: The id and title of each of Python's own classes that conductor names: the builtins, and the standard library's
+#: classes pydantic checks. Each id is the class's name as a host imports it. Every value of one of these is a value of
+#: its type, however it was made, so a validator keeps a value of exactly one of them as it is
+#: (``Type.exact_classes``).
+PYTHON_NAMES: Mapping[Any, tuple[str, str]] = {
     Any: ("Any", "Any value"),
     object: ("object", "Any value"),
     type(None): ("None", "Nothing"),
@@ -53,6 +95,51 @@ NAMES: Mapping[Any, tuple[str, str]] = {
     tuple: ("tuple", "Tuple"),
     set: ("set", "Set"),
     frozenset: ("frozenset", "Set"),
+    complex: ("complex", "Complex number"),
+    Fraction: ("Fraction", "Fraction"),
+    Path: ("Path", "File path"),
+    Pattern: ("Pattern", "Regular expression"),
+    deque: ("deque", "Queue"),
+    Sequence: ("Sequence", "Sequence"),
+    Mapping: ("Mapping", "Mapping"),
+    ZoneInfo: ("ZoneInfo", "Time zone"),
+    IPv4Address: ("IPv4Address", "IPv4 address"),
+    IPv6Address: ("IPv6Address", "IPv6 address"),
+    IPv4Interface: ("IPv4Interface", "IPv4 interface"),
+    IPv6Interface: ("IPv6Interface", "IPv6 interface"),
+    IPv4Network: ("IPv4Network", "IPv4 network"),
+    IPv6Network: ("IPv6Network", "IPv6 network"),
+}
+
+#: The id and title of each class conductor names itself: Python's own (``PYTHON_NAMES``) and pydantic's. A value of
+#: one of pydantic's may be made that its own check refuses, like ``ByteSize(-5)``, so it is always checked.
+#: ``Series`` and ``Table`` are named in their own packages, and a class whose values are of another class, such as
+#: pydantic's ``EmailStr``, is read as that class (``READ_AS``). Any other class on a field must be declared with
+#: ``@host_type``.
+NAMES: Mapping[Any, tuple[str, str]] = {
+    **PYTHON_NAMES,
+    Url: ("Url", "URL"),
+    MultiHostUrl: ("MultiHostUrl", "URL with several hosts"),
+    AnyUrl: ("AnyUrl", "URL"),
+    AnyHttpUrl: ("AnyHttpUrl", "HTTP URL"),
+    HttpUrl: ("HttpUrl", "Web address"),
+    FileUrl: ("FileUrl", "File URL"),
+    FtpUrl: ("FtpUrl", "FTP URL"),
+    WebsocketUrl: ("WebsocketUrl", "WebSocket URL"),
+    AnyWebsocketUrl: ("AnyWebsocketUrl", "WebSocket URL"),
+    PostgresDsn: ("PostgresDsn", "PostgreSQL URL"),
+    CockroachDsn: ("CockroachDsn", "CockroachDB URL"),
+    AmqpDsn: ("AmqpDsn", "AMQP URL"),
+    RedisDsn: ("RedisDsn", "Redis URL"),
+    MongoDsn: ("MongoDsn", "MongoDB URL"),
+    KafkaDsn: ("KafkaDsn", "Kafka URL"),
+    NatsDsn: ("NatsDsn", "NATS URL"),
+    MySQLDsn: ("MySQLDsn", "MySQL URL"),
+    MariaDBDsn: ("MariaDBDsn", "MariaDB URL"),
+    ClickHouseDsn: ("ClickHouseDsn", "ClickHouse URL"),
+    SnowflakeDsn: ("SnowflakeDsn", "Snowflake URL"),
+    NameEmail: ("NameEmail", "Name and email address"),
+    ByteSize: ("ByteSize", "Size in bytes"),
 }
 
 #: The ids a host can't declare, because conductor uses them. ``Type`` adds ``Series`` and ``Table`` here when
@@ -97,7 +184,11 @@ def host_type[C: type](
         @host_type("text", title="Text")
         class Text(str): ...
 
-        host_type("ip", title="IP address")(ipaddress.IPv4Address)   # a library's class
+        host_type("http-status", title="HTTP status")(http.HTTPStatus)   # a library's class
+
+    A class conductor names itself, such as ``HttpUrl`` or ``EmailStr``, can't be declared, since the declaration is
+    stored on the class and would rename it for every registry. Declare a subclass of it instead, which is a type of
+    your own.
 
     A subclass of ``str``, ``int`` or another class conductor names needs nothing more. A value is checked as the
     parent class, then made into the subclass. A subclass doesn't inherit its parent's declaration, so declare it
@@ -113,8 +204,8 @@ def host_type[C: type](
 
     Raises:
         NodeDeclarationError: Right away, when the class is defined. ``type_declaration_invalid`` if the id isn't
-            one word or is one of conductor's own, the title is empty, or ``accepts`` has something that isn't a
-            class. ``type_declaration_not_on_a_class`` if it isn't put above a class it can name,
+            one word or is one of conductor's own, the title is empty, ``accepts`` has something that isn't a
+            class, or the class is one conductor names itself. ``type_declaration_not_on_a_class`` if it isn't put above a class it can name,
             ``type_declaration_not_writable`` if the class can't take a new attribute, and
             ``host_type_not_supported`` if pydantic can't check values of the class.
     """
@@ -132,6 +223,14 @@ def host_type[C: type](
         if not isinstance(cls, type) or typing.is_typeddict(cls):
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_not_on_a_class(id=id, given=repr(cls))
+            )
+        # a declaration is stored on the class, so on one of conductor's own it would rename it for every registry
+        if cls in NAMES or cls in READ_AS:
+            raise NodeDeclarationError(
+                declaration_problems.type_declaration_invalid(
+                    id=id,
+                    faults=f"{cls.__qualname__} is one of conductor's own types; declare a subclass of it to give it an id of your own",
+                )
             )
         try:
             TypeAdapter(cls)

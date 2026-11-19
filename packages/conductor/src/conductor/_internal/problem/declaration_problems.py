@@ -1148,7 +1148,9 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
     - an id that is one word, made of letters, digits, ``_``, ``.`` or ``-``, and that isn't the id of one of
       conductor's own types,
     - a title that isn't empty,
-    - only classes in ``accepts``.
+    - only classes in ``accepts``,
+    - a class conductor doesn't name itself. To give one of conductor's types, such as ``HttpUrl``, an id of your own,
+      declare a subclass of it.
 
     Args:
         id: The id given.
@@ -1193,7 +1195,10 @@ def type_declaration_not_writable(*, id: str, cls: str) -> str:
         cls: The class.
 
     Example:
-        declaration_refused(lambda: host_type("whole", title="Whole number")(int))
+        from collections import OrderedDict
+
+
+        declaration_refused(lambda: host_type("ordered", title="Ordered mapping")(OrderedDict))
     """
     return f"@host_type({id!r}) can't declare {cls}, since Python doesn't let anyone change that class. Put the value in a class of your own, and declare that."
 

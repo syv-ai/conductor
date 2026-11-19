@@ -71,7 +71,8 @@ assert registry["greet"] is greet
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
 | A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic frozen dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
 | Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values` |
-| A text or number class of your own | `@host_type("email", title="Email")` above `class Email(str)` |
+| An email, a web address, a path, an IP address | pydantic's own types and the standard library's need no declaration: `EmailStr`, `HttpUrl`, `AwareDatetime`, `pathlib.Path`, `ipaddress.IPv4Address` |
+| A text or number class of your own | `@host_type("invoice-number", title="Invoice number")` above `class InvoiceNumber(str)` |
 
 ### Asking a person
 

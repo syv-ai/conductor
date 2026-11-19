@@ -224,9 +224,9 @@ print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 print(city.describe().inputs[0].type)                       # address
 ```
 
-Conductor checks the declaration as soon as the class is defined, so a mistake fails at import. If you forget `@host_type`, the node that uses the class fails where it is declared, with `type_not_named`, and the message gives a line to paste, such as `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`. A class inside a list or a dict needs the declaration too, and so does a subclass. Put `@host_type` above `@dataclass` when there is one. For a library's class that you can't decorate, call it: `host_type("ip", title="IP address")(ipaddress.IPv4Address)`.
+Conductor checks the declaration as soon as the class is defined, so a mistake fails at import. If you forget `@host_type`, the node that uses the class fails where it is declared, with `type_not_named`, and the message gives a line to paste, such as `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`. A class inside a list or a dict needs the declaration too, and so does a subclass. Put `@host_type` above `@dataclass` when there is one. For a library's class that you can't decorate, call it: `host_type("http-status", title="HTTP status")(http.HTTPStatus)`.
 
-Conductor's own types already have titles: `str` is "Text" and `int` is "Whole number". More on types, and why `@host_type` is a decorator and not a base class, is in `python -m conductor.about types`.
+Conductor's own types already have titles: `str` is "Text" and `int` is "Whole number". Pydantic's own types and the standard library's classes pydantic checks, such as `HttpUrl`, `EmailStr`, `AwareDatetime`, `pathlib.Path` and `ipaddress.IPv4Address`, are conductor's own too, and need no declaration; a library's class, such as one from pydantic-extra-types, does. To give one of them an id of your own, declare a subclass of it, such as `@host_type("web", title="Web")` above `class Web(HttpUrl)`; `@host_type` on conductor's own class is refused. More on types, and why `@host_type` is a decorator and not a base class, is in `python -m conductor.about types`.
 
 A few types mean something special:
 

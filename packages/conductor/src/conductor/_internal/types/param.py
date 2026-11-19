@@ -268,8 +268,8 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     """Takes a hint apart into its bare type, its ``Param`` and its other metadata.
 
     For example, ``Annotated[X, Param(title="X")] | None`` gives ``X | None`` and that ``Param``. Several
-    ``Param``s are merged into one (``merged_param``). A ``polars.DataFrame`` written as a hint is read as
-    ``Table``.
+    ``Param``s are merged into one (``merged_param``). A class that means another hint (``READ_AS``) is read as
+    that hint: a ``polars.DataFrame`` as ``Table``, and pydantic's ``EmailStr`` as a ``str`` with its check.
 
     An annotated-types limit, like ``Ge(0)`` or ``Len(1, 3)``, is read as the ``Param`` limit of the same name, so
     ``Annotated[int, Ge(0)]`` and ``Annotated[int, Param(ge=0)]`` are one type, and a limit that doesn't fit its
@@ -288,10 +288,13 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     # a plain class has nothing to take off, and most hints are a plain class
     if type(hint) is type and hint not in READ_AS:
         return hint, _NO_PARAM, ()
+    # a class that means another hint is taken apart as that hint: EmailStr as Annotated[str, EmailStr]
+    if isinstance(hint, type) and hint in READ_AS:
+        return split_hint(READ_AS[hint])
     members = union_members(hint)
     if len(members) == 1:
         if get_origin(hint) is not Annotated:
-            return (READ_AS.get(hint, hint) if type(hint) is type else hint), _NO_PARAM, ()
+            return hint, _NO_PARAM, ()
         inner, *given = get_args(hint)
         metadata = list(_limits_as_params(given))
         bare, inner_param, inner_others = split_hint(inner)
