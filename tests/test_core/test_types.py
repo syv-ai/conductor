@@ -363,6 +363,42 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
         assert raised.value.problems[0].type == "pydantic_field_in_hint", returned
 
 
+def test_a_field_of_a_bare_typed_dict_is_held_to_the_rules_a_column_of_a_table_row_is() -> None:
+    """A hint a node may not write is refused at the same depth in a ``TypedDict`` input as in a table's row."""
+    import math
+
+    from annotated_types import LowerCase, Predicate, Timezone, Unit
+    from pydantic import Field
+
+    @host_type("tabby", title="Tabby")
+    class Tabby(BaseModel):
+        kind: Literal["tabby"]
+
+    @host_type("siamese", title="Siamese")
+    class Siamese(BaseModel):
+        kind: Literal["siamese"]
+
+    faults = {
+        "pydantic_field_in_hint": Annotated[int, Field(ge=0)],
+        "pydantic_discriminator_in_hint": Annotated[Tabby | Siamese, Field(discriminator="kind")],
+        "timezone_in_hint": Annotated[datetime.datetime, Timezone(None)],
+        "unit_in_hint": Annotated[float, Unit("m")],
+        "predicate_alias_in_hint": Annotated[str, LowerCase],
+        "type_not_supported_set": set[int],
+    }
+    for kind, hint in faults.items():
+        record = TypedDict("Record", {"part": hint})  # type: ignore[misc]
+        for declared in (record, Table[record], list[record]):  # type: ignore[valid-type]
+            with pytest.raises(NodeDeclarationError) as raised:
+                node("count", title="Count", description="For a test.")(
+                    _returning_its_input(declared)
+                )
+            assert raised.value.problems[0].type == kind, (kind, declared)
+    # a predicate pydantic checks, written as the metadata itself, is taken
+    taken = TypedDict("Taken", {"part": Annotated[float, Predicate(math.isfinite)]})  # type: ignore[misc]
+    node("count", title="Count", description="For a test.")(_returning_its_input(taken))
+
+
 def test_a_series_limit_is_for_its_items_inside_a_list_too() -> None:
     """``Annotated[Series[int], Param(ge=0)]`` limits each item wherever the Series is read, so a list of them takes
     the limit and checks it on every item."""

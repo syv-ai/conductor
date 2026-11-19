@@ -17,7 +17,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from enum import Enum
 from types import FunctionType, MethodType, UnionType
 from typing import (
@@ -36,9 +36,20 @@ from typing import (
 from weakref import WeakValueDictionary
 
 from annotated_types import Predicate, Timezone, Unit
-from pydantic import JsonValue, StringConstraints, TypeAdapter, ValidationError
+from pydantic import (
+    ImportString,
+    Json,
+    JsonValue,
+    Secret,
+    SecretBytes,
+    SecretStr,
+    StringConstraints,
+    TypeAdapter,
+    ValidationError,
+)
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
+from pydantic.types import EncodedBytes, EncodedStr
 from pydantic_core import (
     CoreSchema,
     PydanticSerializationError,
@@ -65,6 +76,7 @@ from .choice import Choice, declared_choices
 from .fit import fit
 from .hint import (
     READ_AS,
+    hint_parts,
     is_alias,
     is_record,
     literal_classes,
@@ -291,6 +303,55 @@ class Type:
             return False
         return True
 
+    def check_declared(self) -> None:
+        """Refuses the type if a node may not declare it on an input or an output.
+
+        It is asked of each input and output a node declares, so ``@node`` and a hook's fields are held to one set
+        of rules. A ``Type`` conductor makes for itself, like ``Type(Any)``, a saved run's, or one whose type variable
+        a graph filled in, is never asked.
+
+        Each rule reaches the same depth wherever the hint is. A rule about the hint as its author wrote it, such
+        as pydantic's ``Field(...)`` written where ``Param`` goes, walks every hint inside it (``hint_parts``): a
+        list's item, a ``TypedDict``'s field and a table's row, but not a field of a host's own model. The rule
+        for bytes reads the schema pydantic built, which knows the config each class really reads its fields by,
+        so it reaches inside a host's model too.
+
+        Raises:
+            NodeDeclarationError: Pydantic's ``Field(...)`` in the hint (``pydantic_field_in_hint``, or
+                ``pydantic_discriminator_in_hint`` with a discriminator), a ``Timezone`` (``timezone_in_hint``), a
+                ``Unit`` (``unit_in_hint``), a named predicate written as metadata (``predicate_alias_in_hint``),
+                a set (``type_not_supported_set``), a secret (``type_not_supported_secret``), an ``ImportString``
+                (``type_not_supported_import_string``), a type that decodes its value
+                (``type_not_supported_decoding``), a ``Table`` whose row names no columns
+                (``table_row_not_a_typed_dict``), a type pydantic has no schema for (``type_not_supported``), a
+                class with no ``@host_type`` (``type_not_named``), named values that don't read back
+                (``named_value_invalid``), choices that can't be read (``choices_invalid``), a ``Param`` that
+                doesn't fit, or a class with a config of its own that reads a ``bytes`` field as text
+                (``type_not_supported_bytes_as_text``).
+        """
+        for part in hint_parts(self.hint):
+            _check_written(part)
+            if get_origin(part) in _KINDS:
+                Type(part)._check_own_arguments()
+        # each of these raises for a fault in what it builds: the schema, a Series of records stored as a table, the
+        # id of a class with no @host_type, named values that don't read back, and choices that can't be read
+        self.returned_schema  # noqa: B018
+        self.id  # noqa: B018
+        self.argument_schema  # noqa: B018
+        self.choices  # noqa: B018
+        if (as_text := _bytes_read_as_text(self.schema)) is not None:
+            cls, field = as_text
+            raise NodeDeclarationError(
+                declaration_problems.type_not_supported_bytes_as_text(cls=cls, field=field)
+            )
+
+    def _check_own_arguments(self) -> None:
+        """Refuses the arguments of a ``Series`` or ``Table`` hint that a node may not declare.
+
+        ``check_declared`` calls it for each such hint inside a field's hint. ``Type``'s own takes every argument. A
+        subclass with a rule overrides it, as ``TableType`` does for a row that names no columns.
+        """
+
     @functools.cached_property
     def argument_schema(self) -> CoreSchema:
         """The schema an argument of the type is checked by: the type's ``schema`` with conductor's rules added
@@ -467,23 +528,14 @@ class Type:
         ``list[int]``, are each built as a ``Type`` of their own first, so conductor's rules reach them too.
 
         Raises:
-            NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, pydantic's ``Field(...)``
-                written where ``Param`` goes (``pydantic_field_in_hint``), or a type pydantic has no schema for
-                (``type_not_supported``).
+            NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, or a type pydantic has no
+                schema for (``type_not_supported``).
         """
         bare, param, others = self._parts
         if isinstance(bare, Mapping):
             # pydantic reads a dict as a core schema, so a dict given as a type, like {"a": int}, is refused before
             # its schema is built
             _check_is_type(bare)
-        pydantic_fields = [
-            other for other in others if isinstance(other, FieldInfo)
-        ]  # like Annotated[int, Field(ge=0)], here or on a list's item
-        if any(field.discriminator is not None for field in pydantic_fields):
-            raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
-        if pydantic_fields:
-            raise NodeDeclarationError(declaration_problems.pydantic_field_in_hint())
-        _check_annotated_types(bare, others)
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
@@ -843,34 +895,137 @@ def json_by_its_class(value: Any) -> JsonValue:
         raise TypeError(type(value).__name__) from None
 
 
-def _check_annotated_types(bare: Any, others: tuple[Any, ...]) -> None:
-    """Checks the annotated-types metadata in a hint that pydantic would ignore.
+def _check_written(part: Any) -> None:
+    """Refuses one hint inside a field's hint, as its author wrote it, if a node may not declare it.
 
-    Pydantic enforces annotated-types' limits, a ``Predicate`` and ``Not``. It builds ``Timezone`` and ``Unit``, and
-    a named predicate such as ``LowerCase`` written as metadata, and checks nothing.
-
-    Args:
-        bare: The hint's type, without its metadata.
-        others: The hint's metadata that isn't a ``Param``.
+    ``check_declared`` calls it for every hint ``hint_parts`` finds, and an ``Annotated``'s metadata is found as a
+    part of its own. Pydantic would build ``Timezone`` and ``Unit``, and a named predicate such as ``LowerCase``
+    written as metadata, and check nothing. Its ``Field(...)`` belongs on a model's field, and a ``Param`` goes in
+    a node's hint. A set has no order, so it has no JSON form a value could be written in and read back by. A secret
+    writes a mask as its JSON, an ``ImportString`` runs the code its value names, and a type that decodes its value,
+    such as ``Json[int]`` or ``Base64Bytes``, refuses the decoded value the next time it is checked.
 
     Raises:
-        NodeDeclarationError: ``timezone_in_hint`` for a ``Timezone``, ``unit_in_hint`` for a ``Unit`` and
-            ``predicate_alias_in_hint`` for a named predicate written as metadata.
+        NodeDeclarationError: The kinds ``check_declared`` lists for each of these.
     """
-    for other in others:
-        if isinstance(other, Timezone):
-            raise NodeDeclarationError(declaration_problems.timezone_in_hint())
-        if isinstance(other, Unit):
-            raise NodeDeclarationError(declaration_problems.unit_in_hint())
-        predicates = (
-            [m for m in get_args(other)[1:] if isinstance(m, Predicate)]
-            if get_origin(other) is Annotated
-            else []
-        )
-        if predicates:
-            raise NodeDeclarationError(
-                declaration_problems.predicate_alias_in_hint(predicate=repr(predicates[0]))
+    if isinstance(part, FieldInfo):
+        if part.discriminator is not None:
+            raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
+        raise NodeDeclarationError(declaration_problems.pydantic_field_in_hint())
+    if isinstance(part, Timezone):
+        raise NodeDeclarationError(declaration_problems.timezone_in_hint())
+    if isinstance(part, Unit):
+        raise NodeDeclarationError(declaration_problems.unit_in_hint())
+    if get_origin(part) is Annotated:
+        for metadata in get_args(part)[1:]:
+            predicates = (
+                [m for m in get_args(metadata)[1:] if isinstance(m, Predicate)]
+                if get_origin(metadata) is Annotated
+                else []
             )
+            if predicates:
+                raise NodeDeclarationError(
+                    declaration_problems.predicate_alias_in_hint(predicate=repr(predicates[0]))
+                )
+    origin = get_origin(part) or part
+    if isinstance(origin, type) and issubclass(origin, Set):
+        raise NodeDeclarationError(
+            declaration_problems.type_not_supported_set(type=as_written(part))
+        )
+    if _marked(part, (Secret, SecretStr, SecretBytes)):
+        raise NodeDeclarationError(
+            declaration_problems.type_not_supported_secret(type=as_written(part))
+        )
+    if _marked(part, (ImportString,)):
+        raise NodeDeclarationError(
+            declaration_problems.type_not_supported_import_string(type=as_written(part))
+        )
+    if _marked(part, (Json, EncodedBytes, EncodedStr)):
+        raise NodeDeclarationError(
+            declaration_problems.type_not_supported_decoding(type=as_written(part))
+        )
+
+
+def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
+    """Whether ``hint`` is one of ``classes``, bare or with its arguments, or an ``Annotated`` with one of them in its
+    metadata.
+
+    Pydantic writes some of its types either way: ``SecretStr`` and ``Secret[int]`` are classes, while
+    ``Json[int]`` is ``Annotated[int, Json()]`` and ``Base64Bytes`` is ``Annotated[bytes, EncodedBytes(...)]``.
+    """
+    origin = get_origin(hint) or hint
+    if isinstance(origin, type) and issubclass(origin, classes):
+        return True
+    return get_origin(hint) is Annotated and any(
+        isinstance(metadata, classes) for metadata in get_args(hint)[1:]
+    )
+
+
+#: The core schema types of a class that reads its fields by a pydantic config: a model, a pydantic or plain
+#: dataclass, and a ``TypedDict``. Pydantic writes on each the config it really reads that class's fields by.
+_CONFIGURED = frozenset({"model", "dataclass", "typed-dict"})
+
+
+def _bytes_read_as_text(
+    schema: Any,
+    definitions: dict[str, Any] | None = None,
+    owner: tuple[str, str] | None = None,
+) -> tuple[str, str] | None:
+    """Finds a ``bytes`` field, in a type's core schema, that its class reads and writes as text.
+
+    Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A class with a config of its own, such as a
+    pydantic model, reads its fields by that config, and a config that doesn't set the bytes to base64 takes them as
+    text, which a saved run can't read back. Pydantic writes on the schema of each model, dataclass and ``TypedDict``
+    the config it reads that class's fields by, whether the class's own or the one it sits in.
+
+    Say ``class Attachment(BaseModel)`` has the field ``data: bytes`` and the default config. Then the schema of
+    ``list[Attachment]`` gives ``("Attachment", "data")``. With ``ser_json_bytes="base64"`` and
+    ``val_json_bytes="base64"`` in its config, it gives ``None``.
+
+    Args:
+        schema: A core schema, or a part of one.
+        definitions: The schemas pydantic declared beside it, by their ``ref``. Each is taken out as it is walked,
+            so it is walked once.
+        owner: The class and field that ``schema`` is inside, when that class reads bytes as text.
+
+    Returns:
+        The class's name and its field, or ``None`` when no bytes in ``schema`` are read as text.
+    """
+    definitions = {} if definitions is None else definitions
+    parts: list[tuple[Any, tuple[str, str] | None]] = []
+    if isinstance(schema, (list, tuple)):
+        parts = [(part, owner) for part in schema]
+    elif isinstance(schema, dict):
+        kind = schema.get("type")
+        if kind == "bytes":
+            return owner
+        if not isinstance(kind, str):
+            # not a schema but fields by name, and the name is the field's
+            parts = [(part, owner and (owner[0], name)) for name, part in schema.items()]
+        elif kind == "definition-ref":
+            parts = [(definitions.pop(schema["schema_ref"], None), owner)]
+        else:
+            if kind == "definitions":
+                definitions.update({one["ref"]: one for one in schema["definitions"]})
+            # a schema conductor builds itself, like a table's, has no class and reads by the config it sits in
+            if kind in _CONFIGURED and "cls" in schema:
+                config = schema.get("config", {})
+                as_text = (
+                    config.get("ser_json_bytes") != "base64"
+                    or config.get("val_json_bytes") != "base64"
+                )
+                owner = (schema["cls"].__name__, "") if as_text else None
+            if kind == "dataclass-field":
+                owner = owner and (owner[0], schema["name"])
+            parts = [
+                (part, owner)
+                for key, part in schema.items()
+                if key not in ("serialization", "metadata", "config", "definitions")
+            ]
+    for part, inside in parts:
+        if (found := _bytes_read_as_text(part, definitions, inside)) is not None:
+            return found
+    return None
 
 
 def _check_is_type(hint: Any) -> None:

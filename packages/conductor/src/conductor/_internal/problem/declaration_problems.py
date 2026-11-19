@@ -960,7 +960,8 @@ def pydantic_field_in_hint() -> str:
 
     On an input or an output, the title, the description and the limits are written one way: on ``Param``, which takes
     them by the same names as ``Field``. So ``Field(...)`` is refused anywhere in the hint: on the parameter, on the
-    return type, on an item (``Series[Annotated[int, Field(ge=0)]]``) and on a column of a table's row type.
+    return type, on an item (``Series[Annotated[int, Field(ge=0)]]``), on a field of a ``TypedDict`` and on a column of a
+    table's row type.
 
     A type that carries its own limits is still fine. ``PositiveInt``, ``constr(min_length=1)`` and
     ``Annotated[int, annotated_types.Gt(0)]`` are read just as pydantic reads them, the last as ``Param(gt=0)``. ``Field(...)`` on the fields of

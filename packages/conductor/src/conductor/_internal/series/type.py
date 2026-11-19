@@ -81,6 +81,12 @@ class SeriesType(Type, of=_Series):
         )
         return lifted, Param(), ()
 
+    def check_declared(self) -> None:
+        """Refuses the Series if a node may not declare it, as ``Type.check_declared`` does, and its items' choices
+        if they can't be read."""
+        super().check_declared()
+        self.item.choices  # noqa: B018
+
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
         """The Series' id, its title and the classes it names.

@@ -17,7 +17,7 @@ from pydantic_core import CoreSchema
 
 from conductor._internal.types import Type, json_by_its_class
 
-from .read import as_saved, column_missing, row_columns, table_schema
+from .read import as_saved, check_table_row, column_missing, row_columns, table_schema
 from .write import (
     table_digest,
     written_table,
@@ -94,6 +94,13 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     def row(self) -> Type:
         """The type of one row: the ``TypedDict`` ``R``, or ``dict`` for a bare ``Table``."""
         return Type(dict if self._row is Any else self._row)
+
+    def _check_own_arguments(self) -> None:
+        """Refuses a row type that names no columns, as ``Type._check_own_arguments`` says (``check_table_row``).
+
+        The row is read as written, so a type variable a graph fills in is let through.
+        """
+        check_table_row(*get_args(self.hint))
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc`` inside a table.

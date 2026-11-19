@@ -13,24 +13,18 @@ graph record's constant are read. A default is written into a graph record and r
 the same from either. So ``"3"`` and ``5.0`` are refused for an ``int``, ``1`` for a ``bool`` and a ``datetime``
 for a ``date``, and ``1`` for a ``float`` becomes ``1.0``.
 
-A field's type may hold no set, at any depth: a set has no order, so it has no JSON form a default could be written
-in and read back by. ``list`` or ``tuple`` is declared instead. Nor may it hold three kinds of pydantic's types: a
-secret, whose JSON form is a mask, an ``ImportString``, which runs the code its value names, and a type that decodes
-its value, such as ``Json[int]`` or ``Base64Bytes``, which a decoded value fails the next time it is checked.
+Which types a node may declare is the type's own rule (``Type.check_declared``), which ``Field`` asks. Only what
+differs between an input and an output is checked here.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import math
-import typing
-from collections.abc import Mapping, Set
-from typing import Annotated, Any, TypeVar, get_args, get_origin
+from collections.abc import Mapping
+from typing import Any, TypeVar
 
 from annotated_types import Not, Predicate
-from pydantic import BaseModel, ImportString, Json, Secret, SecretBytes, SecretStr, ValidationError
-from pydantic.dataclasses import is_pydantic_dataclass
-from pydantic.types import EncodedBytes, EncodedStr
+from pydantic import ValidationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.problem import (
@@ -39,15 +33,14 @@ from conductor._internal.problem import (
     compile_problems,
     declaration_problems,
 )
-from conductor._internal.table import Table, check_table_row
-from conductor._internal.types import Type, as_written, hint_parts
+from conductor._internal.types import Type, hint_parts
 from conductor._internal.validation import Validator, read_as_json
 
 from .type import Field
 
 #: annotated-types' named predicates that ask for a number that isn't finite: ``IsNan``, ``IsInfinite`` and
-#: ``IsNotFinite``, which may also be written ``Not(math.isfinite)``. A number given to a graph from outside is finite, so no input passes them; a run's own values
-#: may be ``inf`` or ``nan``, so an output may declare them.
+#: ``IsNotFinite``, which may also be written ``Not(math.isfinite)``. A number given to a graph from outside is
+#: finite, so no input passes them; a run's own values may be ``inf`` or ``nan``, so an output may declare them.
 _NOT_FINITE = (
     Predicate(math.isnan),
     Predicate(math.isinf),
@@ -67,46 +60,21 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
         is_output: Whether the field is an output.
 
     Raises:
-        NodeDeclarationError: The hint is one ``Field`` refuses, it holds a set (``type_not_supported_set``), a
-            secret (``type_not_supported_secret``), an ``ImportString`` (``type_not_supported_import_string``) or a
-            type that decodes its value (``type_not_supported_decoding``), a host's pydantic model holds a ``bytes``
-            field it reads as text (``type_not_supported_bytes_as_text``), a
-            ``Table`` in it has a row type that names no columns (``table_row_not_a_typed_dict``), an input asks for
-            a number that isn't finite (``predicate_refuses_every_number``), or the type
-            refuses the default read as its JSON (``default_invalid``). It names the field.
+        NodeDeclarationError: The hint is one ``Field`` refuses, its type is one a node may not declare
+            (``Type.check_declared``), an input asks for a number that isn't finite
+            (``predicate_refuses_every_number``), or the type refuses the default read as its JSON
+            (``default_invalid``). It names the field.
     """
+    whole = Field(name, hint, is_output=is_output).whole
     try:
-        for part in hint_parts(hint):
-            if get_origin(part) is Table:
-                check_table_row(*get_args(part))
-            elif _is_a_set(part):
-                raise NodeDeclarationError(
-                    declaration_problems.type_not_supported_set(type=as_written(part))
-                )
-            elif _marked(part, (Secret, SecretStr, SecretBytes)):
-                raise NodeDeclarationError(
-                    declaration_problems.type_not_supported_secret(type=as_written(part))
-                )
-            elif _marked(part, (ImportString,)):
-                raise NodeDeclarationError(
-                    declaration_problems.type_not_supported_import_string(type=as_written(part))
-                )
-            elif _marked(part, (Json, EncodedBytes, EncodedStr)):
-                raise NodeDeclarationError(
-                    declaration_problems.type_not_supported_decoding(type=as_written(part))
-                )
-            elif not is_output and any(part == never for never in _NOT_FINITE):
+        whole.check_declared()
+        for part in () if is_output else hint_parts(hint):
+            if any(part == never for never in _NOT_FINITE):
                 raise NodeDeclarationError(
                     declaration_problems.predicate_refuses_every_number(predicate=repr(part))
                 )
-        if (as_text := _bytes_read_as_text(hint)) is not None:
-            cls, field = as_text
-            raise NodeDeclarationError(
-                declaration_problems.type_not_supported_bytes_as_text(cls=cls, field=field)
-            )
     except NodeDeclarationError as error:
         raise error.within(name) from None
-    whole = Field(name, hint, is_output=is_output).whole
     try:
         return Field(name, hint, _read_default(whole, default), is_output=is_output)
     except ValidationError as error:
@@ -242,88 +210,6 @@ class BoundDefaultValidator(Validator[Field, Field]):
             raise InvalidCallError(
                 [kind(self._node_id, field.name, type=whole.id, **whole.refusal(error))]
             ) from None
-
-
-def _is_a_set(hint: Any) -> bool:
-    """Whether ``hint`` is a set type: ``set``, ``frozenset``, ``collections.abc.Set`` or a subclass of one, bare or
-    with its item type."""
-    origin = get_origin(hint) or hint
-    return isinstance(origin, type) and issubclass(origin, Set)
-
-
-def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
-    """Whether ``hint`` is one of ``classes``, bare or with its arguments, or an ``Annotated`` with one of them in its
-    metadata.
-
-    Pydantic writes some of its types either way: ``SecretStr`` and ``Secret[int]`` are classes, while
-    ``Json[int]`` is ``Annotated[int, Json()]`` and ``Base64Bytes`` is ``Annotated[bytes, EncodedBytes(...)]``.
-    """
-    origin = get_origin(hint) or hint
-    if isinstance(origin, type) and issubclass(origin, classes):
-        return True
-    return get_origin(hint) is Annotated and any(
-        isinstance(metadata, classes) for metadata in get_args(hint)[1:]
-    )
-
-
-def _bytes_read_as_text(
-    hint: Any, reading_as_text: tuple[str, str] | None = None, walked: frozenset[int] = frozenset()
-) -> tuple[str, str] | None:
-    """Finds a ``bytes`` field that a class in ``hint`` with a pydantic config of its own reads as text.
-
-    Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A pydantic model, a pydantic dataclass, and
-    a ``TypedDict`` or a plain dataclass given a config with pydantic's ``with_config``, read and write their fields
-    by their own config instead, and a config that doesn't set the bytes takes them as text. A ``TypedDict`` or a
-    plain dataclass with no config of its own takes the config it sits in. A class inside another with a config of
-    its own takes its own.
-
-    Say ``class Attachment(BaseModel)`` has the field ``data: bytes`` and the default config. Then
-    ``list[Attachment]`` gives ``("Attachment", "data")``. With ``ser_json_bytes="base64"`` and
-    ``val_json_bytes="base64"`` in its config, it gives ``None``.
-
-    Args:
-        hint: The hint to look in.
-        reading_as_text: The class and field that ``hint`` is inside, when that class reads bytes as text.
-        walked: The classes already looked in (by ``id``), so a class that holds itself ends.
-
-    Returns:
-        The class's name and its field, or ``None`` when no bytes in ``hint`` are read as text.
-    """
-    for part in hint_parts(hint):
-        if isinstance(part, type) and issubclass(part, bytes) and reading_as_text is not None:
-            return reading_as_text
-        cls = get_origin(part) or part
-        if not isinstance(cls, type) or id(part) in walked:
-            continue
-        # a model, and any class pydantic's with_config gave a config, reads its fields by its own config
-        config = (
-            cls.model_config
-            if issubclass(cls, BaseModel)
-            else getattr(cls, "__pydantic_config__", None)
-        )
-        if issubclass(cls, BaseModel) or is_pydantic_dataclass(cls):
-            # a generic model's fields have its arguments filled in
-            fields = cls.model_fields if issubclass(cls, BaseModel) else cls.__pydantic_fields__
-            hints = {name: info.annotation for name, info in fields.items()}
-        elif dataclasses.is_dataclass(cls) or typing.is_typeddict(cls) and config is not None:
-            hints = typing.get_type_hints(cls, include_extras=True)
-        else:
-            # hint_parts walks a TypedDict with no config of its own, under the config it sits in
-            continue
-        walked |= {id(part)}
-        as_text = config is not None and (
-            config.get("ser_json_bytes") != "base64" or config.get("val_json_bytes") != "base64"
-        )
-        for name, field_hint in hints.items():
-            inside = None
-            if config is None:
-                # a plain dataclass reads its fields by the config it sits in
-                inside = reading_as_text
-            elif as_text:
-                inside = (cls.__name__, name)
-            if (found := _bytes_read_as_text(field_hint, inside, walked)) is not None:
-                return found
-    return None
 
 
 def _read_default(whole: Type, default: Any) -> Any:

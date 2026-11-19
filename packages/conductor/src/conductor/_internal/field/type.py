@@ -67,12 +67,15 @@ class Field:
     whole: Type = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Works out the field's types from its hint, and refuses a type conductor can't pass along an edge.
+        """Works out the field's types from its hint.
+
+        Which types a node may declare is checked where a node declares a field (``validator.py``), by the type's own
+        rule (``Type.check_declared``). A field conductor makes for itself, such as one whose type variable a graph
+        filled in, is not checked again.
 
         Raises:
-            NodeDeclarationError: Naming the field. The hint is a type pydantic has no schema for, a ``Series`` of
-                ``Series``, a class not declared with ``@host_type``, a ``Param`` that doesn't fit, a ``Literal`` or
-                enum whose values don't read back from their JSON, choices that can't be read, or a widget with no JSON form.
+            NodeDeclarationError: Naming the field. A ``Series`` of ``Series``, or a widget that is misplaced or has
+                no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
         try:
@@ -80,11 +83,6 @@ class Field:
             keep("param", param)
             keep("whole", whole)
             keep("type", one)
-            whole.schema  # noqa: B018  fails for a type pydantic has no schema for
-            whole.returned_schema  # noqa: B018  a Series of records may be stored as a table, and fails here if its rows can't be
-            whole.id  # noqa: B018  fails for a class with no @host_type (type_not_named)
-            whole.argument_schema  # noqa: B018  fails for named values that don't read back (named_value_invalid)
-            whole.choices, one.choices  # noqa: B018  fails for choices that can't be read (choices_invalid)
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
 
