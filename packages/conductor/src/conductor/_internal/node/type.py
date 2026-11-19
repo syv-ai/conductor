@@ -17,7 +17,7 @@ import functools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from pydantic import JsonValue
 
@@ -30,6 +30,9 @@ from conductor._internal.utils import qualified_name
 from .describe import NodeDescription
 from .policy import Deprecation, Policy
 from .running_calls import RunningCalls
+
+if TYPE_CHECKING:
+    from .hook import Hook
 
 
 class NodeFunction[**P, R](Protocol):
@@ -48,11 +51,6 @@ class NodeFunction[**P, R](Protocol):
 
 #: The names of the hooks a node may have, the same as the keywords ``@node`` takes them by.
 HookName = Literal["compute_added_inputs", "compute_outputs"]
-
-
-#: What a hook's parameter gets. ``value`` is the constant of the input it names. ``arriving_type`` is the type an
-#: edge brings to that input. ``added_arriving_types``, for ``**name: type``, is the type arriving on each added input.
-HookParameter = Literal["value", "arriving_type", "added_arriving_types"]
 
 
 @dataclass(frozen=True)
@@ -193,14 +191,12 @@ class FunctionDefinition[**P, R](_Version):
             or nothing.
         policy: How the engine calls the node: how many calls at once, retries, a time limit, and whether it
             reuses earlier results.
-        compute_added_inputs: A hook that adds inputs from the node's constants, when a graph is compiled. The
+        compute_added_inputs: The hook that adds inputs from the node's constants, when a graph is compiled. The
             function takes them as ``**kwargs``.
-        compute_outputs: A hook that gives every output, from the node's constants and the types its edges bring,
+        compute_outputs: The hook that gives every output, from the node's constants and the types its edges bring,
             when a graph is compiled. The function returns them as a mapping.
         context: The first parameter, when it is ``Context[X]``. Each call gets the run's context there, first by
             position. ``None`` for a node that takes no context.
-        hook_parameters: What each parameter of each hook gets, by hook name and then parameter name. Worked out
-            once, at ``@node``.
         asks: Whether the function may raise ``Ask`` to wait for a person, as ``@node(asks=True)`` says. The answer
             then becomes its outputs. Without it, ``@node`` or the run refuses the ``Ask``
             (``python -m conductor.about asking-a-person``).
@@ -218,12 +214,9 @@ class FunctionDefinition[**P, R](_Version):
     outputs_dataclass: type | None
     code_text: str
     policy: Policy = Policy()
-    compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
-    compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
+    compute_added_inputs: Hook | None = None
+    compute_outputs: Hook | None = None
     context: ContextParameter | None = None
-    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(
-        default_factory=dict[HookName, Mapping[str, HookParameter]]
-    )
     asks: bool = False
     running_calls: RunningCalls = dataclasses.field(default_factory=RunningCalls)
 

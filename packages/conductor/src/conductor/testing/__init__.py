@@ -54,10 +54,11 @@ from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
     FunctionDefinition,
+    Hook,
     NodeDefinition,
     SubgraphDefinition,
 )
-from conductor._internal.problem import InvalidCallError, Problem, compile_problems
+from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, WrittenValuesValidator
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param
@@ -67,16 +68,6 @@ from .problems import REGISTRY_CHECK_PROBLEMS
 
 #: What ``_made_up`` returns for a field it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")
-
-#: The codes of a ``compute_...`` hook that failed: it raised a ``NodeError``, raised any other exception, or returned
-#: what compiling can't use.
-_HOOK_FAILED = frozenset(
-    {
-        compile_problems.compute_hook_failed.code,
-        compile_problems.compute_hook_raised.code,
-        compile_problems.compute_hook_returned_invalid.code,
-    }
-)
 
 
 def check_registry[C](
@@ -217,7 +208,9 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     required input that takes only a constant gets a made-up value, so the hooks have a value to read.
     """
     match version:
-        case FunctionDefinition(hook_parameters=hooks) if hooks:
+        case FunctionDefinition() if (
+            version.compute_added_inputs is not None or version.compute_outputs is not None
+        ):
             pass
         case (
             FunctionDefinition() | SubgraphDefinition()
@@ -235,7 +228,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     failed = [
         p
         for p in Graph.compile(_one_node_graph(version, values), registry).problems
-        if p.type in _HOOK_FAILED
+        if p.type in Hook.failure_codes
     ]
     return [
         problems.hook_failed(
@@ -329,9 +322,11 @@ def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) ->
     It is ``example_hook_failed`` for a hook that failed, and ``example_not_compiled`` for anything else.
     """
     return [
-        (problems.example_hook_failed if p.type in _HOOK_FAILED else problems.example_not_compiled)(
-            version.id, version.version, reason=_reason(p), problem=p.type, loc=list(p.loc)
-        )
+        (
+            problems.example_hook_failed
+            if p.type in Hook.failure_codes
+            else problems.example_not_compiled
+        )(version.id, version.version, reason=_reason(p), problem=p.type, loc=list(p.loc))
         for p in graph_problems
     ]
 

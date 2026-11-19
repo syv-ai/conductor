@@ -142,11 +142,14 @@ def test_the_definition_says_what_each_hook_parameter_receives():
     def c(names: list[str], first: Any, **values: Any) -> dict[str, Any]:
         return {}
 
-    assert c.hook_parameters == {
-        "compute_added_inputs": {"names": "value"},
-        "compute_outputs": {
-            "names": "value",
-            "first": "arriving_type",
-            "added": "added_arriving_types",
-        },
-    }
+    assert c.compute_added_inputs is not None and c.compute_outputs is not None
+    assert (
+        c.compute_added_inputs.values_of,
+        c.compute_added_inputs.types_of,
+        c.compute_added_inputs.types_of_added,
+    ) == ({"names"}, set(), False)
+    assert (
+        c.compute_outputs.values_of,
+        c.compute_outputs.types_of,
+        c.compute_outputs.types_of_added,
+    ) == ({"names"}, {"first"}, True)

@@ -761,6 +761,7 @@ What changes in how you work, before the name-by-name tables:
   (was `@node('fetch') on fetch: url: ...`). The version is in the text only, for every fault at a node; the text no
   longer names the function, which the traceback's decorator line shows. A declaration problem's `loc[0]` is the node definition's id, such as `"upper"`, where a graph
   problem's is a node's id in the graph record, such as `"u"`.
+- **A definition's hooks are `Hook` values (provisional).** `FunctionDefinition.compute_added_inputs` and `compute_outputs` are each a `Hook` or `None`, no longer the function given to `@node`: the function is `hook.function`. What `@node` takes, and what compiling a hook gives, don't change.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

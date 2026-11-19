@@ -41,10 +41,10 @@ from __future__ import annotations
 
 import heapq
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
-from functools import partial
+from types import MappingProxyType
 from typing import Any, Literal, TypeVar
 
 from pydantic import MISSING, JsonValue
@@ -57,8 +57,7 @@ from conductor._internal.field import (
 )
 from conductor._internal.node import (
     FunctionDefinition,
-    HookName,
-    HookValidator,
+    Hook,
     NodeDefinition,
     SubgraphDefinition,
 )
@@ -66,10 +65,7 @@ from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
     Problem,
-    author_code_problem,
     compile_problems,
-    conductor_error,
-    shape_error,
 )
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
 from conductor._internal.types import Type, choices_in_message
@@ -323,39 +319,10 @@ class Compiler:
         constants = self._constants_of(node_id, record, fields)
         added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
-            made = self._hook(
-                node_id,
-                definition,
-                "compute_added_inputs",
-                definition.compute_added_inputs,
-                constants,
-                {},
-                (),
-            )
+            made = self._hook(node_id, definition.compute_added_inputs, fields, constants)
             if made is None:
                 return
             added = made
-            taken = sorted(
-                added.keys()
-                & (
-                    fields.keys()
-                    | ({definition.context.name} if definition.context is not None else set())
-                )
-            )
-            if taken:
-                exists = shape_error(
-                    conductor_error(
-                        "added_input_exists",
-                        "it adds '{name}', which the node already declares",
-                        {"name": taken[0]},
-                    )
-                )
-                self.problems.append(
-                    compile_problems.compute_hook_returned_invalid(
-                        node_id, reason=exists["msg"], errors=[exists]
-                    )
-                )
-                return
             fields.update(added)
             constants.update(self._constants_of(node_id, record, added))
         planned = self._plan_inputs(node_id, record, fields, constants, edges)
@@ -371,13 +338,7 @@ class Compiler:
                 if node_input.sources
             }
             outputs = self._hook(
-                node_id,
-                definition,
-                "compute_outputs",
-                definition.compute_outputs,
-                constants,
-                arriving,
-                tuple(added),
+                node_id, definition.compute_outputs, fields, constants, arriving, tuple(added)
             )
         if outputs is not None:
             self.nodes[node_id] = CompiledFunctionNode(
@@ -751,68 +712,34 @@ class Compiler:
     def _hook(
         self,
         node_id: str,
-        definition: FunctionDefinition[..., Any],
-        kind: HookName,
-        hook: Callable[..., Mapping[Any, Any]],
+        hook: Hook,
+        fields: Mapping[str, Field],
         constants: Mapping[str, Any],
-        arriving: Mapping[str, Any],
-        added: tuple[str, ...],
+        arriving: Mapping[str, Any] = MappingProxyType({}),
+        added: tuple[str, ...] = (),
     ) -> dict[str, Field] | None:
-        """Calls one of a node's hooks and returns what it returned, as fields by name.
+        """Calls one of a node's hooks, and returns the fields it gives, by name.
 
-        Returns ``None``, and adds a problem, when the hook can't be called, fails, or returns something that isn't
-        fields.
-
-        ``@node`` worked out from the hook's signature what each parameter gets. It's one of three things:
-
-        - the value of the input with the same name (its constant or default);
-        - the type the edges into that input carry (``Any`` when no edge leads to it);
-        - for ``**added: type``, those types for every input that ``compute_added_inputs`` added.
+        Each input the hook reads gets its constant, else its default. Returns ``None``, and adds a problem, when the
+        hook fails or returns something that isn't fields. Returns ``None`` without calling it when an input it reads
+        has no value, since a problem of ``_constants_of`` already says why.
 
         Args:
             node_id: The node's id.
-            definition: The node's definition.
-            kind: Which hook it is: ``compute_added_inputs`` or ``compute_outputs``.
-            hook: The hook function.
+            hook: The hook.
+            fields: The node's inputs, by name.
             constants: The constant or default the record gives each input, by name, converted by the input's
                 type.
             arriving: The type the edges into each input carry, by input name.
             added: The inputs ``compute_added_inputs`` added.
         """
-        kwargs: dict[str, Any] = {}
-        for name, receives in definition.hook_parameters[kind].items():
-            match receives:
-                case "arriving_type":
-                    kwargs[name] = arriving.get(name, Any)
-                case "added_arriving_types":
-                    kwargs.update(
-                        {input_name: arriving.get(input_name, Any) for input_name in added}
-                    )
-                case "value":
-                    value = constants.get(
-                        name, definition.inputs[name].default
-                    )  # @node made sure the parameter names a declared input, which takes only a constant
-                    if value is _INVALID:
-                        return None  # a problem of _constants_of says why
-                    kwargs[name] = value
-        try:
-            returned = hook(**kwargs)
-        except Exception as error:  # noqa: BLE001  the hook is the node author's code, and may raise anything
-            self.problems.append(
-                author_code_problem(
-                    error,
-                    "the %s hook of node %r failed",
-                    kind,
-                    node_id,
-                    raised=partial(compile_problems.compute_hook_raised, node_id),
-                    failed=partial(compile_problems.compute_hook_failed, node_id),
-                )
-            )
+        values = {name: constants.get(name, fields[name].default) for name in hook.values_of}
+        if any(value is _INVALID for value in values.values()):
             return None
         try:
-            return HookValidator(node_id, kind)(returned)
-        except InvalidCallError as refused:
-            self.problems += refused.problems
+            return hook.call(node_id, values, arriving, added)
+        except InvalidCallError as failed:
+            self.problems += failed.problems
             return None
 
     # -- edges ------------------------------------------------------------------

@@ -42,12 +42,11 @@ from conductor._internal.problem import NodeDeclarationError, declaration_proble
 from conductor._internal.record import GraphRecord, RecordValidator
 from conductor._internal.types import Param, Type, check_not_blank, fit, is_declared
 
+from .hook import Hook
 from .policy import Deprecation, Policy
 from .source import read_code
 from .type import (
     FunctionDefinition,
-    HookName,
-    HookParameter,
     NodeDefinition,
     NodeFunction,
     SubgraphDefinition,
@@ -168,26 +167,32 @@ def node(
                 )
             if compute_added_inputs is None and takes_kwargs:
                 raise NodeDeclarationError(declaration_problems.var_keyword_without_hook())
-            hooks: dict[HookName, Callable[..., Any] | None] = {
-                "compute_added_inputs": compute_added_inputs,
-                "compute_outputs": compute_outputs,
-            }
-            hook_parameters = {
-                kind: _check_hook(hook, kind, inputs, adds_inputs=compute_added_inputs is not None)
-                for kind, hook in hooks.items()
-                if hook is not None
-            }
+            adds = None
+            if compute_added_inputs is not None:
+                adds = Hook.read(
+                    compute_added_inputs, "compute_added_inputs", inputs, context, adds_inputs=True
+                )
+            gives = None
+            if compute_outputs is not None:
+                gives = Hook.read(
+                    compute_outputs,
+                    "compute_outputs",
+                    inputs,
+                    context,
+                    adds_inputs=adds is not None,
+                )
             # An input a hook reads takes only a constant, since the hook reads it when the graph is compiled.
-            for parameters in hook_parameters.values():
-                for name, receives in parameters.items():
-                    if receives == "value":
-                        field = inputs[name]
-                        inputs[name] = Field(
-                            name,
-                            Annotated[field.hint, Param(constant_only=True)],
-                            field.default,
-                            is_output=False,
-                        )
+            read_by_a_hook = {
+                name for hook in (adds, gives) if hook is not None for name in hook.values_of
+            }
+            for name in read_by_a_hook:
+                field = inputs[name]
+                inputs[name] = Field(
+                    name,
+                    Annotated[field.hint, Param(constant_only=True)],
+                    field.default,
+                    is_output=False,
+                )
             definition = FunctionDefinition(
                 function=target,
                 inputs=inputs,
@@ -207,9 +212,8 @@ def node(
                 replaces=replaces,
                 upgrade=upgrade or Upgrade(),
                 policy=policy,
-                compute_added_inputs=compute_added_inputs,
-                compute_outputs=compute_outputs,
-                hook_parameters=hook_parameters,
+                compute_added_inputs=adds,
+                compute_outputs=gives,
                 asks=asks,
             )
             if replaces is not None:
@@ -480,62 +484,6 @@ def _declared_default(declared: DataclassField[Any]) -> Any:
     if declared.default_factory is not dataclasses.MISSING:
         return declared.default_factory()
     return REQUIRED
-
-
-def _check_hook(
-    hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, Field], *, adds_inputs: bool
-) -> dict[str, HookParameter]:
-    """Checks a hook's parameters, and returns what each one gets.
-
-    Each parameter is passed by name and names an input of the node. A parameter annotated ``type`` gets the type
-    arriving on that input. The one exception is ``**added: type`` on ``compute_outputs``, which gets the type
-    arriving on each added input.
-
-    Args:
-        hook: The hook.
-        kind: Which hook it is.
-        inputs: The node's declared inputs, by name.
-        adds_inputs: Whether the node has a ``compute_added_inputs`` hook, so there are added inputs to read.
-
-    Returns:
-        What each parameter gets, by the parameter's name.
-
-    Raises:
-        NodeDeclarationError: A parameter can't be passed by name, asks for an arriving type in
-            ``compute_added_inputs``, or asks for a value and names no declared input. Or it is ``**kwargs``
-            anywhere except as ``**added: type`` on the ``compute_outputs`` of a node that adds inputs.
-    """
-    parameters: dict[str, HookParameter] = {}
-    for name, parameter in inspect.signature(hook).parameters.items():
-        arriving = parameter.annotation in (type, "type")
-        if arriving and kind == "compute_added_inputs":
-            raise NodeDeclarationError(
-                declaration_problems.arriving_on_compute_added_inputs(parameter=name)
-            )
-        if parameter.kind is parameter.VAR_KEYWORD:
-            if not (arriving and adds_inputs):
-                raise NodeDeclarationError(
-                    declaration_problems.hook_parameter_var_keyword(hook=kind, parameter=name)
-                )
-            parameters[name] = "added_arriving_types"
-        elif (
-            parameter.kind is not parameter.POSITIONAL_OR_KEYWORD
-            and parameter.kind is not parameter.KEYWORD_ONLY
-        ):
-            raise NodeDeclarationError(
-                declaration_problems.hook_parameter_not_by_name(hook=kind, parameter=name)
-            )
-        elif arriving:
-            parameters[name] = "arriving_type"
-        elif name not in inputs:
-            raise NodeDeclarationError(
-                declaration_problems.hook_parameter_unknown(
-                    hook=kind, parameter=name, inputs=sorted(inputs)
-                )
-            )
-        else:
-            parameters[name] = "value"
-    return parameters
 
 
 def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition) -> None:

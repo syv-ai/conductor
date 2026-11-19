@@ -299,18 +299,21 @@ class HookValidator(Validator[Any, dict[str, Field]]):
             one at each name that isn't a valid name (``not_a_name``). If the hook returned no mapping, there is one
             at the node (``dict_type``). If ``@node`` would refuse a field, its error's ``type`` is the declaration's
             code, like ``default_invalid``, and its message names the field but quotes none of the declaration's
-            text, which can quote the default.
+            text, which can quote the default. If the hook gives a name the node declares itself, there is one at
+            the node (``added_input_exists``).
     """
 
-    def __init__(self, node_id: str, hook: HookName) -> None:
+    def __init__(self, node_id: str, hook: HookName, taken: frozenset[str]) -> None:
         """Builds the validator for one hook of one node.
 
         Args:
             node_id: The node's id. The problems name it.
             hook: Which hook it is.
+            taken: The names the hook can't give, since the node declares them itself.
         """
         self._node_id = node_id
         self._hook = hook
+        self._taken = taken
         self._read_field: type[DeclaredInputValidator | DeclaredOutputValidator] = (
             DeclaredInputValidator if hook == "compute_added_inputs" else DeclaredOutputValidator
         )
@@ -367,6 +370,22 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                         )
                     ]
                 ) from None
+        taken = sorted(fields.keys() & self._taken)
+        if taken:
+            exists = shape_error(
+                conductor_error(
+                    "added_input_exists",
+                    "it adds '{name}', which the node already declares",
+                    {"name": taken[0]},
+                )
+            )
+            raise InvalidCallError(
+                [
+                    compile_problems.compute_hook_returned_invalid(
+                        self._node_id, reason=exists["msg"], errors=[exists]
+                    )
+                ]
+            )
         return fields
 
 

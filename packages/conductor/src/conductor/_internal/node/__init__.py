@@ -15,6 +15,7 @@ The package has these parts:
 - ``declare.py`` has ``@node`` and ``subgraph()``, which make a node definition.
 - ``type.py`` has what they make, ``FunctionDefinition`` and ``SubgraphDefinition``, and ``Upgrade``, which moves a
   graph from one version of a node to the next.
+- ``hook.py`` has ``Hook``, a function that works out some of a node's inputs or outputs when a graph is compiled.
 - ``source.py`` reads the function's source once: its code as text, for the code fingerprint, and whether it
   raises ``Ask``.
 - ``policy.py`` has ``Policy``, how the engine calls a node, and ``Deprecation``, a notice that it is going away.
@@ -27,11 +28,11 @@ The package has these parts:
 
 from .declare import node, subgraph
 from .describe import NodeDescription
+from .hook import Hook
 from .policy import LONGEST_WAIT, Deprecation, Policy
 from .running_calls import RunningCalls
 from .type import (
     FunctionDefinition,
-    HookName,
     NodeDefinition,
     SubgraphDefinition,
     Upgrade,
@@ -45,7 +46,7 @@ __all__ = [
     "DeclarationValidator",
     "Deprecation",
     "FunctionDefinition",
-    "HookName",
+    "Hook",
     "HookValidator",
     "NodeDefinition",
     "NodeDescription",
