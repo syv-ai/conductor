@@ -28,6 +28,8 @@ from typing import Any
 from pydantic import JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
     CoreSchema,
+    ErrorDetails,
+    PydanticCustomError,
     SchemaValidator,
     core_schema,
 )
@@ -107,14 +109,13 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
         read = self._read(returned)
         for name, value in read.items():
             if _skipped_inside(self._outputs[name], value):
-                raise InvalidCallError(
-                    [
-                        run_problems.invalid_output(
-                            reason="SKIPPED is inside the value, where it has no JSON form: only an output's whole "
-                            "value, or an item of a Series, may be SKIPPED",
-                            output=name,
-                        )
-                    ]
+                raise _refused_shape(
+                    conductor_error(
+                        "skipped_inside",
+                        "SKIPPED is inside the value, where it has no JSON form: only an output's whole value, or an "
+                        "item of a Series, may be SKIPPED",
+                    ),
+                    output=name,
                 )
         return read
 
@@ -128,14 +129,29 @@ def _skipped_inside(field: Field, value: Any) -> bool:
 def _no_outputs(returned: Any) -> dict[str, Any]:
     """Checks the return of a node declared ``-> None``, which must be ``None``, and returns no outputs."""
     if returned is not None:
-        raise InvalidCallError(
-            [
-                run_problems.invalid_output(
-                    reason=f"the node declares no outputs, but returned a {type(returned).__name__}"
-                )
-            ]
+        raise _refused_shape(
+            conductor_error(
+                "none_required",
+                "the node declares no outputs, but returned a {got}",
+                {"got": type(returned).__name__},
+            )
         )
     return {}
+
+
+def _refused_shape(
+    fault: ErrorDetails | PydanticCustomError, output: str | None = None
+) -> InvalidCallError:
+    """Turns a fault in the shape of what a node returned into an ``invalid_output`` error.
+
+    Args:
+        fault: The fault, as pydantic gave it, or as the error conductor raises for it.
+        output: The output the fault is about, when there is one to name.
+    """
+    error = shape_error(fault)
+    return InvalidCallError(
+        [run_problems.invalid_output(reason=error["msg"], output=output, errors=[error])]
+    )
 
 
 def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
@@ -220,23 +236,17 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
 
     Some faults are about the shape of the whole value: not the dataclass, not a mapping, or an output missing or
     unknown. Others are about branches: an output that isn't a branch is ``SKIPPED``, or two branches have a value.
-    These name the output their message is about. A value that an output's type refuses is described as the type describes it, with every error pydantic
-    found in that output.
+    These have no ``loc``, and name the output their message is about. A value that an output's type refuses is
+    described as the type describes it, with every error pydantic found in that output.
     """
     first = error.errors()[0]
+    if first["loc"]:
+        name = str(first["loc"][0])
+        return _refused_output(outputs[name], error, under=(name,))
     ctx = first.get("ctx", {})
-    if first["type"] == "several_branches_given":
-        return InvalidCallError(
-            [run_problems.invalid_output(reason=first["msg"], output=ctx["given"][1])]
-        )
-    if first["type"] in ("output_missing", "output_unknown", "skipped_not_a_branch"):
-        return InvalidCallError(
-            [run_problems.invalid_output(reason=first["msg"], output=ctx["name"])]
-        )
-    if not first["loc"]:
-        return InvalidCallError([run_problems.invalid_output(reason=first["msg"])])
-    name = str(first["loc"][0])
-    return _refused_output(outputs[name], error, under=(name,))
+    return _refused_shape(
+        first, ctx["given"][1] if first["type"] == "several_branches_given" else ctx.get("name")
+    )
 
 
 def _refused_output(

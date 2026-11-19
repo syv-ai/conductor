@@ -571,7 +571,7 @@ What a node returns is read strictly, by its declared type.
 - But `"no"` is never a `bool`, `"12"` never an `int`, a date's text never a `date`, and `12.0` never an `int` column.
 - `True` is never a number, wherever a value is read: an `int` or `float` input, an item of a list or a `Series`, a field of a `TypedDict`, or a cell of a table (`bool_is_not_a_number`).
 - The fields of your own pydantic model or dataclass are read strictly too, whatever the model's own config says. So `{"a": "1"}` for a model with `a: int` is refused, and `True` there is pydantic's `int_type`.
-- A fault fails that call of the node as `invalid_output`, with `ctx` `output`, `reason`, `errors` and, for a table, `column`. It quotes nothing of the value.
+- A fault fails that call of the node as `invalid_output`, with `ctx` `output`, `reason`, `errors` and, for a table, `column`. It quotes nothing of the value. A fault in the return's shape is the one error in `ctx.errors`, with `loc` `[]` and conductor's code: `not_the_class`, `not_a_mapping`, `output_missing`, `output_unknown`, `skipped_not_a_branch`, `several_branches_given` (as an answer's), `skipped_inside` or `none_required`.
 
 **What an edge carries.** Sometimes an input asks for more than its source's type promises: a limit on the input, choices, an `int` into a `float`, or a host type's own check. Then the value the edge carries is read by the input, as a constant is. A value it refuses is `invalid_edge_value` on the node it reached, with `ctx` `input`, `reason`, `errors` and, for a table, `column`.
 

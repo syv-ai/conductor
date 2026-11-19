@@ -518,6 +518,40 @@ def test_skipped_inside_a_returned_value_is_refused_at_the_call(returned, return
     )
 
 
+@pytest.mark.parametrize(
+    ("returned", "return_type", "output", "error"),
+    [
+        (Routed(count=SKIPPED, long="a"), Routed, "count", "skipped_not_a_branch"),
+        (Routed(long="a", short="b"), Routed, "short", "several_branches_given"),
+        ({"count": 1}, Routed, None, "not_the_class"),
+        (Parcel(1.0, SKIPPED), Parcel, "result", "skipped_inside"),
+        ("a", None, None, "none_required"),
+    ],
+    ids=[
+        "skipped-not-a-branch",
+        "two-branches",
+        "not-the-class",
+        "skipped-inside",
+        "none-required",
+    ],
+)
+def test_a_return_of_the_wrong_shape_says_why_in_one_error_by_its_code(
+    returned: Any, return_type: Any, output: str | None, error: str
+) -> None:
+    """A fault in the shape of a return is ``invalid_output`` with its one error in ``ctx.errors``, as every value
+    refusal has, so a host reads the code there, such as ``several_branches_given`` as an answer gives it."""
+    cause = _returning(returned, return_type).cause
+
+    assert (cause.type, cause.ctx.get("output"), [e["type"] for e in cause.ctx["errors"]]) == (
+        "invalid_output",
+        output,
+        [error],
+    )
+    assert (
+        cause.ctx["errors"][0]["loc"] == [] and cause.ctx["errors"][0]["msg"] == cause.ctx["reason"]
+    )
+
+
 def test_skipped_as_a_branch_and_as_a_series_item_is_still_taken():
     """The walk looks below an output's whole value and a ``Series``'s items, so a branch and a skipped item stay as
     they were, and a table's cells aren't walked."""

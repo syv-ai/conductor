@@ -242,14 +242,18 @@ def invalid_output(
     *loc: str | int,
     reason: str,
     output: str | None = None,
-    errors: list[dict[str, Any]] | None = None,
+    errors: list[dict[str, Any]],
     column: str | None = None,
 ) -> str:
     """A node returned a value that its return type doesn't allow.
 
     The value may be of the wrong type or the wrong shape, or miss an output. For a value an output's type refuses,
     ``ctx.output`` names the output, and ``ctx.errors`` says where inside it the value is: a refused field of a returned
-    dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``.
+    dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``. A fault in the shape of the return is the one
+    error in ``ctx.errors``, with ``loc`` ``[]``, and ``ctx.output`` names the output it is about, if any:
+    ``not_the_class`` (not the node's dataclass), ``not_a_mapping``, ``output_missing``, ``output_unknown``,
+    ``skipped_not_a_branch``, ``several_branches_given`` (as an answer's and an ``Ask``'s default's), ``skipped_inside``
+    (``SKIPPED`` inside a value) and ``none_required`` (a node with no outputs returned something).
 
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
     branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. ``SKIPPED`` is an
@@ -265,7 +269,7 @@ def invalid_output(
         loc: The call that returned it.
         reason: Why the value is refused, without quoting it.
         output: The output the fault is about, when there is one to name; ``result`` for a node of one output.
-        errors: pydantic's list of what it refused, without the value.
+        errors: What was refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the value.
         column: For a table, the column of the first value refused.
 
     Example:

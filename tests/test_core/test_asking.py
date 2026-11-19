@@ -1507,6 +1507,7 @@ def test_a_return_an_answer_and_an_asks_default_refuse_two_branches_alike():
         {"given": ["keep", "drop"]},
     )
     assert returned.ctx["reason"] == branch["msg"] == default["msg"]
+    assert returned.ctx["errors"] == [branch]
 
 
 def test_an_answer_by_name_may_be_any_mapping_and_each_value_is_read_from_its_json_form():
