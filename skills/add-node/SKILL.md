@@ -87,7 +87,7 @@ assert registry["greet"] is greet
 - Plain `@node` registers nothing. Add such nodes later with `registry.add(node_a, node_b)`.
 - A module keeps a registry of its own, and the host joins them with `registry.add_subregistry(module_registry)`. `NodeRegistry(category=, tags=, extra=)` sets defaults for its nodes.
 - Two definitions under one id raise. `replace` and `remove` change one. `registry.filter(predicate)` gives a narrower registry.
-- `extra=` is your own JSON about a node. Conductor keeps it and never reads it.
+- `extra=` is your own JSON about a node: JSON values only, no tuple, date or `inf`. Conductor keeps it and never reads it. Every argument of `@node` is held to its signature's type where the node is declared (`invalid_declaration_argument`), so `tags=["text"]`, never `tags="text"`.
 
 ## Testing a registry
 

@@ -20,7 +20,7 @@ from .choice import (
 )
 from .fit import fit
 from .hint import a_number, hint_parts, substituted, union_members, union_of
-from .host_type import NAMES, host_type, is_declared
+from .host_type import NAMES, check_not_blank, host_type, is_declared
 from .param import SIZED, Param, as_written, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
 from .type import Type, TypeRefusal, json_by_its_class
@@ -35,6 +35,7 @@ __all__ = [
     "TypeRefusal",
     "a_number",
     "as_written",
+    "check_not_blank",
     "check_one_of",
     "choice_texts",
     "choices_in_message",

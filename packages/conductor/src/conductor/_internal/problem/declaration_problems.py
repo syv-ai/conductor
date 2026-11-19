@@ -38,8 +38,8 @@ DECLARATION_PROBLEMS = ProblemCatalogue(
     "developer. `loc` is `(node_id,)` for a fault in the node, or `(node_id, name)` for one in a parameter or an "
     "output, and the error's text puts it in front of the message, with the node's version: "
     "`adds (version 1).value: ...`. It is `()` for a fault "
-    "that is about no one node: an id that isn't a valid name, two registries that disagree, or a type's own "
-    "declaration.",
+    "that is about no one node: an id that isn't a valid name, an argument of the wrong type, two registries that "
+    "disagree, or a type's own declaration.",
 )
 
 
@@ -629,16 +629,17 @@ def duplicate_type_id(*, id: str, first: str, second: str) -> str:
 def empty_title_or_description(
     *, declared_with: str, id: str, empty: Literal["title", "description"]
 ) -> str:
-    """A node is declared with a title or description that is empty, or that isn't text.
+    """A node or a type is declared with a title, or a node with a description, that is empty or only spaces.
 
-    The title and the description are what a person reads about the node in a palette.
+    The title and the description are what a person reads about the node or the type in a palette. A title or
+    description that isn't text at all is ``invalid_declaration_argument``.
 
-    To fix it, give the node both, as text.
+    To fix it, write what a person should read.
 
     Args:
-        declared_with: ``@node`` or ``subgraph``.
-        id: The node's id.
-        empty: Which of the two is empty or isn't text.
+        declared_with: ``@node``, ``subgraph`` or ``@host_type``.
+        id: The node's or the type's id.
+        empty: Which of the two is empty.
 
     Example:
         def whisper(text: str) -> str:
@@ -647,7 +648,7 @@ def empty_title_or_description(
 
         declaration_refused(lambda: node("whisper", title="Whisper", description="")(whisper))
     """
-    return f"{declared_with}({id!r}) has no {empty}. Write what a person should read about the node in a palette, as text."
+    return f"{declared_with}({id!r}) has no {empty}. Write what a person should read about it in a palette."
 
 
 @DECLARATION_PROBLEMS.problem
@@ -772,17 +773,56 @@ def input_without_type() -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def invalid_node_id(*, declared_with: str, id: str) -> str:
-    """A node is declared with an id that isn't text, is empty, or contains ``.``, ``/``, ``@`` or ``~``.
+def invalid_declaration_argument(
+    *, declared_with: str, reason: str, errors: list[dict[str, Any]]
+) -> str:
+    """``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type`` is given an argument that isn't of the type its
+    signature says, such as ``tags="text"`` or ``version=True``.
 
-    Those characters are used to write sources (``a.result``), node paths (``loud/shout``) and waiting ids
-    (``a@1~3fa2``). The same rule holds for a node's id in a graph record, and for the names a hook gives inputs and
-    outputs.
+    Each argument is held to its annotation, strictly: text is a ``str``, ``version`` a whole number of 1 or more and
+    never ``True``, ``tags`` a list or tuple of text and never one text, ``asks`` a ``bool``, and ``policy``,
+    ``deprecation``, ``replaces`` and ``upgrade`` an instance of their class. ``extra`` is JSON a host is shown, so it
+    is a mapping keyed by text whose values are JSON values: a tuple, a date or another object is refused
+    (``invalid-json-value``), and so is ``inf`` or ``nan`` (``finite_number``), as any number that enters is. A type
+    checker finds most of these faults too. ``@host_type`` put above a class conductor names itself, such as
+    ``HttpUrl``, is refused here too (``conductors_own_type``, at ``loc`` ``[]``): declare a subclass of it to give it
+    an id of your own.
 
-    To fix it, pick an id without them.
+    ``ctx.errors`` has every fault, each with pydantic's code, or ``not_a_node`` for a ``replaces=`` that isn't a node
+    definition, and its ``loc``: the argument, then where in it, such as ``["tags", 1]``. A key of ``extra`` that isn't
+    text is not quoted: the ``loc`` stops at ``"[key]"``. The problem's own ``loc`` is ``()``.
+
+    To fix it, give each argument the type the signature says.
 
     Args:
-        declared_with: ``@node`` or ``subgraph``.
+        declared_with: ``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type``.
+        reason: The first fault, after the argument it is in.
+        errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
+
+    Example:
+        declaration_refused(lambda: node("tagged", title="Tagged", description="Has one tag.", tags="text"))  # type: ignore[arg-type]
+    """
+    return f"{declared_with} can't take its arguments: {reason}. Give each argument the type the signature says."
+
+
+@DECLARATION_PROBLEMS.problem
+def invalid_node_id(*, declared_with: str, id: str) -> str:
+    """A node or a type is declared with an id it can't have.
+
+    A node's id can't be empty, or contain ``.``, ``/``, ``@`` or ``~``. Those characters are used to write sources
+    (``a.result``), node paths (``loud/shout``) and waiting ids (``a@1~3fa2``). The same rule holds for a node's id in
+    a graph record, and for the names a hook gives inputs and outputs.
+
+    A type's id, given to ``@host_type``, is one word of letters, digits, ``_``, ``.`` or ``-`` that starts with a
+    letter or ``_``, since it is written inside other ids (``list[money]``), and isn't the id of one of conductor's
+    own types, such as ``str``.
+
+    An id that isn't text at all is ``invalid_declaration_argument``.
+
+    To fix it, pick an id by its rule.
+
+    Args:
+        declared_with: ``@node``, ``subgraph`` or ``@host_type``.
         id: The id given.
 
     Example:
@@ -794,34 +834,10 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
     """
     separators = comma_separated(f"'{separator}'" for separator in SEPARATORS)
     return (
-        f"{declared_with} got {id!r} as the node's id. An id can't be empty, and can't contain any of {separators}, "
-        f"since those mean something in sources and waiting ids. Pick another, like {declared_with}('upper')."
+        f"{declared_with} got {id!r} as an id it can't take. A node's id can't be empty, and can't contain any of "
+        f"{separators}, since those mean something in sources and waiting ids. A type's id is one word of letters, "
+        "digits, '_', '.' or '-', and isn't one of conductor's own, since it is written inside other ids. Pick another."
     )
-
-
-@DECLARATION_PROBLEMS.problem
-def invalid_version(*, declared_with: str, id: str, version: str) -> str:
-    """A node is declared with a ``version=`` that isn't a whole number of 1 or more, such as ``0``, ``"2"`` or
-    ``True``.
-
-    A graph record names the version it uses by that number, and a version replaces a lower one.
-
-    To fix it, give a whole number of 1 or more, or leave ``version=`` out, which makes it 1, or one more than the
-    version ``replaces`` names.
-
-    Args:
-        declared_with: ``@node`` or ``subgraph``.
-        id: The node's id.
-        version: The version given, as Python writes it.
-
-    Example:
-        def numbered(text: str) -> str:
-            return text
-
-
-        declaration_refused(lambda: node("numbered", title="Numbered", description="Passes the text on as it is.", version=0)(numbered))
-    """
-    return f"{declared_with}({id!r}) got {version} as its version. A version is a whole number of 1 or more, such as version=2."
 
 
 @DECLARATION_PROBLEMS.problem
@@ -1115,34 +1131,6 @@ def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
         declaration_refused(lambda: node("lower", title="Lower", description="Turns a text into small letters.", replaces=upper)(lower))
     """
     return f"{declared_with}({id!r}) replaces {replaces}, which is another node. A node only replaces an earlier version of itself, with the same id."
-
-
-@DECLARATION_PROBLEMS.problem
-def type_declaration_invalid(*, id: str, reason: str, errors: list[dict[str, Any]]) -> str:
-    """``@host_type`` is given an id, a title or an ``accepts`` it can't take.
-
-    To fix it, give the type:
-
-    - an id that is one word, made of letters, digits, ``_``, ``.`` or ``-``, and that isn't the id of one of
-      conductor's own types,
-    - a title that isn't empty,
-    - only classes in ``accepts``,
-    - a class conductor doesn't name itself. To give one of conductor's types, such as ``HttpUrl``, an id of your own,
-      declare a subclass of it.
-
-    ``ctx.errors`` has every fault, each ``loc`` naming the argument (``id``, ``title``, ``accepts`` and an index):
-    pydantic's code, such as ``string_pattern_mismatch``, or conductor's own, ``id_of_conductors_own_type``, or
-    ``conductors_own_type`` with ``loc`` ``[]`` for a class conductor names.
-
-    Args:
-        id: The id given.
-        reason: The first fault, after the argument it is in.
-        errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
-
-    Example:
-        declaration_refused(lambda: host_type("str", title="My text")(type("MyText", (str,), {})))
-    """
-    return f"@host_type({id!r}) can't take its arguments: {reason}. Give an id that is one word and not one of conductor's own, a title, and only classes in accepts."
 
 
 @DECLARATION_PROBLEMS.problem

@@ -189,16 +189,17 @@ def test_an_empty_title_fails_at_the_class_statement() -> None:
             pass
 
     (problem,) = _refused(build).problems
-    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
-        "type_declaration_invalid",
-        [("string_pattern_mismatch", ["title"])],
+    assert (problem.type, problem.ctx["empty"]) == ("empty_title_or_description", "title")
+    assert (
+        str(_refused(build))
+        == "@host_type('thing') has no title. Write what a person should read about it in a palette."
     )
 
 
 @pytest.mark.parametrize(
-    "wrong_id", [5, "str", "Series", "Table", "record", "list[int]", "a b", "a|b", ""], ids=repr
+    "wrong_id", ["str", "Series", "Table", "record", "list[int]", "a b", "a|b", ""], ids=repr
 )
-def test_an_id_that_is_no_word_or_is_one_of_conductors_own_fails_at_the_class_statement(
+def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_an_invalid_node_id_as_on_a_node(
     wrong_id: Any,
 ) -> None:
     def build() -> None:
@@ -206,7 +207,30 @@ def test_an_id_that_is_no_word_or_is_one_of_conductors_own_fails_at_the_class_st
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).problems[0].type == "type_declaration_invalid"
+    (problem,) = _refused(build).problems
+    assert (problem.type, problem.loc, problem.ctx["declared_with"]) == (
+        "invalid_node_id",
+        (),
+        "@host_type",
+    )
+
+
+@pytest.mark.parametrize(
+    ("arguments", "faults"),
+    [
+        ({"id": 5, "title": "Thing"}, [("string_type", ["id"])]),
+        ({"id": "thing", "title": None}, [("string_type", ["title"])]),
+        ({"id": 5, "title": None}, [("string_type", ["id"]), ("string_type", ["title"])]),
+    ],
+)
+def test_an_id_or_title_that_isnt_text_is_an_invalid_declaration_argument_as_on_a_node(
+    arguments: dict[str, Any], faults: list[tuple[str, list[str]]]
+) -> None:
+    (problem,) = _refused(lambda: host_type(**arguments)).problems
+    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+        "invalid_declaration_argument",
+        faults,
+    )
 
 
 def test_accepts_given_something_other_than_classes_fails_at_the_class_statement() -> None:
@@ -217,7 +241,7 @@ def test_accepts_given_something_other_than_classes_fails_at_the_class_statement
 
     (problem,) = _refused(build).problems
     assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
-        "type_declaration_invalid",
+        "invalid_declaration_argument",
         [("is_type", ["accepts", 0])],
     )
 
@@ -342,7 +366,7 @@ def test_accepts_that_is_no_list_of_classes_fails_at_the_class_statement(accepts
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).problems[0].type == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "invalid_declaration_argument"
 
 
 def test_a_title_of_only_spaces_fails_at_the_class_statement() -> None:
@@ -351,7 +375,7 @@ def test_a_title_of_only_spaces_fails_at_the_class_statement() -> None:
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).problems[0].type == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "empty_title_or_description"
 
 
 def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused() -> None:
@@ -466,7 +490,7 @@ def test_host_type_on_a_class_conductor_names_is_refused_and_says_to_declare_a_s
     registry in the process, depending on what read it first."""
     refused = _refused(lambda: host_type("mine", title="Mine")(named))
 
-    assert refused.problems[0].type == "type_declaration_invalid"
+    assert refused.problems[0].type == "invalid_declaration_argument"
     assert [e["type"] for e in refused.problems[0].ctx["errors"]] == ["conductors_own_type"]
     assert "declare a subclass" in str(refused)
 

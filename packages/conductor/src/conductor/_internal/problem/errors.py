@@ -178,6 +178,37 @@ def shape_error(
     return _written_error(fault["type"], list(loc), fault["msg"], fault.get("ctx", {}))
 
 
+def argument_errors(
+    error: ValidationError, arguments: Mapping[str, Any]
+) -> dict[str, list[dict[str, Any]]]:
+    """Returns the faults pydantic found in the arguments a developer gave one of conductor's own functions, by
+    argument, each as ``shape_error`` writes it, its ``loc`` the steps inside the argument.
+
+    ``make_graph``, ``@node``, ``subgraph`` and ``NodeRegistry`` check their arguments this way. A key of a mapping
+    that isn't text is part of what was given, and pydantic writes it into a ``loc`` as text, its ``repr`` for an
+    object. So the key's own fault stops at it, ``[..., "[key]"]``, and a fault in the value under such a key is left
+    out.
+
+    Args:
+        error: What pydantic raised, for a schema whose fields are the arguments.
+        arguments: The arguments, by name.
+    """
+    faults: dict[str, list[dict[str, Any]]] = {}
+    for fault in error.errors():
+        argument, *steps = fault["loc"]
+        given = arguments[str(argument)]
+        if steps[-1:] == ["[key]"]:
+            steps = [*steps[:-2], "[key]"]
+        elif (
+            isinstance(given, Mapping)
+            and steps
+            and not (isinstance(steps[0], str) and steps[0] in given)
+        ):
+            continue
+        faults.setdefault(str(argument), []).append(shape_error(fault, steps))
+    return faults
+
+
 def _ctx_its_message_reads(fault: ErrorDetails) -> Mapping[str, Any]:
     """Returns the ``ctx`` of an error whose message is kept, with only the keys its message is made from.
 

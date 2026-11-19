@@ -27,6 +27,7 @@ from .errors import (
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
+    argument_errors,
     author_code_problem,
     conductor_error,
     is_conductor_error,
@@ -57,6 +58,7 @@ __all__ = [
     "is_conductor_error",
     "no_json_form",
     "set_has_no_order",
+    "argument_errors",
     "shape_error",
     "value_free_errors",
 ]

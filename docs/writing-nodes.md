@@ -101,7 +101,7 @@ host.add_subregistry(text_nodes)
 print(host["repeat"].category, host["repeat"].tags)  # text ('acme',)
 ```
 
-If the host already has a node with one of your ids, `add_subregistry` raises. `extra` is your own JSON about a node. Conductor keeps it and shows it to the host, but never reads it.
+If the host already has a node with one of your ids, `add_subregistry` raises. `extra` is your own JSON about a node. Conductor keeps it and shows it to the host, but never reads it. Its values are JSON values: a tuple, a date or `inf` in it is refused where the node or the registry is declared, as is any argument of `@node` or `NodeRegistry` that isn't of the type its signature says, such as `tags="text"` for `tags=["text"]` ([`invalid_declaration_argument`](problems.md#invalid_declaration_argument)).
 
 ## What a person sees
 

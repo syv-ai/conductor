@@ -36,6 +36,7 @@ from pydantic import JsonValue
 
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
+    DeclarationValidator,
     FunctionDefinition,
     NodeDefinition,
     NodeDescription,
@@ -123,11 +124,18 @@ class NodeRegistry[C]:
             types: Host types to offer, whether or not a node uses them.
             context_type: The class of the object the host passes as ``context=`` to every run of a graph compiled
                 here. Each node's ``Context[X]`` is checked against it when a graph is compiled.
+
+        Raises:
+            NodeDeclarationError: ``invalid_declaration_argument`` if ``category``, ``tags`` or ``extra`` isn't of the
+                type the signature says, as ``@node`` holds its own.
         """
+        read = DeclarationValidator("NodeRegistry")(
+            {"category": category, "tags": tags, "extra": extra}
+        )
         self._context_type = context_type
         self._category = category
-        self._tags = tuple(tags)
-        self._extra = dict(extra)
+        self._tags = tuple(read["tags"])
+        self._extra = dict(read["extra"])
         #: The types the host named, whether or not a node uses them.
         self._named_types = tuple(types)
         #: The nodes, by id, in the order they were added.

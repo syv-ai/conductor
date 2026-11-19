@@ -31,7 +31,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import Field as DataclassField
 from inspect import Parameter
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, Protocol
+from typing import Annotated, Any, Protocol
 
 from pydantic import JsonValue
 
@@ -40,7 +40,7 @@ from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, RecordValidator
-from conductor._internal.types import Param, Type, fit, is_declared
+from conductor._internal.types import Param, Type, check_not_blank, fit, is_declared
 
 from .policy import Deprecation, Policy
 from .source import read_code
@@ -55,6 +55,7 @@ from .type import (
     gone_inputs,
     gone_outputs,
 )
+from .validator import DeclarationValidator
 
 
 class NodeDecorator(Protocol):
@@ -119,8 +120,29 @@ def node(
     when the graph is compiled, before any run.
 
     Raises:
-        NodeDeclarationError: When the decorator is applied, if the function or the arguments can't make a node.
+        NodeDeclarationError: Right away, ``invalid_declaration_argument`` if an argument isn't of the type the
+            signature says, such as ``tags="text"``, or one of the codes for arguments that don't fit together. When
+            the decorator is applied, if the function can't make a node.
     """
+    read = DeclarationValidator("@node")(
+        {
+            "id": id,
+            "title": title,
+            "description": description,
+            "version": version,
+            "category": category,
+            "tags": tags,
+            "extra": extra,
+            "docs": docs,
+            "policy": policy,
+            "deprecation": deprecation,
+            "compute_added_inputs": compute_added_inputs,
+            "compute_outputs": compute_outputs,
+            "replaces": replaces,
+            "upgrade": upgrade,
+            "asks": asks,
+        }
+    )
     number = _version_number("@node", id, title, description, version, replaces, upgrade)
 
     def make[**P, R](target: NodeFunction[P, R], /) -> FunctionDefinition[P, R]:
@@ -178,8 +200,8 @@ def node(
                 title=title,
                 description=description,
                 category=category,
-                tags=tuple(tags),
-                extra=MappingProxyType(dict(extra)),
+                tags=tuple(read["tags"]),
+                extra=MappingProxyType(dict(read["extra"])),
                 docs=docs,
                 deprecation=deprecation,
                 replaces=replaces,
@@ -233,6 +255,21 @@ def subgraph(
             with no ``Upgrade`` saying where it went (``upgrade_missing``), or an ``Upgrade`` that renames a graph
             input or output one of the two records doesn't have (``upgrade_renames_unknown``).
     """
+    read = DeclarationValidator("subgraph")(
+        {
+            "id": id,
+            "title": title,
+            "description": description,
+            "version": version,
+            "category": category,
+            "tags": tags,
+            "extra": extra,
+            "docs": docs,
+            "deprecation": deprecation,
+            "replaces": replaces,
+            "upgrade": upgrade,
+        }
+    )
     number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
@@ -243,8 +280,8 @@ def subgraph(
             title=title,
             description=description,
             category=category,
-            tags=tuple(tags),
-            extra=MappingProxyType(dict(extra)),
+            tags=tuple(read["tags"]),
+            extra=MappingProxyType(dict(read["extra"])),
             docs=docs,
             deprecation=deprecation,
             replaces=replaces,
@@ -269,7 +306,9 @@ def _version_number(
     replaces: NodeDefinition | None,
     upgrade: Upgrade | None,
 ) -> int:
-    """Checks the arguments ``@node`` and ``subgraph`` share, and returns the node's version number.
+    """Checks what the arguments ``@node`` and ``subgraph`` share say together, and returns the node's version number.
+
+    Their types are checked first, by ``DeclarationValidator``.
 
     Args:
         declared_with: ``"@node"`` or ``"subgraph"``. Each message starts with it.
@@ -284,23 +323,13 @@ def _version_number(
         ``version`` if it is given. Otherwise one more than the version replaced, or 1 for a first version.
 
     Raises:
-        NodeDeclarationError: The id isn't a valid node id, the version isn't a whole number of 1 or more, the
-            title or description is empty or isn't text, or ``replaces``,
+        NodeDeclarationError: The id isn't a valid node id, the title or description is blank, or ``replaces``,
             ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id, except for an id that isn't valid,
             which can't name a place.
     """
-    # These are a node author's arguments, which a type checker may not have seen, so their types are checked here.
-    if not isinstance(id, str) or not is_name(id):
+    if not is_name(id):
         raise NodeDeclarationError(
             declaration_problems.invalid_node_id(declared_with=declared_with, id=id)
-        )
-    # True is an int to Python, and never a version
-    if version is not None and (type(version) is not int or version < 1):
-        raise NodeDeclarationError(
-            declaration_problems.invalid_version(
-                declared_with=declared_with, id=id, version=repr(version)
-            ),
-            id,
         )
     # the version comes first, so each fault below names it
     if version is not None:
@@ -309,19 +338,9 @@ def _version_number(
         number = replaces.version + 1
     else:
         number = 1
-    named: tuple[tuple[Literal["title", "description"], str], ...] = (
-        ("title", title),
-        ("description", description),
+    check_not_blank(
+        declared_with, id, {"title": title, "description": description}, id, version=number
     )
-    for name, text in named:
-        if not isinstance(text, str) or not text.strip():
-            raise NodeDeclarationError(
-                declaration_problems.empty_title_or_description(
-                    declared_with=declared_with, id=id, empty=name
-                ),
-                id,
-                version=number,
-            )
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(
             declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id),

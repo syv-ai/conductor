@@ -24,9 +24,9 @@ from pydantic import (
 from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
 from conductor._internal.problem import (
     InvalidCallError,
+    argument_errors,
     call_problems,
     conductor_error,
-    shape_error,
 )
 from conductor._internal.validation import Validator
 
@@ -119,19 +119,7 @@ class ArgumentsValidator(Validator[Mapping[str, Any], Arguments]):
         try:
             return _ARGUMENTS.validate_python(dict(arguments))
         except ValidationError as error:
-            faults: dict[str, list[dict[str, Any]]] = {}
-            for fault in error.errors():
-                argument, *steps = fault["loc"]
-                given = arguments[str(argument)]
-                # A key that isn't text is part of what was given, so its own fault stops at it, and a fault in the
-                # value under it, whose loc pydantic writes with the key as text, is left out.
-                if steps[-1:] == ["[key]"]:
-                    steps = [*steps[:-2], "[key]"]
-                elif isinstance(given, Mapping) and not (
-                    isinstance(steps[0], str) and steps[0] in given
-                ):
-                    continue
-                faults.setdefault(str(argument), []).append(shape_error(fault, steps))
+            faults = argument_errors(error, arguments)
         raise InvalidCallError(
             [
                 call_problems.invalid_argument(argument, reason=errors[0]["msg"], errors=errors)

@@ -32,7 +32,7 @@ from ipaddress import (
 )
 from pathlib import Path
 from re import Pattern
-from typing import Annotated, Any
+from typing import Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -59,9 +59,7 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     WebsocketUrl,
-    field_validator,
 )
-from pydantic import Field as PydanticField
 from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import MultiHostUrl, Url, core_schema
@@ -169,20 +167,44 @@ class TypeDeclaration:
         accepts: Other classes whose values an edge may pass to an input of this type.
     """
 
-    id: Annotated[str, PydanticField(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]*$")]
-    title: Annotated[str, PydanticField(pattern=r"\S")]
+    id: str
+    title: str
     accepts: tuple[type, ...] = ()
 
-    @field_validator("id")
-    @classmethod
-    def _not_one_of_conductors_own(cls, given: str) -> str:
-        if given in OWN_IDS:
-            raise conductor_error(
-                "id_of_conductors_own_type",
-                "'{id}' is the id of one of conductor's own types",
-                {"id": given},
+
+#: The pattern of a type's id: one word of letters, digits, ``_``, ``.`` and ``-``, starting with a letter or ``_``.
+_TYPE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+
+
+def check_not_blank(
+    declared_with: str,
+    id: str,
+    shown: Mapping[Literal["title", "description"], str],
+    *place: str,
+    version: int | None = None,
+) -> None:
+    """Checks that the title, and a node's description, are not blank: the one rule for the text a person reads about a
+    node or a type, which ``@node``, ``subgraph`` and ``@host_type`` each call.
+
+    Args:
+        declared_with: ``"@node"``, ``"subgraph"`` or ``"@host_type"``.
+        id: The node's or the type's id.
+        shown: The texts, by which one each is.
+        place: Where the fault is placed, as ``NodeDeclarationError`` takes it: the node's id, or nothing for a type.
+        version: The node's version, as ``NodeDeclarationError`` takes it.
+
+    Raises:
+        NodeDeclarationError: ``empty_title_or_description``, for the first text that is empty or only spaces.
+    """
+    for empty, text in shown.items():
+        if not text.strip():
+            raise NodeDeclarationError(
+                declaration_problems.empty_title_or_description(
+                    declared_with=declared_with, id=id, empty=empty
+                ),
+                *place,
+                version=version,
             )
-        return given
 
 
 def host_type[C: type](
@@ -218,9 +240,10 @@ def host_type[C: type](
         A decorator that stores the declaration on the class and returns the class.
 
     Raises:
-        NodeDeclarationError: Right away, when the class is defined. ``type_declaration_invalid`` if the id isn't
-            one word or is one of conductor's own, the title is empty, ``accepts`` has something that isn't a
-            class, or the class is one conductor names itself. ``type_declaration_not_on_a_class`` if it isn't put
+        NodeDeclarationError: Right away, when the class is defined. ``invalid_declaration_argument`` if the id or
+            the title isn't text, ``accepts`` has something that isn't a class, or the class is one conductor names
+            itself. ``invalid_node_id`` if the id isn't one word or is one of conductor's own, and
+            ``empty_title_or_description`` if the title is blank. ``type_declaration_not_on_a_class`` if it isn't put
             above a class it can name, ``type_declaration_not_writable`` if the class can't take a new attribute, and
             ``host_type_not_supported`` if pydantic can't check values of the class.
     """
@@ -231,10 +254,17 @@ def host_type[C: type](
     except ValidationError as error:
         faults = [shape_error(fault, fault["loc"]) for fault in error.errors()]
         raise NodeDeclarationError(
-            declaration_problems.type_declaration_invalid(
-                id=id, reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}", errors=faults
+            declaration_problems.invalid_declaration_argument(
+                declared_with="@host_type",
+                reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}",
+                errors=faults,
             )
         ) from None
+    if not _TYPE_ID.match(id) or id in OWN_IDS:
+        raise NodeDeclarationError(
+            declaration_problems.invalid_node_id(declared_with="@host_type", id=id)
+        )
+    check_not_blank("@host_type", id, {"title": title})
 
     def declare(cls: C) -> C:
         if not isinstance(cls, type) or typing.is_typeddict(cls):
@@ -251,8 +281,8 @@ def host_type[C: type](
                 )
             )
             raise NodeDeclarationError(
-                declaration_problems.type_declaration_invalid(
-                    id=id, reason=own["msg"], errors=[own]
+                declaration_problems.invalid_declaration_argument(
+                    declared_with="@host_type", reason=own["msg"], errors=[own]
                 )
             )
         try:

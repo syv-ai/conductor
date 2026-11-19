@@ -12,11 +12,12 @@ import logging
 import math
 import typing
 import warnings
-from collections.abc import Mapping, Set
+from collections.abc import Callable, Mapping, Set
 from dataclasses import FrozenInstanceError, dataclass
 from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
 from fractions import Fraction
+from types import MappingProxyType
 from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 import polars as pl
@@ -244,45 +245,127 @@ def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_
         assert f"('x') has no {empty}" in str(raised.value)
 
 
-@pytest.mark.parametrize(
-    ("title", "description", "not_text"),
-    [(5, "Does something.", "title"), ("Something", None, "description")],
-)
-def test_a_title_or_description_that_isnt_text_is_refused_as_an_empty_one_is(
-    title, description, not_text
-):
-    for declaration in (
-        lambda: node("x", title=title, description=description),
-        lambda: subgraph("x", title=title, description=description),
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declaration()
-        assert (raised.value.problems[0].type, raised.value.problems[0].ctx["empty"]) == (
-            "empty_title_or_description",
-            not_text,
-        )
+class _Secret:
+    """An argument whose repr must never reach an error."""
+
+    def __repr__(self) -> str:
+        return "SECRET-REPR"
 
 
-@pytest.mark.parametrize("version", [0, -3, True, "2", 1.5])
-def test_a_version_that_isnt_a_whole_number_of_one_or_more_is_refused_where_the_node_is_declared(
-    version,
-):
-    for declaration in (
-        lambda: node("x", title="X", description="For a test.", version=version),
-        lambda: subgraph("x", title="X", description="For a test.", version=version),
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declaration()
-        assert (raised.value.problems[0].type, raised.value.problems[0].loc) == (
-            "invalid_version",
-            ("x",),
-        )
+def _whisper(text: str) -> str:
+    return text.lower()
 
 
-def test_a_node_id_that_isnt_text_is_an_invalid_node_id():
+def _faults(declaration: Callable[[], object]) -> list[tuple[str, list[str | int]]]:
+    """The code and loc of every fault in the ``invalid_declaration_argument`` a declaration raises."""
     with pytest.raises(NodeDeclarationError) as raised:
-        node(5, title="Five", description="For a test.")  # type: ignore[arg-type]
-    assert raised.value.problems[0].type == "invalid_node_id"
+        declaration()
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.loc) == ("invalid_declaration_argument", ())
+    return [(e["type"], e["loc"]) for e in problem.ctx["errors"]]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "faults"),
+    [
+        # tags="abc" was taken as ('a', 'b', 'c')
+        ({"tags": "abc"}, [("sequence_str", ["tags"])]),
+        ({"tags": ["a", 1]}, [("string_type", ["tags", 1])]),
+        # a date, a tuple or an object in extra was taken, and failed only at registry.describe()
+        (
+            {"extra": {"when": datetime.date(2026, 1, 1)}},
+            [("invalid-json-value", ["extra", "when"])],
+        ),
+        ({"extra": {"pair": (1, 2)}}, [("invalid-json-value", ["extra", "pair"])]),
+        ({"extra": {1: "a"}}, [("string_type", ["extra", "[key]"])]),
+        ({"extra": {"cap": math.inf}}, [("finite_number", ["extra"])]),
+        ({"extra": {"cap": [1, {"x": math.nan}]}}, [("finite_number", ["extra"])]),
+        ({"version": 0}, [("greater_than_equal", ["version"])]),
+        ({"version": -3}, [("greater_than_equal", ["version"])]),
+        ({"version": True}, [("int_type", ["version"])]),
+        ({"version": "2"}, [("int_type", ["version"])]),
+        ({"version": 1.5}, [("int_type", ["version"])]),
+        ({"title": 5}, [("string_type", ["title"])]),
+        ({"description": None}, [("string_type", ["description"])]),
+        ({"category": None}, [("string_type", ["category"])]),
+        ({"docs": 5}, [("string_type", ["docs"])]),
+        # a string deprecation was taken, and failed only at registry.describe()
+        ({"deprecation": "soon"}, [("is_instance_of", ["deprecation"])]),
+        ({"replaces": "x"}, [("not_a_node", ["replaces"])]),
+        ({"upgrade": {}}, [("is_instance_of", ["upgrade"])]),
+        (
+            {"tags": "ab", "version": 0},
+            [("greater_than_equal", ["version"]), ("sequence_str", ["tags"])],
+        ),
+    ],
+)
+def test_an_argument_of_the_wrong_type_is_refused_where_a_node_or_a_subgraph_is_declared(
+    arguments, faults
+):
+    given = {"title": "X", "description": "For a test.", **arguments}
+    assert _faults(lambda: node("x", **given)) == faults
+    assert _faults(lambda: subgraph("x", **given)) == faults
+
+
+@pytest.mark.parametrize(
+    ("arguments", "faults"),
+    [
+        # policy={...} was an AttributeError
+        ({"policy": {"retries": 1}}, [("is_instance_of", ["policy"])]),
+        ({"asks": "yes"}, [("bool_type", ["asks"])]),
+        ({"asks": 1}, [("bool_type", ["asks"])]),
+        ({"compute_outputs": 3}, [("callable_type", ["compute_outputs"])]),
+    ],
+)
+def test_an_argument_only_node_takes_is_held_to_its_type_too(arguments, faults):
+    assert _faults(lambda: node("x", title="X", description="For a test.", **arguments)) == faults
+
+
+def test_a_registry_holds_its_defaults_to_the_types_a_node_does():
+    assert _faults(lambda: NodeRegistry(tags="ab", extra={"when": datetime.date(2026, 1, 1)})) == [  # type: ignore[arg-type]
+        ("sequence_str", ["tags"]),
+        ("invalid-json-value", ["extra", "when"]),
+    ]
+
+
+def test_a_refused_argument_is_never_quoted():
+    secret = _Secret()
+    for declaration in (
+        lambda: node("x", title=secret, description="For a test."),  # type: ignore[arg-type]
+        lambda: node("x", title="X", description="For a test.", extra={"k": secret}),  # type: ignore[dict-item]
+        lambda: node("x", title="X", description="For a test.", extra={secret: 1}),  # type: ignore[dict-item]
+        lambda: node(secret, title="X", description="For a test."),  # type: ignore[arg-type]
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declaration()
+        assert "SECRET" not in str(raised.value)
+        assert "SECRET" not in json.dumps(raised.value.problems[0].model_dump(mode="json"))
+
+
+def test_lists_tuples_and_any_mapping_of_json_are_taken():
+    declared_node = node(
+        "x",
+        title="X",
+        description="For a test.",
+        tags=["a", "b"],
+        extra=MappingProxyType(
+            {"icon": "star", "order": [1, 2], "beta": None, "nested": {"a": 1.5}}
+        ),
+    )(_whisper)
+    assert declared_node.tags == ("a", "b")
+    assert dict(declared_node.extra) == {
+        "icon": "star",
+        "order": [1, 2],
+        "beta": None,
+        "nested": {"a": 1.5},
+    }
+    assert node("y", title="Y", description="For a test.", tags=("a",))(_whisper).tags == ("a",)
+
+
+def test_a_node_id_that_isnt_text_is_an_argument_of_the_wrong_type():
+    assert _faults(lambda: node(5, title="Five", description="For a test.")) == [
+        ("string_type", ["id"])
+    ]  # type: ignore[arg-type]
 
 
 def test_a_node_id_in_a_record_with_a_tilde_is_refused_by_the_record_validator():

@@ -1,4 +1,9 @@
-"""Checking what a node's own code returns: its function on each call, its hooks when a graph is compiled, and its upgrades.
+"""Checking what a node's developer gives: the arguments of ``@node``, and what the node's own code returns, its function
+on each call, its hooks when a graph is compiled, and its upgrades.
+
+``DeclarationValidator`` checks the arguments of ``@node``, ``subgraph`` and ``NodeRegistry`` when the node or the
+registry is declared. ``tags="abc"`` is refused, since ``tags`` is a list or tuple of text, and so is a date in
+``extra``, which is JSON a host is shown.
 
 ``ReturnValidator`` checks what a node's function returns, and turns it into the node's outputs by name. Say
 ``shout(line: str) -> str`` returns ``"B!"``. The validator gives ``{"result": "B!"}``. If it returns ``3``
@@ -23,13 +28,24 @@ JSON.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Annotated, Any, TypedDict
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from annotated_types import Ge
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    InstanceOf,
+    JsonValue,
+    PlainValidator,
+    StrictStr,
+    TypeAdapter,
+    ValidationError,
+    with_config,
+)
 from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
-from conductor._internal.base import REQUIRED, SKIPPED, Name
+from conductor._internal.base import REQUIRED, SKIPPED, Name, finite_json_text
 from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
@@ -39,9 +55,11 @@ from conductor._internal.field import (
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
+    argument_errors,
     call_problems,
     compile_problems,
     conductor_error,
+    declaration_problems,
     run_problems,
     shape_error,
 )
@@ -49,7 +67,8 @@ from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, holds_skipped
 
-from .type import HookName
+from .policy import Deprecation, Policy
+from .type import FunctionDefinition, HookName, NodeDefinition, SubgraphDefinition, Upgrade
 
 
 class ReturnValidator(Validator[Any, dict[str, Any]]):
@@ -417,3 +436,97 @@ class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
 
 #: Checks what an ``Upgrade``'s rewrite returns: a dict whose keys are text.
 _REWRITTEN_VALUES = TypeAdapter(dict[str, Any])
+
+
+def _a_definition(given: Any) -> NodeDefinition:
+    """Takes a node definition, as ``replaces=`` names the version it replaces.
+
+    Raises:
+        PydanticCustomError: ``not_a_node``, for anything else.
+    """
+    if isinstance(given, (FunctionDefinition, SubgraphDefinition)):
+        return given
+    raise conductor_error(
+        "not_a_node", "replaces= names the earlier version, a node made by @node or subgraph()"
+    )
+
+
+def _finite(extra: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
+    """Returns ``extra`` if every number in it is finite, by the one rule for a number that enters (``finite_json_text``).
+
+    Raises:
+        ValidationError: Pydantic's ``finite_number``, at ``extra``.
+    """
+    finite_json_text(extra, "extra")
+    return extra
+
+
+@with_config(ConfigDict(strict=True))
+class DeclarationArguments(TypedDict, total=False):
+    """The arguments ``@node``, ``subgraph`` and ``NodeRegistry`` take, by name, as their signatures declare them.
+
+    Each caller gives only the arguments it has: ``subgraph`` has no ``policy``, hooks or ``asks``, and a registry only
+    ``category``, ``tags`` and ``extra``. Each argument's default is in its caller's signature.
+    """
+
+    id: StrictStr
+    title: StrictStr
+    description: StrictStr
+    version: Annotated[int, Ge(1)] | None
+    category: StrictStr
+    tags: Sequence[StrictStr]
+    extra: Annotated[Mapping[StrictStr, JsonValue], AfterValidator(_finite)]
+    docs: StrictStr | None
+    policy: InstanceOf[Policy]
+    deprecation: InstanceOf[Deprecation] | None
+    compute_added_inputs: Callable[..., Any] | None
+    compute_outputs: Callable[..., Any] | None
+    replaces: Annotated[NodeDefinition, PlainValidator(_a_definition)] | None
+    upgrade: InstanceOf[Upgrade] | None
+    asks: bool
+
+
+_DECLARATION_ARGUMENTS = TypeAdapter(DeclarationArguments)
+
+
+class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
+    """The validator for the arguments a node's developer gives ``@node``, ``subgraph`` or ``NodeRegistry``.
+
+    Each argument is held to its annotation, strictly, so ``tags="abc"``, ``version=True``, ``policy={}`` and
+    ``extra={"when": date.today()}`` are refused where the node is declared, never later. ``extra`` is JSON a host is
+    shown: its values are JSON values, and a number in it is finite. What the arguments say together, such as whether
+    the id is a valid name or ``replaces=`` names the same node, is checked after it, by the caller.
+
+    Raises (when called):
+        NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors``.
+    """
+
+    def __init__(self, declared_with: str) -> None:
+        """Builds the validator for one way of declaring.
+
+        Args:
+            declared_with: ``"@node"``, ``"subgraph"`` or ``"NodeRegistry"``. The message starts with it.
+        """
+        self._declared_with = declared_with
+
+    def __call__(self, arguments: Mapping[str, Any]) -> DeclarationArguments:
+        """Checks ``arguments`` and returns them.
+
+        Raises:
+            NodeDeclarationError: See the class.
+        """
+        try:
+            return _DECLARATION_ARGUMENTS.validate_python(dict(arguments))
+        except ValidationError as error:
+            faults = [
+                {**fault, "loc": [argument, *fault["loc"]]}
+                for argument, inside in argument_errors(error, arguments).items()
+                for fault in inside
+            ]
+        raise NodeDeclarationError(
+            declaration_problems.invalid_declaration_argument(
+                declared_with=self._declared_with,
+                reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}",
+                errors=faults,
+            )
+        )

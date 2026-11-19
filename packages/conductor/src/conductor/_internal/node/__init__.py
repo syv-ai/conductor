@@ -20,7 +20,8 @@ The package has these parts:
 - ``policy.py`` has ``Policy``, how the engine calls a node, and ``Deprecation``, a notice that it is going away.
 - ``running_calls.py`` has ``RunningCalls``, which counts how many calls of a node are running at once.
 - ``describe.py`` has ``NodeDescription``, a node as an editor's palette shows it.
-- ``validator.py`` checks what a node's code returns: ``ReturnValidator`` for the function, ``HookValidator`` for
+- ``validator.py`` checks what a developer gives ``@node``, ``subgraph`` and ``NodeRegistry`` (``DeclarationValidator``),
+  and what a node's code returns: ``ReturnValidator`` for the function, ``HookValidator`` for
   its hooks, and ``RewriteValidator`` for the rewrite of an ``Upgrade``.
 """
 
@@ -37,10 +38,11 @@ from .type import (
     gone_inputs,
     with_defaults,
 )
-from .validator import HookValidator, ReturnValidator, RewriteValidator
+from .validator import DeclarationValidator, HookValidator, ReturnValidator, RewriteValidator
 
 __all__ = [
     "LONGEST_WAIT",
+    "DeclarationValidator",
     "Deprecation",
     "FunctionDefinition",
     "HookName",
