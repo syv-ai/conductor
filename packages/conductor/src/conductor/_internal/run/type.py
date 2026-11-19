@@ -102,7 +102,6 @@ class Run[C]:
     """
 
     graph: Graph[C]
-    inputs: Mapping[str, Any]
     max_items: int | None
     #: The outcome of every call so far.
     _outcomes: RunOutcomes
@@ -114,9 +113,10 @@ class Run[C]:
     #: again, and their reusable outcomes from the previous run are dropped.
     _complete_nodes: frozenset[NodePath] = frozenset()
 
-    def __post_init__(self) -> None:
-        """Stores the inputs as a read-only copy, so no one can change a run's inputs after it is made."""
-        object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
+    @property
+    def inputs(self) -> Mapping[str, Any]:
+        """The graph inputs the caller gave, by name. The run's outcomes hold them, read-only."""
+        return self._outcomes.graph_inputs
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {len(self._outcomes)} outcomes>"
@@ -130,12 +130,12 @@ class Run[C]:
         ``cancelled`` or ``timed_out``. A run a person ended with ``with_decline`` is ``declined``. A copy made while a
         ``resume()`` is still going is ``running``. ``state.py`` has the whole rule.
         """
-        return status_of(self)[0]
+        return status_of(self._outcomes, self._last_resume)[0]
 
     @property
     def cause(self) -> Problem | None:
         """The problem that ended the run early or declined it, with its ``loc`` and code. ``None`` otherwise."""
-        return status_of(self)[1]
+        return status_of(self._outcomes, self._last_resume)[1]
 
     # -- running ----------------------------------------------------------------
 
@@ -348,7 +348,7 @@ class Run[C]:
             if stopped == "running":
                 emit(with_run(RunCheckpoint(), run))
             else:
-                status, cause = status_of(run)
+                status, cause = status_of(run._outcomes, run._last_resume)
                 emit(with_run(RunEnd(status=status, cause=cause), run))
         return run
 
@@ -670,7 +670,7 @@ class Run[C]:
         ``read`` has returned. If ``read``'s ``Policy`` says ``costs_nothing``, ``run.resume(only_costs_nothing=True)``
         calls it first.
         """
-        return progress_of(self)
+        return progress_of(self._outcomes)
 
     @property
     def none_input_calls(self) -> list[NoneInputCall]:
@@ -694,7 +694,7 @@ class Run[C]:
         ``None`` in place of a list means the list being looped over was never made, or no item of it could have a
         value.
         """
-        return results_of(self)
+        return results_of(self.graph, self._outcomes)
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -702,13 +702,13 @@ class Run[C]:
 
         ``results`` works on a run that isn't complete.
         """
-        status, cause = status_of(self)
+        status, cause = status_of(self._outcomes, self._last_resume)
         if status != "complete":
             reason = cause.msg if cause is not None else ""
             raise InvalidCallError(
                 [call_problems.run_not_complete("outputs", status=status, reason=reason)]
             )
-        return outputs_of(self)
+        return outputs_of(self.graph, self._outcomes)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, such as ``{"result":"A!+B!+C!"}`` for the README graph.
@@ -720,7 +720,7 @@ class Run[C]:
             InvalidCallError: ``run_not_complete`` if the run isn't complete. ``run_unwritable``, naming the output,
                 if a value can't be written as JSON.
         """
-        return outputs_to_json(self)
+        return outputs_to_json(self.graph, self.outputs)
 
     # -- JSON -------------------------------------------------------------------
 
@@ -752,7 +752,14 @@ class Run[C]:
         Raises:
             InvalidCallError: ``run_unwritable``, naming the input or output, if a value can't be written as JSON.
         """
-        return run_to_json(self)
+        return run_to_json(
+            self.graph,
+            self._outcomes,
+            self._reusable,
+            max_items=self.max_items,
+            last_resume=self._last_resume,
+            complete_nodes=self._complete_nodes,
+        )
 
 
 def _only_costs_nothing(
@@ -790,10 +797,9 @@ def make_run[C](
     blueprint = graph._blueprint
     return Run(
         graph,
-        inputs,
         max_items,
         RunOutcomes(blueprint, inputs),
-        ReusableOutcomes.from_run(previous, into=blueprint)
+        ReusableOutcomes.from_previous(previous._outcomes, previous._reusable, into=blueprint)
         if previous is not None
         else ReusableOutcomes(),
     )

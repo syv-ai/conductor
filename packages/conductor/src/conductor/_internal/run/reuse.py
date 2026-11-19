@@ -26,7 +26,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, assert_never, cast
+from typing import Any, Literal, assert_never, cast
 
 from pydantic_core import PydanticSerializationError
 
@@ -37,15 +37,12 @@ from .blueprint import BlueprintFunctionNode, RunBlueprint
 from .outcome import Done, NoneInput, NotReady, Skipped, Unanswered
 from .outcomes import RunOutcomes
 
-if TYPE_CHECKING:
-    from .type import Run
-
 
 @dataclass(slots=True)
 class ReusableOutcomes:
     """The outcomes of a previous run that a run may reuse instead of calling a node, by node path.
 
-    A run made from another gets them with ``from_run``. As it runs, the scheduler takes each outcome it reuses with
+    A run made from another gets them with ``from_previous``. As it runs, the scheduler takes each outcome it reuses with
     ``take``. Once a node is complete, its outcomes are dropped with ``drop``.
 
     A node that never asks reuses an outcome two ways. The call with the same item indexes reuses its own outcome if
@@ -61,7 +58,7 @@ class ReusableOutcomes:
     Attributes:
         reused_freely: For a node that never asks: by call fingerprint, the outcomes of the calls with that
             fingerprint, each by its call's item indexes. The first is reused by any call with the fingerprint, and
-            each other one only by the call with its item indexes. ``from_run`` says which are kept.
+            each other one only by the call with its item indexes. ``from_previous`` says which are kept.
         reused_in_item_order: For a node that may ask: by call fingerprint, the outcomes, ``Done`` or
             ``Unanswered``, of the calls with that fingerprint, in item order. Each is reused once, by the calls
             with that fingerprint in item order, and then taken out.
@@ -79,11 +76,13 @@ class ReusableOutcomes:
     code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
 
     @classmethod
-    def from_run(cls, run: Run[Any], into: RunBlueprint) -> ReusableOutcomes:
-        """Returns what a run made from ``run`` may reuse.
+    def from_previous(
+        cls, outcomes: RunOutcomes, previous: ReusableOutcomes, into: RunBlueprint
+    ) -> ReusableOutcomes:
+        """Returns what a run made from a previous run may reuse, given that run's outcomes and what it could reuse.
 
-        That is each node's finished and waiting calls in item order, then the outcomes ``run`` itself could have
-        reused and didn't. A node that may ask keeps every one of them, since each is reused once. A node that never
+        That is each node's finished and waiting calls in item order, then the outcomes in ``previous``, which the
+        previous run itself could have reused and didn't. A node that may ask keeps every one of them, since each is reused once. A node that never
         asks keeps an outcome if it is the first with its fingerprint, which any call with that fingerprint reuses,
         or the first with its item indexes, which the call with those item indexes reuses. No call would reuse any
         other: a call with the same item indexes finds the first outcome with them, and any other call the first
@@ -94,13 +93,13 @@ class ReusableOutcomes:
         ``(fp_a, (1,))``. Then come the two it could reuse: ``(fp_a, (0,))``, which is dropped, since ``fp_a`` and
         ``(0,)`` both have an outcome already, and ``(fp_a, (1,))``, dropped too.
 
-        ``into`` is the blueprint of the new run's graph, which may be ``run``'s graph or an edited one. A node is only
+        ``into`` is the blueprint of the new run's graph, which may be the previous run's graph or an edited one. A node is only
         kept if ``into`` has it unchanged (the same ``code_fingerprint``) and its ``Policy`` says
         ``reuse_when_inputs_match``. The other nodes' outcomes could never be reused there, and keeping them would only
         make the save bigger.
         """
-        reusable, previous = cls(), run._reusable
-        for path, old_node in run.graph._blueprint.function_nodes.items():
+        reusable = cls()
+        for path, old_node in outcomes.blueprint.function_nodes.items():
             new_node = into.function_nodes.get(path)
             if (
                 new_node is None
@@ -108,7 +107,7 @@ class ReusableOutcomes:
                 or new_node.code_fingerprint != old_node.code_fingerprint
             ):
                 continue
-            called = () if path in previous.code_changed else _called(run, old_node)
+            called = () if path in previous.code_changed else _called(outcomes, old_node)
             if new_node.compiled_node.definition.asks:
                 in_item_order: dict[str, list[Done | Unanswered]] = {}
                 for fingerprint, _, outcome in called:
@@ -213,11 +212,10 @@ class ReusableOutcomes:
 
 
 def _called(
-    run: Run[Any], node: BlueprintFunctionNode
+    outcomes: RunOutcomes, node: BlueprintFunctionNode
 ) -> Iterator[tuple[str, ItemIndexes, Done | Unanswered]]:
-    """Yields the outcome of each call of ``node`` in ``run`` that called its function, in item order, with the call's
+    """Yields the outcome of each call of ``node`` in ``outcomes`` that called its function, in item order, with the call's
     fingerprint and item indexes. A call whose arguments can't be written as JSON has no fingerprint, and is left out."""
-    outcomes = run._outcomes
     for item_indexes, outcome in outcomes.of(node.node_path).items():
         match outcome:
             # The function wasn't called for the item, so there is nothing to reuse.

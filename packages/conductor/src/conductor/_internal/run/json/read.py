@@ -140,7 +140,6 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     reusable.drop([*code_changed, *never_reused])
     return run_type(
         graph,
-        read.inputs,
         read.max_items,
         outcomes,
         reusable,

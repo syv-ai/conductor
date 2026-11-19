@@ -9,10 +9,10 @@ there yet is shown as ``None``, so ``run.results`` works whatever the run's stat
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.graph import CollectingInput
+from conductor._internal.graph import CollectingInput, Graph
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
@@ -20,30 +20,29 @@ from .blueprint import BlueprintFunctionNode
 from .outcome import NotReady
 from .outcomes import MAY_HAVE_VALUE, RunOutcomes
 
-if TYPE_CHECKING:
-    from .type import Run
 
-
-def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
-    """Returns ``run.results``: every node's outputs so far, by node id and output name."""
-    reader = DisplayReader.sharing(run._outcomes)
+def results_of(graph: Graph[Any], outcomes: RunOutcomes) -> dict[str, dict[str, Any]]:
+    """Returns ``run.results`` of a run of ``graph`` with these outcomes: every node's outputs so far, by node id and
+    output name."""
+    reader = DisplayReader.sharing(outcomes)
     return {
         n: {
             o: reader.display_value(edge.node, edge.output)
             for o in compiled_node.outputs
             for edge in [compiled_node.edge_reading(o)]
         }
-        for n, compiled_node in run.graph._nodes.items()
+        for n, compiled_node in graph._nodes.items()
     }
 
 
-def outputs_of(run: Run[Any]) -> dict[str, Any]:
-    """Returns ``run.outputs`` of a complete run: the graph outputs by name, each shown as ``run.results`` shows it."""
-    reader = DisplayReader.sharing(run._outcomes)
+def outputs_of(graph: Graph[Any], outcomes: RunOutcomes) -> dict[str, Any]:
+    """Returns ``run.outputs`` of a complete run of ``graph`` with these outcomes: the graph outputs by name, each
+    shown as ``run.results`` shows it."""
+    reader = DisplayReader.sharing(outcomes)
     return {
         name: reader.display_value(edge.node, edge.output)
-        for name in run.graph._outputs
-        for edge in [run.graph._edge_reading(name)]
+        for name in graph._outputs
+        for edge in [graph._edge_reading(name)]
     }
 
 

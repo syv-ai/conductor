@@ -23,15 +23,13 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Literal
 
 from conductor._internal.base import ConductorModel
 from conductor._internal.problem import Problem, run_problems
 
+from .outcomes import RunOutcomes
 from .progress import call_count, is_complete
-
-if TYPE_CHECKING:
-    from .type import Run
 
 #: The status of a run, as ``run.status`` gives it. ``ready``, ``waiting`` and ``complete`` come from its outcomes.
 #: ``running`` is a copy made while a ``resume()`` is still going. ``declined`` is a run a person ended with
@@ -72,18 +70,19 @@ class EndedEarly(ConductorModel):
 LastResume = EndedEarly | Literal["running"] | None
 
 
-def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
-    """Returns the status of ``run``, and the problem that ended it early if it did.
+def status_of(outcomes: RunOutcomes, last_resume: LastResume) -> tuple[RunStatus, Problem | None]:
+    """Returns the status of a run with these outcomes, and the problem that ended it early if it did.
+
+    ``last_resume`` is how the run's last ``resume()`` left it.
 
     The checks go in this order. A copy made while a resume is still going is ``running``. A run whose every
     function node is complete is ``complete``, however the last resume ended. Then a run the last resume ended
     early has that status and its cause. Otherwise the run is ``waiting`` when a call waits for a person, and
     ``ready`` when none does.
     """
-    last_resume, outcomes = run._last_resume, run._outcomes
     if last_resume == "running":
         return "running", None
-    counts = [call_count(outcomes, node) for node in run.graph._blueprint.function_nodes.values()]
+    counts = [call_count(outcomes, node) for node in outcomes.blueprint.function_nodes.values()]
     if all(is_complete(count) for count in counts):
         return "complete", None
     if last_resume is not None:

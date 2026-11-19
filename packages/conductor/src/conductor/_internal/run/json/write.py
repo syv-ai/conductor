@@ -7,19 +7,22 @@ graph. That instance then writes itself as text.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import Any, assert_never
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, place_text
 from conductor._internal.field import Field
+from conductor._internal.graph import Graph
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
 from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
+from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
+from ..state import LastResume
 from .codec import saved_type
 from .type import (
     SAVED_DONE,
@@ -30,25 +33,38 @@ from .type import (
     SavedRun,
 )
 
-if TYPE_CHECKING:
-    from ..type import Run
 
-
-def run_to_json(run: Run) -> str:
-    r"""Returns the whole run as JSON text.
+def run_to_json(
+    graph: Graph[Any],
+    outcomes: RunOutcomes,
+    reusable: ReusableOutcomes,
+    *,
+    max_items: int | None,
+    last_resume: LastResume,
+    complete_nodes: frozenset[NodePath],
+) -> str:
+    r"""Returns a whole run of ``graph`` as JSON text, from what the run holds.
 
     For the finished README run on ``"a\nb\nc"``, the text starts
     ``{"graph":"<16 hex characters>","ended_early":null,"max_items":null,"inputs":{"text":"a\nb\nc"},`` and goes on
     with every node's outcomes. ``SavedRun`` shows all of it.
 
+    Args:
+        graph: The run's graph.
+        outcomes: The run's outcomes, with its graph inputs.
+        reusable: The outcomes of the previous run that the run may still reuse.
+        max_items: The run's item limit.
+        last_resume: How the run's last ``resume()`` left it.
+        complete_nodes: The nodes that were complete when the last ``resume()`` ended.
+
     Raises:
         InvalidCallError: ``run_unwritable``, naming the input or output, if a value can't be written as JSON.
     """
-    saved = saved_run(run)
+    saved = saved_run(graph, outcomes, reusable, max_items, last_resume, complete_nodes)
     try:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
-        where = first_unwritable_value(saved, run.graph._blueprint.function_nodes)
+        where = first_unwritable_value(saved, outcomes.blueprint.function_nodes)
         raise InvalidCallError(
             [
                 call_problems.run_unwritable(
@@ -58,21 +74,20 @@ def run_to_json(run: Run) -> str:
         ) from None
 
 
-def outputs_to_json(run: Run) -> str:
-    """Returns the graph outputs of a complete run (``run.outputs``) as JSON text, by name.
+def outputs_to_json(graph: Graph[Any], outputs: dict[str, Any]) -> str:
+    """Returns the graph outputs of a complete run of ``graph`` (``run.outputs``) as JSON text, by name.
 
     For the README run, it returns ``{"result":"A!+B!+C!"}``. Each value is written by its output's type, the same
     way a saved run writes it. A table is written as its columns, ``inf`` and ``nan`` as text, and a host's own type
     by its own schema.
 
     Raises:
-        InvalidCallError: ``run_not_complete`` if the run isn't complete. ``run_unwritable``, naming the output, if a
-            value can't be written as JSON.
+        InvalidCallError: ``run_unwritable``, naming the output, if a value can't be written as JSON.
     """
     written = {}
-    for text, value in run.outputs.items():
-        edge = run.graph._edge_reading(text)
-        function = run.graph._blueprint.function_nodes[edge.node]
+    for text, value in outputs.items():
+        edge = graph._edge_reading(text)
+        function = graph._blueprint.function_nodes[edge.node]
         hint: Any = saved_type(function.compiled_node.outputs[edge.output]).hint
         # one list, or None in its place, for each loop the function node is inside
         for _ in function.loops:
@@ -90,65 +105,74 @@ def outputs_to_json(run: Run) -> str:
     return pydantic_core.to_json(written).decode()
 
 
-def saved_run(run: Run) -> SavedRun:
-    """Returns ``run`` as an instance of its graph's codec, ready to write itself as JSON.
+def saved_run(
+    graph: Graph[Any],
+    outcomes: RunOutcomes,
+    reusable: ReusableOutcomes,
+    max_items: int | None,
+    last_resume: LastResume,
+    complete_nodes: frozenset[NodePath],
+) -> SavedRun:
+    """Returns a run as an instance of its graph's codec, ready to write itself as JSON. ``run_to_json`` says what each
+    argument is.
 
-    For the README run, ``saved_run(run).outcomes["shout"]`` has ``states=["done", "done", "done"]`` and
+    For the README run, the result's ``outcomes["shout"]`` has ``states=["done", "done", "done"]`` and
     ``outputs={"result": ["A!", "B!", "C!"]}``. Every part is an instance of the codec's own class for it, so this is
     the same object the codec would read back from the JSON.
 
     Only function nodes are saved, since only they are called. A node inside a subgraph is saved like any other,
     under its node path as text (``"loud/shout"``). A node with no outcome and nothing to reuse has no key at all.
     """
-    codec = run.graph._codec
-    function_nodes = run.graph._blueprint.function_nodes
+    codec = graph._codec
+    function_nodes = outcomes.blueprint.function_nodes
     names = {path: place_text(path) for path in function_nodes}
-    outcomes = {
+    saved = {
         names[path]: saved_outcomes(
             codec.outcomes_classes[names[path]],
             node.compiled_node.outputs,
-            _outcomes_by_call_number(run, node),
+            _outcomes_by_call_number(outcomes, node),
         )
         for path, node in function_nodes.items()
-        if run._outcomes.of(path)
+        if outcomes.of(path)
     }
-    reusable = {}
+    saved_reusables = {}
     for path, node in function_nodes.items():
-        if path in run._reusable.reused_freely or path in run._reusable.reused_in_item_order:
-            reusable[names[path]] = saved_reusable(
+        if path in reusable.reused_freely or path in reusable.reused_in_item_order:
+            saved_reusables[names[path]] = saved_reusable(
                 codec.reusable_classes[names[path]],
                 codec.outcomes_classes[names[path]],
                 node.compiled_node.outputs,
-                run._reusable,
+                reusable,
                 path,
             )
     code = {
-        names[path]: run._reusable.code_changed.get(path) or node.code_fingerprint
+        names[path]: reusable.code_changed.get(path) or node.code_fingerprint
         for path, node in function_nodes.items()
-        if names[path] in outcomes or names[path] in reusable
+        if names[path] in saved or names[path] in saved_reusables
     }
     return codec.model_construct(
-        graph=run.graph.fingerprint,
-        ended_early=None
-        if run._last_resume == "running"
-        else run._last_resume,  # a resume still going is never saved
-        max_items=run.max_items,
-        inputs=dict(run.inputs),
-        outcomes=outcomes,
-        reusable=reusable,
+        graph=graph.fingerprint,
+        # a resume still going is never saved
+        ended_early=None if last_resume == "running" else last_resume,
+        max_items=max_items,
+        inputs=dict(outcomes.graph_inputs),
+        outcomes=saved,
+        reusable=saved_reusables,
         code=code,
-        complete=[names[path] for path in function_nodes if path in run._complete_nodes],
+        complete=[names[path] for path in function_nodes if path in complete_nodes],
     )
 
 
-def _outcomes_by_call_number(run: Run, node: BlueprintFunctionNode) -> list[Outcome | None]:
+def _outcomes_by_call_number(
+    outcomes: RunOutcomes, node: BlueprintFunctionNode
+) -> list[Outcome | None]:
     """Returns the outcomes of ``node`` as a list with one entry per call, in the order of the calls' item indexes.
 
     An entry's place is its call's call number, and ``None`` is a call that has no outcome yet. For ``shout`` after
     two of its three calls, it is ``[Done(...), Done(...), None]``.
     """
-    of_node = run._outcomes.of(node.node_path)
-    return [of_node.get(item_indexes) for item_indexes in run._outcomes.item_indexes(node.loops)[0]]
+    of_node = outcomes.of(node.node_path)
+    return [of_node.get(item_indexes) for item_indexes in outcomes.item_indexes(node.loops)[0]]
 
 
 def saved_outcomes(

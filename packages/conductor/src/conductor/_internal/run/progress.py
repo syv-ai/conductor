@@ -29,16 +29,13 @@ read from its count.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import assert_never
 
 from conductor._internal.base import SKIPPED, ConductorModel, place_text
 
 from .blueprint import BlueprintFunctionNode, BlueprintNode, BlueprintSubgraphNode
 from .outcome import Done, NoneInput, Skipped, Unanswered
 from .outcomes import RunOutcomes
-
-if TYPE_CHECKING:
-    from .type import Run
 
 
 class CallCount(ConductorModel):
@@ -142,12 +139,12 @@ def is_complete(count: CallCount) -> bool:
     return count.total is not None and count.finished == count.total
 
 
-def progress_of(run: Run[Any]) -> RunProgress:
-    """Returns the progress of ``run``, which is what ``run.progress`` gives.
+def progress_of(outcomes: RunOutcomes) -> RunProgress:
+    """Returns the progress of a run with these outcomes, which is what ``run.progress`` gives.
 
     The nodes are in blueprint order, and each subgraph node comes right after the nodes inside it.
     """
-    blueprint, outcomes = run.graph._blueprint, run._outcomes
+    blueprint = outcomes.blueprint
     nodes = {place_text(path): call_count(outcomes, node) for path, node in blueprint.nodes.items()}
     whole = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
     return RunProgress.model_construct(**dict(whole), nodes=nodes)
