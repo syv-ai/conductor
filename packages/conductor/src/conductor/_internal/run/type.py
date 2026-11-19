@@ -58,7 +58,7 @@ from .scheduler import Scheduler
 from .state import EndedEarly, LastResume, RunStatus, deadline, kept_by_an_answer, status_of
 from .stream import stream
 from .validator import ForgetValidator, WaitingIdValidator
-from .waiting import Waiting, question_fingerprint, waiting_record
+from .waiting import Waiting, question_fingerprint, waiting_of
 
 
 class NoneInputCall(ConductorModel):
@@ -649,7 +649,7 @@ class Run[C]:
         A call inside a subgraph is listed where its subgraph node is.
         """
         return [
-            waiting_record(node, item_indexes, outcome, self._outcomes)
+            waiting_of(node, item_indexes, outcome, self._outcomes)
             for node, item_indexes, outcome in self._outcomes.calls(Unanswered)
         ]
 

@@ -6,7 +6,7 @@ then with ``stored[1]``. If the edge picks the field ``name`` (``split.result.na
 ``stored.cell("name", 0)``, which is ``"Ann"``.
 
 A node with a ``Series`` of records may return a ``polars.DataFrame`` instead. The run stores that as
-``Records``, which keeps the frame and makes each row a record only when one is needed.
+``SeriesRows``, which keeps the frame and makes each row a record only when one is needed.
 
 Both classes have the same methods: ``len(stored)``, ``stored[index]``, ``cell(name, index)``, ``as_list()``,
 ``as_table_input()``, ``field_as_list(name)`` and ``for_saving()``. Code that uses a stored Series never has to
@@ -107,7 +107,7 @@ class SeriesItems(list[Any]):
         return core_schema.no_info_after_validator_function(cls, handler.generate_schema(items))
 
 
-class Records[T]:
+class SeriesRows[T]:
     """A ``Series`` of records stored as the ``polars.DataFrame`` a node returned for it, one row per record.
 
     Only the frame is kept. A column is turned into a Python list the first time something needs it: an edge that
@@ -118,7 +118,7 @@ class Records[T]:
     ``{"name": "Ann", "amount": 10}``, and ``records.cell("amount", 1)`` is ``20``. A node with a ``Table``
     input wired to the Series gets ``records.frame`` itself, so no record is made for it.
 
-    ``Records[R]`` is also the type hint a saved run writes and reads one back by. It is saved as a table's JSON.
+    ``SeriesRows[R]`` is also the type hint a saved run writes and reads one back by. It is saved as a table's JSON.
 
     Attributes:
         frame: The table whose rows are the records.
@@ -182,7 +182,7 @@ class Records[T]:
             raise NoSuchFieldError(name)
         return list(self._columns[name])
 
-    def for_saving(self) -> tuple[Records[T], list[int]]:
+    def for_saving(self) -> tuple[SeriesRows[T], list[int]]:
         """Returns the Series ready to be saved, and no indexes, since a frame has no ``SKIPPED`` row."""
         return self, []
 
@@ -194,17 +194,17 @@ class Records[T]:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-        """Returns the schema of ``Records[R]`` in a saved run: the JSON of a ``Table[R]``, made into this class."""
+        """Returns the schema of ``SeriesRows[R]`` in a saved run: the JSON of a ``Table[R]``, made into this class."""
         table: Any = Table
         return core_schema.json_or_python_schema(
             json_schema=core_schema.no_info_after_validator_function(
                 cls, handler.generate_schema(table[get_args(source)[0]])
             ),
             python_schema=core_schema.is_instance_schema(cls),
-            serialization=core_schema.plain_serializer_function_ser_schema(Records._as_json),
+            serialization=core_schema.plain_serializer_function_ser_schema(SeriesRows._as_json),
         )
 
 
 #: The two ways a run stores a ``Series`` output: the list a node returned, or the frame it returned for a Series
 #: of records. ``SeriesType.returned_schema`` picks one by the class of the value.
-StoredSeries = SeriesItems | Records
+StoredSeries = SeriesItems | SeriesRows

@@ -224,17 +224,17 @@ class Graph[C]:
         for graph_problem in self.problems:
             problems_of.setdefault(graph_problem.loc[:1], []).append(graph_problem)
         nodes: dict[str, GraphNodeDescription] = {}
-        for node_id, record in sorted(self.record.nodes.items()):
+        for node_id, node_record in sorted(self.record.nodes.items()):
             own = problems_of.get((node_id,), [])
             compiled_node = self._nodes.get(node_id)
             if compiled_node is None:
                 nodes[node_id] = GraphNodeDescription(
-                    node=record.node, version=record.version, found=False, problems=own
+                    node=node_record.node, version=node_record.version, found=False, problems=own
                 )
                 continue
             nodes[node_id] = GraphNodeDescription(
-                node=record.node,
-                version=record.version,
+                node=node_record.node,
+                version=node_record.version,
                 found=True,
                 problems=own,
                 per_item_of=innermost_series(compiled_node.loops),

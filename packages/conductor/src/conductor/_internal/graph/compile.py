@@ -218,31 +218,34 @@ class Compiler:
             )
         return fields
 
-    def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
+    def _resolve(self, node_id: str, node_record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition that a node of the record names, at the record's version.
 
         Returns ``None``, and adds a problem, when there's no such definition (``unknown_node``) or no such version
         (``unknown_version``).
         """
         try:
-            newest = self.definitions[record.node]
+            newest = self.definitions[node_record.node]
         except KeyError:
             self.problems.append(
                 compile_problems.unknown_node(
                     node_id,
-                    node=record.node,
+                    node=node_record.node,
                     choices=sorted(definition.id for definition in self.definitions),
                 )
             )
             return None
-        if record.version not in newest.versions:
+        if node_record.version not in newest.versions:
             self.problems.append(
                 compile_problems.unknown_version(
-                    node_id, node=record.node, version=record.version, newest=newest.version
+                    node_id,
+                    node=node_record.node,
+                    version=node_record.version,
+                    newest=newest.version,
                 )
             )
             return None
-        return newest.versions[record.version]
+        return newest.versions[node_record.version]
 
     def _order(
         self, order: list[str], edges_into: Mapping[str, Mapping[str, tuple[Source, ...]]]
@@ -296,7 +299,7 @@ class Compiler:
     def _compile_function_node(
         self,
         node_id: str,
-        record: NodeRecord,
+        node_record: NodeRecord,
         definition: FunctionDefinition[..., Any],
         edges: Mapping[str, tuple[Source, ...]],
     ) -> None:
@@ -316,7 +319,7 @@ class Compiler:
         ):
             self.problems.append(unfit)
         fields = dict(definition.inputs)
-        constants = self._constants_of(node_id, record, fields)
+        constants = self._constants_of(node_id, node_record, fields)
         added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
             made = self._hook(node_id, definition.compute_added_inputs, fields, constants)
@@ -324,8 +327,8 @@ class Compiler:
                 return
             added = made
             fields.update(added)
-            constants.update(self._constants_of(node_id, record, added))
-        planned = self._plan_inputs(node_id, record, fields, constants, edges)
+            constants.update(self._constants_of(node_id, node_record, added))
+        planned = self._plan_inputs(node_id, node_record, fields, constants, edges)
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs)
         if bound is not None:
@@ -353,7 +356,7 @@ class Compiler:
     def _compile_subgraph_node(
         self,
         node_id: str,
-        record: NodeRecord,
+        node_record: NodeRecord,
         definition: SubgraphDefinition,
         edges: Mapping[str, tuple[Source, ...]],
     ) -> None:
@@ -392,7 +395,7 @@ class Compiler:
             return
         fields = inner._inputs
         planned = self._plan_inputs(
-            node_id, record, fields, self._constants_of(node_id, record, fields), edges
+            node_id, node_record, fields, self._constants_of(node_id, node_record, fields), edges
         )
         self.nodes[node_id] = CompiledSubgraphNode(
             id=node_id,
@@ -407,7 +410,7 @@ class Compiler:
     def _plan_inputs(
         self,
         node_id: str,
-        record: NodeRecord,
+        node_record: NodeRecord,
         fields: Mapping[str, Field],
         constants: Mapping[str, Any],
         edges: Mapping[str, tuple[Source, ...]],
@@ -433,13 +436,13 @@ class Compiler:
 
         Args:
             node_id: The node's id.
-            record: The node in the graph record.
+            node_record: The node in the graph record.
             fields: The node's inputs, by name.
             constants: The constant or default the record gives each input, by name, already converted by the
                 input's type. ``_INVALID`` where the type refused it.
             edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
         """
-        for name in sorted(record.inputs.keys() - fields.keys()):
+        for name in sorted(node_record.inputs.keys() - fields.keys()):
             self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(fields)))
         sources = {
             name: self._sources(node_id, name, edges[name])
@@ -454,14 +457,16 @@ class Compiler:
             bound = _bound(fields, sources)
             fields, refused = _bind(node_id, fields, bound)
             refused_defaults = {
-                name: problems for name, problems in refused.items() if name not in record.inputs
+                name: problems
+                for name, problems in refused.items()
+                if name not in node_record.inputs
             }  # a declared default is used only where the record gives the input nothing
             self.problems += [
                 problem for problems in refused_defaults.values() for problem in problems
             ]
         inputs: dict[str, Input] = {}
         for name, field in fields.items():
-            entry = record.inputs.get(name)
+            entry = node_record.inputs.get(name)
             if name in refused_defaults:
                 value = _INVALID
             elif entry is None:
@@ -664,7 +669,7 @@ class Compiler:
         return GraphInput(field, name)
 
     def _constants_of(
-        self, node_id: str, record: NodeRecord, fields: Mapping[str, Field]
+        self, node_id: str, node_record: NodeRecord, fields: Mapping[str, Field]
     ) -> dict[str, Any]:
         """Returns the constant, or graph input default, that the record gives each of ``fields``, by name.
 
@@ -678,7 +683,7 @@ class Compiler:
         """
         constants: dict[str, Any] = {}
         for name, field in fields.items():
-            entry = record.inputs.get(name)
+            entry = node_record.inputs.get(name)
             if field.param.constant_only and entry is None and field.default is REQUIRED:
                 self.problems.append(
                     compile_problems.input_has_no_value_constant_only(node_id, name)
@@ -936,14 +941,16 @@ class Compiler:
         return frozenset(required_branches)
 
 
-def _edges_into(record: NodeRecord) -> dict[str, tuple[Source, ...]]:
+def _edges_into(node_record: NodeRecord) -> dict[str, tuple[Source, ...]]:
     """Returns the outputs that the edges into each input of a node come from, by input name.
 
     In the example, ``shout``'s are ``{"line": (Source("lines", "result"),)}``. An input with a constant or a
     default isn't in it.
     """
     return {
-        name: entry.sources for name, entry in record.inputs.items() if entry.sources is not MISSING
+        name: entry.sources
+        for name, entry in node_record.inputs.items()
+        if entry.sources is not MISSING
     }
 
 
@@ -1153,20 +1160,20 @@ def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:
     return MissingInput(field) if value is _INVALID else ConstantInput(field, value)
 
 
-def _field_type(record: Type, name: str) -> Type | None:
-    """Returns the type of the field ``name`` of a record of type ``record``.
+def _field_type(value_type: Type, name: str) -> Type | None:
+    """Returns the type of the field ``name`` of a value of type ``value_type``.
 
     Returns:
         For a ``TypedDict``, dataclass or pydantic model, the field's declared type. For a mapping, its value type.
-        ``Any`` for a bare ``dict``, and for a value of any type. ``None`` when the record has no such field, or the
-        type isn't a record.
+        ``Any`` for a bare ``dict``, and for a value of any type. ``None`` when the type declares no such field,
+        or declares no fields.
     """
-    one = record.options[0] if len(record.options) == 1 else None
+    one = value_type.options[0] if len(value_type.options) == 1 else None
     if one is Any or one is dict:
         return Type(Any)
     if typing.get_origin(one) in (dict, Mapping):
         return Type(typing.get_args(one)[1])
-    return Type(record.fields[name]) if name in record.fields else None
+    return Type(value_type.fields[name]) if name in value_type.fields else None
 
 
 def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch]:

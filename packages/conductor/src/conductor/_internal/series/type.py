@@ -19,7 +19,7 @@ from conductor._internal.table import Table, is_bare_table_row
 from conductor._internal.types import Param, Type, split_hint, union_members, union_of
 
 from .read import series_schema
-from .stored import Records, SeriesItems
+from .stored import SeriesItems, SeriesRows
 
 
 class _Series[T]:
@@ -122,26 +122,26 @@ class SeriesType(Type, of=_Series):
     def stored_hint(self) -> Any:
         """The type hint a saved run uses to write and read back a stored Series of this type.
 
-        It is ``SeriesItems[T | None]``. For a Series of records ``R`` it is ``SeriesItems[R | None] | Records[R]``,
+        It is ``SeriesItems[T | None]``. For a Series of records ``R`` it is ``SeriesItems[R | None] | SeriesRows[R]``,
         since the node may have returned either a list or a frame.
         """
         items: Any = SeriesItems
         stored = items[union_of((self.item.closed, type(None)))]
         if self._table is None:
             return stored
-        records: Any = Records
-        return stored | records[self.item.bare]
+        rows: Any = SeriesRows
+        return stored | rows[self.item.bare]
 
     @functools.cached_property
     def returned_schema(self) -> CoreSchema:
         """The schema that checks what a node returned for the Series, and converts it to how a run stores it.
 
         For ``Series[str]``, the return ``["a", "b"]`` becomes ``SeriesItems(["a", "b"])``. For ``Series[Row]``,
-        where ``Row`` is a record, a frame is checked as a ``Table[Row]`` and becomes ``Records(frame)``. Anything
+        where ``Row`` is a record, a frame is checked as a ``Table[Row]`` and becomes ``SeriesRows(frame)``. Anything
         else becomes a ``SeriesItems``.
 
         The class of the value picks the form. Pydantic puts the form's name first in an error's ``loc``, as in
-        ``("Records", ...)``, and ``_walked`` uses that name to follow the rest of the ``loc``.
+        ``("SeriesRows", ...)``, and ``_walked`` uses that name to follow the rest of the ``loc``.
         """
 
         def as_items(items: list[Any] | None) -> SeriesItems | None:
@@ -153,23 +153,23 @@ class SeriesType(Type, of=_Series):
             return items
 
         def form_of(value: Any) -> str:
-            return Records.__name__ if isinstance(value, pl.DataFrame) else SeriesItems.__name__
+            return SeriesRows.__name__ if isinstance(value, pl.DataFrame) else SeriesItems.__name__
 
-        records = core_schema.no_info_after_validator_function(Records, self._table.schema)
+        rows = core_schema.no_info_after_validator_function(SeriesRows, self._table.schema)
         return core_schema.tagged_union_schema(
-            {SeriesItems.__name__: items, Records.__name__: records}, discriminator=form_of
+            {SeriesItems.__name__: items, SeriesRows.__name__: rows}, discriminator=form_of
         )
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc``, as ``Type._walked`` does.
 
         For a Series of records, the first step can be the name of a stored form, which ``returned_schema`` adds.
-        That step is dropped from the ``loc``. ``"SeriesItems"`` leads to this type, and ``"Records"`` to the table
+        That step is dropped from the ``loc``. ``"SeriesItems"`` leads to this type, and ``"SeriesRows"`` to the table
         type of the records.
         """
         if self._table is not None:
             if step == SeriesItems.__name__:
                 return self, False, None
-            if step == Records.__name__:
+            if step == SeriesRows.__name__:
                 return self._table, False, None
         return super()._walked(step)

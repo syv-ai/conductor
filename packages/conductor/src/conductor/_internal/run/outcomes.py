@@ -335,7 +335,7 @@ class RunOutcomes:
         node: BlueprintFunctionNode,
         output: str,
         item_indexes: ItemIndexes,
-        record_field: str | None,
+        field: str | None,
         *,
         one_item: bool,
     ) -> Any:
@@ -348,7 +348,7 @@ class RunOutcomes:
             node: The function node whose output it is.
             output: The output's name.
             item_indexes: The item indexes of the call that reads it.
-            record_field: The field of the output's record that the edge reads. ``None`` for the whole value.
+            field: The field of the output that the edge reads. ``None`` for the whole value.
             one_item: Whether the output is a ``Series`` and the edge reads one item of it.
 
         Returns:
@@ -375,14 +375,14 @@ class RunOutcomes:
         if value is None or value is SKIPPED:
             return value
         if not one_item:
-            return value if record_field is None else field_of(value, record_field)
+            return value if field is None else field_of(value, field)
         try:  # ``value`` is a stored Series: the edge reads one item of it, or one field of that item
             index = item_indexes[depth]
         except IndexError:  # asked about any item of this list, which exists
             return MAY_HAVE_VALUE
-        if record_field is None:
+        if field is None:
             return value[index]
-        return value.cell(record_field, index)
+        return value.cell(field, index)
 
     def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
@@ -416,9 +416,9 @@ class RunOutcomes:
         if (
             len(edges) == 1 and edges[0].per_item
         ):  # the input collects the list itself: its items, or one field of each item
-            record_field = edges[0].wired_to.field
-            if record_field is not None:
-                return series.field_as_list(record_field)
+            field = edges[0].wired_to.field
+            if field is not None:
+                return series.field_as_list(field)
             return (
                 series.as_table_input()
                 if node_input.field.whole.row is not None

@@ -102,7 +102,7 @@ def upgraded(
         inputs = {name: entry for name, entry in renamed.items() if name not in gone}
         if upgrade.rewrite is not None:
             inputs = _rewritten(node_id, upgrade.rewrite, older, step, renamed, inputs)
-        records = {
+        node_records = {
             other: NodeRecord.model_construct(
                 node=node.node,
                 version=step.version if other == node_id else node.version,
@@ -121,7 +121,7 @@ def upgraded(
         # The records above are built without checks. The record validator checks what the step wrote.
         graph = RecordValidator(
             written_by=f"the Upgrade of '{node_record.node}' to version {step.version}"
-        )(GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"))
+        )(GraphRecord.model_construct(nodes=node_records, outputs=outputs).model_dump(mode="json"))
     return graph
 
 

@@ -15,11 +15,11 @@ Wired ``words`` to ``shout``, the text ``"hi there"`` calls ``shout`` twice. Thi
 a run stores a Series. The full rules are in the reference: ``python -m conductor.about one-or-many``.
 """
 
-from .stored import Records, SeriesItems, StoredSeries
+from .stored import SeriesItems, SeriesRows, StoredSeries
 from .type import Series, SeriesType
 
 __all__ = [
-    "Records",
+    "SeriesRows",
     "Series",
     "SeriesItems",
     "SeriesType",

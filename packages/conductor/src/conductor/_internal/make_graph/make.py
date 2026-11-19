@@ -369,8 +369,8 @@ def _own_default(definition: NodeDefinition, name: str) -> JsonValue | MISSING:
     return next(
         (
             entry.default
-            for record in definition.graph.nodes.values()
-            for entry in record.inputs.values()
+            for node_record in definition.graph.nodes.values()
+            for entry in node_record.inputs.values()
             if entry.graph_input == name and entry.default is not MISSING
         ),
         MISSING,

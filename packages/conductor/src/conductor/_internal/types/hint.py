@@ -104,8 +104,8 @@ def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
     return isinstance(hint, (TypeAliasType, type(JsonValue)))
 
 
-def is_record(cls: Any) -> bool:
-    """Says whether ``cls`` is a record: a pydantic model, a dataclass or a ``TypedDict``."""
+def declares_fields(cls: Any) -> bool:
+    """Says whether ``cls`` declares its fields: a pydantic model, a dataclass or a ``TypedDict``."""
     return isinstance(cls, type) and (
         issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or typing.is_typeddict(cls)
     )
@@ -175,18 +175,18 @@ def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]
     parts: list[Any] = list(get_args(hint))
     if isinstance(hint, TypeVar) and hint.__bound__ is not None:
         parts.append(hint.__bound__)
-    record = get_origin(hint) or hint
-    if (is_alias(hint) or typing.is_typeddict(record)) and id(record) not in walked:
-        walked |= {id(record)}
+    origin = get_origin(hint) or hint
+    if (is_alias(hint) or typing.is_typeddict(origin)) and id(origin) not in walked:
+        walked |= {id(origin)}
         if is_alias(hint):
             parts.append(hint.__value__)
         else:
             try:
-                parts += typing.get_type_hints(record, include_extras=True).values()
+                parts += typing.get_type_hints(origin, include_extras=True).values()
             # a field written as text that names nothing Python can find
             except NameError:
                 raise NodeDeclarationError(
-                    declaration_problems.type_not_supported(type=record.__qualname__)
+                    declaration_problems.type_not_supported(type=origin.__qualname__)
                 ) from None
     for part in parts:
         yield from hint_parts(part, walked)

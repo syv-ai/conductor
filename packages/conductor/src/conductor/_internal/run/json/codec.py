@@ -33,7 +33,7 @@ def saved_type(output: Field) -> Type:
     """Returns the type ``output``'s value on one call is saved as, in a saved run and by ``run.outputs_to_json()``.
 
     For ``shout.result``, a ``str``, it is ``Type(str | None)``, with ``None`` for a call that has no outputs. For a
-    ``Series`` it is how a run stores the list (``SeriesItems``, or ``Records`` for a table), or ``None``.
+    ``Series`` it is how a run stores the list (``SeriesItems``, or ``SeriesRows`` for a table), or ``None``.
     """
     return Type(union_of((output.whole.stored_hint, NoneType)))
 

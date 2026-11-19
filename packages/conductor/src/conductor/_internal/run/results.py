@@ -66,7 +66,7 @@ class DisplayReader(RunOutcomes):
         node: BlueprintFunctionNode,
         output: str,
         item_indexes: ItemIndexes,
-        record_field: str | None,
+        field: str | None,
         *,
         one_item: bool,
     ) -> Any:
@@ -79,7 +79,7 @@ class DisplayReader(RunOutcomes):
         """
         try:
             value = RunOutcomes.read_output(
-                self, node, output, item_indexes, record_field, one_item=one_item
+                self, node, output, item_indexes, field, one_item=one_item
             )
         except NoSuchFieldError:
             return None

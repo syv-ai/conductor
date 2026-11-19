@@ -468,12 +468,12 @@ class Scheduler:
         # An edge reads a field that the record it reads from doesn't have.
         except InvalidCallError as missing:
             (problem,) = missing.problems
-            self._record(node, item_indexes, self._failure(node, item_indexes, problem))
+            self._write_outcome(node, item_indexes, self._failure(node, item_indexes, problem))
             return
         if arguments is NotReady.NOT_READY:
             return
         if not isinstance(arguments, dict):  # a Skipped or NoneInput outcome
-            self._record(node, item_indexes, arguments)
+            self._write_outcome(node, item_indexes, arguments)
         elif (
             previous := self.reusable.take(
                 node,
@@ -488,17 +488,17 @@ class Scheduler:
                 return
             if self.node_events is not None:
                 self.node_events.outcome_reused(node)
-            self._record(node, item_indexes, previous)
+            self._write_outcome(node, item_indexes, previous)
         else:
             self._make_attempt(_Attempt(node, item_indexes, arguments, 0))
 
-    def _record(
+    def _write_outcome(
         self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem
     ) -> None:
         """One call is over. Writes its outcome into the run, and does what follows from it.
 
-        For example, ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` records the outcome of ``lines ()``,
-        and puts ``shout (0,)``, ``shout (1,)`` and ``shout (2,)`` on ``ready``.
+        For example, ``_write_outcome(lines, (), Done({"result": ["a", "b", "c"]}))`` writes the outcome of
+        ``lines ()``, and puts ``shout (0,)``, ``shout (1,)`` and ``shout (2,)`` on ``ready``.
 
         What follows comes in this order: a checkpoint if one is due, the listener, the item limit check, and the
         downstream calls. The listener hears of every outcome written, so a reused one over the item limit still
@@ -765,7 +765,7 @@ class Scheduler:
         node, item_indexes = attempt.node, attempt.item_indexes
         if not self._retry(attempt, error):
             del self.running[(node, item_indexes)]
-            self._record(
+            self._write_outcome(
                 node,
                 item_indexes,
                 self._outcome(node, item_indexes, attempt.arguments, outputs, error),
@@ -891,7 +891,7 @@ class Scheduler:
                 and not self.going
                 and item_indexes not in self.outcomes.of(node.node_path)
             ):
-                self._record(
+                self._write_outcome(
                     node,
                     item_indexes,
                     self._outcome(node, item_indexes, attempt.arguments, outputs, None),

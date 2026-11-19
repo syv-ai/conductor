@@ -18,11 +18,11 @@ from .choice import (
     choices_schema,
     pick_texts,
 )
+from .fields import NoSuchFieldError, field_of
 from .fit import fit
 from .hint import a_number, hint_parts, substituted, union_members, union_of
 from .host_type import NAMES, check_not_blank, host_type, is_declared
 from .param import SIZED, Param, as_written, split_hint
-from .record import NoSuchFieldError, field_of
 from .type import Type, TypeRefusal, json_by_its_class
 
 __all__ = [

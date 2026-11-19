@@ -77,9 +77,9 @@ from .choice import Choice, declared_choices
 from .fit import fit
 from .hint import (
     READ_AS,
+    declares_fields,
     hint_parts,
     is_alias,
-    is_record,
     literal_classes,
     substituted,
     union_members,
@@ -389,7 +389,7 @@ class Type:
         """Pydantic's validator built from ``output_schema``, once per type.
 
         Validators call it with ``strict=True``, so ``"12"`` is never an ``int`` and ``"no"`` is never a ``bool``. A
-        ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``Records``).
+        ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``SeriesRows``).
         """
         return SchemaValidator(self.output_schema, config=JSON_CORE_CONFIG)
 
@@ -560,7 +560,7 @@ class Type:
         try:
             given: Any = (
                 TypeAliasType("Record", read)
-                if len(options) == 1 and is_record(options[0])
+                if len(options) == 1 and declares_fields(options[0])
                 else read
             )
             adapter = TypeAdapter(given, config=JSON_CONFIG)
@@ -703,7 +703,7 @@ class Type:
                 for name, hint in typing.get_type_hints(one).items()
                 if get_origin(hint) is not ClassVar
             }
-            if is_record(one)
+            if declares_fields(one)
             else {}
         )
 
@@ -712,7 +712,7 @@ class Type:
         """The schema that checks what a node returned for an output of the type, or what a person answered.
 
         For most types it is ``schema``. A ``Series`` differs, since a run stores it as a ``SeriesItems`` or
-        ``Records``.
+        ``SeriesRows``.
         """
         return self.schema
 
@@ -785,7 +785,7 @@ class Type:
         ]
         value_free = [free for free, _ in pairs]
         columns: list[str] = []
-        for error_record, raw in pairs:
+        for free, raw in pairs:
             at, kept, column, owner = self, list[int | str](), None, self
             in_cell: tuple[int | str, ...] = ()
             steps = raw["loc"][start:]
@@ -799,16 +799,16 @@ class Type:
                 at = inside
                 if is_a_place:
                     kept.append(step)
-            error_record["loc"] = kept
+            free["loc"] = kept
             if column is not None:
                 columns.append(column)
-                error_record["type"], error_record["msg"] = owner._fault_in(
-                    column, raw["type"], error_record["msg"], in_cell
+                free["type"], free["msg"] = owner._fault_in(
+                    column, raw["type"], free["msg"], in_cell
                 )
             # an error conductor raised about a whole column of a frame; a host's error may put anything in its ctx
             elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
                 columns.append(whole)
-                error_record["loc"] = [whole]
+                free["loc"] = [whole]
         refusal = TypeRefusal(
             reason=self._own_class_refused(pairs[0][1], value_free[0]["msg"], start)
             or value_free[0]["msg"],

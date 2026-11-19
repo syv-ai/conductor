@@ -358,7 +358,7 @@ def _table_form(value: Any) -> str | None:
     if isinstance(value, Mapping) and "columns" in value:
         return "written"  # a dict without it, such as one record, is no table
     if isinstance(value, list):
-        return "records"
+        return "rows"
     return None
 
 
@@ -381,11 +381,11 @@ def row_columns(row: Any, *, include_extras: bool = True) -> dict[str, Any] | No
         row: The row type ``R`` of ``Table[R]``.
         include_extras: Whether each hint keeps its ``Annotated`` metadata.
     """
-    record = get_origin(row) or row
-    if not typing.is_typeddict(record):
+    origin = get_origin(row) or row
+    if not typing.is_typeddict(origin):
         return None
-    hints = typing.get_type_hints(record, include_extras=include_extras)
-    bound = dict(zip(getattr(record, "__parameters__", ()), get_args(row), strict=False))
+    hints = typing.get_type_hints(origin, include_extras=include_extras)
+    bound = dict(zip(getattr(origin, "__parameters__", ()), get_args(row), strict=False))
     return {name: substituted(hint, bound) for name, hint in hints.items()}
 
 
@@ -429,7 +429,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         NodeDeclarationError: ``row_field_optional`` if the row type lets a row leave a column out.
     """
     row = (get_args(source) or (Any,))[0]
-    record = get_origin(row) or row
+    origin = get_origin(row) or row
     found = row_columns(row)
     declared = found is not None
     hints = found or {}
@@ -438,11 +438,11 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     left_out = [
         name
         for name, hint in hints.items()
-        if name in record.__optional_keys__ or typing.get_origin(hint) is NotRequired
+        if name in origin.__optional_keys__ or typing.get_origin(hint) is NotRequired
     ]
     if left_out:
         raise NodeDeclarationError(
-            declaration_problems.row_field_optional(row=record.__qualname__, field=left_out[0])
+            declaration_problems.row_field_optional(row=origin.__qualname__, field=left_out[0])
         )
     columns = {name: Type(hint) for name, hint in hints.items()}
     cells = {name: handler.generate_schema(column.carried) for name, column in columns.items()}
@@ -453,10 +453,10 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         for name, column in columns.items()
     }
 
-    def from_records(records: list[dict[str, Any]]) -> pl.DataFrame:
-        names = columns if declared else dict.fromkeys(key for record in records for key in record)
+    def from_rows(rows: list[dict[str, Any]]) -> pl.DataFrame:
+        names = columns if declared else dict.fromkeys(key for one in rows for key in one)
         return _frame_of(
-            ((name, [record.get(name) for record in records], dtypes.get(name)) for name in names),
+            ((name, [one.get(name) for one in rows], dtypes.get(name)) for name in names),
             strict=False,
         )
 
@@ -516,7 +516,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             },
         }
 
-    record = (
+    one_row = (
         core_schema.typed_dict_schema(
             {name: core_schema.typed_dict_field(cell) for name, cell in cells.items()}
         )
@@ -538,8 +538,8 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     any_form = core_schema.tagged_union_schema(
         {
             "frame": as_frame,
-            "records": core_schema.no_info_after_validator_function(
-                from_records, core_schema.list_schema(record)
+            "rows": core_schema.no_info_after_validator_function(
+                from_rows, core_schema.list_schema(one_row)
             ),
             "written": core_schema.chain_schema([written, as_frame]),
         },

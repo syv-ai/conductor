@@ -55,7 +55,7 @@ else:
 
 #: The words pydantic puts in an error's ``loc`` for the form a table was given in. They name no row or column,
 #: so they are left out of the ``loc`` a host is shown.
-_TABLE_FORMS = ("frame", "records", "written", "columns")
+_TABLE_FORMS = ("frame", "rows", "written", "columns")
 
 
 class TableType(Type, of=_Table, value_class=pl.DataFrame):
@@ -105,7 +105,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc`` inside a table.
 
-        A word for the form the table was given in, like ``"records"``, is dropped. A row index is kept and stays on
+        A word for the form the table was given in, like ``"rows"``, is dropped. A row index is kept and stays on
         the table. A column name leads to that column's type and is returned as the column. Any other step is not
         part of the table.
         """

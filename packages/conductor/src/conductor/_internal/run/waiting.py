@@ -60,7 +60,7 @@ class Waiting(ConductorModel):
     inputs: dict[str, Any]
 
 
-def waiting_record(
+def waiting_of(
     node: BlueprintFunctionNode,
     item_indexes: ItemIndexes,
     waiting: Unanswered,

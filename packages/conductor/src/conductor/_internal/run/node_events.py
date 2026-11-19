@@ -66,7 +66,7 @@ from .events import (
 from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from .outcomes import RunOutcomes
 from .progress import CallCount, call_count, is_complete
-from .waiting import waiting_record
+from .waiting import waiting_of
 
 #: The shortest time between two ``NodeProgress`` events for one node, in seconds.
 _SECONDS_BETWEEN_PROGRESS = 0.25
@@ -169,7 +169,7 @@ class NodeEvents:
                 self.emit(
                     NodeWaiting(
                         loc=node.node_path,
-                        waiting=waiting_record(node, item_indexes, outcome, self.outcomes),
+                        waiting=waiting_of(node, item_indexes, outcome, self.outcomes),
                     )
                 )
             case _:
