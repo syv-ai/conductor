@@ -837,7 +837,7 @@ def test_a_typed_dict_field_written_as_text_that_names_nothing_is_a_declaration_
     assert raised.value.problems[0].type == "type_not_supported"
 
 
-def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
+def test_a_dict_returned_is_one_output_and_a_dataclass_that_is_not_frozen_lists_outputs():
     def summary(labels: Series[str]) -> dict[str, int]:
         return {label: labels.count(label) for label in labels}
 
@@ -850,6 +850,7 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
         "result": {"a": 2, "b": 1}
     }
 
+    # the dataclass is taken apart into its fields when the node returns, so no call can change it
     @dataclass
     class Loose:
         a: int
@@ -857,9 +858,8 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
     def loose(x: int) -> Loose:
         return Loose(x)
 
-    with pytest.raises(NodeDeclarationError) as raised:
-        declared(loose)
-    assert raised.value.problems[0].type == "outputs_not_frozen"
+    assert list(declared(loose).outputs) == ["a"]
+    assert compiled_graph(declared(loose)).run({"x": 2}).outputs == {"a": 2}
 
 
 def test_a_class_pydantic_cannot_check_is_refused_where_the_class_is_declared():

@@ -115,7 +115,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 **Outputs.** The return type declares the outputs.
 
 - `-> str` is one output, named `result`. `Annotated[str, Param(title=)]` says more about it.
-- A frozen dataclass with no `@host_type`, a dataclass of outputs, is one output per field. The class is the definition's `outputs_dataclass`, which is `None` for any other return type.
+- A dataclass with no `@host_type`, a dataclass of outputs, is one output per field. The class is the definition's `outputs_dataclass`, which is `None` for any other return type.
 - Any other type is one value, a `dict[str, int]` included. A dataclass declared with `@host_type` is a type like any other, so it is one value: a node returning one has the output `result`, which an edge reads whole or by one field of it (`locate.result.lat`), and an `Ask` asks for it as one question. It is provisional.
 - With `compute_outputs`, the function returns the outputs the hook gives, as a mapping by name. Its return type is one a `dict[str, Any]` fits, by the rule an edge is checked by ("What lands where", under "Types"): `dict[str, Any]`, `Mapping[str, Any]`, `object`, `Any`, an alias of one of them (pydantic's JSON value among them), or a union with one. Else the declaration raises `outputs_not_a_mapping`, with the return type in `ctx.returns`. A `TypedDict` is refused, since a mapping of any keys doesn't fit it.
 - `-> None` declares no outputs.
@@ -151,7 +151,6 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - an `async def`;
 - a parameter with no type;
 - `*args`, or `**kwargs` with no `compute_added_inputs`;
-- a dataclass of outputs that isn't frozen;
 - a field name that is gone from the next version, with no `Upgrade`;
 - an `Upgrade` rename from or to a field its version doesn't declare.
 
@@ -244,7 +243,7 @@ def branch_outputs(names: str, value: type) -> dict:   # all the outputs; value:
 
 ### A node for any type
 
-A node can work for any type by using type variables: `def keep[T](value: T) -> T`, or `def split[T](value: Table[T] | list[T]) -> Series[T]`. A frozen dataclass of outputs may be generic too, with one output per field.
+A node can work for any type by using type variables: `def keep[T](value: T) -> T`, or `def split[T](value: Table[T] | list[T]) -> Series[T]`. A dataclass of outputs may be generic too, with one output per field.
 
 - A variable is the type that arrives on the edge. It is the same in every input and in the return, and it is decided when the graph is compiled. After that the node has ordinary inputs and outputs, and its output is checked against the bound type.
 - Only an edge binds a variable. A constant, a default and a graph input bind nothing. A variable that nothing binds reads as its bound (`T: int | float`), else as `Any`.

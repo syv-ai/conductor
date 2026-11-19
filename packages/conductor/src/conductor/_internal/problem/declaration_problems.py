@@ -881,31 +881,6 @@ def output_without_type() -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def outputs_not_frozen() -> str:
-    """A node returns a dataclass with no ``@host_type`` that isn't frozen.
-
-    Such a dataclass lists the node's outputs, one per field. Several calls in a run can be given the same value, so
-    no call may change it. A dataclass declared with ``@host_type`` is one value instead, the output ``result``.
-
-    To fix it, write ``@dataclass(frozen=True)``.
-
-    Example:
-        @dataclass
-        class Parts:
-            first: str
-            last: str
-
-
-        def parts(name: str) -> Parts:
-            return Parts(*name.split(" ", 1))
-
-
-        declaration_refused(lambda: node("parts", title="Parts", description="Splits a name into first and last name.")(parts))
-    """
-    return "the dataclass the node returns isn't frozen. Write @dataclass(frozen=True)."
-
-
-@DECLARATION_PROBLEMS.problem
 def outputs_not_a_mapping(*, returns: str) -> str:
     """A node whose ``compute_outputs`` hook gives its outputs declares a return type that can't be a mapping.
 

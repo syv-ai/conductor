@@ -16,7 +16,7 @@ class Ask(BaseException):
     """Raised by a node to ask a person for a value.
 
     The node's return type says what kind of answer it takes. ``-> str`` asks for a line of text, ``-> bool`` for a
-    yes or no, ``-> Annotated[str, Param(choices=["ida", "bo"])]`` for one of those values, and a frozen dataclass
+    yes or no, ``-> Annotated[str, Param(choices=["ida", "bo"])]`` for one of those values, and a dataclass
     for a form with one question per field. The person's answer becomes the node's outputs, so the node isn't
     called again for it. Nothing that reads those outputs runs until then.
 

@@ -165,7 +165,7 @@ def _no_outputs(returned: Any) -> dict[str, Any]:
 
 
 def _dataclass_fields(cls: type, outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
-    """Builds the function that splits a returned frozen dataclass into its outputs, by name."""
+    """Builds the function that splits a returned dataclass into its outputs, by name."""
 
     def by_name(returned: Any) -> dict[str, Any]:
         if not isinstance(returned, cls):

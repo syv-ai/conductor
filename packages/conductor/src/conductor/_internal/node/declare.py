@@ -10,7 +10,7 @@ The result is a frozen ``FunctionDefinition``. It registers nothing, and it can 
 is a unit test. A host offers the node by adding it to a ``NodeRegistry``.
 
 The parameters are the node's inputs. The return type gives its outputs. ``-> str`` is one output, ``result``. A
-frozen dataclass gives one output per field, unless it is declared with ``@host_type``: then it is a type like
+dataclass gives one output per field, unless it is declared with ``@host_type``: then it is a type like
 ``str``, and one output. ``Series[X]`` gives a list the graph can loop over, and ``Table[R]`` one whole table.
 
 ``@node`` checks the declaration when the module is imported. A parameter with no type, a default its type
@@ -388,7 +388,7 @@ def _read_signature(
 
     Returns:
         Four things: the inputs by name; the ``Context`` parameter, or ``None`` if the first parameter isn't one;
-        the outputs by name; and the frozen dataclass the function returns its outputs in, or ``None`` if it
+        the outputs by name; and the dataclass the function returns its outputs in, or ``None`` if it
         returns one value (a dataclass declared with ``@host_type`` among them), a mapping or nothing.
 
     Raises:
@@ -444,8 +444,6 @@ def _read_signature(
         and dataclasses.is_dataclass(returned_class)
         and not is_declared(returned_class)
     ):  # a dataclass declared with @host_type is a type, so it is one value
-        if not returned_class.__dataclass_params__.frozen:  # type: ignore[attr-defined]
-            raise NodeDeclarationError(declaration_problems.outputs_not_frozen())
         given = dict(
             zip(
                 getattr(returned_class, "__parameters__", ()), typing.get_args(returns), strict=True

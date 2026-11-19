@@ -59,7 +59,7 @@ assert registry["greet"] is greet
 
 | The node needs | Write (examples in REFERENCE.md) |
 |---|---|
-| Several outputs | a frozen dataclass with no `@host_type` as the return type. Put `Annotated[str, Param(title=...)]` on a field to say more. A dataclass declared with `@host_type` is one value, the output `result` |
+| Several outputs | a dataclass with no `@host_type` as the return type. Put `Annotated[str, Param(title=...)]` on a field to say more. A dataclass declared with `@host_type` is one value, the output `result` |
 | To run once per item | return `Series[X]`. A node that takes one `X` from it runs once per item, and so does everything after it |
 | Every item in one call | a `Series[X]` input. It collects the items, in order |
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of rows. A `Table` input wired to records collects them |
@@ -69,14 +69,14 @@ assert registry["greet"] is greet
 | A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`. Name the class once with `NodeRegistry(context_type=AppContext)`, and pass the object as `run.resume(context=AppContext(...))` |
 | Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
-| A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic frozen dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
+| A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
 | Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values` |
 | An email, a web address, a path, an IP address | pydantic's own types and the standard library's need no declaration: `EmailStr`, `HttpUrl`, `AwareDatetime`, `pathlib.Path`, `ipaddress.IPv4Address` |
 | A text or number class of your own | `@host_type("invoice-number", title="Invoice number")` above `class InvoiceNumber(str)` |
 
 ### Asking a person
 
-- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, `-> Annotated[str, Param(choices=["low", "high"])]` one of those values, and a frozen dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
+- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, `-> Annotated[str, Param(choices=["low", "high"])]` one of those values, and a dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
 - The output's `Param` says how the question looks. Fixed choices are part of the type: `Param(choices=[...])` on a plain type, each a value or a `Choice(id, title)` to give it a title, as `Annotated[str, Param(choices=[Choice("low", "Can wait"), Choice("high", "Today")])]`. Write each value once: never a `Literal` that repeats the choices' values.
 - `Ask(prompt, choices=..., default=...)` carries what only the run knows: choices that are data, such as a list on an input, and a proposed answer. Each has the answer's shape. On a node with several outputs, they go by output name.
 - A node that needs the answer reads it through an edge. For example, `approval(invoice) -> bool` asks, and is wired into `pay(invoice, ok: bool)`. To offer the two as one palette entry, put them in a `subgraph`.

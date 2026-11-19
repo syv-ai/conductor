@@ -409,7 +409,7 @@ An item that is `None` is left out of a `Series[X]` input, and `Series[X | None]
 
 ## Several outputs, and branches
 
-Return a frozen dataclass to give a node several outputs, one per field. An output whose default is `SKIPPED` is a branch, a way the value can go. On each call the node gives a value to at most one of its branches, and the others stay `SKIPPED`. A node wired to a skipped branch is skipped, and so is every node after it:
+Return a dataclass to give a node several outputs, one per field. An output whose default is `SKIPPED` is a branch, a way the value can go. On each call the node gives a value to at most one of its branches, and the others stay `SKIPPED`. A node wired to a skipped branch is skipped, and so is every node after it:
 
 ```python
 from conductor import SKIPPED
