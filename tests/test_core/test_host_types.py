@@ -18,6 +18,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from conductor import (
+    SKIPPED,
+    Ask,
     Graph,
     NodeDeclarationError,
     NodeRegistry,
@@ -493,3 +495,110 @@ def test_a_hosts_subclass_of_a_class_conductor_names_is_its_own_type() -> None:
     assert (titles["site"], titles["local-time"]) == ("Site", "Local time")
     assert Run.from_json(run.to_json(), graph).outputs == {"result": Site("https://a.example")}
     assert wired.problems == []
+
+
+def test_a_node_returning_a_declared_dataclass_has_one_output_an_edge_reads_whole_or_by_field() -> (
+    None
+):
+    """A declared dataclass is a type, so it travels as one value on the output ``result``; a dataclass with no
+    declaration still lists the node's outputs. An edge reads the whole value or one field of it, a saved run reads
+    it back, and a subgraph's port carries it."""
+
+    @dataclasses.dataclass(frozen=True)
+    class Parts:
+        x: float
+        y: float
+
+    @node("locate", title="Locate", description="For a test.")
+    def locate(name: str) -> Point:
+        return Point(1.5, 2.5)
+
+    @node("parts", title="Parts", description="For a test.")
+    def parts(name: str) -> Parts:
+        return Parts(1.5, 2.5)
+
+    @node("north", title="North", description="For a test.")
+    def north(y: float) -> float:
+        return y + 1
+
+    @node("plot", title="Plot", description="For a test.")
+    def plot(point: Point) -> str:
+        return f"{point.x},{point.y}"
+
+    registry = NodeRegistry()
+    registry.add(locate, parts, north, plot)
+    record = make_graph(
+        locate,
+        north,
+        plot,
+        edges=[("locate.result.y", "north.y"), ("locate.result", "plot.point")],
+        outputs={"north": "north.result", "plot": "plot.result"},
+    )
+    graph = Graph.compile(record, registry)
+    run = graph.run({"name": "home"})
+    place = registry.subgraph("place", title="Place", description="For a test.")(
+        make_graph(locate, outputs={"where": "locate.result"})
+    )
+    outer = Graph.compile(make_graph(place, plot, edges=[("place.where", "plot.point")]), registry)
+
+    assert [(field.name, field.type) for field in locate.describe().outputs] == [
+        ("result", "point")
+    ]
+    assert [field.name for field in parts.describe().outputs] == ["x", "y"]
+    assert run.outputs == {"north": 3.5, "plot": "1.5,2.5"}
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+    (described,) = (each for each in registry.describe().nodes if each.id == "place")
+    assert [(field.name, field.type) for field in described.outputs] == [("where", "point")]
+    assert outer.run({"name": "home"}).outputs == {"result": "1.5,2.5"}
+
+
+def test_a_node_returning_a_declared_dataclass_is_answered_with_one_value() -> None:
+    """A node that asks for a declared dataclass asks one question, ``result``, answered with the value or its
+    fields as a mapping, and a queued answer is kept through a saved run."""
+
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick(name: str) -> Point:
+        raise Ask("Where is it?")
+
+    registry = NodeRegistry()
+    registry.add(pick)
+    graph = Graph.compile(make_graph(pick), registry)
+    run = graph.run({"name": "home"})
+    (waiting,) = run.waiting
+    queued = run.with_answers({waiting.id: Point(3, 4)})
+
+    assert [question.name for question in waiting.questions] == ["result"]
+    assert queued.resume().outputs == {"result": Point(3, 4)}
+    assert run.with_answers({waiting.id: {"x": 3, "y": 4}}).resume().outputs == {
+        "result": Point(3, 4)
+    }
+    assert Run.from_json(queued.to_json(), graph).resume().outputs == {"result": Point(3, 4)}
+
+
+def _skipped_dataclass() -> type:
+    @dataclasses.dataclass(frozen=True)
+    class Parcel:
+        weight: float
+        fragile: bool = SKIPPED
+
+    return Parcel
+
+
+def _skipped_model() -> type:
+    class Parcel(BaseModel):
+        weight: float
+        fragile: bool = SKIPPED
+
+    return Parcel
+
+
+@pytest.mark.parametrize("made", [_skipped_dataclass, _skipped_model], ids=["dataclass", "model"])
+def test_a_declared_class_whose_field_defaults_to_skipped_is_refused_at_the_class_statement(
+    made: Any,
+) -> None:
+    """A declared class is one value, so its fields aren't branches, and ``SKIPPED`` in one would leave a value with
+    no JSON form that the run couldn't save."""
+    refused = _refused(lambda: host_type("parcel", title="Parcel")(made()))
+
+    assert refused.problems[0].type == "default_skipped_on_type_field"
+    assert refused.problems[0].ctx == {"id": "parcel", "field": "fragile"}

@@ -5,7 +5,7 @@
 instead, the call fails with an ``invalid_output`` problem on the output ``result``.
 
 Values are checked strictly. A value that already has the right class is kept as it is, a dict becomes a model,
-but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass, or a mapping when a
+but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass with no ``@host_type``, or a mapping when a
 ``compute_outputs`` hook gave its outputs. Its whole return is checked in one go: first the shape, then each value.
 Only the first fault is reported.
 
@@ -71,7 +71,7 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
     ) -> None:
         """Builds the validator for one node.
 
-        A function returns its outputs in one of four shapes. It returns a frozen dataclass if it declares one, a
+        A function returns its outputs in one of four shapes. It returns a frozen dataclass if it declares one with no ``@host_type``, a
         mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none. Otherwise it returns
         one value, the output ``result``.
 

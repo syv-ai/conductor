@@ -446,6 +446,33 @@ Since a call never gives two branches of one node a value, both may be wired int
 
 `SKIPPED` means a way not taken, and `None` means no value. So an output that may be missing beside other outputs, like the phone number an extractor didn't find next to the email it did, isn't a branch. Type it `str | None` and return `None`. A branch returned as `None` was still taken, though: beside another branch with a value, it counts as a second one. Two branches that both get a value fail the call with `invalid_output`, and so does `SKIPPED` on an output that isn't a branch. A node has one set of branches: two independent ways to go are two nodes.
 
+Only a dataclass with no `@host_type` lists a node's outputs. A dataclass you declare with `@host_type` is a type, like `Address` above, so a node that returns one has one output, `result`, and passes the whole value on. An edge can still read one field of it:
+
+```python
+@host_type("coordinate", title="Coordinate")
+@dataclass(frozen=True)
+class Coordinate:
+    lat: float
+    lon: float
+
+
+@registry.node("locate", title="Locate", description="Finds where a city is.")
+def locate(city: str) -> Coordinate:
+    return Coordinate(lat=56.16, lon=10.2)
+
+
+@registry.node("hemisphere", title="Hemisphere", description="Says which half of the world a latitude is in.")
+def hemisphere(lat: float) -> str:
+    return "north" if lat >= 0 else "south"
+
+
+print([output.name for output in locate.describe().outputs])  # ['result']
+graph = Graph.compile(make_graph(locate, hemisphere, edges=[("locate.result.lat", "hemisphere.lat")]), registry)
+print(graph.run({"city": "Aarhus"}).outputs)  # {'result': 'north'}
+```
+
+A declared class is one value, so its fields aren't branches: a field that defaults to `SKIPPED` is refused when the class is declared (`default_skipped_on_type_field`).
+
 ## A node for any type
 
 Some nodes don't care what type a value is. They pass it on, or take it apart. Write the type as a type variable, and the node takes whatever type arrives on its edge:

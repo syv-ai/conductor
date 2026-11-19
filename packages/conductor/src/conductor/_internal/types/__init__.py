@@ -20,7 +20,7 @@ from .choice import (
 )
 from .fit import fit
 from .hint import a_number, hint_parts, substituted, union_members, union_of
-from .host_type import NAMES, host_type
+from .host_type import NAMES, host_type, is_declared
 from .param import SIZED, Param, as_written, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
 from .type import Type, TypeRefusal, json_by_its_class
@@ -42,6 +42,7 @@ __all__ = [
     "fit",
     "hint_parts",
     "host_type",
+    "is_declared",
     "json_by_its_class",
     "merged_param",
     "pick_texts",

@@ -186,9 +186,11 @@ class FunctionDefinition[**P, R](_Version):
         function: The function each call runs.
         inputs: Each input by name, as the signature declares it. The ``Context`` parameter isn't an input, it is
             ``context``. An input a hook adds isn't here either. It exists only on the node in a compiled graph.
-        outputs: Each output by name: ``result`` for one value, or one per field of a returned frozen dataclass.
+        outputs: Each output by name: ``result`` for one value, or one per field of a returned frozen dataclass
+            with no ``@host_type``.
         outputs_dataclass: The frozen dataclass the function returns its outputs in. ``None`` when it returns one
-            value, a mapping from its ``compute_outputs`` hook, or nothing.
+            value (a dataclass declared with ``@host_type`` is one), a mapping from its ``compute_outputs`` hook,
+            or nothing.
         policy: How the engine calls the node: how many calls at once, retries, a time limit, and whether it
             reuses earlier results.
         compute_added_inputs: A hook that adds inputs from the node's constants, when a graph is compiled. The

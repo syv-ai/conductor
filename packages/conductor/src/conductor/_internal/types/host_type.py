@@ -15,11 +15,12 @@ checks the declaration right away and stores it on the class, where ``declaratio
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import re
 import typing
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from decimal import Decimal
 from fractions import Fraction
 from ipaddress import (
@@ -41,6 +42,7 @@ from pydantic import (
     AnyHttpUrl,
     AnyUrl,
     AnyWebsocketUrl,
+    BaseModel,
     ByteSize,
     ClickHouseDsn,
     CockroachDsn,
@@ -66,6 +68,7 @@ from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import MultiHostUrl, Url, core_schema
 
+from conductor._internal.base import SKIPPED
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.utils import qualified_name
 
@@ -194,6 +197,9 @@ def host_type[C: type](
     parent class, then made into the subclass. A subclass doesn't inherit its parent's declaration, so declare it
     too.
 
+    A declared class is one value. A node that returns a declared dataclass has one output, ``result``, where a
+    dataclass with no declaration would give one output per field.
+
     Args:
         id: The name an editor and a graph record know the type by.
         title: What a person sees for the type.
@@ -205,8 +211,9 @@ def host_type[C: type](
     Raises:
         NodeDeclarationError: Right away, when the class is defined. ``type_declaration_invalid`` if the id isn't
             one word or is one of conductor's own, the title is empty, ``accepts`` has something that isn't a
-            class, or the class is one conductor names itself. ``type_declaration_not_on_a_class`` if it isn't put above a class it can name,
-            ``type_declaration_not_writable`` if the class can't take a new attribute, and
+            class, or the class is one conductor names itself. ``type_declaration_not_on_a_class`` if it isn't put
+            above a class it can name, ``default_skipped_on_type_field`` if a field of the class defaults to
+            ``SKIPPED``, ``type_declaration_not_writable`` if the class can't take a new attribute, and
             ``host_type_not_supported`` if pydantic can't check values of the class.
     """
     try:
@@ -231,6 +238,11 @@ def host_type[C: type](
                     id=id,
                     faults=f"{cls.__qualname__} is one of conductor's own types; declare a subclass of it to give it an id of your own",
                 )
+            )
+        skipped = next((name for name, default in _field_defaults(cls) if default is SKIPPED), None)
+        if skipped is not None:
+            raise NodeDeclarationError(
+                declaration_problems.default_skipped_on_type_field(id=id, field=skipped)
             )
         try:
             TypeAdapter(cls)
@@ -257,6 +269,17 @@ def host_type[C: type](
     return declare
 
 
+def _field_defaults(cls: type) -> Iterator[tuple[str, Any]]:
+    """Yields the name and default of each field of a dataclass or a pydantic model, and nothing for another class.
+
+    A field with no default yields a marker of its own, never ``SKIPPED``.
+    """
+    if dataclasses.is_dataclass(cls):
+        yield from ((field.name, field.default) for field in dataclasses.fields(cls))
+    elif issubclass(cls, BaseModel):
+        yield from ((name, field.default) for name, field in cls.model_fields.items())
+
+
 def declaration_of(cls: type) -> TypeDeclaration:
     """Returns what ``@host_type`` stored on ``cls``.
 
@@ -281,6 +304,15 @@ def declaration_of(cls: type) -> TypeDeclaration:
             )
         )
     return declared
+
+
+def is_declared(cls: type) -> bool:
+    """Whether ``@host_type`` declared ``cls`` itself, not only a parent class of it, as ``declaration_of`` reads it.
+
+    ``@node`` asks it of a returned dataclass: a declared one is one value, and one with no declaration lists the
+    node's outputs.
+    """
+    return "__conductor_type__" in vars(cls)
 
 
 def _suggested_declaration(cls: type) -> tuple[str, str]:

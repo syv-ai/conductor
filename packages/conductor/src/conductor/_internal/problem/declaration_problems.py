@@ -884,9 +884,10 @@ def output_without_type() -> str:
 
 @DECLARATION_PROBLEMS.problem
 def outputs_not_frozen() -> str:
-    """A node returns a dataclass that isn't frozen.
+    """A node returns a dataclass with no ``@host_type`` that isn't frozen.
 
-    Several calls in a run can be given the same value, so no call may change it.
+    Such a dataclass lists the node's outputs, one per field. Several calls in a run can be given the same value, so
+    no call may change it. A dataclass declared with ``@host_type`` is one value instead, the output ``result``.
 
     To fix it, write ``@dataclass(frozen=True)``.
 
@@ -1160,6 +1161,34 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
         declaration_refused(lambda: host_type("str", title="My text")(type("MyText", (str,), {})))
     """
     return f"@host_type({id!r}) can't take these arguments: {faults}. Give an id that is one word and not one of conductor's own, a title, and only classes in accepts."
+
+
+@DECLARATION_PROBLEMS.problem
+def default_skipped_on_type_field(*, id: str, field: str) -> str:
+    """A class declared with ``@host_type`` has a field whose default is ``SKIPPED``.
+
+    A declared class is a type, and a node that returns one has one output, ``result``, holding the whole value. So
+    its fields aren't the node's outputs, and a field that defaults to ``SKIPPED`` isn't a branch: it would leave
+    ``SKIPPED`` inside a value, which has no JSON form, so the run couldn't be saved. Only the fields of a dataclass
+    with no ``@host_type``, returned to list a node's outputs, may default to ``SKIPPED``.
+
+    To fix it, drop ``@host_type`` if the fields are the node's outputs and the ``SKIPPED`` ones its branches. If the
+    class is one value, type the field ``X | None`` and default it to ``None``.
+
+    Args:
+        id: The id given.
+        field: The first field that defaults to ``SKIPPED``.
+
+    Example:
+        @dataclass(frozen=True)
+        class Parcel:
+            weight: float
+            fragile: bool = SKIPPED
+
+
+        declaration_refused(lambda: host_type("parcel", title="Parcel")(Parcel))
+    """
+    return f"@host_type({id!r}) is on a class whose field '{field}' defaults to SKIPPED, but a declared class is one value, so its fields aren't branches. Drop @host_type to make the fields the node's outputs, or type the field with | None and default it to None."
 
 
 @DECLARATION_PROBLEMS.problem

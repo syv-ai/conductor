@@ -10,8 +10,8 @@ The result is a frozen ``FunctionDefinition``. It registers nothing, and it can 
 is a unit test. A host offers the node by adding it to a ``NodeRegistry``.
 
 The parameters are the node's inputs. The return type gives its outputs. ``-> str`` is one output, ``result``. A
-frozen dataclass gives one output per field. ``Series[X]`` gives a list the graph can loop over, and ``Table[R]``
-one whole table.
+frozen dataclass gives one output per field, unless it is declared with ``@host_type``: then it is a type like
+``str``, and one output. ``Series[X]`` gives a list the graph can loop over, and ``Table[R]`` one whole table.
 
 ``@node`` checks the declaration when the module is imported. A parameter with no type, a default its type
 refuses, or a ``raise Ask(...)`` in its body without ``asks=True`` raises ``NodeDeclarationError`` right there.
@@ -40,7 +40,7 @@ from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, RecordValidator
-from conductor._internal.types import Param, Type, fit
+from conductor._internal.types import Param, Type, fit, is_declared
 
 from .policy import Deprecation, Policy
 from .source import read_code
@@ -363,7 +363,7 @@ def _read_signature(
     Returns:
         Four things: the inputs by name; the ``Context`` parameter, or ``None`` if the first parameter isn't one;
         the outputs by name; and the frozen dataclass the function returns its outputs in, or ``None`` if it
-        returns one value, a mapping or nothing.
+        returns one value (a dataclass declared with ``@host_type`` among them), a mapping or nothing.
 
     Raises:
         NodeDeclarationError: A parameter or the return type is one a node can't have.
@@ -413,7 +413,11 @@ def _read_signature(
         outputs = {}
     elif returns is None or returns is type(None):
         outputs = {}
-    elif isinstance(returned_class, type) and dataclasses.is_dataclass(returned_class):
+    elif (
+        isinstance(returned_class, type)
+        and dataclasses.is_dataclass(returned_class)
+        and not is_declared(returned_class)
+    ):  # a dataclass declared with @host_type is a type, so it is one value
         if not returned_class.__dataclass_params__.frozen:  # type: ignore[attr-defined]
             raise NodeDeclarationError(declaration_problems.outputs_not_frozen())
         given = dict(
