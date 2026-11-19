@@ -286,7 +286,7 @@ class Type:
 
         It is the one rule for "this input takes no list", so a list wired or given to it should have been a loop
         over its items: compiling asks it with ``[]`` of an edge's input, and a call with the list it was given.
-        ``str`` and a record refuse ``["a"]`` as a whole. ``list[str]``, ``tuple[int, ...]``, ``set[int]`` and a
+        ``str`` and a ``TypedDict`` refuse ``["a"]`` as a whole. ``list[str]``, ``tuple[int, ...]``, ``set[int]`` and a
         table take ``[]``, and ``Annotated[list[str], Param(min_length=1)]`` refuses it only by its limit. For
         ``int | list[int]`` given ``["x"]``, ``list[int]`` refuses it because of its item, so a loop isn't the fix.
         Each option is checked without its limits and choices.
@@ -337,7 +337,7 @@ class Type:
             _check_written(part)
             if get_origin(part) in _KINDS:
                 Type(part)._check_own_arguments()
-        # each of these raises for a fault in what it builds: the schema, a Series of records stored as a table, the
+        # each of these raises for a fault in what it builds: the schema, a Series of rows stored as a table, the
         # id of a class with no @host_type, named values that don't read back, and choices that can't be read
         self.returned_schema  # noqa: B018
         self.id  # noqa: B018
@@ -458,7 +458,7 @@ class Type:
         - a host's class has the id its ``@host_type`` declares, like ``money``.
         - a union joins its members' ids: ``money | int``.
         - a generic has its class and arguments: ``list[int]``, or a bare ``list`` for ``list[Any]``.
-        - a ``Literal`` has the types of its values, and a ``TypedDict`` is ``record``.
+        - a ``Literal`` has the types of its values, and a ``TypedDict`` is ``row``.
         - ``Series`` and ``Table`` get their id from their own subclass, like ``Series[int]``.
         - a type alias has its own name, and a type variable the id of its bound, or ``Any``.
         """
@@ -679,8 +679,8 @@ class Type:
     def row(self) -> Type | None:
         """The type of one row, for a table: its ``TypedDict``, or ``dict``. ``None`` for every other type.
 
-        A table input wired to a ``Series`` of records gets all the records as one table. Each record must be a
-        valid value of this type.
+        A table input wired to a ``Series`` of rows gets all the rows as one table. Each row must be a valid
+        value of this type.
         """
         return None
 
@@ -694,8 +694,8 @@ class Type:
 
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
-        """The type hint of each field, by name, for a record: a model, a dataclass or a ``TypedDict``. Empty for
-        any other type."""
+        """The type hint of each field, by name, for a type that declares its fields: a model, a dataclass or a
+        ``TypedDict``. Empty for any other type."""
         one = self.options[0] if len(self.options) == 1 else None
         return (
             {
@@ -764,7 +764,7 @@ class Type:
         A class's own check that refuses a value of exactly that class says so in the ``reason``, since that is a fault
         in the class's schema, not in the value: a schema must take its own instance.
 
-        A ``loc`` keeps list indexes, record fields and table columns. It stops at the first other step, such as a
+        A ``loc`` keeps list indexes, declared fields and table columns. It stops at the first other step, such as a
         dict key, since a key is part of the value. An error in a table's column names the column.
 
         Args:
@@ -874,7 +874,7 @@ class Type:
         """Returns the error's type and message, reworded to name the column ``part`` that ``_walked`` returned.
 
         ``kind`` is pydantic's error type and ``msg`` its message. ``in_cell`` is the rest of the error's ``loc``
-        after the column, such as ``("money", "cents")`` for a field missing from a record inside a cell. It is
+        after the column, such as ``("money", "cents")`` for a field missing from a value inside a cell. It is
         ``()`` when the error is about the column itself. Only a table rewords the error. Any other type returns
         ``kind`` and ``msg`` as they are.
         """

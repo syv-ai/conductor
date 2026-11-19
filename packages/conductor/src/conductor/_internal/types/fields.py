@@ -1,6 +1,6 @@
-"""Getting one field out of a record.
+"""Getting one field out of a value.
 
-An edge can pick one field of the record an output returns. Say a node ``read`` returns invoices, each with a
+An edge can pick one field of the value an output returns. Say a node ``read`` returns invoices, each with a
 field ``name``. An edge from ``read.result.name`` passes on just the name of each invoice. ``field_of`` is how
 that field is fetched.
 """
@@ -12,12 +12,12 @@ from typing import Any
 
 
 def field_of(value: Any, name: str) -> Any:
-    """Returns one field of a record: the key ``name`` of a mapping, or else the attribute ``name``.
+    """Returns one field of a value: the key ``name`` of a mapping, or else the attribute ``name``.
 
     For example, ``field_of({"name": "Ida", "amount": 100}, "name")`` returns ``"Ida"``.
 
     Raises:
-        NoSuchFieldError: The record has no such field. This can only happen when the record's type declares no
+        NoSuchFieldError: The value has no such field. This can only happen when the value's type declares no
             fields, like ``dict``. A field a type declares is checked when the graph is compiled.
     """
     try:
@@ -31,7 +31,7 @@ def field_of(value: Any, name: str) -> Any:
 
 
 class NoSuchFieldError(Exception):
-    """A record has no field with the name an edge picks.
+    """A value has no field with the name an edge picks.
 
     Attributes:
         field: The name of the field.

@@ -104,13 +104,13 @@ class SeriesType(Type, of=_Series):
 
     @functools.cached_property
     def _table(self) -> Type | None:
-        """The table type a node may return a frame as, for a Series of records.
+        """The table type a node may return a frame as, for a Series of rows.
 
         A node that returns ``Series[Row]``, where ``Row`` is a ``TypedDict``, may return a ``polars.DataFrame``
         instead of a list of dicts. That frame is checked as a ``Table[Row]``. The same goes for a Series whose
         item is the row of a bare ``Table`` (``is_bare_table_row``), such as ``Series[dict]``: its frame is checked
         as a table with any columns. This is ``None`` for any other items, such as ``str`` or ``dict[str, int]``,
-        and for records with limits or choices.
+        and for rows with limits or choices.
         """
         item = self.item
         if item.limited or not (is_bare_table_row(item.bare) or typing.is_typeddict(item.bare)):
@@ -122,7 +122,7 @@ class SeriesType(Type, of=_Series):
     def stored_hint(self) -> Any:
         """The type hint a saved run uses to write and read back a stored Series of this type.
 
-        It is ``SeriesItems[T | None]``. For a Series of records ``R`` it is ``SeriesItems[R | None] | SeriesRows[R]``,
+        It is ``SeriesItems[T | None]``. For a Series of rows ``R`` it is ``SeriesItems[R | None] | SeriesRows[R]``,
         since the node may have returned either a list or a frame.
         """
         items: Any = SeriesItems
@@ -137,7 +137,7 @@ class SeriesType(Type, of=_Series):
         """The schema that checks what a node returned for the Series, and converts it to how a run stores it.
 
         For ``Series[str]``, the return ``["a", "b"]`` becomes ``SeriesItems(["a", "b"])``. For ``Series[Row]``,
-        where ``Row`` is a record, a frame is checked as a ``Table[Row]`` and becomes ``SeriesRows(frame)``. Anything
+        where ``Row`` is a ``TypedDict``, a frame is checked as a ``Table[Row]`` and becomes ``SeriesRows(frame)``. Anything
         else becomes a ``SeriesItems``.
 
         The class of the value picks the form. Pydantic puts the form's name first in an error's ``loc``, as in
@@ -163,9 +163,9 @@ class SeriesType(Type, of=_Series):
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc``, as ``Type._walked`` does.
 
-        For a Series of records, the first step can be the name of a stored form, which ``returned_schema`` adds.
+        For a Series of rows, the first step can be the name of a stored form, which ``returned_schema`` adds.
         That step is dropped from the ``loc``. ``"SeriesItems"`` leads to this type, and ``"SeriesRows"`` to the table
-        type of the records.
+        type of the rows.
         """
         if self._table is not None:
             if step == SeriesItems.__name__:

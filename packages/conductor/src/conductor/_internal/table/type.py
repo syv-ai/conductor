@@ -30,8 +30,8 @@ class _Table[T]:
     Write ``Table[Invoice]`` for a table whose columns are the fields of ``Invoice``, or a bare ``Table`` for a
     table with any columns. The node gets a plain ``polars.DataFrame``, and a type checker sees one too.
 
-    A table can be given as a frame, as a list of records (``[{"customer": "Ann", "amount": 12.5}]``) or as the
-    JSON conductor writes for one. Records are how gathered rows and a person's answer arrive. Either way, a
+    A table can be given as a frame, as a list of rows (``[{"customer": "Ann", "amount": 12.5}]``) or as the
+    JSON conductor writes for one. A list of rows is how gathered rows and a person's answer arrive. Either way, a
     ``Table[Invoice]`` comes out with exactly ``Invoice``'s columns. Every column must be there, each cell must be a
     value of its column's type, and a cell may be blank only if that type allows ``None``. Extra columns are dropped,
     the same way a ``TypedDict`` drops extra keys.
@@ -120,8 +120,8 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     ) -> tuple[str, str]:
         """Returns the error's type and message with the column ``part`` named in it.
 
-        Records that lack a column get pydantic's ``missing``, whose "Field required" doesn't say it is a column. It
-        becomes ``column_missing``, the error a frame without the column gets. A field missing from a record inside
+        Rows that lack a column get pydantic's ``missing``, whose "Field required" doesn't say it is a column. It
+        becomes ``column_missing``, the error a frame without the column gets. A field missing from a value inside
         a cell stays ``missing``, and its message names the field, which pydantic's doesn't: "column 'price': the
         field 'currency' is required".
         """

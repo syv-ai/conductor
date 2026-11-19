@@ -228,7 +228,7 @@ class Param:
         """Returns the JSON schema of the limited type, with this ``title``, ``description`` and choices added.
 
         The choices are the schema's ``enum``: their ids, with ``None`` when the type takes it. This matters at any
-        depth: on a list's item, on a field of a record or of a host's own model, and on a table's column, the JSON
+        depth: on a list's item, on a field of a ``TypedDict`` or of a host's own model, and on a table's column, the JSON
         schema is where they show up.
 
         A schema that is a ``$ref``, like an enum's, is put in an ``allOf`` before anything is added beside it. JSON

@@ -454,7 +454,7 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
 def _same(one: Any, other: Any) -> bool:
     """Whether two values are equal, comparing dicts and lists item by item, and frames cell by cell.
 
-    A frame is the same only as another frame with equal cells. A list of records with the frame's rows is not the
+    A frame is the same only as another frame with equal cells. A list of dicts with the frame's rows is not the
     same: a node that swaps one for the other has changed what the next call of the run gets. ``==`` can't be used
     on a frame, since it returns a frame of results, or raises when the other side is not a frame. For any other
     value where ``==`` raises, the two are equal only when they are the same object.

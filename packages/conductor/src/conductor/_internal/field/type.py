@@ -122,7 +122,7 @@ class Field:
 
         Say a loop runs over ``["a", "b", "c"]``, and the node in it returns ``None`` for ``"b"``. An input
         ``Series[str | None]`` collects ``["a", None, "c"]``. An input ``Series[str]`` drops the ``None`` and collects
-        ``["a", "c"]``. A table never keeps one, since a record is never ``None``.
+        ``["a", "c"]``. A table never keeps one, since a row is never ``None``.
         """
         return self.is_series and self.type.optional
 

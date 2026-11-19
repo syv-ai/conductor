@@ -12,7 +12,7 @@ columns::
     def total(invoices: Table[Invoice]) -> float:
         return invoices["amount"].sum()
 
-A table can arrive as a frame, as a list of records (one dict per row) or as the JSON conductor writes for one.
+A table can arrive as a frame, as a list of rows (one dict per row) or as the JSON conductor writes for one.
 It always reaches the node as a frame with exactly the columns ``R`` names. The full rules are in the reference:
 ``python -m conductor.about types``.
 """

@@ -101,7 +101,7 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
     if typing.is_typeddict(source):
         source_fields = typing.get_type_hints(source, include_extras=True)
-        # a record fits by its keys: every key the target names must be there, with a type that fits
+        # a TypedDict fits by its keys: every key the target names must be there, with a type that fits
         if typing.is_typeddict(target):
             expected = typing.get_type_hints(target, include_extras=True)
             # a check drops the keys the target doesn't name, so the value isn't the same as it was

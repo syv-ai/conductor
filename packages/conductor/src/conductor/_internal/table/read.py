@@ -1,6 +1,6 @@
 """How a ``Table[R]`` value is checked and converted, as a pydantic schema.
 
-A table can be given in three forms: a ``polars.DataFrame``, a list of records (one dict per row), or the JSON
+A table can be given in three forms: a ``polars.DataFrame``, a list of rows (one dict per row), or the JSON
 conductor writes for a table (``write.py``). Whatever the form, the schema gives back a frame with exactly the
 columns ``R`` names, each of the right type.
 
@@ -39,7 +39,7 @@ from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 def column_missing(column: str) -> PydanticCustomError:
     """The error for a table that lacks a column its row type declares.
 
-    A frame without the column raises it here. Records without the field get pydantic's ``missing`` error, and
+    A frame without the column raises it here. Rows without the field get pydantic's ``missing`` error, and
     ``TableType`` turns that into this one, so a host sees one code for both.
     """
     return conductor_error(
@@ -352,11 +352,11 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 def _table_form(value: Any) -> str | None:
-    """Says which of a table's three forms ``value`` is in: a frame, a list of records, or conductor's JSON."""
+    """Says which of a table's three forms ``value`` is in: a frame, a list of rows, or conductor's JSON."""
     if isinstance(value, pl.DataFrame):
         return "frame"
     if isinstance(value, Mapping) and "columns" in value:
-        return "written"  # a dict without it, such as one record, is no table
+        return "written"  # a dict without it, such as one row, is no table
     if isinstance(value, list):
         return "rows"
     return None
@@ -417,7 +417,7 @@ def check_table_row(row: Any) -> None:
 def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     """Returns the pydantic schema of ``Table[R]``.
 
-    The schema accepts a table in any of its three forms: a frame, a list of records like ``[{"name": "Ann"}]``,
+    The schema accepts a table in any of its three forms: a frame, a list of rows like ``[{"name": "Ann"}]``,
     or conductor's JSON, ``{"columns": [...]}``. It always gives back a frame with exactly the columns ``R`` names,
     converted by ``as_saved``. It writes a table as conductor's JSON.
 

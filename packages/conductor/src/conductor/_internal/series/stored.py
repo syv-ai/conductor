@@ -5,8 +5,8 @@ A node usually returns a list, and the run stores it as a ``SeriesItems``. Say a
 then with ``stored[1]``. If the edge picks the field ``name`` (``split.result.name``), the first call gets
 ``stored.cell("name", 0)``, which is ``"Ann"``.
 
-A node with a ``Series`` of records may return a ``polars.DataFrame`` instead. The run stores that as
-``SeriesRows``, which keeps the frame and makes each row a record only when one is needed.
+A node with a ``Series`` of rows may return a ``polars.DataFrame`` instead. The run stores that as
+``SeriesRows``, which keeps the frame and makes a row into a dict only when one is needed.
 
 Both classes have the same methods: ``len(stored)``, ``stored[index]``, ``cell(name, index)``, ``as_list()``,
 ``as_table_input()``, ``field_as_list(name)`` and ``for_saving()``. Code that uses a stored Series never has to
@@ -108,26 +108,26 @@ class SeriesItems(list[Any]):
 
 
 class SeriesRows[T]:
-    """A ``Series`` of records stored as the ``polars.DataFrame`` a node returned for it, one row per record.
+    """A ``Series`` of rows stored as the ``polars.DataFrame`` a node returned for it.
 
     Only the frame is kept. A column is turned into a Python list the first time something needs it: an edge that
     picks a field, or saving the run. That list is then reused. So each column becomes a Python list at most once,
     and a column nothing uses never does.
 
-    Say the frame has the columns ``name`` and ``amount`` and two rows. Then ``records[0]`` is
-    ``{"name": "Ann", "amount": 10}``, and ``records.cell("amount", 1)`` is ``20``. A node with a ``Table``
-    input wired to the Series gets ``records.frame`` itself, so no record is made for it.
+    Say the frame has the columns ``name`` and ``amount`` and two rows. Then ``rows[0]`` is
+    ``{"name": "Ann", "amount": 10}``, and ``rows.cell("amount", 1)`` is ``20``. A node with a ``Table``
+    input wired to the Series gets ``rows.frame`` itself, so no dict is made for it.
 
     ``SeriesRows[R]`` is also the type hint a saved run writes and reads one back by. It is saved as a table's JSON.
 
     Attributes:
-        frame: The table whose rows are the records.
+        frame: The table whose rows are the Series' items.
     """
 
     __slots__ = ("_columns", "frame")
 
     def __init__(self, frame: pl.DataFrame) -> None:
-        """Stores ``frame``, which has already been checked as a table of the records' type."""
+        """Stores ``frame``, which has already been checked as a table of the rows' type."""
         self.frame = frame
         self._columns = ColumnsOnDemand(self._cells_of)
 
@@ -139,7 +139,7 @@ class SeriesRows[T]:
         return self.frame.height
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        """Returns the record at ``index`` as a dict."""
+        """Returns the row at ``index`` as a dict."""
         columns = self._columns
         return {name: columns[name][index] for name in self.frame.columns}
 
@@ -155,7 +155,7 @@ class SeriesRows[T]:
         return self._columns[name][index]
 
     def as_list(self) -> list[dict[str, Any]]:
-        """Returns the records as a new list of dicts, the way a node with a ``Series`` input gets them."""
+        """Returns the rows as a new list of dicts, the way a node with a ``Series`` input gets them."""
         names = self.frame.columns
         return [
             dict(zip(names, cells, strict=True))
@@ -165,7 +165,7 @@ class SeriesRows[T]:
     def as_table_input(self) -> pl.DataFrame:
         """Returns the frame itself, the way a node with a ``Table`` input gets it.
 
-        ``as_list`` would work too, since the table type reads a list of records. But then every call that collects
+        ``as_list`` would work too, since the table type reads a list of dicts. But then every call that collects
         the frame would turn it into one dict per row and back into a frame.
         """
         return self.frame
@@ -206,5 +206,5 @@ class SeriesRows[T]:
 
 
 #: The two ways a run stores a ``Series`` output: the list a node returned, or the frame it returned for a Series
-#: of records. ``SeriesType.returned_schema`` picks one by the class of the value.
+#: of rows. ``SeriesType.returned_schema`` picks one by the class of the value.
 StoredSeries = SeriesItems | SeriesRows
