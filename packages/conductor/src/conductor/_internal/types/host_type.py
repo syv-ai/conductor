@@ -66,7 +66,12 @@ from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import MultiHostUrl, Url, core_schema
 
-from conductor._internal.problem import NodeDeclarationError, declaration_problems
+from conductor._internal.problem import (
+    NodeDeclarationError,
+    conductor_error,
+    declaration_problems,
+    shape_error,
+)
 from conductor._internal.utils import qualified_name
 
 from .hint import READ_AS
@@ -172,7 +177,11 @@ class TypeDeclaration:
     @classmethod
     def _not_one_of_conductors_own(cls, given: str) -> str:
         if given in OWN_IDS:
-            raise ValueError(f"{given!r} is the id of one of conductor's own types")
+            raise conductor_error(
+                "id_of_conductors_own_type",
+                "'{id}' is the id of one of conductor's own types",
+                {"id": given},
+            )
         return given
 
 
@@ -220,9 +229,11 @@ def host_type[C: type](
             id=id, title=title, accepts=tuple(accepts) if isinstance(accepts, list) else accepts
         )
     except ValidationError as error:
-        faults = "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in error.errors())
+        faults = [shape_error(fault, fault["loc"]) for fault in error.errors()]
         raise NodeDeclarationError(
-            declaration_problems.type_declaration_invalid(id=id, faults=faults)
+            declaration_problems.type_declaration_invalid(
+                id=id, reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}", errors=faults
+            )
         ) from None
 
     def declare(cls: C) -> C:
@@ -232,10 +243,16 @@ def host_type[C: type](
             )
         # a declaration is stored on the class, so on one of conductor's own it would rename it for every registry
         if cls in NAMES or cls in READ_AS:
+            own = shape_error(
+                conductor_error(
+                    "conductors_own_type",
+                    "{cls} is one of conductor's own types; declare a subclass of it to give it an id of your own",
+                    {"cls": cls.__qualname__},
+                )
+            )
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_invalid(
-                    id=id,
-                    faults=f"{cls.__qualname__} is one of conductor's own types; declare a subclass of it to give it an id of your own",
+                    id=id, reason=own["msg"], errors=[own]
                 )
             )
         try:

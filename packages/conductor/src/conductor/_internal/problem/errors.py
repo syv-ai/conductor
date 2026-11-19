@@ -156,21 +156,23 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     ]
 
 
-def shape_error(fault: ErrorDetails | PydanticCustomError | PydanticKnownError) -> dict[str, Any]:
+def shape_error(
+    fault: ErrorDetails | PydanticCustomError | PydanticKnownError, loc: Iterable[str | int] = ()
+) -> dict[str, Any]:
     """Returns one error of a problem's ``ctx.errors`` for a fault in the shape of what a host or a developer wrote.
 
     Such a fault is in a graph record, in what a ``compute_...`` hook or an ``Upgrade``'s rewrite returned, or in what
     a node returned, never inside a value a graph carries. So its message and ``ctx`` are kept as pydantic or
-    conductor wrote them: they name what was written, such as a node id, and never a value. Its ``loc`` is ``[]``,
-    since the problem's own ``loc`` says where the fault is. A fault found outside a pydantic schema, such as a key
-    written twice in a record's text, is given as the error pydantic or conductor would raise for it.
+    conductor wrote them: they name what was written, such as a node id, and never a value. Its ``loc`` is ``loc``,
+    the steps from where the problem's own ``loc`` points, often none. A fault found outside a pydantic schema, such as
+    a key written twice in a record's text, is given as the error pydantic or conductor would raise for it.
 
     For example, ``shape_error(conductor_error("repeated_key", "a key is written twice in one object"))`` is
     ``{"type": "repeated_key", "loc": [], "msg": "a key is written twice in one object"}``.
     """
     if isinstance(fault, (PydanticCustomError, PydanticKnownError)):
-        return _written_error(fault.type, [], fault.message(), fault.context or {})
-    return _written_error(fault["type"], [], fault["msg"], fault.get("ctx", {}))
+        return _written_error(fault.type, list(loc), fault.message(), fault.context or {})
+    return _written_error(fault["type"], list(loc), fault["msg"], fault.get("ctx", {}))
 
 
 def _ctx_its_message_reads(fault: ErrorDetails) -> Mapping[str, Any]:

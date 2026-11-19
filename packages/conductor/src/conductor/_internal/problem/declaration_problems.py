@@ -1151,7 +1151,7 @@ def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def type_declaration_invalid(*, id: str, faults: str) -> str:
+def type_declaration_invalid(*, id: str, reason: str, errors: list[dict[str, Any]]) -> str:
     """``@host_type`` is given an id, a title or an ``accepts`` it can't take.
 
     To fix it, give the type:
@@ -1163,14 +1163,19 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
     - a class conductor doesn't name itself. To give one of conductor's types, such as ``HttpUrl``, an id of your own,
       declare a subclass of it.
 
+    ``ctx.errors`` has every fault, each ``loc`` naming the argument (``id``, ``title``, ``accepts`` and an index):
+    pydantic's code, such as ``string_pattern_mismatch``, or conductor's own, ``id_of_conductors_own_type``, or
+    ``conductors_own_type`` with ``loc`` ``[]`` for a class conductor names.
+
     Args:
         id: The id given.
-        faults: What is wrong with each argument.
+        reason: The first fault, after the argument it is in.
+        errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:
         declaration_refused(lambda: host_type("str", title="My text")(type("MyText", (str,), {})))
     """
-    return f"@host_type({id!r}) can't take these arguments: {faults}. Give an id that is one word and not one of conductor's own, a title, and only classes in accepts."
+    return f"@host_type({id!r}) can't take its arguments: {reason}. Give an id that is one word and not one of conductor's own, a title, and only classes in accepts."
 
 
 @DECLARATION_PROBLEMS.problem

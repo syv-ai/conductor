@@ -188,7 +188,11 @@ def test_an_empty_title_fails_at_the_class_statement() -> None:
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).problems[0].type == "type_declaration_invalid"
+    (problem,) = _refused(build).problems
+    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+        "type_declaration_invalid",
+        [("string_pattern_mismatch", ["title"])],
+    )
 
 
 @pytest.mark.parametrize(
@@ -211,7 +215,11 @@ def test_accepts_given_something_other_than_classes_fails_at_the_class_statement
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).problems[0].type == "type_declaration_invalid"
+    (problem,) = _refused(build).problems
+    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
+        "type_declaration_invalid",
+        [("is_type", ["accepts", 0])],
+    )
 
 
 def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> None:
@@ -459,6 +467,7 @@ def test_host_type_on_a_class_conductor_names_is_refused_and_says_to_declare_a_s
     refused = _refused(lambda: host_type("mine", title="Mine")(named))
 
     assert refused.problems[0].type == "type_declaration_invalid"
+    assert [e["type"] for e in refused.problems[0].ctx["errors"]] == ["conductors_own_type"]
     assert "declare a subclass" in str(refused)
 
 
