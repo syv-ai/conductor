@@ -22,7 +22,6 @@ from types import MappingProxyType
 from typing import Any, Generic
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
-from conductor.events import RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
@@ -323,11 +322,7 @@ class Worker(Generic[M, X]):
                 return state.declined(ended), ended.to_json(), RunOutcome.of(ended)
 
             ended, saved, outcome = await asyncio.to_thread(given)
-            # the run ends here, so its run_end goes in the same write
-            run_end = RunEnd(status=ended.status, cause=ended.cause).model_dump_json()
-            return await self._store.update(
-                row, state=ended, run=saved, outcome=outcome, event=run_end
-            )
+            return await self._store.update(row, state=ended, run=saved, outcome=outcome)
 
         return await self._until_written(run_id, allows, declined)
 

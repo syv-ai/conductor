@@ -24,6 +24,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Generic, Protocol, TypedDict
 
 from conductor import RunStatus
+from conductor.events import RunEnd
 from pydantic import TypeAdapter, ValidationError
 
 from conductor_providers.fastapi.state import M, RunOutcome, RunRow, RunState
@@ -283,12 +284,14 @@ class GuardedStore(Generic[M]):
         state: RunState | None = None,
         run: str | None = None,
         outcome: RunOutcome | None = None,
-        event: str | None = None,
+        call_end: RunEnd | None = None,
     ) -> RunRow[M] | None:
-        """``RunStore.update`` at the ``rev`` of ``row``: write some of its columns, and ``event`` with them.
+        """``RunStore.update`` at the ``rev`` of ``row``: write some of its columns, and a ``run_end`` with them.
 
-        Of two writers at one ``rev``, one wins. The columns and the event are one ``update``, so both land or
-        neither does: a run that stops with no resume call is written with the ``run_end`` that says so.
+        Of two writers at one ``rev``, one wins. A write whose state stops the run appends a ``run_end`` that says
+        what the state says, so a row that stops always carries a matching ``run_end``. A write that leaves the run
+        running appends ``call_end``, the ``run_end`` of a resume call that ended with its run going on. The columns
+        and the event are one ``update``, so both land or neither does.
 
         Args:
             row: The run's row as read.
@@ -296,7 +299,8 @@ class GuardedStore(Generic[M]):
             state: The row's new state, written as its ``state`` and ``status``; ``None`` to leave both.
             run: The row's new ``run``, as JSON; ``None`` to leave it.
             outcome: The row's new outcome; ``None`` to leave it.
-            event: An event to append in the same write, as JSON; ``None`` for none.
+            call_end: The ``run_end`` of the resume call this write ends, appended when the run goes on; ``None``
+                for none.
 
         Returns:
             The row as written; ``None`` when another writer moved its ``rev`` on first, and nothing was written.
@@ -307,6 +311,9 @@ class GuardedStore(Generic[M]):
             columns = await asyncio.to_thread(
                 self._columns, holder or {}, state=state, run=run, outcome=outcome
             )
+        if state is not None and not state.is_running:
+            call_end = RunEnd(status=state.status, cause=state.cause)
+        event = None if call_end is None else call_end.model_dump_json()
         if not await guarded("update", self._store.update(row.id, row.rev, columns, event)):
             return None
         written: dict[str, Any] = {**(holder or {}), "rev": row.rev + 1}

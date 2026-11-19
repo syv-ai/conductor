@@ -217,12 +217,11 @@ class HeldRun:
         """Write how a resume call ended.
 
         What is written is worked out again from the row's state as it is on each try of the write, so a cancel or
-        an answer written meanwhile is never written over. The ``run_end`` is written with the row, in one
-        ``update``, so it lands once, with the write that lands, and a follower that reads that the run stopped has
-        the event to read. When the run stops, it says what the row says: a decline queued meanwhile ends the run
-        ``declined``, though the call's own ``run_end`` said ``waiting``. When the run goes on, it is the call's
-        own. A run another worker took is left as it is. A run that is to go on as the worker shuts down is handed
-        back for another worker.
+        an answer written meanwhile is never written over. The call's ``run_end`` goes to ``GuardedStore.update``,
+        which writes it with the row in one ``update``, so it lands once, with the write that lands. Once the run
+        stops, the store writes the state's own instead: a decline queued meanwhile ends the run ``declined``,
+        though the call's own ``run_end`` said ``waiting``. A run another worker took is left as it is. A run that
+        is to go on as the worker shuts down is handed back for another worker.
 
         Args:
             run_end: The call's own ``run_end``; ``None`` for a run handed back.
@@ -236,11 +235,6 @@ class HeldRun:
         while not self._released:
             reads = self._reads
             state, run, outcome = await asyncio.to_thread(after, self._row.state)
-            ended = None
-            if run_end is not None:
-                ended = (
-                    run_end if state.is_running else RunEnd(status=state.status, cause=state.cause)
-                ).model_dump_json()
             goes_on = state.is_running and not settings.handing_back.is_set()
             if goes_on:
                 holder = settings.holder()
@@ -250,7 +244,7 @@ class HeldRun:
                 holder = _UNHELD
             async with self._lock:  # no renewal lands after the write that lets the run go
                 if self._reads == reads and await self._write_once(
-                    holder, state=state, run=run, outcome=outcome, event=ended
+                    holder, state=state, run=run, outcome=outcome, call_end=run_end
                 ):
                     self._released = not goes_on
                     if not state.cancel_asked:
@@ -312,7 +306,7 @@ class HeldRun:
         state: RunState | None = None,
         run: str | None = None,
         outcome: RunOutcome | None = None,
-        event: str | None = None,
+        call_end: RunEnd | None = None,
     ) -> bool:
         """Write to the row as this worker knows it, as ``GuardedStore.update`` takes the write, under the lock; a
         write that loses reads the row again.
@@ -321,7 +315,7 @@ class HeldRun:
             Whether it was written.
         """
         written = await self._store.update(
-            self._row, holder, state=state, run=run, outcome=outcome, event=event
+            self._row, holder, state=state, run=run, outcome=outcome, call_end=call_end
         )
         if written is not None:
             self._row = written
