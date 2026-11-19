@@ -51,7 +51,7 @@ class RunOutcome(BaseModel):
 
     Attributes:
         waiting: What waits for a person.
-        outputs: The graph's outputs by name once the run is complete; ``None`` until then.
+        outputs: The graph's outputs by name once the row's status is ``complete``; ``None`` until then.
         progress: ``run.progress``: how many calls of each node have an outcome, and how many there will be. It is
             written with each checkpoint too, so while the run is running it is as of the last checkpoint. ``None``
             for a run whose row couldn't be read as a run.
@@ -62,11 +62,16 @@ class RunOutcome(BaseModel):
     progress: RunProgress | None
 
     @classmethod
-    def of(cls, run: Run[Any]) -> RunOutcome:
-        """The outcome of a run: what waits in it, its progress and, once it is complete, its outputs.
+    def of(cls, run: Run[Any], status: RunStatus) -> RunOutcome:
+        """The outcome of a run: what waits in it, its progress and, once its row says it is complete, its outputs.
+
+        A row's status can differ from its run's: a run that completes after a cancel was asked ends ``cancelled``,
+        and one given its queue as its resume call fails ends ``failed``. Its outputs show only once the row says
+        ``complete``, so a reader never sees outputs beside another status.
 
         Args:
             run: The run.
+            status: The status of the row the outcome is written with.
 
         Returns:
             Its outcome, each output written by its type as the run writes it.
@@ -74,7 +79,7 @@ class RunOutcome(BaseModel):
         Raises:
             InvalidCallError: An output can't be written as JSON (``run_unwritable``).
         """
-        outputs = from_json(run.outputs_to_json()) if run.status == "complete" else None
+        outputs = from_json(run.outputs_to_json()) if status == "complete" else None
         return cls(waiting=run.waiting, outputs=outputs, progress=run.progress)
 
 
@@ -215,9 +220,7 @@ class RunState(BaseModel):
             update={"status": run.status, "cause": run.cause, "queued": [], "cancel_asked": False}
         )
 
-    def ended_with(
-        self, run: Run[Any], saved: str, outcome: RunOutcome
-    ) -> tuple[RunState, str, RunOutcome]:
+    def ended_with(self, run: Run[Any], saved: str) -> tuple[RunState, str, RunOutcome]:
         """This state once a resume call stops and the run is given what was queued meanwhile, in the order it came.
 
         ``python -m conductor.about answers-and-declines`` has the queue's rules. A reply whose check raises
@@ -231,13 +234,12 @@ class RunState(BaseModel):
         A run that completes with a cancel asked ends ``cancelled``. The cancel came before the run's end was
         written, so the run ends as the cancel's answer said it would, even though its last calls were made: another
         worker hears a cancel only at its next checkpoint or lease renewal. Every call's outcome is kept, so a resume
-        makes no call and completes the run. Like any run that isn't complete, it shows no outputs until then. A run
+        makes no call and completes the run. Like any row that isn't complete, it shows no outputs until then. A run
         that ended early keeps how it ended, and the cancel is cleared.
 
         Args:
             run: The run the resume call returned.
             saved: ``run``, as JSON.
-            outcome: The row's outcome for ``run``.
 
         Returns:
             The new state, and the row's ``run`` (as JSON) and ``outcome`` to write with it.
@@ -245,14 +247,14 @@ class RunState(BaseModel):
         given, taken, refused = self._given_to(run)
         if given.status == "declined":
             ended = self.model_copy(update={"refused": refused}).declined(given)
-            return ended, given.to_json(), RunOutcome.of(given)
+            return ended, given.to_json(), RunOutcome.of(given, ended.status)
         # a cancel asked that the run didn't end on: this resume call heard it too late, or not at all
         unheard = self.cancel_asked and run.status != "cancelled"
+        status: RunStatus
         if taken or (unheard and run.status == "waiting"):
             status, cause, cancel_asked = "running", None, unheard
         elif unheard and run.status == "complete":
             status, cause, cancel_asked = "cancelled", _RUN_CANCELLED(), False
-            outcome = outcome.model_copy(update={"outputs": None})
         else:
             status, cause, cancel_asked = run.status, run.cause, False
         state = self.model_copy(
@@ -264,7 +266,7 @@ class RunState(BaseModel):
                 "cancel_asked": cancel_asked,
             }
         )
-        return state, given.to_json() if taken else saved, outcome
+        return state, given.to_json() if taken else saved, RunOutcome.of(run, status)
 
     def _given_to(self, run: Run[Any]) -> tuple[Run[Any], bool, dict[str, list[Problem]]]:
         """``run`` once it is given the queued replies, in the order they came.

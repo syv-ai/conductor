@@ -160,11 +160,10 @@ class HeldRun:
         # the run as it last stopped: a checkpoint changes only its progress
         stopped = row.outcome
         # the run as the row has it, which a failed run lists and is given its queue; nothing, until it is loaded
-        held = RunOutcome(waiting=[], outputs=None, progress=None)
         last: Run[Any] | None = None
         try:
             run = await asyncio.to_thread(row.loaded, settings.nodes_for(row.metadata))
-            held, last = await asyncio.to_thread(RunOutcome.of, run), run
+            last = run
             stream = run.stream(
                 context=settings.context_for(row.metadata, self._stop),
                 timeout=settings.resume_timeout,
@@ -177,16 +176,17 @@ class HeldRun:
             ):  # leaving it ends the call before its next node call
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
-                        saved = await asyncio.to_thread(event.run.to_json)
-                        held, last = await asyncio.to_thread(RunOutcome.of, event.run), event.run
-                        progressed = stopped.model_copy(update={"progress": held.progress})
+                        checkpoint = event.run
+                        saved, progress = await asyncio.to_thread(
+                            lambda: (checkpoint.to_json(), checkpoint.progress)
+                        )
+                        last = checkpoint
+                        progressed = stopped.model_copy(update={"progress": progress})
                         await self._write(run=saved, outcome=progressed)
                     elif isinstance(event, RunEnd):
                         returned = event.run
-                        saved, outcome = await asyncio.to_thread(
-                            lambda: (returned.to_json(), RunOutcome.of(returned))
-                        )
-                        return event, lambda state: state.ended_with(returned, saved, outcome)
+                        saved = await asyncio.to_thread(returned.to_json)
+                        return event, lambda state: state.ended_with(returned, saved)
                     elif not await self._store.add_event(
                         self.run_id, settings.worker_id, event.model_dump_json()
                     ):
@@ -207,9 +207,11 @@ class HeldRun:
 
         def failed(state: RunState) -> tuple[RunState, str | None, RunOutcome | None]:
             ended, given = state.failed(cause, last)
-            if given is None:
-                return ended, None, held
-            return ended, given.to_json(), RunOutcome.of(given)
+            if given is not None:
+                return ended, given.to_json(), RunOutcome.of(given, ended.status)
+            if last is None:
+                return ended, None, RunOutcome(waiting=[], outputs=None, progress=None)
+            return ended, None, RunOutcome.of(last, ended.status)
 
         return RunEnd(status="failed", cause=cause), failed
 

@@ -32,7 +32,7 @@ def _waiting() -> tuple[Any, str]:
 
 def _ended_with(state: RunState, run: Any) -> tuple[RunState, dict[str, Any]]:
     """The new state, and the row's ``run`` and ``outcome`` written with it."""
-    new, saved, outcome = state.ended_with(run, run.to_json(), RunOutcome.of(run))
+    new, saved, outcome = state.ended_with(run, run.to_json())
     return new, {"run": saved, "outcome": outcome}
 
 
@@ -47,7 +47,7 @@ def test_a_run_that_stopped_with_nothing_queued_takes_its_status() -> None:
         False,
         [],
     )
-    assert changes == {"run": run.to_json(), "outcome": RunOutcome.of(run)}
+    assert changes == {"run": run.to_json(), "outcome": RunOutcome.of(run, "waiting")}
 
 
 def test_a_queued_answer_the_run_takes_makes_it_running_again_with_the_answered_run() -> None:
@@ -155,7 +155,7 @@ def test_a_queued_decline_the_run_takes_ends_it_declined_and_writes_the_declined
 
     declined = run.with_decline(waiting_id, reason="No")
     assert (state.status, state.cause, state.queued) == ("declined", declined.cause, [])
-    assert changes == {"run": declined.to_json(), "outcome": RunOutcome.of(declined)}
+    assert changes == {"run": declined.to_json(), "outcome": RunOutcome.of(declined, "declined")}
     assert changes["outcome"].waiting == []
 
 

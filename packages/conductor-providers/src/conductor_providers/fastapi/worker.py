@@ -319,7 +319,8 @@ class Worker(Generic[M, X]):
 
             def given() -> tuple[RunState, str, RunOutcome]:
                 ended = run.with_decline(waiting_id, reason=reason)
-                return state.declined(ended), ended.to_json(), RunOutcome.of(ended)
+                declined = state.declined(ended)
+                return declined, ended.to_json(), RunOutcome.of(ended, declined.status)
 
             ended, saved, outcome = await asyncio.to_thread(given)
             return await self._store.update(row, state=ended, run=saved, outcome=outcome)
@@ -609,8 +610,9 @@ class Worker(Generic[M, X]):
             RuntimeError: The worker has never served.
         """
         self._check_served()
+        state = RunState.started()
         saved, outcome = await asyncio.to_thread(
-            lambda: (run.to_json(), RunOutcome.of(run).model_dump_json())
+            lambda: (run.to_json(), RunOutcome.of(run, state.status).model_dump_json())
         )
         holder = self._settings.holder()
         row = RunRow(
@@ -619,7 +621,7 @@ class Worker(Generic[M, X]):
             metadata_json=self._metadata.dump_json(metadata, by_alias=True).decode(),
             metadata_type=self._metadata,
             run=saved,
-            state=RunState.started(),
+            state=state,
             outcome_json=outcome,
             rev=0,
             owner=holder["owner"],

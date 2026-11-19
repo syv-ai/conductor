@@ -2447,6 +2447,55 @@ async def test_a_saved_run_that_cant_be_read_fails_the_run_and_lists_nothing_as_
     )
 
 
+async def test_a_graph_with_no_node_to_call_begins_running_with_no_outputs_and_shows_them_once_complete() -> (
+    None
+):
+    """The run is complete before its first resume call, but its row says ``running`` until that call ends, and a
+    row shows outputs only once it says ``complete``."""
+    store = MemoryStore()
+    worker = _worker(store, NodeRegistry())
+    async with worker.serving():
+        begun = await worker.begin(GraphRecord(nodes={}, outputs={}), {}, ANNA)
+        completed = await store.ended(begun.id)
+
+    assert (begun.status, begun.outputs) == ("running", None)
+    assert (completed.status, completed.outputs) == ("complete", {})
+
+
+async def test_a_queued_answer_that_completes_a_run_whose_resume_call_failed_shows_no_outputs() -> (
+    None
+):
+    """The run as the row has it takes the answer as the call fails, and every node is then complete. The row says
+    ``failed``, so it shows no outputs; a resume makes no call and completes it."""
+    registry = NodeRegistry()
+
+    @registry.node("sign", title="Sign", description="Asks for a signature.", asks=True)
+    def sign(document: str) -> bool:
+        raise Ask("Sign?")
+
+    graph = make_graph(sign, outputs={"signed": "sign.result"})
+    checkpoint = Graph.compile(graph, registry).run({"document": "x"})
+    (waiting,) = checkpoint.waiting
+    contexts: list[object] = []
+
+    def fails_once(metadata: object, stop: ThreadEvent) -> None:
+        contexts.append(metadata)
+        if len(contexts) == 1:
+            raise ConnectionError("the secrets service is down")
+
+    store = MemoryStore()
+    worker = _worker(store, registry, context=fails_once)
+    await store.create(left_running("left", graph, checkpoint, owner="a-dead-worker"))
+    await worker.answer("left", {waiting.id: True}, allows=EVERY_RUN)
+    async with worker.serving():
+        failed = await store.ended("left")
+        await worker.resume("left", allows=EVERY_RUN)
+        completed = await store.ended("left")
+
+    assert (failed.status, failed.outputs, failed.refused) == ("failed", None, {})
+    assert (completed.status, completed.outputs) == ("complete", {"signed": True})
+
+
 async def test_a_run_whose_end_the_store_fails_to_write_stays_running_and_is_resumed_once_its_lease_runs_out() -> (
     None
 ):
