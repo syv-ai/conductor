@@ -1,20 +1,21 @@
-"""The docs build's step for the illustrated pages: the data two of them show, written from the code.
+"""The docs build's step for the illustrated pages: the engine output some of them show, written from the code.
 
-``docs/explainers/problems.html`` shows every kind of problem, and ``docs/explainers/standard-nodes.html`` every node
-of ``conductor_nodes`` with one run of it. Neither page keeps that data: each has an empty
-``<script type="application/json">`` with an id, and this hook writes the data into it as the site is built. So a
-page opened straight from disk shows no catalogue or palette, and says where to find it.
+``problems.html`` shows every kind of problem, ``standard-nodes.html`` every node of ``conductor_nodes`` with one run
+of it, ``graph-record-and-compiling.html`` what compiling says of each broken record on its bench, and
+``series-and-tables.html`` each state of its loop, collecting and item-limit widgets. None of the pages keeps that
+data: each has an empty ``<script type="application/json">`` with an id, and this hook runs the code and writes what
+it gives into it as the site is built (``_DATA``). So a page opened straight from disk shows no such data, and says
+where to find it.
 
 ``mkdocs.yml`` names this file under ``hooks``.
 """
 
 from __future__ import annotations
 
-import ast
 import contextlib
+import copy
 import importlib.util
 import json
-import linecache
 import logging
 import os
 import re
@@ -29,7 +30,16 @@ from typing import Any
 
 import conductor_nodes
 import polars as pl
-from conductor import DECLARATION_PROBLEMS, PROBLEMS, Graph, NodeDeclarationError, ProblemKind
+from conductor import (
+    DECLARATION_PROBLEMS,
+    PROBLEMS,
+    Graph,
+    InvalidCallError,
+    NodeRegistry,
+    ProblemKind,
+    Series,
+    make_graph,
+)
 from conductor.about import problems_page
 from conductor.testing import REGISTRY_CHECK_PROBLEMS
 from mkdocs.structure.files import File, Files
@@ -59,48 +69,47 @@ def on_files(files: Files, config: Any) -> Files:
 
 
 def _filled(text: str) -> str:
-    for data_id, make in _DATA.items():
-        empty = f'<script type="application/json" id="{data_id}">[]</script>'
-        if empty in text:
-            data = json.dumps(make(), ensure_ascii=False, separators=(",", ":")).replace(
-                "</", "<\\/"
-            )
-            text = text.replace(
-                empty, f'<script type="application/json" id="{data_id}">{data}</script>'
-            )
-    return text
+    def written(match: re.Match[str]) -> str:
+        data = json.dumps(_DATA[match[1]](), ensure_ascii=False, separators=(",", ":"))
+        return (
+            f'<script type="application/json" id="{match[1]}">{data.replace("</", "<\\/")}</script>'
+        )
+
+    ids = "|".join(map(re.escape, _DATA))
+    return re.sub(
+        rf'<script type="application/json" id="({ids})">(?:\[\]|\{{\}})</script>', written, text
+    )
 
 
 def _catalogue() -> list[dict[str, Any]]:
     """Every kind of problem, as the problems page writes it, with what its example makes.
 
-    The text, the example and the setup the examples build on are read from the problems page, and each example is
-    run as ``tests/test_core/test_problems_page.py`` runs it.
+    Each example is run by ``run_problem_example`` in ``tests/test_core/doc_examples.py``, the runner
+    ``tests/test_core/test_problems_page.py`` checks the examples with, so the page and the test run them alike.
     """
-    page = problems_page()
-    setup = re.findall(r"```python\n(.*?)```", page, re.S)[0]
-    entries = {
-        code: body
-        for code, body in re.findall(r"^### `(\w+)`\n\n(.*?)(?=^#{2,3} |\Z)", page, re.S | re.M)
+    examples = _load("tests/test_core/doc_examples.py")
+    summaries = {
+        code: body.split("\n\n")[0].replace("\n", " ")
+        for code, body in re.findall(
+            r"^### `(\w+)`\n\n(.*?)(?=^#{2,3} |\Z)", problems_page(), re.S | re.M
+        )
     }
     kinds = []
     with _in_an_empty_directory():
         for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]:
-            body = entries[kind.code]
-            example = re.search(r"```python\n(.*?)```", body, re.S)
-            code = example[1].strip("\n") if example else ""
-            made, raised = _made(kind, setup, code)
+            ran = examples.run_problem_example(kind.code)
+            assert ran.made and all(p.type == kind.code for p in ran.made), (kind.code, ran.made)
             entry = {
                 "section": _SECTIONS[kind.section],
                 "code": kind.code,
-                "summary": body.split("\n\n")[0].replace("\n", " "),
+                "summary": summaries[kind.code],
                 "sentence": kind.sentence,
                 "ctx": _ctx_keys(kind),
-                "example": code,
-                "made": [_dumps(json.loads(p.model_dump_json())) for p in made],
+                "example": ran.example.strip("\n"),
+                "made": [_dumps(json.loads(p.model_dump_json())) for p in ran.made],
             }
-            if raised:
-                entry["raised"] = raised[:1]
+            if ran.raised:
+                entry["raised"] = ran.raised[:1]
             kinds.append(entry)
     return kinds
 
@@ -115,33 +124,6 @@ def _ctx_keys(kind: ProblemKind[...]) -> list[dict[str, Any]]:
         }
         for key, hint in hints.items()
     ]
-
-
-def _made(kind: ProblemKind[...], setup: str, example: str) -> tuple[list[Any], list[str]]:
-    """Runs a kind's example after the page's setup, and returns the problems it makes and any error it raised."""
-    page = ModuleType("problems_page")
-    sys.modules[page.__name__] = page
-    exec(compile(setup, "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own setup
-    raised: list[str] = []
-    refused = page.__dict__["declaration_refused"]
-
-    def declaration_refused(declare: Callable[[], object]) -> Any:
-        try:
-            declare()
-        except NodeDeclarationError as error:
-            raised.append(str(error))
-        return refused(declare)
-
-    page.__dict__["declaration_refused"] = declaration_refused
-    where = f"problems page: {kind.code}"
-    linecache.cache[where] = (len(example), None, example.splitlines(keepends=True), where)
-    *body, last = ast.parse(example).body
-    exec(compile(ast.Module(body=body, type_ignores=[]), where, "exec"), page.__dict__)  # noqa: S102
-    assert isinstance(last, ast.Expr), kind.code
-    made = eval(compile(ast.Expression(last.value), where, "eval"), page.__dict__)  # noqa: S307
-    made = made if isinstance(made, list) else [made]
-    assert made and all(p.type == kind.code for p in made), (kind.code, made)
-    return made, raised
 
 
 @contextlib.contextmanager
@@ -215,6 +197,7 @@ def _palette() -> list[dict[str, Any]]:
         assert not graph.problems, (node["id"], graph.problems)
         compiled = graph.describe().nodes[node["id"]]
         run = graph.run({})
+        assert run.status == "complete", (node["id"], run.status, run.cause)
         palette.append(
             {
                 "id": node["id"],
@@ -232,7 +215,7 @@ def _palette() -> list[dict[str, Any]]:
                     _field(i.field.model_dump(), full=False) for i in compiled.inputs
                 ],
                 "compiled_outputs": [_field(o.model_dump(), full=False) for o in compiled.outputs],
-                "status": str(run.status),
+                "status": run.status,
                 "results": {name: _shown(value) for name, value in run.results[node["id"]].items()},
             }
         )
@@ -240,12 +223,18 @@ def _palette() -> list[dict[str, Any]]:
 
 
 def _catalog_examples() -> dict[str, list[dict[str, Any]]]:
-    path = _ROOT / "tests" / "test_nodes" / "test_catalog.py"
-    spec = importlib.util.spec_from_file_location("test_catalog", path)
+    return _load("tests/test_nodes/test_catalog.py").EXAMPLES
+
+
+def _load(path: str) -> ModuleType:
+    """Imports a file of the repo by its path, since the docs build doesn't put ``tests`` on the import path."""
+    name = "explainers_" + Path(path).stem
+    spec = importlib.util.spec_from_file_location(name, _ROOT / path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # a dataclass in the file looks up its module by name
     spec.loader.exec_module(module)
-    return module.EXAMPLES
+    return module
 
 
 def _field(f: dict[str, Any], *, full: bool = True) -> dict[str, Any]:
@@ -278,8 +267,360 @@ def _shown(value: Any) -> Any:
     return value
 
 
+# The break-the-record bench of graph-record-and-compiling.html.
+
+
+def _bench_registry() -> NodeRegistry:
+    """Returns the registry the bench compiles against: lines, shout and join from the page, and count."""
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="Splits a text into lines.")
+    def lines(text: str) -> Series[str]:
+        return text.split("\n")
+
+    @registry.node("shout", title="Shout", description="Shouts one line.")
+    def shout(line: str, mark: str = "!") -> str:
+        return line.upper() + mark
+
+    @registry.node("join", title="Join", description="Joins texts with a plus.")
+    def join(texts: Series[str]) -> str:
+        return "+".join(texts)
+
+    @registry.node("count", title="Count", description="Counts the characters of a text.")
+    def count(text: str) -> int:
+        return len(text)
+
+    return registry
+
+
+def _bench_record() -> dict[str, Any]:
+    """Returns the page's example record, unbroken."""
+    return {
+        "nodes": {
+            "lines": {"node": "lines", "inputs": {"text": {"graph_input": "text"}}},
+            "shout": {
+                "node": "shout",
+                "inputs": {
+                    "line": {"sources": [{"node": "lines", "output": "result"}]},
+                    "mark": {"constant": "?"},
+                },
+            },
+            "join": {
+                "node": "join",
+                "inputs": {"texts": {"sources": [{"node": "shout", "output": "result"}]}},
+            },
+        },
+        "outputs": {"result": {"node": "join", "output": "result"}},
+    }
+
+
+def _bench_set(path: tuple[str, ...], value: Any) -> Callable[[dict[str, Any]], None]:
+    """Returns a change that sets the value at ``path`` in a record, keeping the place of a key already there."""
+
+    def change(record: dict[str, Any]) -> None:
+        *parents, last = path
+        place = record
+        for key in parents:
+            place = place[key]
+        place[last] = value
+
+    return change
+
+
+def _bench_two_edges(record: dict[str, Any]) -> None:
+    """Adds a node ``more`` and a second edge from it into ``shout.line``."""
+    record["nodes"]["shout"]["inputs"]["line"]["sources"].append(
+        {"node": "more", "output": "result"}
+    )
+    record["nodes"]["more"] = {"node": "lines", "inputs": {"text": {"graph_input": "text"}}}
+
+
+_BENCH_SHOUT = ("nodes", "shout")
+_BENCH_CASES: list[tuple[str, str, Callable[[dict[str, Any]], None]]] = [
+    ("base", "Nothing broken", lambda record: None),
+    ("unknown_node", "Misspell a node id", _bench_set((*_BENCH_SHOUT, "node"), "shuot")),
+    (
+        "unknown_version",
+        "Ask for a version that doesn't exist",
+        _bench_set((*_BENCH_SHOUT, "version"), 2),
+    ),
+    (
+        "edge_names_missing_node",
+        "Wire from a node that isn't there",
+        _bench_set(
+            (*_BENCH_SHOUT, "inputs", "line"), {"sources": [{"node": "liens", "output": "result"}]}
+        ),
+    ),
+    (
+        "unknown_output",
+        "Wire from an output that isn't there",
+        _bench_set(
+            (*_BENCH_SHOUT, "inputs", "line"), {"sources": [{"node": "lines", "output": "results"}]}
+        ),
+    ),
+    ("type_mismatch", "Wire an int into a str", _bench_set(("nodes", "lines", "node"), "count")),
+    (
+        "invalid_value",
+        "Give a constant of the wrong type",
+        _bench_set((*_BENCH_SHOUT, "inputs", "mark"), {"constant": 3}),
+    ),
+    (
+        "unknown_input",
+        "Give a constant to an input the node lacks",
+        _bench_set((*_BENCH_SHOUT, "inputs", "colour"), {"constant": "red"}),
+    ),
+    (
+        "input_has_no_value",
+        "Leave a required input empty",
+        _bench_set(("nodes", "lines"), {"node": "lines"}),
+    ),
+    ("several_edges_into_one_input", "Wire two edges into one input", _bench_two_edges),
+    (
+        "cycle",
+        "Close a loop of edges",
+        _bench_set(
+            ("nodes", "lines", "inputs", "text"),
+            {"sources": [{"node": "join", "output": "result"}]},
+        ),
+    ),
+    (
+        "graph_output_not_found",
+        "Declare a graph output that isn't there",
+        _bench_set(("outputs", "result"), {"node": "join", "output": "joined"}),
+    ),
+    (
+        "one_of_constant_graph_input_sources",
+        "Give an input two things at once",
+        _bench_set((*_BENCH_SHOUT, "inputs", "mark"), {"constant": "?", "graph_input": "mark"}),
+    ),
+    (
+        "not_a_name",
+        "Put a dot in a graph input's name",
+        _bench_set(("nodes", "lines", "inputs", "text"), {"graph_input": "my.text"}),
+    ),
+]
+
+
+def _breaks() -> list[dict[str, Any]]:
+    """Compiles each broken record of the page's bench and returns what the bench shows of it.
+
+    Each case is the page's example record with one thing changed. A record ``Graph.compile`` takes gives the graph's
+    repr, problems and, per node, what ``describe()`` says of it; a record it refuses gives the problems it raised.
+
+    Returns:
+        One dict per case, in the bench's order, with ``key``, ``label`` and ``record``, and either ``runnable``,
+        ``repr``, ``problems`` and ``nodes``, or ``raised``.
+    """
+    registry = _bench_registry()
+    found = []
+    for key, label, change in _BENCH_CASES:
+        record = _bench_record()
+        change(record)
+        entry: dict[str, Any] = {"key": key, "label": label, "record": copy.deepcopy(record)}
+        try:
+            graph = Graph.compile(record, registry)
+        except InvalidCallError as error:
+            entry["raised"] = [
+                {
+                    "type": p.type,
+                    "loc": list(p.loc),
+                    "msg": p.msg,
+                    "error": p.ctx["errors"][0]["type"],
+                }
+                for p in error.problems
+            ]
+            assert [fault["error"] for fault in entry["raised"]] == [key], (key, entry["raised"])
+        else:
+            entry["runnable"] = not graph.problems
+            entry["repr"] = repr(graph)
+            entry["problems"] = [
+                {"type": p.type, "loc": list(p.loc), "msg": p.msg} for p in graph.problems
+            ]
+            entry["nodes"] = {
+                node_id: {
+                    "found": described.found,
+                    "per_item_of": described.per_item_of,
+                    "inputs": {i.field.name: i.source.mode for i in described.inputs},
+                }
+                for node_id, described in graph.describe().nodes.items()
+            }
+            types = [p["type"] for p in entry["problems"]]
+            assert (key == "base") == (not types) and (key == "base" or key in types), (key, types)
+        found.append(entry)
+    return found
+
+
+# The loop, collecting and item-limit widgets of series-and-tables.html.
+
+
+def _widget_data() -> dict[str, Any]:
+    """Returns the states the three widgets of the page on series and tables show, from running each graph.
+
+    Returns:
+        A dict with ``loop`` (the loop widget, by ``"collect/<n>"`` or ``"per-item/<n>"``), ``collect`` (the
+        collecting widget, by which of three names have no email, as ``"010"``) and ``limit`` (the item-limit
+        widget, by ``"<text>/<max_items>"``).
+    """
+    return {"loop": _loop_states(), "collect": _collect_states(), "limit": _limit_states()}
+
+
+def _loop_states() -> dict[str, Any]:
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="Splits a text into lines.")
+    def lines(text: str) -> Series[str]:
+        return [] if text == "" else text.split("\n")
+
+    @registry.node("shout", title="Shout", description="Writes a line in capitals.")
+    def shout(line: str, mark: str = "!") -> str:
+        return line.upper() + mark
+
+    @registry.node("join", title="Join", description="Joins texts into one.")
+    def join(texts: Series[str]) -> str:
+        return " ".join(texts)
+
+    @registry.node("join-one", title="Join one", description="Wraps one text.")
+    def join_one(texts: str) -> str:
+        return f"<{texts}>"
+
+    states: dict[str, Any] = {}
+    for kind, last in (("collect", join), ("per-item", join_one)):
+        graph = Graph.compile(
+            make_graph(
+                lines,
+                shout,
+                last,
+                edges=[("lines.result", "shout.line"), ("shout.result", f"{last.id}.texts")],
+            ),
+            registry,
+        )
+        assert not graph.problems, graph.problems
+        per_item_of = {
+            node_id: node.per_item_of for node_id, node in graph.describe().nodes.items()
+        }
+        for n in range(6):
+            run = graph.run({"text": "\n".join("abcde"[:n])})
+            assert run.status == "complete", run.cause
+            calls = {
+                node_id: run.progress.nodes[node_id].finished
+                for node_id in ("lines", "shout", last.id)
+            }
+            assert calls["shout"] == n
+            states[f"{kind}/{n}"] = {
+                "per_item_of": per_item_of,
+                "shout": run.results["shout"]["result"],
+                "join": run.results[last.id]["result"],
+                "calls": calls,
+            }
+    return states
+
+
+def _collect_states() -> dict[str, Any]:
+    registry = NodeRegistry()
+    names_without_email: set[str] = set()
+
+    @registry.node("names", title="Names", description="Splits a text into names.")
+    def names(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("email", title="Email", description="Finds a name's email, if there is one.")
+    def email(name: str) -> str | None:
+        return None if name in names_without_email else f"{name.lower()}@a.dk"
+
+    @registry.node("pair", title="Pair", description="Pairs names with emails.")
+    def pair(names: Series[str], emails: Series[str]) -> list[str]:
+        return [f"{n} <{e}>" for n, e in zip(names, emails, strict=True)]
+
+    @registry.node("keep", title="Keep", description="Keeps the gaps.")
+    def keep(emails: Series[str | None]) -> list[str | None]:
+        return emails
+
+    graph = Graph.compile(
+        make_graph(
+            names,
+            email,
+            pair,
+            keep,
+            edges=[
+                ("names.result", "email.name"),
+                ("names.result", "pair.names"),
+                ("email.result", "pair.emails"),
+                ("email.result", "keep.emails"),
+            ],
+            outputs={"pair": "pair.result", "keep": "keep.result"},
+        ),
+        registry,
+    )
+    assert not graph.problems, graph.problems
+    every_name = ["Ida", "Bo", "Al"]
+    states: dict[str, Any] = {}
+    for mask in range(8):
+        key = format(mask, "03b")
+        names_without_email.clear()
+        names_without_email.update(
+            name for name, off in zip(every_name, key, strict=True) if off == "1"
+        )
+        run = graph.run({"text": ",".join(every_name)})
+        assert run.status == "complete", run.cause
+        assert len(run.outputs["pair"]) == key.count("0")
+        states[key] = {
+            "status": run.status,
+            "keep": run.outputs["keep"],
+            "pair": run.outputs["pair"],
+            "none_input_calls": [list(call.loc) for call in run.none_input_calls],
+        }
+    return states
+
+
+def _limit_states() -> dict[str, Any]:
+    registry = NodeRegistry()
+    shouted: list[str] = []
+
+    @registry.node("docs", title="Documents", description="Splits a text into documents.")
+    def docs(text: str) -> Series[str]:
+        return text.split("|")
+
+    @registry.node("lines", title="Lines", description="Splits a document into lines.")
+    def lines(doc: str) -> Series[str]:
+        return doc.split(",")
+
+    @registry.node("shout", title="Shout", description="Writes a line in capitals.")
+    def shout(line: str) -> str:
+        shouted.append(line)
+        return line.upper()
+
+    graph = Graph.compile(
+        make_graph(
+            docs, lines, shout, edges=[("docs.result", "lines.doc"), ("lines.result", "shout.line")]
+        ),
+        registry,
+    )
+    assert not graph.problems, graph.problems
+    states: dict[str, Any] = {}
+    for text in ("a,b|c,d|e,f", "a,b|c,d,e,f|g"):
+        for max_items in range(1, 6):
+            shouted.clear()
+            run = graph.run({"text": text}, max_items=max_items)
+            cause = run.cause
+            if run.status == "stopped":
+                assert cause is not None and cause.type == "item_limit", cause
+                assert not shouted
+            else:
+                assert run.status == "complete" and cause is None, cause
+            states[f"{text}/{max_items}"] = {
+                "status": run.status,
+                "loc": list(cause.loc) if cause else None,
+                "ctx": dict(cause.ctx) if cause else None,
+                "shout_calls": len(shouted),
+                "result": run.outputs["result"] if run.status == "complete" else None,
+            }
+    return states
+
+
 #: The data a page's empty ``<script type="application/json" id="...">`` gets, by its id.
-_DATA: dict[str, Callable[[], list[dict[str, Any]]]] = {
+_DATA: dict[str, Callable[[], Any]] = {
     "catalogue-data": _catalogue,
     "palette-data": _palette,
+    "breaks-data": _breaks,
+    "widget-data": _widget_data,
 }

@@ -19,12 +19,20 @@ apart, by ``explainer_samples``.
 
 from __future__ import annotations
 
+import ast
 import json
+import linecache
 import re
+import sys
+from ast import Expr, Expression, Module
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
+from conductor import NodeDeclarationError, Problem
 from conductor.about import problems_page
 
 ROOT = Path(__file__).parents[2]
@@ -183,3 +191,77 @@ def explainer_samples() -> dict[str, list[ExplainerSample]]:
         reader.feed(path.read_text())
         found[_module_name(path)] = reader.samples
     return found
+
+
+@dataclass
+class ProblemExample:
+    """What one kind's example on the problems page did when it ran.
+
+    Attributes:
+        example: The example's code.
+        made: The problems its last line gives.
+        raised: The text of each ``NodeDeclarationError`` the page's ``declaration_refused`` met while it ran.
+    """
+
+    example: str
+    made: list[Problem]
+    raised: list[str]
+
+
+def problem_examples() -> dict[str, str]:
+    """Returns the example of each kind of problem on the problems page, by the kind's code.
+
+    A kind's example is the first Python block in its section. A kind with no example gets an empty string.
+    """
+    examples = {}
+    for code, body in re.findall(r"^### `(\w+)`\n(.*?)(?=^##|\Z)", problems_page(), re.S | re.M):
+        block = re.search(r"```python\n(.*?)```", body, re.S)
+        examples[code] = block[1] if block else ""
+    return examples
+
+
+def run_problem_example(code: str) -> ProblemExample:
+    """Runs a kind's example on the problems page, after the page's setup, in the directory it is called in.
+
+    The page's setup is its first Python block. The example runs in a module of its own, named ``problems_page``, since
+    a dataclass in an example looks up its module by name. Its source can be read, as a file's can, so ``@node`` reads
+    it as it reads a file's. Its last line must be an expression, which gives the problems it made.
+
+    Args:
+        code: The kind's code.
+
+    Returns:
+        The example, the problems it made, and the declaration errors it raised on the way.
+    """
+    example = problem_examples()[code]
+    assert example, f"{code} has no example"
+    *body, last = ast.parse(example).body
+    assert isinstance(last, Expr), f"{code}: the example's last line gives its problems"
+    setup = re.findall(r"```python\n(.*?)```", problems_page(), re.S)[0]
+    page = ModuleType("problems_page")
+    before = sys.modules.get(page.__name__)
+    sys.modules[page.__name__] = page
+    where = f"problems page: {code}"
+    linecache.cache[where] = (len(example), None, example.splitlines(keepends=True), where)
+    try:
+        exec(compile(setup, "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
+        raised: list[str] = []
+        refused = page.__dict__["declaration_refused"]
+
+        def declaration_refused(declare: Callable[[], object]) -> Any:
+            try:
+                declare()
+            except NodeDeclarationError as error:
+                raised.append(str(error))
+            return refused(declare)
+
+        page.__dict__["declaration_refused"] = declaration_refused
+        exec(compile(Module(body=body, type_ignores=[]), where, "exec"), page.__dict__)  # noqa: S102
+        made = eval(compile(Expression(last.value), where, "eval"), page.__dict__)  # noqa: S307
+    finally:
+        linecache.cache.pop(where, None)
+        if before is None:
+            sys.modules.pop(page.__name__, None)
+        else:
+            sys.modules[page.__name__] = before
+    return ProblemExample(example, made if isinstance(made, list) else [made], raised)

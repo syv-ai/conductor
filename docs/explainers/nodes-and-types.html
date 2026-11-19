@@ -696,7 +696,7 @@ def measure(ok: bool) -> Celsius: ...
 
 for t in registry.describe().types:
     print(f"{t.id:12} {t.title:14} accepted_as={t.accepted_as}")</pre>
-      <pre class="out">temperature  Temperature    accepted_as=['temperature']
+      <pre class="out" id="accepted-as">temperature  Temperature    accepted_as=['temperature']
 int          Whole number   accepted_as=['int', 'float']
 float        Number         accepted_as=['float']
 str          Text           accepted_as=['str']
@@ -1399,11 +1399,18 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
   showShape(0);
 
   /* ======================= TYPE MATRIX ======================= */
-  const TYPES = ["temperature", "int", "float", "str", "bool", "celsius"];
-  const ACCEPTED = {
-    temperature: ["temperature"], int: ["int", "float"], float: ["float"],
-    str: ["str"], bool: ["bool"], celsius: ["temperature", "celsius"],
-  };
+  /* read from the checked output of the types sample: one line per type, "id  title  accepted_as=[...]" */
+  const acceptedOut = $("#accepted-as");
+  const acceptedLines = acceptedOut.querySelector(".ln")
+    ? Array.from(acceptedOut.querySelectorAll(".ln"), (l) => l.textContent)
+    : acceptedOut.textContent.split("\n");
+  const TYPES = [], ACCEPTED = {};
+  acceptedLines.forEach((line) => {
+    const m = line.match(/^(\S+)\s.*accepted_as=\[(.*)\]\s*$/);
+    if (!m) return;
+    TYPES.push(m[1]);
+    ACCEPTED[m[1]] = (m[2].match(/'([^']*)'/g) || []).map((q) => q.slice(1, -1));
+  });
   const matrix = $("#matrix");
   let html = '<thead><tr><th class="corner">from \\ into</th>' + TYPES.map((t) => "<th scope=\"col\">" + t + "</th>").join("") + "</tr></thead><tbody>";
   TYPES.forEach((src) => {

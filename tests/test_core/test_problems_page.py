@@ -8,18 +8,18 @@ each example on the page really makes the problem it sits under.
 from __future__ import annotations
 
 import ast
-import linecache
 import re
 import sys
-from ast import Call, Expr, Expression, Module, Name
+from ast import Call, Expr, Name
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemKind
-from conductor.about import problems_page
 from conductor.testing import REGISTRY_CHECK_PROBLEMS
 from pytest import MonkeyPatch
+
+from tests.test_core.doc_examples import problem_examples, run_problem_example
 
 _ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
@@ -68,19 +68,7 @@ def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
     return re.fullmatch(pattern, problem.msg, re.S) is not None
 
 
-def _examples(page: str) -> dict[str, str]:
-    """Returns the example of each kind of problem on the printed page, by the kind's code.
-
-    A kind's example is the first Python block in its section. A kind with no example gets an empty string.
-    """
-    examples = {}
-    for code, body in re.findall(r"^### `(\w+)`\n(.*?)(?=^##|\Z)", page, re.S | re.M):
-        block = re.search(r"```python\n(.*?)```", body, re.S)
-        examples[code] = block[1] if block else ""
-    return examples
-
-
-_PAGE_EXAMPLES = _examples(problems_page())
+_PAGE_EXAMPLES = problem_examples()
 
 #: Every kind with an example on the problems page.
 _KINDS = [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
@@ -95,21 +83,7 @@ def test_a_kinds_example_makes_its_problem_and_no_other(
     The example runs on its own, after the page's setup. Its last line gives the problems it made.
     """
     monkeypatch.chdir(tmp_path)
-    page = ModuleType("problems_page")  # a dataclass in an example looks up its module by name
-    monkeypatch.setitem(sys.modules, page.__name__, page)
-    example = _PAGE_EXAMPLES[kind.code]
-    assert example, f"{kind.code} has no example"
-    *body, last = ast.parse(example).body
-    assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
-    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
-    # The example's source can be read, as a file's or a notebook cell's can, so @node reads it as it reads theirs.
-    where = f"problems page: {kind.code}"
-    monkeypatch.setitem(
-        linecache.cache, where, (len(example), None, example.splitlines(keepends=True), where)
-    )
-    exec(compile(Module(body=body, type_ignores=[]), where, "exec"), page.__dict__)  # noqa: S102
-    made = eval(compile(Expression(last.value), where, "eval"), page.__dict__)  # noqa: S307
-    made = made if isinstance(made, list) else [made]
+    made = run_problem_example(kind.code).made
     assert made and [problem for problem in made if not _is_of_kind(kind, problem)] == []
 
 

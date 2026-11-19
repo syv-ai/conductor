@@ -541,7 +541,7 @@ complete {'result': 'A!+B!+C!'}
     <p class="eyebrow">Inside resume()</p>
     <h2 id="pass-h">One pass of the scheduler <span class="lvl int">Internal</span></h2>
     <p class="muted">You write none of this. It decides the order your nodes are called in.</p>
-    <p class="muted">The scheduler keeps a heap of calls to try, called <code class="int" title="Internal">ready</code>, ordered by each node's place in the blueprint. It takes the first, asks for its arguments, and makes the call if they are all there. Each outcome it records puts the calls that read it back on <code class="int" title="Internal">ready</code>. A call that collects a <a href="series-and-tables.html#loop">loop</a>, like <code>join</code>, also waits in <code class="int" title="Internal">collectors</code> until no call upstream of it is running for the same item.</p>
+    <p class="muted">The scheduler keeps a list of calls to try, ordered by each node's place in the graph. It takes the first, gathers its arguments, and makes the call if they are all there. Each outcome it stores puts the calls that read it on the list. A call that collects a <a href="series-and-tables.html#loop">loop</a>, like <code>join</code>, is set aside instead, until no call upstream of it is running for the same item.</p>
     <p class="muted">The steps are a trace of the real scheduler, with <code>{"text": "a\nb\nc"}</code>. Switch <code>shout</code>'s policy to see its calls on threads.</p>
   </div>
 
@@ -570,9 +570,9 @@ complete {'result': 'A!+B!+C!'}
           <g class="n" data-call="join ()"><rect class="n-box" x="380" y="80" width="126" height="50" rx="8"/><text class="d-label" x="443" y="102" text-anchor="middle">join ()</text><text class="n-val" x="443" y="120" text-anchor="middle"></text><text class="thread-tag" x="443" y="74" text-anchor="middle"></text></g>
         </svg>
         <div class="lanes">
-          <div class="lane"><span class="eyebrow">ready</span><div class="chips" id="lane-ready"></div></div>
+          <div class="lane"><span class="eyebrow">to try</span><div class="chips" id="lane-ready"></div></div>
           <div class="lane"><span class="eyebrow">running</span><div class="chips" id="lane-running"></div></div>
-          <div class="lane"><span class="eyebrow">collectors</span><div class="chips" id="lane-coll"></div></div>
+          <div class="lane"><span class="eyebrow">set aside</span><div class="chips" id="lane-coll"></div></div>
         </div>
         <p class="small">A dark outline is the call being tried. Warm is running, and dashed warm is made but waiting for a free place. Blue has an outcome. A call is written as the node and its item indexes.</p>
       </div>
@@ -1131,54 +1131,51 @@ complete</pre>
   const ALL = ["lines ()", "shout (0,)", "shout (1,)", "shout (2,)", "join ()"];
   const VAL = { "lines ()": "['a','b','c']", "shout (0,)": "'A!'", "shout (1,)": "'B!'", "shout (2,)": "'C!'", "join ()": "'A!+B!+C!'" };
   const OWN = [
-    { t: "Every call with no outcome goes on ready", c: "Scheduler.run() first checks the [item limit](series-and-tables.html#limit) (_check_item_limit). Then it puts every call with no outcome on ready (_put_every_call_on_ready). Only lines () and join () are known. shout has no calls yet, because how many there are depends on what lines returns.",
-      code: "ready = [lines (), join ()]", ready: ["lines ()", "join ()"], running: [], coll: [], s: {} },
-    { t: "lines () is first in the blueprint's order", c: "The heap gives the call of the node that comes first in the blueprint. Its one argument is the graph input text, so it's ready. lines has Policy(), so it's called right here, on the scheduler's own thread.",
-      code: "arguments_for(lines, ()) → {'text': 'a\\nb\\nc'}", ready: ["join ()"], running: [], coll: [], s: { "lines ()": "try" }, tag: { "lines ()": "own thread" } },
-    { t: "Done is recorded, and what reads it wakes", c: "_write_outcome writes the outcome. Then _make_downstream_ready puts the calls that read lines on ready. That is one call of shout per line, and join () a second time.",
-      code: "outcomes[('lines',)][()] = Done({'result': ['a', 'b', 'c']})", ready: ["shout (0,)", "shout (1,)", "shout (2,)", "join ()", "join ()"], running: [], coll: [], s: { "lines ()": "done" } },
-    { t: "shout (0,) is called and recorded", c: "shout comes before join in the blueprint, so its calls come off the heap first. The call reads item 0 of lines.result. join reads shout across the loop, so join () goes into collectors instead of ready.",
+    { t: "Every call with no outcome goes on the list to try", c: "First the scheduler checks that no series in the run is already over its [item limit](series-and-tables.html#limit). Then it puts every call that has no outcome on its list of calls to try. Only lines () and join () are known. shout has no calls yet, because how many there are depends on what lines returns.",
+      code: "to try: lines (), join ()", ready: ["lines ()", "join ()"], running: [], coll: [], s: {} },
+    { t: "lines () comes first in the graph's order", c: "The list gives back the call of the node that comes first in the graph. Its one argument is the graph input text, so it's ready. lines has Policy(), so it's called right here, on the scheduler's own thread.",
+      code: "lines(text='a\\nb\\nc') → ['a', 'b', 'c']", ready: ["join ()"], running: [], coll: [], s: { "lines ()": "try" }, tag: { "lines ()": "own thread" } },
+    { t: "The outcome is stored, and what reads it wakes", c: "The scheduler stores the call's outcome in the run. Then it puts the calls that read lines on the list to try: one call of shout per line, and join () a second time.",
+      code: "lines () → done, with ['a', 'b', 'c']", ready: ["shout (0,)", "shout (1,)", "shout (2,)", "join ()", "join ()"], running: [], coll: [], s: { "lines ()": "done" } },
+    { t: "shout (0,) is called and stored", c: "shout comes before join in the graph, so its calls come off the list first. The call reads item 0 of lines.result. join reads shout across the loop, so join () is set aside instead of tried at once.",
       code: "shout(line='a', mark='!') → 'A!'", ready: ["shout (1,)", "shout (2,)", "join ()", "join ()"], running: [], coll: ["join ()"], s: { "lines ()": "done", "shout (0,)": "done" }, tag: { "shout (0,)": "own thread" } },
     { t: "shout (1,) and shout (2,) follow", c: "The next two lines go the same way. Each call finishes before the next starts, since nothing here runs on threads.",
       code: "shout(line='b') → 'B!'   shout(line='c') → 'C!'", ready: ["join ()", "join ()"], running: [], coll: ["join ()"], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done" } },
-    { t: "join () comes off ready with its arguments there", c: "Every call of shout has an outcome, so arguments_for gives join the whole list. It's called on the scheduler's thread.",
+    { t: "join () comes off the list with its arguments there", c: "Every call of shout has an outcome, so join gets the whole list. It's called on the scheduler's thread.",
       code: "join(texts=['A!', 'B!', 'C!']) → 'A!+B!+C!'", ready: ["join ()"], running: [], coll: ["join ()"], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "try" }, tag: { "join ()": "own thread" } },
-    { t: "The second join () finds an outcome", c: "_start_if_ready returns at once for a call that already has an outcome. A call that has an outcome isn't made again.",
-      code: "item_indexes in outcomes[('join',)] → return", ready: [], running: [], coll: ["join ()"], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
-    { t: "Nothing is ready, so the collectors are released", c: "_when_nothing_is_ready puts join () back on ready, since no call upstream of it is running. Releasing a call counts as finding more to try, so the scheduler goes on.",
-      code: "_release_collectors() → True", ready: ["join ()"], running: [], coll: [], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
-    { t: "join () is tried again and has an outcome", c: "The released call is tried and finds its outcome, as before. Nothing goes on ready.",
-      code: "_start_if_ready(join, ()) → return", ready: [], running: [], coll: [], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
-    { t: "Nothing is ready or running, and the pass ends", c: "There is no collector, no running call and no call left out of turn. For a stream, this is when the listener looks for complete nodes, which is why lines completes after join has started. Scheduler.run() returns None, which means it didn't stop early. The copy is complete.",
+    { t: "The second join () finds an outcome", c: "A call that already has an outcome is passed over at once. A call is never made twice.",
+      code: "join () has an outcome: passed over", ready: [], running: [], coll: ["join ()"], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
+    { t: "Nothing is left to try, so the set-aside calls come back", c: "No call upstream of join () is running, so it goes back on the list. Bringing a call back counts as finding more to try, so the scheduler goes on.",
+      code: "join () back on the list", ready: ["join ()"], running: [], coll: [], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
+    { t: "join () is tried again and has an outcome", c: "The call comes off the list and finds its outcome, as before. Nothing new goes on the list.",
+      code: "join () has an outcome: passed over", ready: [], running: [], coll: [], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
+    { t: "Nothing is left or running, and the pass ends", c: "No call is set aside, running, or left for later. For a stream, this is when the listener looks for complete nodes, which is why lines completes after join has started. The scheduler returns without having stopped early, and the copy is complete.",
       code: "run.status → 'complete'   run.outputs → {'result': 'A!+B!+C!'}", ready: [], running: [], coll: [], s: { "lines ()": "done", "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" } },
   ];
   const D = (o) => Object.assign({ "lines ()": "done" }, o);
   const THR = [
     OWN[0], OWN[1], OWN[2],
-    { t: "shout (0,) goes to a pool thread", c: "With concurrency=2, shout is threaded. The attempt is handed to the pool, and the scheduler takes the next call at once.",
-      code: "pool.submit(_on_thread, attempt)", ready: ["shout (1,)", "shout (2,)", "join ()", "join ()"], running: ["shout (0,)"], coll: [], s: D({ "shout (0,)": "run" }), tag: { "shout (0,)": "thread" } },
-    { t: "shout (1,) takes the second place", c: "Two calls of shout may run at once, so this one starts on another thread.",
-      code: "running_calls.try_start(2, scheduler) → True", ready: ["shout (2,)", "join ()", "join ()"], running: ["shout (0,)", "shout (1,)"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
-    { t: "shout (2,) is made, but waits for a place", c: "Both places are taken. The attempt joins waiting_to_start. It counts as running, so nothing starts the same call again.",
-      code: "running_calls.try_start(2, scheduler) → False", ready: ["join ()", "join ()"], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
-    { t: "join () is tried twice and isn't ready", c: "shout has no outcomes yet, so arguments_for returns NOT_READY, and the call is dropped from ready. Nothing is lost, because the outcomes it waits for will bring it back.",
-      code: "arguments_for(join, ()) → NOT_READY", ready: [], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued", "join ()": "try" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
-    { t: "Nothing is ready, so the scheduler waits", c: "The scheduler waits on the returned queue. Only node functions run on pool threads. Outcomes are written here, on the scheduler's thread.",
-      code: "_wait() → returned.get()", ready: [], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
-    { t: "shout (0,) comes back, and shout (2,) starts", c: "The pool thread counts its call out, which wakes this run, and then hands back what the call returned. So the freed place goes to the waiting attempt first. Then the outcome is recorded, and join () goes into collectors. It stays there while a call upstream of it runs. Which call comes back first varies.",
-      code: "_wait: None → _start_every_waiting_call (shout (2,) starts); _wait: _call_returned → _write_outcome(shout, (0,), Done)", ready: [], running: ["shout (1,)", "shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "run", "shout (2,)": "run" }), tag: { "shout (1,)": "thread", "shout (2,)": "thread" } },
-    { t: "shout (1,) comes back", c: "It is recorded, in the same wait as shout (0,) or in the next one, since _take_news takes in every call that is back. join () stays in collectors, because shout (2,) is still running.",
-      code: "_release_collectors() → False", ready: [], running: ["shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "run" }), tag: { "shout (2,)": "thread" } },
-    { t: "shout (2,) comes back, and join () is released", c: "Nothing upstream of join is running now, so join () goes on ready. A collecting call isn't put back on ready after every item, only once its loop is quiet. join was tried before this, in step 7, and wasn't ready.",
-      code: "_release_collectors() → True", ready: ["join ()"], running: [], coll: [], s: D({ "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done" }) },
-    { t: "join () is called, and the pass ends", c: "join has Policy(), so it runs on the scheduler's own thread. Then nothing is ready and nothing is running, and Scheduler.run() returns.",
+    { t: "shout (0,) goes to a pool thread", c: "With concurrency=2, shout is called on threads. The call is handed to a pool thread, and the scheduler takes the next call at once.",
+      code: "shout (0,) → pool thread", ready: ["shout (1,)", "shout (2,)", "join ()", "join ()"], running: ["shout (0,)"], coll: [], s: D({ "shout (0,)": "run" }), tag: { "shout (0,)": "thread" } },
+    { t: "shout (1,) takes the second place", c: "Two calls of shout may run at once. The scheduler claims the node's second place for this call, and it starts on another thread.",
+      code: "places of shout taken: 2 of 2", ready: ["shout (2,)", "join ()", "join ()"], running: ["shout (0,)", "shout (1,)"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
+    { t: "shout (2,) is made, but waits for a place", c: "Both places are taken, so the call waits in line for one. It counts as running already, so nothing starts the same call again.",
+      code: "places of shout taken: 2 of 2, shout (2,) waits", ready: ["join ()", "join ()"], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
+    { t: "join () is tried twice and isn't ready", c: "shout has no outcomes yet, so a value join needs isn't there, and the call is dropped from the list. Nothing is lost, because the outcomes it waits for will bring it back.",
+      code: "join (): not ready yet", ready: [], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued", "join ()": "try" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
+    { t: "Nothing is left to try, so the scheduler waits", c: "The scheduler waits for a thread to hand back a call. Only node functions run on pool threads. Outcomes are stored here, on the scheduler's thread.",
+      code: "waiting for a thread", ready: [], running: ["shout (0,)", "shout (1,)", "shout (2,) waits"], coll: [], s: D({ "shout (0,)": "run", "shout (1,)": "run", "shout (2,)": "queued" }), tag: { "shout (0,)": "thread", "shout (1,)": "thread" } },
+    { t: "shout (0,) comes back, and shout (2,) starts", c: "The pool thread gives up its place first, which wakes the scheduler, and then hands back what the call returned. So the freed place goes to the waiting call first. Then the outcome is stored, and join () is set aside. It stays aside while a call upstream of it runs. Which call comes back first varies.",
+      code: "shout (2,) starts on the freed place; shout (0,) → done, with 'A!'", ready: [], running: ["shout (1,)", "shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "run", "shout (2,)": "run" }), tag: { "shout (1,)": "thread", "shout (2,)": "thread" } },
+    { t: "shout (1,) comes back", c: "It is stored in the same wait as shout (0,) or in the next one, since the scheduler takes in every call that is back. join () stays aside, because shout (2,) is still running.",
+      code: "join () stays aside", ready: [], running: ["shout (2,)"], coll: ["join ()"], s: D({ "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "run" }), tag: { "shout (2,)": "thread" } },
+    { t: "shout (2,) comes back, and join () comes back to the list", c: "Nothing upstream of join is running now, so join () goes back on the list. A collecting call isn't tried after every item, only once its loop is quiet. join was tried before this, in step 7, and wasn't ready.",
+      code: "join () back on the list", ready: ["join ()"], running: [], coll: [], s: D({ "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done" }) },
+    { t: "join () is called, and the pass ends", c: "join has Policy(), so it runs on the scheduler's own thread. Then nothing is left to try and nothing is running, and the scheduler returns.",
       code: "join(texts=['A!', 'B!', 'C!']) → 'A!+B!+C!'", ready: [], running: [], coll: [], s: D({ "shout (0,)": "done", "shout (1,)": "done", "shout (2,)": "done", "join ()": "done" }), tag: { "join ()": "own thread" } },
   ];
-  /* Internal names in a step's text are shown as internal code. */
-  const INTERNAL = /(Scheduler\.run\(\)|\b_[a-z][a-z_]*\b|\barguments_for\b|\bNOT_READY\b|\bwaiting_to_start\b)/g;
   /* A [text](url) link to another page of the series becomes an <a>; the rest stays escaped. */
-  const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
-  const marked = (t) => linked(t).replace(INTERNAL, '<code class="int" title="Internal">$1</code>');
+  const marked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
   let steps = OWN, cur = 0, timer = null;
   const text = $("#stage-text"), svg = $("#walk-svg");
   function chips(el, list, cls) {

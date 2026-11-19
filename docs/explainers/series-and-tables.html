@@ -1121,8 +1121,9 @@ for max_items in (2, 3, 4):
 </div>
 </div>
 
+<script type="application/json" id="widget-data">{}</script>
 <script>
-const DATA = {"loop":{"collect/0":{"per_item_of":{"join":null,"lines":null,"shout":"lines.result"},"shout":[],"join":"","calls":{"lines":1,"shout":0,"join":1}},"collect/1":{"per_item_of":{"join":null,"lines":null,"shout":"lines.result"},"shout":["A!"],"join":"A!","calls":{"lines":1,"shout":1,"join":1}},"collect/2":{"per_item_of":{"join":null,"lines":null,"shout":"lines.result"},"shout":["A!","B!"],"join":"A! B!","calls":{"lines":1,"shout":2,"join":1}},"collect/3":{"per_item_of":{"join":null,"lines":null,"shout":"lines.result"},"shout":["A!","B!","C!"],"join":"A! B! C!","calls":{"lines":1,"shout":3,"join":1}},"collect/4":{"per_item_of":{"join":null,"lines":null,"shout":"lines.result"},"shout":["A!","B!","C!","D!"],"join":"A! B! C! D!","calls":{"lines":1,"shout":4,"join":1}},"collect/5":{"per_item_of":{"join":null,"lines":null,"shout":"lines.result"},"shout":["A!","B!","C!","D!","E!"],"join":"A! B! C! D! E!","calls":{"lines":1,"shout":5,"join":1}},"per-item/0":{"per_item_of":{"join-one":"lines.result","lines":null,"shout":"lines.result"},"shout":[],"join":[],"calls":{"lines":1,"shout":0,"join-one":0}},"per-item/1":{"per_item_of":{"join-one":"lines.result","lines":null,"shout":"lines.result"},"shout":["A!"],"join":["<A!>"],"calls":{"lines":1,"shout":1,"join-one":1}},"per-item/2":{"per_item_of":{"join-one":"lines.result","lines":null,"shout":"lines.result"},"shout":["A!","B!"],"join":["<A!>","<B!>"],"calls":{"lines":1,"shout":2,"join-one":2}},"per-item/3":{"per_item_of":{"join-one":"lines.result","lines":null,"shout":"lines.result"},"shout":["A!","B!","C!"],"join":["<A!>","<B!>","<C!>"],"calls":{"lines":1,"shout":3,"join-one":3}},"per-item/4":{"per_item_of":{"join-one":"lines.result","lines":null,"shout":"lines.result"},"shout":["A!","B!","C!","D!"],"join":["<A!>","<B!>","<C!>","<D!>"],"calls":{"lines":1,"shout":4,"join-one":4}},"per-item/5":{"per_item_of":{"join-one":"lines.result","lines":null,"shout":"lines.result"},"shout":["A!","B!","C!","D!","E!"],"join":["<A!>","<B!>","<C!>","<D!>","<E!>"],"calls":{"lines":1,"shout":5,"join-one":5}}},"collect":{"000":{"status":"complete","keep":["ida@a.dk","bo@a.dk","al@a.dk"],"pair":["Ida <ida@a.dk>","Bo <bo@a.dk>","Al <al@a.dk>"],"none_input_calls":[]},"001":{"status":"complete","keep":["ida@a.dk","bo@a.dk",null],"pair":["Ida <ida@a.dk>","Bo <bo@a.dk>"],"none_input_calls":[]},"010":{"status":"complete","keep":["ida@a.dk",null,"al@a.dk"],"pair":["Ida <ida@a.dk>","Al <al@a.dk>"],"none_input_calls":[]},"011":{"status":"complete","keep":["ida@a.dk",null,null],"pair":["Ida <ida@a.dk>"],"none_input_calls":[]},"100":{"status":"complete","keep":[null,"bo@a.dk","al@a.dk"],"pair":["Bo <bo@a.dk>","Al <al@a.dk>"],"none_input_calls":[]},"101":{"status":"complete","keep":[null,"bo@a.dk",null],"pair":["Bo <bo@a.dk>"],"none_input_calls":[]},"110":{"status":"complete","keep":[null,null,"al@a.dk"],"pair":["Al <al@a.dk>"],"none_input_calls":[]},"111":{"status":"complete","keep":[null,null,null],"pair":[],"none_input_calls":[]}},"limit":{"a,b|c,d|e,f/1":{"status":"stopped","loc":["docs"],"ctx":{"series":"docs.result","items":3,"max_items":1},"shout_calls":0,"result":null},"a,b|c,d|e,f/2":{"status":"stopped","loc":["docs"],"ctx":{"series":"docs.result","items":3,"max_items":2},"shout_calls":0,"result":null},"a,b|c,d|e,f/3":{"status":"complete","loc":null,"ctx":null,"shout_calls":6,"result":[["A","B"],["C","D"],["E","F"]]},"a,b|c,d|e,f/4":{"status":"complete","loc":null,"ctx":null,"shout_calls":6,"result":[["A","B"],["C","D"],["E","F"]]},"a,b|c,d|e,f/5":{"status":"complete","loc":null,"ctx":null,"shout_calls":6,"result":[["A","B"],["C","D"],["E","F"]]},"a,b|c,d,e,f|g/1":{"status":"stopped","loc":["docs"],"ctx":{"series":"docs.result","items":3,"max_items":1},"shout_calls":0,"result":null},"a,b|c,d,e,f|g/2":{"status":"stopped","loc":["docs"],"ctx":{"series":"docs.result","items":3,"max_items":2},"shout_calls":0,"result":null},"a,b|c,d,e,f|g/3":{"status":"stopped","loc":["lines",1],"ctx":{"series":"lines.result","items":4,"max_items":3},"shout_calls":0,"result":null},"a,b|c,d,e,f|g/4":{"status":"complete","loc":null,"ctx":null,"shout_calls":7,"result":[["A","B"],["C","D","E","F"],["G"]]},"a,b|c,d,e,f|g/5":{"status":"complete","loc":null,"ctx":null,"shout_calls":7,"result":[["A","B"],["C","D","E","F"],["G"]]}}};
+const DATA = JSON.parse(document.getElementById("widget-data").textContent);
 (function () {
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
@@ -1173,6 +1174,12 @@ const DATA = {"loop":{"collect/0":{"per_item_of":{"join":null,"lines":null,"shou
     svg.append(el("path", { class: "d-edge" + (live && !reduced ? " live" : ""), d: `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}` }));
   }
 
+  /* a widget's states are written in from the code when the docs are built; opened from disk, it says so */
+  function show(key, inside, draw) {
+    if (DATA[key]) { draw(); return; }
+    $(inside).closest(".widget").innerHTML = '<p class="small">This widget\'s states are written in from the code when the docs are built. Open the built docs to try it.</p>';
+  }
+
   /* ======================= THE LOOP ======================= */
   let loopKind = "collect";
   function drawLoop() {
@@ -1213,7 +1220,7 @@ const DATA = {"loop":{"collect/0":{"per_item_of":{"join":null,"lines":null,"shou
   $("#loop-n").addEventListener("input", drawLoop);
   $("#loop-collect").addEventListener("click", () => segLoop("collect"));
   $("#loop-per").addEventListener("click", () => segLoop("per-item"));
-  drawLoop();
+  show("loop", "#loop-n", drawLoop);
 
   /* ======================= ITEM INDEXES ======================= */
   const CALLS = [
@@ -1278,7 +1285,7 @@ const DATA = {"loop":{"collect/0":{"per_item_of":{"join":null,"lines":null,"shou
     $("#col-pair").textContent = py(d.pair);
     $("#col-keep").textContent = py(d.keep);
   }
-  drawCol();
+  show("collect", "#col-chips", drawCol);
 
   /* ======================= THE ITEM LIMIT ======================= */
   let text = "a,b|c,d|e,f";
@@ -1295,7 +1302,7 @@ const DATA = {"loop":{"collect/0":{"per_item_of":{"join":null,"lines":null,"shou
   $("#lim-t1").addEventListener("click", () => segLim("a,b|c,d|e,f", "#lim-t1"));
   $("#lim-t2").addEventListener("click", () => segLim("a,b|c,d,e,f|g", "#lim-t2"));
   $("#lim-m").addEventListener("input", drawLim);
-  drawLim();
+  show("limit", "#lim-m", drawLim);
 })();
 </script>
 
