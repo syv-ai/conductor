@@ -616,7 +616,23 @@ run = run.with_answers(waiting, {"approved": True, "owner": "ida"}).resume()  # 
 print(run.outputs)  # {'approved': True, 'note': None, 'owner': 'ida'}
 ```
 
-The answer becomes the node's outputs, and the node isn't called again for that call. `note` has a default, so the answer could leave it out. An answer that doesn't fit its question is refused before anything runs.
+The answer becomes the node's outputs, and the node isn't called again for that call. `note` has a default, so the answer could leave it out. An answer that doesn't fit its questions is refused before anything runs, with every fault at once: one [`invalid_answer`](problems.md#invalid_answer) per wrong question, whose `ctx.errors` has pydantic's codes (`bool_type`, `not_a_choice`, `extra_forbidden`):
+
+```python
+from conductor import InvalidCallError
+
+try:
+    run = Run.from_json(stored, graph)
+    run.with_answers(run.waiting[0], {"approved": "yes", "owner": "al", "colour": "red"})
+except InvalidCallError as refused:
+    for problem in refused.problems:
+        print(problem.msg)
+    # That isn't a valid answer to 'approved': Input should be a valid boolean.
+    # That isn't a valid answer to 'owner': the value is not "ida" or "bo".
+    # That isn't a valid answer to 'colour': there is no such question.
+```
+
+An `Ask` whose choices or default don't fit fails the node the same way, with one [`invalid_ask`](problems.md#invalid_ask) that lists every fault.
 
 `Ask` is a `BaseException`, not an `Exception`, so an `except Exception` in your node doesn't catch it by mistake. What each return type asks, and the rules for answers, are in `python -m conductor.about asking-a-person`.
 

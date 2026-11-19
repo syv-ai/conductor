@@ -160,17 +160,20 @@ def node_error(*loc: str | int) -> str:
 
 
 @RUN_PROBLEMS.problem
-def invalid_ask(*loc: str | int, reason: str) -> str:
+def invalid_ask(*loc: str | int, reason: str, errors: list[dict[str, Any]]) -> str:
     """A node raised an ``Ask`` whose choices or default don't fit the node's outputs.
 
     The answer to an ``Ask`` becomes the node's outputs. So its choices and its default must be values the outputs'
-    types take. In the example, ``confirm`` returns a ``bool``, and ``"maybe"`` isn't one.
+    types take, and the default an answer a person could give. In the example, ``confirm`` returns a ``bool``, and
+    ``"maybe"`` isn't one. Every fault is reported at once, in ``ctx.errors``, each ``loc`` starting with
+    ``choices`` or ``default``, then the output's name, then a choice's index.
 
-    To fix it, fix the ``Ask``. ``ctx.reason`` says which part doesn't fit.
+    To fix it, fix the ``Ask``. ``ctx.reason`` says which part doesn't fit first.
 
     Args:
         loc: The call that asked.
-        reason: What is wrong with the question.
+        reason: Which part of the ``Ask`` is wrong first, and why.
+        errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting a value.
 
     Example:
         @registry.node("confirm", title="Confirm", description="Asks a person to confirm.", asks=True)

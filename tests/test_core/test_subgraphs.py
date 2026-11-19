@@ -1056,7 +1056,9 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     assert refused.value.problems[1].ctx["current"] == second
     with pytest.raises(InvalidCallError) as twice:
         run.with_answers({first: "a", "e@0/q": "b"})
-    assert [(p.type, p.loc) for p in twice.value.problems] == [("answer_given_twice", ("e", 0, "q"))]
+    assert [(p.type, p.loc) for p in twice.value.problems] == [
+        ("answer_given_twice", ("e", 0, "q"))
+    ]
     assert run.with_answers("e@1/q", "by place").resume().results["e"]["result"] == [
         None,
         "by place",

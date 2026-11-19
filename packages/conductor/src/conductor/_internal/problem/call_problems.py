@@ -228,25 +228,37 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
 
 @CALL_PROBLEMS.problem
 def invalid_answer(
-    *loc: str | int, waiting_id: str, reason: str, question: str | None = None
+    *loc: str | int,
+    waiting_id: str,
+    reason: str,
+    errors: list[dict[str, Any]],
+    question: str | None = None,
+    column: str | None = None,
 ) -> str:
-    """An answer isn't a value of the type the question takes.
+    """An answer isn't a value of the type the question takes, or doesn't fit the questions the call asked.
 
-    Answers are checked the way their JSON would be, so a yes or no is ``true``, not ``"yes"``.
+    Answers are checked the way their JSON would be, so a yes or no is ``true``, not ``"yes"``. Every fault is
+    reported at once: one problem per question that is wrong, and one for the answer as a whole, such as no mapping
+    where there are several questions, or two branches answered. ``ctx.errors`` has each fault with pydantic's code,
+    such as ``bool_type``, ``missing`` for a question left out, ``extra_forbidden`` for a name that isn't a question,
+    ``not_a_choice`` or ``several_branches_given``, and a ``loc`` inside the question's value.
 
     To fix it, answer with a value of the question's type.
 
     Args:
         loc: The node and the item indexes of the call the answer is for.
         waiting_id: The waiting id the answer was given for.
-        reason: What is wrong with the answer.
+        reason: What is wrong with the answer: the first error's message.
+        errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the answer.
         question: For a node that asks several questions, one per output, the name of the question that is wrong.
+        column: For a table, the column of the first value refused.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         refused(lambda: waiting.with_answers(waiting.waiting[0].id, "yes"))
     """
-    return f"That isn't a valid answer: {reason.rstrip('.')}."
+    to = f" to '{question}'" if question is not None else ""
+    return f"That isn't a valid answer{to}: {reason.rstrip('.')}."
 
 
 @CALL_PROBLEMS.problem

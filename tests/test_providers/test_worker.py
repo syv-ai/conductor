@@ -1916,7 +1916,17 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
         [
             (
                 "invalid_answer",
-                {"waiting_id": waiting.id, "reason": "The value did not pass its type's own check"},
+                {
+                    "waiting_id": waiting.id,
+                    "reason": "The value did not pass its type's own check",
+                    "errors": [
+                        {
+                            "type": "value_error",
+                            "loc": [],
+                            "msg": "The value did not pass its type's own check",
+                        }
+                    ],
+                },
             )
         ],
     )

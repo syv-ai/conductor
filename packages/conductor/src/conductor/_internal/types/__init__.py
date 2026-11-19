@@ -15,8 +15,8 @@ from .choice import (
     check_one_of,
     choice_texts,
     choices_in_message,
+    choices_schema,
     pick_texts,
-    read_choices,
 )
 from .fit import fit
 from .hint import a_number, hint_parts, substituted, union_members, union_of
@@ -38,6 +38,7 @@ __all__ = [
     "check_one_of",
     "choice_texts",
     "choices_in_message",
+    "choices_schema",
     "field_of",
     "fit",
     "hint_parts",
@@ -46,7 +47,6 @@ __all__ = [
     "json_by_its_class",
     "merged_param",
     "pick_texts",
-    "read_choices",
     "split_hint",
     "substituted",
     "union_members",

@@ -502,9 +502,10 @@ class Run[C]:
 
         A server can't give a running run an answer or a decline, so it queues them as JSON until the run stops.
         Each answer becomes the JSON data ``run.with_answers`` reads it from, and each reason the text
-        ``run.with_decline`` keeps. What JSON can't write is refused now, with the very problem ``run.with_answers``
-        or ``run.with_decline`` gives it, since those two take each value through the same step. What depends on the
-        question, such as an answer of the wrong type, is checked when the run is given the data.
+        ``run.with_decline`` keeps. What JSON can't write is refused now: a reason with the very problem
+        ``run.with_decline`` gives it, and an answer as a whole, since its questions aren't known here
+        (``run.with_answers`` refuses the same value at its question). What depends on the question, such as an
+        answer of the wrong type, is checked when the run is given the data.
 
         It is provisional: the name and shape may change before 2.0.
 

@@ -13,6 +13,7 @@ node that needs the answer gets it through an edge from the node that asked.
 
 import datetime
 import json
+import math
 import re
 import sys
 import time
@@ -682,14 +683,28 @@ def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_a
         "due": [datetime.date(2026, 12, 1), datetime.date(2027, 1, 1)],
     }
     faults = _refused(lambda: run.with_answers("q@0", {"amount": "lots", "colour": "red"}))
-    assert [(f.ctx.get("question"), f.msg) for f in faults] == [
-        ("colour", "That isn't a valid answer: there is no question 'colour'."),
-        ("approved", "That isn't a valid answer: 'approved' has no answer."),
-        ("amount", "That isn't a valid answer: 'amount': Input should be a valid number."),
+    assert [(f.ctx.get("question"), f.msg, f.ctx["errors"][0]["type"]) for f in faults] == [
+        (
+            "approved",
+            "That isn't a valid answer to 'approved': the question has no answer.",
+            "missing",
+        ),
+        (
+            "amount",
+            "That isn't a valid answer to 'amount': Input should be a valid number.",
+            "float_type",
+        ),
+        (
+            "colour",
+            "That isn't a valid answer to 'colour': there is no such question.",
+            "extra_forbidden",
+        ),
     ]
-    assert (
-        _refused(lambda: run.with_answers("q@0", True))[0].msg
-        == "That isn't a valid answer: the answer isn't a mapping of approved, amount, note, due, one value per question."
+    (whole,) = _refused(lambda: run.with_answers("q@0", True))
+    assert (whole.msg, whole.ctx.get("question"), whole.ctx["errors"][0]["type"]) == (
+        "That isn't a valid answer: Input should be a valid dictionary.",
+        None,
+        "dict_type",
     )
 
 
@@ -902,7 +917,7 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_checked_agai
     assert [
         f.msg for f in _refused(lambda: run.with_answers("q", {"note": "fine", "escalate": "ceo"}))
     ] == [
-        'That isn\'t a valid answer: \'escalate\': the value is not "boss" or "team".',
+        'That isn\'t a valid answer to \'escalate\': the value is not "boss" or "team".',
     ]
 
 
@@ -1329,11 +1344,11 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
     [
         (
             lambda: Ask("?", default=3),
-            "the default for 'result' isn't an answer a person could give (Input should be a valid string)",
+            "the default for 'result' is wrong (Input should be a valid string)",
         ),
         (
             lambda: Ask("?", default=SKIPPED),
-            "the default for 'result' isn't an answer a person could give (the value can't be written as JSON)",
+            "the default for 'result' is wrong (the value can't be written as JSON)",
         ),
         (
             lambda: Ask("?", choices=["a", 2]),
@@ -1341,7 +1356,7 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         (
             lambda: Ask("?", choices=["a"], default="b"),
-            "the default for 'result' isn't an answer a person could give (the value is not \"a\")",
+            "the default for 'result' is wrong (the value is not \"a\")",
         ),
         (
             lambda: Ask("?", choices=["a", object()]),
@@ -1361,7 +1376,7 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         (
             lambda: Ask("?", choices={"result": ["a"]}),
-            "the node has one output, so choices= is a list, not a mapping",
+            "the choices for 'result' are wrong (Input should be a valid list)",
         ),
     ],
 )
@@ -1423,28 +1438,129 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
 
 
 @pytest.mark.parametrize(
-    ("ask", "reason"),
+    ("ask", "error"),
     [
-        (
-            lambda: Ask("?", default="a"),
-            "the node has 2 outputs, so default= must be a mapping by output name",
-        ),
-        (
-            lambda: Ask("?", default={"stay": "a"}),
-            "default= names 'stay', which isn't an output. The outputs are keep, drop",
-        ),
-        (
-            lambda: Ask("?", choices=["a"]),
-            "the node has 2 outputs, so choices= must be a mapping by output name",
-        ),
+        (lambda: Ask("?", default="a"), ("dict_type", ["default"])),
+        (lambda: Ask("?", default={"stay": "a"}), ("extra_forbidden", ["default", "stay"])),
+        (lambda: Ask("?", choices=["a"]), ("dict_type", ["choices"])),
+        (lambda: Ask("?", choices={"stay": ["a"]}), ("extra_forbidden", ["choices", "stay"])),
     ],
 )
-def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
+def test_a_node_of_several_outputs_asks_by_output_name(ask, error):
     @node("wrong", title="Wrong", description="For a test.", asks=True)
     def wrong() -> Route:
         raise ask()
 
-    assert _once(wrong)[1].cause.ctx["reason"] == reason
+    cause = _once(wrong)[1].cause
+    assert [(e["type"], e["loc"]) for e in cause.ctx["errors"]] == [error]
+
+
+def test_an_answer_reports_every_fault_of_every_question_and_the_branch_rule_in_one_pass():
+    @dataclass(frozen=True)
+    class Sorted:
+        note: str
+        count: int = 0
+        keep: str = SKIPPED
+        drop: str = SKIPPED
+
+    @node("sort", title="Sort", description="For a test.", asks=True)
+    def sort() -> Sorted:
+        raise Ask("?")
+
+    _, run = _once(sort)
+    faults = _refused(
+        lambda: run.with_answers("q", {"count": "3", "keep": 1, "drop": "b", "colour": "red"})
+    )
+    assert [
+        (f.ctx.get("question"), [(e["type"], e["loc"]) for e in f.ctx["errors"]]) for f in faults
+    ] == [
+        ("note", [("missing", [])]),
+        ("count", [("int_type", [])]),
+        ("keep", [("string_type", [])]),
+        ("colour", [("extra_forbidden", [])]),
+        (None, [("several_branches_given", [])]),
+    ]
+    assert faults[-1].ctx["errors"][0]["ctx"] == {"given": ["keep", "drop"]}
+
+
+def test_a_return_an_answer_and_an_asks_default_refuse_two_branches_alike():
+    @node("given", title="Given", description="For a test.")
+    def given() -> Route:
+        return Route(keep="a", drop="b")
+
+    @node("asked", title="Asked", description="For a test.", asks=True)
+    def asked() -> Route:
+        raise Ask("?")
+
+    @node("proposed", title="Proposed", description="For a test.", asks=True)
+    def proposed() -> Route:
+        raise Ask("?", default={"keep": "a", "drop": "b"})
+
+    returned = _once(given)[1].cause
+    (answered,) = _refused(lambda: _once(asked)[1].with_answers("q", {"keep": "a", "drop": "b"}))
+    (default,) = _once(proposed)[1].cause.ctx["errors"]
+    branch = answered.ctx["errors"][0]
+    assert (branch["type"], branch["ctx"], default["type"], default["ctx"]) == (
+        "several_branches_given",
+        {"given": ["keep", "drop"]},
+        "several_branches_given",
+        {"given": ["keep", "drop"]},
+    )
+    assert returned.ctx["reason"] == branch["msg"] == default["msg"]
+
+
+def test_an_answer_by_name_may_be_any_mapping_and_each_value_is_read_from_its_json_form():
+    from types import MappingProxyType
+
+    @node("sort", title="Sort", description="For a test.", asks=True)
+    def sort() -> Route:
+        raise Ask("?")
+
+    _, run = _once(sort)
+    assert run.with_answers("q", MappingProxyType({"keep": "a"})).resume().outputs == {
+        "keep": "a",
+        "drop": None,
+    }
+    for value, error in (("\ud800", "no_json_form"), ({"a"}, "set_has_no_order")):
+        (fault,) = _refused(lambda value=value: run.with_answers("q", {"keep": value}))
+        assert (fault.ctx["question"], fault.ctx["errors"][0]["type"]) == ("keep", error)
+
+
+def test_a_number_answer_that_isnt_finite_is_refused_at_its_question():
+    @dataclass(frozen=True)
+    class Measure:
+        size: float
+        note: str = ""
+
+    @node("measure", title="Measure", description="For a test.", asks=True)
+    def measure() -> Measure:
+        raise Ask("?")
+
+    _, run = _once(measure)
+    (fault,) = _refused(lambda: run.with_answers("q", {"size": math.inf}))
+    assert (fault.ctx["question"], fault.ctx["errors"][0]["type"]) == ("size", "finite_number")
+
+
+def test_an_ask_with_several_faults_reports_every_one_in_ctx_errors():
+    """The choices and the default are each read by one schema, so every fault of both comes back at once."""
+
+    @node("wrong", title="Wrong", description="For a test.", asks=True)
+    def wrong() -> Route:
+        raise Ask(
+            "?", choices={"keep": ["a", 2, "a"], "stay": ["x"]}, default={"keep": 3, "drop": "b"}
+        )
+
+    cause = _once(wrong)[1].cause
+    assert cause.type == "invalid_ask"
+    assert (
+        cause.ctx["reason"] == "the choices for 'keep' are wrong (Input should be a valid string)"
+    )
+    assert [(e["type"], e["loc"]) for e in cause.ctx["errors"]] == [
+        ("string_type", ["choices", "keep", 1]),
+        ("extra_forbidden", ["choices", "stay"]),
+        ("string_type", ["default", "keep"]),
+        ("several_branches_given", ["default"]),
+    ]
 
 
 def test_a_default_obeys_what_an_answer_must_and_none_is_no_pick():
@@ -1461,7 +1577,7 @@ def test_a_default_obeys_what_an_answer_must_and_none_is_no_pick():
     assert (question.default, question.required) == (None, True)
     assert (
         _once(twice)[1].cause.ctx["reason"]
-        == "the default for 'result' isn't an answer a person could give (a choice is picked twice)"
+        == "the default for 'result' is wrong (a choice is picked twice)"
     )
 
 
@@ -1479,7 +1595,7 @@ def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_tak
     assert [q.required for q in run.waiting[0].questions] == [True, False]
     assert (
         _refused(lambda: run.with_answers("q", {}))[0].msg
-        == "That isn't a valid answer: 'who' has no answer."
+        == "That isn't a valid answer to 'who': the question has no answer."
     )
     assert run.with_answers("q", {"who": "a"}).resume().outputs == {"who": "a", "note": None}
 
@@ -2945,7 +3061,11 @@ def _ask_for_a_pair(x: int) -> _Pair:
     raise Ask("Which pair?")
 
 
-def test_answers_and_declines_queued_for_later_are_refused_as_the_run_refuses_them():
+def test_answers_and_declines_queued_for_later_are_refused_when_json_cant_write_them():
+    """A queued answer is kept as JSON before its question is read, so only what JSON can't write is refused then.
+
+    The run refuses the same answer at its question, naming the question on a node of several.
+    """
     run = Graph.compile(make_graph(_ask_for_a_pair), registry_of(_ask_for_a_pair)).run({"x": 1})
     (waiting,) = run.waiting
     for answer in (
@@ -2953,14 +3073,21 @@ def test_answers_and_declines_queued_for_later_are_refused_as_the_run_refuses_th
         {"name": "\ud800", "count": 1},
         _Pair(name="\ud800", count=1),
     ):
-        queued = _refused(lambda answer=answer: Run.queued_as_json({waiting.id: answer}))
-        assert queued == _refused(lambda answer=answer: run.with_answers(waiting, answer)), answer
-    # A mapping is answered by question name, so each question whose value JSON can't write is named.
-    (named,) = _refused(lambda: run.with_answers(waiting, {"name": "\ud800", "count": 1}))
-    assert (named.ctx["question"], named.ctx["reason"]) == (
-        "name",
-        "'name': the value can't be written as JSON",
-    )
+        (queued,) = _refused(lambda answer=answer: Run.queued_as_json({waiting.id: answer}))
+        assert (queued.type, queued.loc, queued.ctx) == (
+            "invalid_answer",
+            waiting.loc,
+            {
+                "waiting_id": waiting.id,
+                "reason": "the value can't be written as JSON",
+                "errors": [
+                    {"type": "no_json_form", "loc": [], "msg": "the value can't be written as JSON"}
+                ],
+            },
+        ), answer
+    for answer in ({"name": "\ud800", "count": 1}, _Pair(name="\ud800", count=1)):
+        (named,) = _refused(lambda answer=answer: run.with_answers(waiting, answer))
+        assert (named.ctx["question"], named.ctx["errors"][0]["type"]) == ("name", "no_json_form")
     queued = _refused(lambda: Run.queued_as_json(declines={waiting.id: "\ud800"}))
     assert queued == _refused(lambda: run.with_decline(waiting, reason="\ud800"))
     # An id that names no call is refused at the call it names, as not_waiting would name it.
