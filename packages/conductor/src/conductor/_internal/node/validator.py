@@ -30,6 +30,7 @@ from pydantic_core import (
     CoreSchema,
     ErrorDetails,
     PydanticCustomError,
+    PydanticKnownError,
     SchemaValidator,
     core_schema,
 )
@@ -236,14 +237,26 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
 
     Some faults are about the shape of the whole value: not the dataclass, not a mapping, or an output missing or
     unknown. Others are about branches: an output that isn't a branch is ``SKIPPED``, or two branches have a value.
-    These have no ``loc``, and name the output their message is about. A value that an output's type refuses is
-    described as the type describes it, with every error pydantic found in that output.
+    These have no ``loc``, and name the output their message is about. An output missing or unknown is pydantic's own
+    ``missing`` or ``extra_forbidden``, at the output's name, as an answer to the node gives it, while the reason says
+    it of a return. A value that an output's type refuses is described as the type describes it, with every error
+    pydantic found in that output.
     """
     first = error.errors()[0]
     if first["loc"]:
         name = str(first["loc"][0])
         return _refused_output(outputs[name], error, under=(name,))
     ctx = first.get("ctx", {})
+    if first["type"] in ("missing", "extra_forbidden"):
+        known = (
+            PydanticKnownError("missing")
+            if first["type"] == "missing"
+            else PydanticKnownError("extra_forbidden")
+        )
+        named = shape_error(known, loc=[ctx["name"]])
+        return InvalidCallError(
+            [run_problems.invalid_output(reason=first["msg"], output=ctx["name"], errors=[named])]
+        )
     return _refused_shape(
         first, ctx["given"][1] if first["type"] == "several_branches_given" else ctx.get("name")
     )
@@ -298,13 +311,13 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
         for name in names:
             if name not in returned:
                 raise conductor_error(
-                    "output_missing",
+                    "missing",
                     "'{name}' is missing from the outputs the node returned",
                     {"name": name},
                 )
         if unknown := sorted(set(returned) - declared):
             raise conductor_error(
-                "output_unknown",
+                "extra_forbidden",
                 "'{name}' isn't one of the node's outputs",
                 {"name": str(unknown[0])},
             )

@@ -416,12 +416,20 @@ def _computed(returned: Any) -> Any:
 
 def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
     assert _computed({"name": "Ida", "age": 3}).results["c"] == {"name": "Ida", "age": 3}
-    for returned, named in (
-        ({"name": "Ida"}, "age"),
-        ({"name": "Ida", "age": 3, "more": 1}, "more"),
+    for returned, named, error in (
+        ({"name": "Ida"}, "age", {"type": "missing", "loc": ["age"], "msg": "Field required"}),
+        (
+            {"name": "Ida", "age": 3, "more": 1},
+            "more",
+            {"type": "extra_forbidden", "loc": ["more"], "msg": "Extra inputs are not permitted"},
+        ),
     ):
         run = _computed(returned)
-        assert (run.cause.type, run.cause.ctx["output"]) == ("invalid_output", named)
+        assert (run.cause.type, run.cause.ctx["output"], run.cause.ctx["errors"]) == (
+            "invalid_output",
+            named,
+            [error],
+        )
     assert _computed(["Ida", 3]).cause.type == "invalid_output"
 
 
