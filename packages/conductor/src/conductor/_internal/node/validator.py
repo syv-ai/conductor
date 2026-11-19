@@ -6,8 +6,9 @@ instead, the call fails with an ``invalid_output`` problem on the output ``resul
 
 Values are checked strictly. A value that already has the right class is kept as it is, a dict becomes a model,
 but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass with no ``@host_type``, or
-a mapping when a ``compute_outputs`` hook gave its outputs. Its whole return is checked in one go: first the shape,
-then each value. Only the first fault is reported. ``SKIPPED`` may be an output's whole value, or an item of a
+a mapping when a ``compute_outputs`` hook gave its outputs. Its whole return is checked in one go, by the rules a
+person's answer to the node is checked by too (``outputs_schema``), and only the first fault is reported: a fault in
+the shape before a fault in a value. ``SKIPPED`` may be an output's whole value, or an item of a
 ``Series``, but nowhere inside a value, where it has no JSON form.
 
 ``HookValidator`` checks what a ``compute_added_inputs`` or ``compute_outputs`` hook returns, and turns it into
@@ -26,21 +27,14 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
-from pydantic_core import (
-    CoreSchema,
-    ErrorDetails,
-    PydanticCustomError,
-    PydanticKnownError,
-    SchemaValidator,
-    core_schema,
-)
+from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
 from conductor._internal.base import REQUIRED, SKIPPED, Name
 from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
     Field,
-    check_branches,
+    outputs_schema,
 )
 from conductor._internal.problem import (
     InvalidCallError,
@@ -85,19 +79,24 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             computes_outputs: Whether the node's ``compute_outputs`` hook gave its outputs.
             outputs: The node's outputs, by name.
         """
-        self._names = tuple(outputs)
         self._outputs = outputs
-        self._read: Callable[[Any], dict[str, Any]]
+        by_name: Callable[[Any], dict[str, Any]]
         if outputs_dataclass is not None:
-            self._read = _several_outputs(
-                outputs, _dataclass_fields(outputs_dataclass, self._names)
-            )
+            by_name = _dataclass_fields(outputs_dataclass, outputs)
         elif computes_outputs:
-            self._read = _several_outputs(outputs, _mapping_items(self._names))
+            by_name = _mapping_items(outputs)
         elif not outputs:
-            self._read = _no_outputs
+            by_name = _no_outputs
         else:
-            self._read = _one_output(outputs["result"])
+            by_name = _one_output
+        # an output a node can't return SKIPPED on must be returned; a branch may be left out of a mapping
+        fields = {
+            name: core_schema.typed_dict_field(
+                field.whole.output_schema, required=not field.is_branch
+            )
+            for name, field in outputs.items()
+        }
+        self._validate = SchemaValidator(outputs_schema(outputs, fields, by_name)).validate_python
 
     def __call__(self, returned: Any) -> dict[str, Any]:
         """Checks what the function returned, and returns the node's outputs by name.
@@ -106,8 +105,11 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             InvalidCallError: See the class.
         """
         if returned is SKIPPED:
-            return dict.fromkeys(self._names, SKIPPED)
-        read = self._read(returned)
+            return dict.fromkeys(self._outputs, SKIPPED)
+        try:
+            read: dict[str, Any] = self._validate(returned, strict=True)
+        except ValidationError as error:
+            raise _first_fault(self._outputs, error, returned) from None
         for name, value in read.items():
             if _skipped_inside(self._outputs[name], value):
                 raise _refused_shape(
@@ -127,17 +129,74 @@ def _skipped_inside(field: Field, value: Any) -> bool:
     return any(holds_skipped(item) for item in items if item is not SKIPPED)
 
 
+def _one_output(returned: Any) -> dict[str, Any]:
+    """Splits the return of a node with one output, ``result``: the value it returns is that output's."""
+    return {"result": returned}
+
+
 def _no_outputs(returned: Any) -> dict[str, Any]:
-    """Checks the return of a node declared ``-> None``, which must be ``None``, and returns no outputs."""
+    """Splits the return of a node declared ``-> None``, which must be ``None``, into no outputs."""
     if returned is not None:
-        raise _refused_shape(
-            conductor_error(
-                "none_required",
-                "the node declares no outputs, but returned a {got}",
-                {"got": type(returned).__name__},
-            )
+        raise conductor_error(
+            "none_required",
+            "the node declares no outputs, but returned a {got}",
+            {"got": type(returned).__name__},
         )
     return {}
+
+
+def _dataclass_fields(cls: type, outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
+    """Builds the function that splits a returned frozen dataclass into its outputs, by name."""
+
+    def by_name(returned: Any) -> dict[str, Any]:
+        if not isinstance(returned, cls):
+            raise conductor_error(
+                "not_the_class",
+                "the node must return a {cls}, not a {got}",
+                {"cls": cls.__name__, "got": type(returned).__name__},
+            )
+        return _given(outputs, {name: getattr(returned, name) for name in outputs})
+
+    return by_name
+
+
+def _mapping_items(outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
+    """Builds the function that splits a returned mapping of outputs, from a node whose ``compute_outputs`` hook gave
+    its outputs."""
+    listed = comma_separated(outputs, empty="nothing")
+
+    def by_name(returned: Any) -> dict[str, Any]:
+        if not isinstance(returned, Mapping):
+            raise conductor_error(
+                "not_a_mapping",
+                "the node must return a mapping with one key per output ({names}), not a {got}",
+                {"names": listed, "got": type(returned).__name__},
+            )
+        return _given(outputs, returned)
+
+    return by_name
+
+
+def _given(outputs: Mapping[str, Field], returned: Mapping[Any, Any]) -> dict[str, Any]:
+    """Returns the outputs a return gives a value, by name, leaving out each branch that is ``SKIPPED``.
+
+    Only a branch may be ``SKIPPED``. A name that isn't an output is kept, for the schema to refuse.
+
+    Raises:
+        PydanticCustomError: ``skipped_not_a_branch`` for the first output that is ``SKIPPED`` but isn't a branch.
+    """
+    given: dict[str, Any] = {}
+    for name, value in returned.items():
+        field = outputs.get(name)
+        if value is not SKIPPED or field is None:
+            given[name] = value
+        elif not field.is_branch:
+            raise conductor_error(
+                "skipped_not_a_branch",
+                "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
+                {"name": name},
+            )
+    return given
 
 
 def _refused_shape(
@@ -155,175 +214,53 @@ def _refused_shape(
     )
 
 
-def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
-    """Builds the check for a node with one output, ``result``.
-
-    A value whose class is exactly one of the type's plain classes, like a ``str`` for ``-> str``, is kept as it is
-    without calling pydantic.
-    """
-    exact = field.whole.exact_classes
-    validate = field.whole.output_validator.validate_python
-
-    def read(returned: Any) -> dict[str, Any]:
-        if type(returned) in exact:
-            return {"result": returned}
-        try:
-            return {"result": validate(returned, strict=True)}
-        except ValidationError as error:
-            raise _refused_output(field, error) from None
-
-    return read
-
-
-def _several_outputs(
-    outputs: Mapping[str, Field], by_name: Callable[[Any], dict[str, Any]]
-) -> Callable[[Any], dict[str, Any]]:
-    """Builds the check for a node with several outputs, as one pydantic validator for all of them.
-
-    It works in three steps. First, ``taken_apart`` splits the returned value by output name. It checks that only
-    branches are ``SKIPPED``, and that at most one branch has a value. Then pydantic checks each output's value
-    against its type. Last, ``with_skipped`` puts ``SKIPPED`` back on each output that was skipped.
-
-    Every check raises ``PydanticCustomError``. Any other exception would escape pydantic with the value in its
-    message.
-
-    Args:
-        outputs: The node's outputs, by name.
-        by_name: Splits the returned value into its outputs by name, leaving out each output that is ``SKIPPED``.
-            It raises ``PydanticCustomError`` for a value of the wrong shape.
-    """
-    names = list(outputs)
-
-    def taken_apart(returned: Any) -> dict[str, Any]:
-        given = by_name(returned)
-        not_branches = [name for name in names if name not in given and not outputs[name].is_branch]
-        if not_branches:
-            raise conductor_error(
-                "skipped_not_a_branch",
-                "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
-                {"name": not_branches[0]},
-            )
-        check_branches(outputs, given)
-        return given
-
-    def with_skipped(read: dict[str, Any]) -> dict[str, Any]:
-        return (
-            read if len(read) == len(names) else {name: read.get(name, SKIPPED) for name in names}
-        )
-
-    fields: dict[str, Any] = {
-        name: core_schema.typed_dict_field(field.whole.output_schema, required=False)
-        for name, field in outputs.items()
-    }
-    values: CoreSchema = core_schema.no_info_after_validator_function(
-        with_skipped, core_schema.typed_dict_schema(fields)
-    )
-    validate = SchemaValidator(
-        core_schema.no_info_before_validator_function(taken_apart, values)
-    ).validate_python
-
-    def read(returned: Any) -> dict[str, Any]:
-        try:
-            outputs_read: dict[str, Any] = validate(returned, strict=True)
-        except ValidationError as error:
-            raise _first_fault(outputs, error) from None
-        return outputs_read
-
-    return read
-
-
-def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> InvalidCallError:
-    """Turns the first fault in a node's several outputs into an ``invalid_output`` error.
-
-    Some faults are about the shape of the whole value: not the dataclass, not a mapping, or an output missing or
-    unknown. Others are about branches: an output that isn't a branch is ``SKIPPED``, or two branches have a value.
-    These have no ``loc``, and name the output their message is about. An output missing or unknown is pydantic's own
-    ``missing`` or ``extra_forbidden``, at the output's name, as an answer to the node gives it, while the reason says
-    it of a return. A value that an output's type refuses is described as the type describes it, with every error
-    pydantic found in that output.
-    """
-    first = error.errors()[0]
-    if first["loc"]:
-        name = str(first["loc"][0])
-        return _refused_output(outputs[name], error, under=(name,))
-    ctx = first.get("ctx", {})
-    if first["type"] in ("missing", "extra_forbidden"):
-        known = (
-            PydanticKnownError("missing")
-            if first["type"] == "missing"
-            else PydanticKnownError("extra_forbidden")
-        )
-        named = shape_error(known, loc=[ctx["name"]])
-        return InvalidCallError(
-            [run_problems.invalid_output(reason=first["msg"], output=ctx["name"], errors=[named])]
-        )
-    return _refused_shape(
-        first, ctx["given"][1] if first["type"] == "several_branches_given" else ctx.get("name")
-    )
-
-
-def _refused_output(
-    field: Field, error: ValidationError, under: tuple[str, ...] = ()
+def _first_fault(
+    outputs: Mapping[str, Field], error: ValidationError, returned: Any
 ) -> InvalidCallError:
-    """Turns a value that an output's type refused into an ``invalid_output`` error.
+    """Turns the first fault in what a node returned into an ``invalid_output`` error.
 
-    Args:
-        field: The output.
-        error: The error pydantic raised, as ``Type.refusal`` takes it.
-        under: Where the output's value sits in ``error``, as ``Type.refusal`` takes it.
+    A fault in the return's shape comes first: not the dataclass, not a mapping, an output that isn't a branch is
+    ``SKIPPED``, then an output missing from a returned mapping, a key that isn't an output, and two branches with a
+    value. A fault in an output's value comes after them. An output missing, or a key that isn't an output, is
+    pydantic's own ``missing``, ``extra_forbidden`` or ``invalid_key``, at the output's name, as an answer to the
+    node gives it, while the reason says it of a return. A value that an output's type refuses is described as the
+    type describes it, with every error pydantic found in that output.
     """
-    return InvalidCallError(
-        [run_problems.invalid_output(output=field.name, **field.whole.refusal(error, under))]
-    )
 
+    def about_a_name(fault: ErrorDetails) -> str | None:
+        """The reason for a fault about an output's name rather than its value, or ``None``."""
+        if len(fault["loc"]) != 1:
+            return None
+        name = fault["loc"][0]
+        if name not in outputs:
+            return f"'{name}' isn't one of the node's outputs"
+        if fault["type"] == "missing" and isinstance(returned, Mapping) and name not in returned:
+            return f"'{name}' is missing from the outputs the node returned"
+        return None
 
-def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
-    """Builds the function that splits a returned frozen dataclass into its outputs, by name."""
-
-    def by_name(returned: Any) -> dict[str, Any]:
-        if not isinstance(returned, cls):
-            raise conductor_error(
-                "not_the_class",
-                "the node must return a {cls}, not a {got}",
-                {"cls": cls.__name__, "got": type(returned).__name__},
-            )
-        return {name: value for name in names if (value := getattr(returned, name)) is not SKIPPED}
-
-    return by_name
-
-
-def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
-    """Builds the function that checks a returned mapping of outputs, from a node whose ``compute_outputs`` hook gave
-    its outputs.
-
-    The first output missing from the mapping is the fault. If none is missing, the first key that isn't an output
-    is.
-    """
-    declared, listed = frozenset(names), comma_separated(names, empty="nothing")
-
-    def by_name(returned: Any) -> dict[str, Any]:
-        if not isinstance(returned, Mapping):
-            raise conductor_error(
-                "not_a_mapping",
-                "the node must return a mapping with one key per output ({names}), not a {got}",
-                {"names": listed, "got": type(returned).__name__},
-            )
-        for name in names:
-            if name not in returned:
-                raise conductor_error(
-                    "missing",
-                    "'{name}' is missing from the outputs the node returned",
-                    {"name": name},
+    faults = error.errors()
+    first = next((fault for fault in faults if not fault["loc"] or about_a_name(fault)), faults[0])
+    if not first["loc"]:
+        ctx = first.get("ctx", {})
+        return _refused_shape(
+            first, ctx["given"][1] if first["type"] == "several_branches_given" else ctx.get("name")
+        )
+    name = str(first["loc"][0])
+    if reason := about_a_name(first):
+        return InvalidCallError(
+            [
+                run_problems.invalid_output(
+                    reason=reason, output=name, errors=[shape_error(first, loc=[name])]
                 )
-        if unknown := sorted(set(returned) - declared):
-            raise conductor_error(
-                "extra_forbidden",
-                "'{name}' isn't one of the node's outputs",
-                {"name": str(unknown[0])},
+            ]
+        )
+    return InvalidCallError(
+        [
+            run_problems.invalid_output(
+                output=name, **outputs[name].whole.refusal(error, under=(name,))
             )
-        return {name: value for name, value in returned.items() if value is not SKIPPED}
-
-    return by_name
+        ]
+    )
 
 
 #: Checks what a hook returns: a mapping of valid names, each to a type or to ``(type, default)``.

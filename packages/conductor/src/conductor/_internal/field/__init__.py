@@ -8,14 +8,14 @@ The package has four parts:
 
 - ``Field`` (``type.py``) is one input or output, built from its hint.
 - ``FieldDescription`` (``describe.py``) is the same field as JSON, for an editor to show.
-- ``branch.py`` has the rule for branches, the outputs whose default is ``SKIPPED``: a call gives a value to at most
-  one of them.
+- ``outputs.py`` reads a value for each output of a node, by name: what a node returns, a person's answer, and an
+  ``Ask``'s default all fill the outputs by its rules, the rule for branches among them.
 - ``validator.py`` checks the default a node gives a field, when the node is declared and again when a graph is
   compiled.
 """
 
-from .branch import check_branches
 from .describe import FieldDescription
+from .outputs import outputs_schema
 from .type import Field
 from .validator import BoundDefaultValidator, DeclaredInputValidator, DeclaredOutputValidator
 
@@ -25,5 +25,5 @@ __all__ = [
     "DeclaredOutputValidator",
     "Field",
     "FieldDescription",
-    "check_branches",
+    "outputs_schema",
 ]

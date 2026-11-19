@@ -31,16 +31,13 @@ from typing import Any, cast
 from pydantic import MISSING, BaseModel, JsonValue, ValidationError
 from pydantic_core import (
     CoreSchema,
-    ErrorDetails,
-    InitErrorDetails,
-    PydanticCustomError,
     SchemaValidator,
     core_schema,
 )
 from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc
-from conductor._internal.field import Field, check_branches
+from conductor._internal.field import Field, outputs_schema
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
@@ -95,24 +92,28 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
     def _choices(self) -> SchemaValidator:
         """Checks an ``Ask``'s choices, by output name. Built when the node first asks.
 
-        On a ``Series`` output the choices are for its items, so each id is read as one item.
+        They are given as an answer is: a node of one output's alone, a node of several's by output name. On a
+        ``Series`` output the choices are for its items, so each id is read as one item.
         """
         return SchemaValidator(
-            _by_output(
-                self._outputs,
-                {
-                    name: core_schema.typed_dict_field(
-                        choices_schema(
-                            functools.partial(
-                                read_as_json, field.type, field.type.output_validator
+            core_schema.no_info_before_validator_function(
+                _by_output(self._outputs),
+                core_schema.typed_dict_schema(
+                    {
+                        name: core_schema.typed_dict_field(
+                            choices_schema(
+                                functools.partial(
+                                    read_as_json, field.type, field.type.output_validator
+                                ),
+                                field.type.to_json,
+                                known=field.type.choices or (),
                             ),
-                            field.type.to_json,
-                            known=field.type.choices or (),
-                        ),
-                        required=False,
-                    )
-                    for name, field in self._outputs.items()
-                },
+                            required=False,
+                        )
+                        for name, field in self._outputs.items()
+                    },
+                    extra_behavior="forbid",
+                ),
             )
         )
 
@@ -142,15 +143,24 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
             except ValidationError as error:
                 faults += _ask_faults("choices", error, outputs, items=True)
         if ask.default is not REQUIRED:
-            # a default is a ready-made answer, so it is read as an answer, against this Ask's own choices
-            proposed = SchemaValidator(_answer_schema(outputs, choices, {}, proposed=True))
+            # A default is a ready-made answer, so it is read as an answer, against this Ask's own choices. It
+            # proposes answers to some questions, so every question may be left out, and none has a default.
+            fields = {
+                name: core_schema.typed_dict_field(
+                    _question(field, choices.get(name)), required=False
+                )
+                for name, field in outputs.items()
+            }
+            proposed = SchemaValidator(outputs_schema(outputs, fields, _by_output(outputs)))
             try:
                 read: dict[str, Any] = proposed.validate_python(ask.default)
             except ValidationError as error:
                 faults += _ask_faults("default", error, outputs)
             else:
                 defaults = {
-                    name: outputs[name].whole.to_json(value) for name, value in read.items()
+                    name: outputs[name].whole.to_json(value)
+                    for name, value in read.items()
+                    if value is not SKIPPED
                 }
         if faults:
             # each fault's loc is the argument, then the output it is for, if it is about one
@@ -224,7 +234,9 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             waiting_id: The id of the waiting call being answered. The problems name it too.
         """
         self._outputs = outputs
-        self._schema = SchemaValidator(_answer_schema(outputs, choices, defaults, proposed=False))
+        self._schema = SchemaValidator(
+            outputs_schema(outputs, _answer_fields(outputs, choices, defaults), _by_output(outputs))
+        )
         self._loc = loc
         self._waiting_id = waiting_id
 
@@ -256,30 +268,20 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         return read
 
 
-def _answer_schema(
+def _answer_fields(
     outputs: Mapping[str, Field],
     choices: Mapping[str, tuple[Choice, ...]],
     defaults: Mapping[str, JsonValue],
-    *,
-    proposed: bool,
-) -> CoreSchema:
-    """Builds the pydantic schema that reads a person's answer to one call into the node's outputs.
+) -> dict[str, TypedDictField]:
+    """Returns how a person's answer to each question of one call is read, by output name.
 
-    Each question is read by ``_question``. A node of several outputs reads a mapping by question name, held to the
-    branch rule (``check_branches``) beside every other fault, so all are reported at once. A question left out
-    gets its default. One without a default that isn't required is ``SKIPPED``, and so is a branch left out when
-    another branch is answered.
+    Each question is read by ``_question``. A question is required as the host is shown it (``as_asked``). One left
+    out of the answer gets its default, and one with no default that isn't required, a branch, is ``SKIPPED``.
 
     Args:
         outputs: The node's outputs, by name.
         choices: The choices the ``Ask`` offered, by output name.
         defaults: The defaults the ``Ask`` proposed, by output name.
-        proposed: Whether this reads an ``Ask``'s default rather than an answer. A default proposes answers to
-            some questions, so every question may be left out, and only the questions it names come back.
-
-    Returns:
-        A schema whose value is the outputs, by name. Its errors are pydantic's, each ``loc`` starting with the
-        question's name. An answer as a whole that isn't a mapping, or answers two branches, has the ``loc`` ``()``.
     """
     questions = as_asked(outputs, choices, defaults)
     fields: dict[str, TypedDictField] = {}
@@ -287,68 +289,34 @@ def _answer_schema(
         schema = _question(field, choices.get(name))
         default, required = questions[name].default, questions[name].required
         # a required question's default is only what a host starts the answer with, as on a node of one output
-        if not proposed and not required and default is not MISSING:
+        if not required and default is not MISSING:
             schema = core_schema.with_default_schema(
                 schema,
                 default_factory=functools.partial(
                     read_as_json, field.whole, field.whole.output_validator, default
                 ),
             )
-        fields[name] = core_schema.typed_dict_field(schema, required=required and not proposed)
-    if len(outputs) == 1:
-        return _by_output(outputs, fields)
-
-    def as_mapping(answer: Any) -> Any:
-        # a node with no outputs is answered with nothing: the person only says to go on
-        if answer is None and not outputs:
-            return {}
-        return _as_mapping(answer)
-
-    def all_at_once(answer: Any, read_by_name: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
-        errors: list[InitErrorDetails] = []
-        read: dict[str, Any] = {}
-        branches: list[str] = []
-        try:
-            read = read_by_name(answer)
-        except ValidationError as error:
-            errors = [_raised_again(fault) for fault in error.errors()]
-        if isinstance(answer, Mapping):
-            try:
-                branches = check_branches(outputs, answer)
-            except PydanticCustomError as fault:
-                errors.append({"type": fault, "loc": (), "input": answer})
-        if errors:
-            raise ValidationError.from_exception_data("answer", errors)
-        if proposed:
-            return read
-        filled: dict[str, Any] = {}
-        for name, field in outputs.items():
-            # a branch left out is skipped when another is answered, even one with a default
-            if field.is_branch and branches and name not in branches:
-                filled[name] = SKIPPED
-            elif name in read:
-                filled[name] = read[name]
-            else:
-                filled[name] = SKIPPED
-        return filled
-
-    return core_schema.no_info_before_validator_function(
-        as_mapping,
-        core_schema.no_info_wrap_validator_function(all_at_once, _by_output(outputs, fields)),
-    )
+        fields[name] = core_schema.typed_dict_field(schema, required=required)
+    return fields
 
 
-def _by_output(outputs: Mapping[str, Field], fields: Mapping[str, TypedDictField]) -> CoreSchema:
-    """Builds the schema of a mapping by output name, one field per output, which refuses a name that isn't one.
+def _by_output(outputs: Mapping[str, Field]) -> Callable[[Any], Any]:
+    """Returns the function that splits what an ``Ask`` sets, or a person answers, by output name.
 
-    A node of one output is given its one value, never a mapping, so the schema puts that value under the output's
-    name. Either way, each error's ``loc`` starts with the output's name.
+    A node of one output is given its one value, never a mapping, so the value is put under the output's name. A
+    node of several is given a mapping by output name, or a dataclass or a model of them (``_as_mapping``). A node
+    with no outputs is answered with nothing: the person only says to go on.
     """
-    by_name = core_schema.typed_dict_schema(dict(fields), extra_behavior="forbid")
-    if len(outputs) != 1:
-        return by_name
-    (name,) = outputs
-    return core_schema.no_info_before_validator_function(lambda value: {name: value}, by_name)
+    if len(outputs) == 1:
+        (name,) = outputs
+        return lambda value: {name: value}
+
+    def by_name(value: Any) -> Any:
+        if value is None and not outputs:
+            return {}
+        return _as_mapping(value)
+
+    return by_name
 
 
 def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
@@ -424,16 +392,6 @@ def _as_mapping(answer: Any) -> Any:
     else:
         return answer
     return {name: value for name in names if (value := getattr(answer, name)) is not SKIPPED}
-
-
-def _raised_again(fault: ErrorDetails) -> InitErrorDetails:
-    """Returns one of pydantic's errors as it can be raised again, beside an error of conductor's own.
-
-    Pydantic raises again only an error whose type it knows, so each is given as the custom error of its own type,
-    message and ``ctx``.
-    """
-    error = PydanticCustomError(fault["type"], fault["msg"], fault.get("ctx"))
-    return {"type": error, "loc": fault["loc"], "input": fault["input"]}
 
 
 def _refusals(

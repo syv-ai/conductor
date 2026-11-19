@@ -424,6 +424,11 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
             "more",
             {"type": "extra_forbidden", "loc": ["more"], "msg": "Extra inputs are not permitted"},
         ),
+        (
+            {"name": "Ida", "age": 3, 1: 1},
+            "1",
+            {"type": "invalid_key", "loc": ["1"], "msg": "Keys should be strings"},
+        ),
     ):
         run = _computed(returned)
         assert (run.cause.type, run.cause.ctx["output"], run.cause.ctx["errors"]) == (
@@ -434,13 +439,43 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
     assert _computed(["Ida", 3]).cause.type == "invalid_output"
 
 
-def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_in_order_of_name():
+def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_as_the_node_wrote_them():
+    """An answer to the node lists every name that isn't an output in the order it was written, so a return names
+    the first of them in that order too."""
     run = _computed({"zeta": 1, "name": "Ida", "age": 3, "beta": 2})
 
     assert (run.cause.ctx["output"], run.cause.ctx["reason"]) == (
-        "beta",
-        "'beta' isn't one of the node's outputs",
+        "zeta",
+        "'zeta' isn't one of the node's outputs",
     )
+
+
+def test_a_mapping_may_leave_a_branch_out_as_an_answer_may():
+    """A branch left out of a returned mapping is skipped, as when a person's answer to the node leaves it out."""
+
+    @node(
+        "routed_by_hook",
+        title="Routed by hook",
+        description="For a test.",
+        compute_outputs=lambda: {"long": (str, SKIPPED), "short": (str, SKIPPED)},
+    )
+    def routed_by_hook() -> Any:
+        return {"long": "a line"}
+
+    run = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"r": {"node": "routed_by_hook"}},
+                "outputs": {
+                    "long": {"node": "r", "output": "long"},
+                    "short": {"node": "r", "output": "short"},
+                },
+            }
+        ),
+        registry_of(routed_by_hook),
+    ).run()
+
+    assert (run.status, run.results["r"]) == ("complete", {"long": "a line", "short": None})
 
 
 @dataclass(frozen=True)
