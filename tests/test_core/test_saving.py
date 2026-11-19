@@ -43,7 +43,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import AfterValidator, BaseModel, ConfigDict, TypeAdapter, with_config
+from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, TypeAdapter, with_config
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
@@ -1164,6 +1164,46 @@ def test_a_host_model_that_reads_its_bytes_as_text_is_refused_where_the_node_is_
         "type_not_supported_bytes_as_text",
         {"cls": where, "field": "data"},
     )
+
+
+def test_bytes_read_as_text_name_the_class_whose_config_is_at_fault():
+    """A ``TypedDict`` with no config of its own reads by the config it sits in, so the class to fix is the model around
+    it, and the field named is that model's."""
+
+    class Plain(TypedDict):
+        data: bytes
+
+    class Cat(TypedDict):
+        kind: Literal["cat"]
+        data: bytes
+
+    class Dog(TypedDict):
+        kind: Literal["dog"]
+
+    @host_type("text-holds", title="Text holds")
+    class TextHolds(BaseModel):
+        inner: Plain
+
+    @host_type("text-union", title="Text union")
+    class TextUnion(BaseModel):
+        pet: Annotated[Cat | Dog, Discriminator("kind")]
+
+    for hint, named in (
+        (TextHolds, {"cls": "TextHolds", "field": "inner"}),
+        (TextUnion, {"cls": "TextUnion", "field": "pet"}),
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("upload", title="Upload", description="For a test.")(_taking(hint))
+        (problem,) = raised.value.problems
+        assert (problem.type, problem.ctx) == ("type_not_supported_bytes_as_text", named), hint
+
+
+def _taking(hint: Any) -> Any:
+    def upload(file: Any) -> int:
+        return 1
+
+    upload.__annotations__ = {"file": hint, "return": int}
+    return upload
 
 
 def test_a_host_model_that_reads_its_bytes_as_base64_takes_them_at_every_door():

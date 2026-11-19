@@ -37,6 +37,7 @@ from weakref import WeakValueDictionary
 
 from annotated_types import Predicate, Timezone, Unit
 from pydantic import (
+    BaseModel,
     ImportString,
     Json,
     JsonValue,
@@ -310,11 +311,14 @@ class Type:
         of rules. A ``Type`` conductor makes for itself, like ``Type(Any)``, a saved run's, or one whose type variable
         a graph filled in, is never asked.
 
-        Each rule reaches the same depth wherever the hint is. A rule about the hint as its author wrote it, such
-        as pydantic's ``Field(...)`` written where ``Param`` goes, walks every hint inside it (``hint_parts``): a
-        list's item, a ``TypedDict``'s field and a table's row, but not a field of a host's own model. The rule
-        for bytes reads the schema pydantic built, which knows the config each class really reads its fields by,
-        so it reaches inside a host's model too.
+        A rule about the hint as its author wrote it, such as pydantic's ``Field(...)`` written where ``Param`` goes,
+        walks every hint inside it (``hint_parts``): a list's item, a ``TypedDict``'s field and a table's row, but not
+        a field of a host's own model. The rule for bytes reads the schema pydantic built, which knows the config each
+        class really reads its fields by, so it reaches inside a host's model too. The rules a type's own schema
+        holds, its ``Param`` among them, reach as far as conductor builds that schema: a list's item is built as a
+        ``Type`` of its own, but a ``TypedDict``'s field is read by pydantic itself. So
+        ``Annotated[Series[int], Param(ge=0)]`` limits each item on a field and in a list, and is refused as a
+        ``TypedDict``'s field (``param_limit_not_supported``).
 
         Raises:
             NodeDeclarationError: Pydantic's ``Field(...)`` in the hint (``pydantic_field_in_hint``, or
@@ -348,8 +352,9 @@ class Type:
     def _check_own_arguments(self) -> None:
         """Refuses the arguments of a ``Series`` or ``Table`` hint that a node may not declare.
 
-        ``check_declared`` calls it for each such hint inside a field's hint. ``Type``'s own takes every argument. A
-        subclass with a rule overrides it, as ``TableType`` does for a row that names no columns.
+        ``check_declared`` calls it for each such hint inside a field's hint, the field's own included. ``Type``'s own
+        takes every argument. A subclass with a rule overrides it: ``TableType`` refuses a row that names no columns,
+        and ``SeriesType`` items whose choices can't be read.
         """
 
     @functools.cached_property
@@ -974,9 +979,11 @@ def _bytes_read_as_text(
     """Finds a ``bytes`` field, in a type's core schema, that its class reads and writes as text.
 
     Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A class with a config of its own, such as a
-    pydantic model, reads its fields by that config, and a config that doesn't set the bytes to base64 takes them as
-    text, which a saved run can't read back. Pydantic writes on the schema of each model, dataclass and ``TypedDict``
-    the config it reads that class's fields by, whether the class's own or the one it sits in.
+    pydantic model, or a ``TypedDict`` or plain dataclass given one with pydantic's ``with_config``, reads its fields
+    by that config, and a config that doesn't set the bytes to base64 takes them as text, which a saved run can't read
+    back. Pydantic writes on the schema of each model, dataclass and ``TypedDict`` the config it reads that class's
+    fields by. A ``TypedDict`` or plain dataclass with no config of its own takes the config it sits in, so the class
+    at fault is the one around it that has the config, and the field named is that class's.
 
     Say ``class Attachment(BaseModel)`` has the field ``data: bytes`` and the default config. Then the schema of
     ``list[Attachment]`` gives ``("Attachment", "data")``. With ``ser_json_bytes="base64"`` and
@@ -986,7 +993,8 @@ def _bytes_read_as_text(
         schema: A core schema, or a part of one.
         definitions: The schemas pydantic declared beside it, by their ``ref``. Each is taken out as it is walked,
             so it is walked once.
-        owner: The class and field that ``schema`` is inside, when that class reads bytes as text.
+        owner: The class with a config of its own that ``schema`` is inside, when that class reads bytes as text,
+            and its field, or ``""`` until the walk reaches one of its fields.
 
     Returns:
         The class's name and its field, or ``None`` when no bytes in ``schema`` are read as text.
@@ -1000,15 +1008,16 @@ def _bytes_read_as_text(
         if kind == "bytes":
             return owner
         if not isinstance(kind, str):
-            # not a schema but fields by name, and the name is the field's
-            parts = [(part, owner and (owner[0], name)) for name, part in schema.items()]
+            # not a schema but fields by name; a field of the class with the config names the field
+            parts = [(part, _in_field(owner, name)) for name, part in schema.items()]
         elif kind == "definition-ref":
             parts = [(definitions.pop(schema["schema_ref"], None), owner)]
         else:
             if kind == "definitions":
                 definitions.update({one["ref"]: one for one in schema["definitions"]})
-            # a schema conductor builds itself, like a table's, has no class and reads by the config it sits in
-            if kind in _CONFIGURED and "cls" in schema:
+            # a class with no config of its own, and a schema conductor builds itself, like a table's, which has no
+            # class, read by the config they sit in
+            if kind in _CONFIGURED and _has_own_config(schema.get("cls")):
                 config = schema.get("config", {})
                 as_text = (
                     config.get("ser_json_bytes") != "base64"
@@ -1016,7 +1025,7 @@ def _bytes_read_as_text(
                 )
                 owner = (schema["cls"].__name__, "") if as_text else None
             if kind == "dataclass-field":
-                owner = owner and (owner[0], schema["name"])
+                owner = _in_field(owner, schema["name"])
             parts = [
                 (part, owner)
                 for key, part in schema.items()
@@ -1026,6 +1035,22 @@ def _bytes_read_as_text(
         if (found := _bytes_read_as_text(part, definitions, inside)) is not None:
             return found
     return None
+
+
+def _has_own_config(cls: Any) -> bool:
+    """Whether ``cls`` reads its fields by a pydantic config of its own: a model, a pydantic dataclass, or a class
+    pydantic's ``with_config`` gave one. ``False`` for ``None``, a schema with no class."""
+    return isinstance(cls, type) and (
+        issubclass(cls, BaseModel) or getattr(cls, "__pydantic_config__", None) is not None
+    )
+
+
+def _in_field(owner: tuple[str, str] | None, name: str) -> tuple[str, str] | None:
+    """Returns ``owner`` inside its field ``name``, when the walk has not yet reached one of its fields.
+
+    A field further down, of a class with no config of its own, keeps the owner's field, which is the one to fix.
+    """
+    return (owner[0], name) if owner is not None and not owner[1] else owner
 
 
 def _check_is_type(hint: Any) -> None:

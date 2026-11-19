@@ -429,6 +429,22 @@ def test_choices_a_converting_check_moves_off_are_refused_when_the_node_is_decla
         assert raised.value.problems[0].type == "choices_invalid", hint
 
 
+def test_choices_a_converting_check_moves_off_are_refused_on_a_series_inside_a_list() -> None:
+    """A Series' items are read as one type wherever the Series is, so a converting check's choices are refused in a
+    list of Series as on a Series field."""
+
+    def shouted(value: str) -> str:
+        return value + "!"
+
+    for hint in (
+        Series[Annotated[str, AfterValidator(shouted), Param(choices=["a"])]],
+        list[Series[Annotated[str, AfterValidator(shouted), Param(choices=["a"])]]],
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("count", title="Count", description="For a test.")(_returning_its_input(hint))
+        assert raised.value.problems[0].type == "choices_invalid", hint
+
+
 def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discriminator_to_write() -> (
     None
 ):

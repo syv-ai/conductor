@@ -81,10 +81,12 @@ class SeriesType(Type, of=_Series):
         )
         return lifted, Param(), ()
 
-    def check_declared(self) -> None:
-        """Refuses the Series if a node may not declare it, as ``Type.check_declared`` does, and its items' choices
-        if they can't be read."""
-        super().check_declared()
+    def _check_own_arguments(self) -> None:
+        """Refuses the items' choices if they can't be read, as ``Type._check_own_arguments`` says.
+
+        The items' type is read as a whole, so a check that converts a value is read with them: a choice it moves
+        off would never be picked (``choices_invalid``).
+        """
         self.item.choices  # noqa: B018
 
     @functools.cached_property
