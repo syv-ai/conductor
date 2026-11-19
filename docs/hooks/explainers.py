@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import functools
 import importlib.util
 import json
 import logging
@@ -37,7 +38,6 @@ from conductor import (
     InvalidCallError,
     NodeRegistry,
     ProblemKind,
-    Series,
     make_graph,
 )
 from conductor.about import problems_page
@@ -226,6 +226,17 @@ def _catalog_examples() -> dict[str, list[dict[str, Any]]]:
     return _load("tests/test_nodes/test_catalog.py").EXAMPLES
 
 
+@functools.cache
+def _page(page: str, name: str) -> dict[str, Any]:
+    """Runs an illustrated page's own Python up to its block named ``name``, and returns the names it defined.
+
+    The data a widget shows is built from these, so it belongs to the code the page shows beside it.
+    """
+    with _in_an_empty_directory():
+        return _load("tests/test_core/doc_examples.py").explainer_namespace(page, name)
+
+
+@functools.cache
 def _load(path: str) -> ModuleType:
     """Imports a file of the repo by its path, since the docs build doesn't put ``tests`` on the import path."""
     name = "explainers_" + Path(path).stem
@@ -271,47 +282,16 @@ def _shown(value: Any) -> Any:
 
 
 def _bench_registry() -> NodeRegistry:
-    """Returns the registry the bench compiles against: lines, shout and join from the page, and count."""
+    """Returns a registry of the nodes the page defines and its bench compiles against: lines, shout, join and count."""
+    page = _page("graph-record-and-compiling.html", "bench-nodes")
     registry = NodeRegistry()
-
-    @registry.node("lines", title="Lines", description="Splits a text into lines.")
-    def lines(text: str) -> Series[str]:
-        return text.split("\n")
-
-    @registry.node("shout", title="Shout", description="Shouts one line.")
-    def shout(line: str, mark: str = "!") -> str:
-        return line.upper() + mark
-
-    @registry.node("join", title="Join", description="Joins texts with a plus.")
-    def join(texts: Series[str]) -> str:
-        return "+".join(texts)
-
-    @registry.node("count", title="Count", description="Counts the characters of a text.")
-    def count(text: str) -> int:
-        return len(text)
-
+    registry.add(*(page[name] for name in ("lines", "shout", "join", "count")))
     return registry
 
 
 def _bench_record() -> dict[str, Any]:
-    """Returns the page's example record, unbroken."""
-    return {
-        "nodes": {
-            "lines": {"node": "lines", "inputs": {"text": {"graph_input": "text"}}},
-            "shout": {
-                "node": "shout",
-                "inputs": {
-                    "line": {"sources": [{"node": "lines", "output": "result"}]},
-                    "mark": {"constant": "?"},
-                },
-            },
-            "join": {
-                "node": "join",
-                "inputs": {"texts": {"sources": [{"node": "shout", "output": "result"}]}},
-            },
-        },
-        "outputs": {"result": {"node": "join", "output": "result"}},
-    }
+    """Returns the page's example record, unbroken, as the page prints it."""
+    return copy.deepcopy(_page("graph-record-and-compiling.html", "bench-record")["data"])
 
 
 def _bench_set(path: tuple[str, ...], value: Any) -> Callable[[dict[str, Any]], None]:
@@ -465,34 +445,18 @@ def _widget_data() -> dict[str, Any]:
 
 
 def _loop_states() -> dict[str, Any]:
-    registry = NodeRegistry()
-
-    @registry.node("lines", title="Lines", description="Splits a text into lines.")
-    def lines(text: str) -> Series[str]:
-        return [] if text == "" else text.split("\n")
-
-    @registry.node("shout", title="Shout", description="Writes a line in capitals.")
-    def shout(line: str, mark: str = "!") -> str:
-        return line.upper() + mark
-
-    @registry.node("join", title="Join", description="Joins texts into one.")
-    def join(texts: Series[str]) -> str:
-        return " ".join(texts)
-
-    @registry.node("join-one", title="Join one", description="Wraps one text.")
-    def join_one(texts: str) -> str:
-        return f"<{texts}>"
-
+    """The loop widget: the page's lines, shout and join, and join-one, which runs once per line."""
+    page = _page("series-and-tables.html", "loop-widget")
     states: dict[str, Any] = {}
-    for kind, last in (("collect", join), ("per-item", join_one)):
+    for kind, last in (("collect", page["join"]), ("per-item", page["join_one"])):
         graph = Graph.compile(
             make_graph(
-                lines,
-                shout,
+                page["lines"],
+                page["shout"],
                 last,
                 edges=[("lines.result", "shout.line"), ("shout.result", f"{last.id}.texts")],
             ),
-            registry,
+            page["registry"],
         )
         assert not graph.problems, graph.problems
         per_item_of = {
@@ -516,50 +480,15 @@ def _loop_states() -> dict[str, Any]:
 
 
 def _collect_states() -> dict[str, Any]:
-    registry = NodeRegistry()
-    names_without_email: set[str] = set()
-
-    @registry.node("names", title="Names", description="Splits a text into names.")
-    def names(text: str) -> Series[str]:
-        return text.split(",")
-
-    @registry.node("email", title="Email", description="Finds a name's email, if there is one.")
-    def email(name: str) -> str | None:
-        return None if name in names_without_email else f"{name.lower()}@a.dk"
-
-    @registry.node("pair", title="Pair", description="Pairs names with emails.")
-    def pair(names: Series[str], emails: Series[str]) -> list[str]:
-        return [f"{n} <{e}>" for n, e in zip(names, emails, strict=True)]
-
-    @registry.node("keep", title="Keep", description="Keeps the gaps.")
-    def keep(emails: Series[str | None]) -> list[str | None]:
-        return emails
-
-    graph = Graph.compile(
-        make_graph(
-            names,
-            email,
-            pair,
-            keep,
-            edges=[
-                ("names.result", "email.name"),
-                ("names.result", "pair.names"),
-                ("email.result", "pair.emails"),
-                ("email.result", "keep.emails"),
-            ],
-            outputs={"pair": "pair.result", "keep": "keep.result"},
-        ),
-        registry,
-    )
-    assert not graph.problems, graph.problems
+    """The collecting widget: the page's graph of names, emails, pair and keep, with each mix of names left out."""
+    page = _page("series-and-tables.html", "collect-widget")
+    graph, without_email = page["widget_graph"], page["without_email"]
     every_name = ["Ida", "Bo", "Al"]
     states: dict[str, Any] = {}
     for mask in range(8):
         key = format(mask, "03b")
-        names_without_email.clear()
-        names_without_email.update(
-            name for name, off in zip(every_name, key, strict=True) if off == "1"
-        )
+        without_email.clear()
+        without_email.update(name for name, off in zip(every_name, key, strict=True) if off == "1")
         run = graph.run({"text": ",".join(every_name)})
         assert run.status == "complete", run.cause
         assert len(run.outputs["pair"]) == key.count("0")
@@ -573,35 +502,14 @@ def _collect_states() -> dict[str, Any]:
 
 
 def _limit_states() -> dict[str, Any]:
-    registry = NodeRegistry()
-    shouted: list[str] = []
-
-    @registry.node("docs", title="Documents", description="Splits a text into documents.")
-    def docs(text: str) -> Series[str]:
-        return text.split("|")
-
-    @registry.node("lines", title="Lines", description="Splits a document into lines.")
-    def lines(doc: str) -> Series[str]:
-        return doc.split(",")
-
-    @registry.node("shout", title="Shout", description="Writes a line in capitals.")
-    def shout(line: str) -> str:
-        shouted.append(line)
-        return line.upper()
-
-    graph = Graph.compile(
-        make_graph(
-            docs, lines, shout, edges=[("docs.result", "lines.doc"), ("lines.result", "shout.line")]
-        ),
-        registry,
-    )
-    assert not graph.problems, graph.problems
+    """The item-limit widget: the page's graph of docs, lines and shout, on two texts and five limits."""
+    graph = _page("series-and-tables.html", "limit")["graph"]
     states: dict[str, Any] = {}
     for text in ("a,b|c,d|e,f", "a,b|c,d,e,f|g"):
         for max_items in range(1, 6):
-            shouted.clear()
             run = graph.run({"text": text}, max_items=max_items)
             cause = run.cause
+            shouted = run.progress.nodes["shout"].finished
             if run.status == "stopped":
                 assert cause is not None and cause.type == "item_limit", cause
                 assert not shouted
@@ -611,7 +519,7 @@ def _limit_states() -> dict[str, Any]:
                 "status": run.status,
                 "loc": list(cause.loc) if cause else None,
                 "ctx": dict(cause.ctx) if cause else None,
-                "shout_calls": len(shouted),
+                "shout_calls": shouted,
                 "result": run.outputs["result"] if run.status == "complete" else None,
             }
     return states

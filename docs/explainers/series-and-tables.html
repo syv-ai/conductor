@@ -403,13 +403,13 @@ body { margin: 0; }
       <p class="muted"><a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a> says which series each node runs per item of, in <code>per_item_of</code>. An editor can show that before anything runs.</p>
     </div>
     <div class="sample">
-      <pre data-lang="py">from conductor import Graph, NodeRegistry, Series, make_graph
+      <pre data-lang="py" data-name="loop">from conductor import Graph, NodeRegistry, Series, make_graph
 
 registry = NodeRegistry()
 
 @registry.node("lines", title="Lines", description="Splits a text into lines.")
 def lines(text: str) -> Series[str]:
-    return text.split("\n")
+    return text.splitlines()
 
 @registry.node("shout", title="Shout", description="Writes a line in capitals.")
 def shout(line: str, mark: str = "!") -> str:
@@ -468,6 +468,12 @@ finished=3 waiting=0 skipped=0 none_input=0 known=3 total=3</pre>
       <p class="muted">Inside a <a href="subgraphs.html#open">subgraph</a>, the index goes after the subgraph node when the loop is in the outer graph. The inner node <code>shout</code> of a subgraph node <code>loud</code> that runs per line is <code>("loud", 1, "shout")</code>, written <code>loud@1/shout</code>. That is why no node id or name may contain <code>.</code>, <code>/</code>, <code>@</code> or <code>~</code>.</p>
     </div>
     <div class="sample">
+      <script type="text/x-python" data-name="loop-widget">
+# The loop widget's other choice: a join that takes one text, so it runs once per line.
+@registry.node("join-one", title="Join one", description="Wraps one text.")
+def join_one(texts: str) -> str:
+    return f"<{texts}>"
+</script>
       <pre data-lang="py">from conductor import Ask, Graph, NodeRegistry, Series, make_graph
 
 registry = NodeRegistry()
@@ -724,6 +730,24 @@ print({n: d.per_item_of for n, d in graph.describe().nodes.items()})
 print(graph.run({"text": "Ida,Bo,Al"}).outputs)</pre>
       <pre class="out">{'email': 'names.result', 'keep': None, 'names': None, 'pair': None}
 {'keep': ['ida@a.dk', None, 'al@a.dk'], 'pair': ['Ida &lt;ida@a.dk&gt;', 'Al &lt;al@a.dk&gt;']}</pre>
+      <script type="text/x-python" data-name="collect-widget">
+# The collecting widget's graph: the graph above, with an email that leaves out the names in without_email.
+without_email: set[str] = set()
+widget_registry = NodeRegistry()
+widget_registry.add(names, pair, keep)
+
+@widget_registry.node("email", title="Email", description="Finds a name's email, if there is one.")
+def email_unless_left_out(name: str) -> str | None:
+    return None if name in without_email else f"{name.lower()}@a.dk"
+
+widget_graph = Graph.compile(
+    make_graph(names, email_unless_left_out, pair, keep, edges=[
+        ("names.result", "email.name"), ("names.result", "pair.names"),
+        ("email.result", "pair.emails"), ("email.result", "keep.emails")],
+        outputs={"pair": "pair.result", "keep": "keep.result"}),
+    widget_registry,
+)
+</script>
       <p class="small">The sample runs with a node <code>names(text: str) -&gt; Series[str]</code>, which splits on commas.</p>
     </div>
   </div>
@@ -1064,7 +1088,7 @@ complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
 True [('invalid_limit', ('max_items',))]</pre>
       <p class="small">The widget's graph, <code>docs -&gt; lines -&gt; shout</code>, stopped by the second document's lines:</p>
       <script type="text/x-python">registry = NodeRegistry()</script>
-      <pre data-lang="py">@registry.node("docs", title="Documents", description="Splits a text into documents.")
+      <pre data-lang="py" data-name="limit">@registry.node("docs", title="Documents", description="Splits a text into documents.")
 def docs(text: str) -&gt; Series[str]:
     return text.split("|")
 

@@ -11,20 +11,13 @@ lines, unless the page marks it as some of them, in order. Single and double quo
 
 from __future__ import annotations
 
-import ast
-import asyncio
-import contextlib
-import inspect
-import linecache
 import sys
-import traceback
-from io import StringIO
 from typing import Any
 
 import pytest
 from pytest import MonkeyPatch
 
-from tests.test_core.doc_examples import ExplainerSample, explainer_samples
+from tests.test_core.doc_examples import ExplainerSample, explainer_samples, run_explainer_sample
 
 _PAGES = explainer_samples()
 
@@ -42,26 +35,6 @@ def _shows(sample: ExplainerSample, printed: str) -> bool:
     return all(any(line == other for other in rest) for line in shown if line)
 
 
-def _run(sample: ExplainerSample, name: str, module: Any, monkeypatch: MonkeyPatch) -> str:
-    where = f"{name}, line {sample.line}"
-    # The piece's source can be read, as a file's can, so @node reads a function in it as it reads one in a file.
-    monkeypatch.setitem(
-        linecache.cache,
-        where,
-        (len(sample.code), None, sample.code.splitlines(keepends=True), where),
-    )
-    code = compile(sample.code, where, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
-    out = StringIO()
-    with contextlib.redirect_stdout(out):
-        try:
-            ran = eval(code, module.__dict__)  # noqa: S307  the page's own code, as a reader runs it
-            if inspect.iscoroutine(ran):
-                asyncio.run(ran)
-        except Exception as error:  # noqa: BLE001  the page shows the refusal as the piece's output
-            print(traceback.format_exception_only(error)[-1].rstrip("\n"))
-    return out.getvalue()
-
-
 @pytest.mark.parametrize("name", sorted(_PAGES))
 def test_an_illustrated_page_runs_and_prints_what_it_shows(
     name: str, tmp_path: Any, monkeypatch: MonkeyPatch
@@ -71,7 +44,7 @@ def test_an_illustrated_page_runs_and_prints_what_it_shows(
     monkeypatch.setitem(sys.modules, name, module)
     differ = []
     for sample in _PAGES[name]:
-        printed = _run(sample, name, module, monkeypatch)
+        printed = run_explainer_sample(sample, module)
         if sample.shown and not _shows(sample, printed):
             shown = "\n".join(sample.shown)
             differ.append(f"line {sample.line}:\n  shows:\n{shown}\n  prints:\n{printed}")

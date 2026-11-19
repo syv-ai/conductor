@@ -20,14 +20,19 @@ apart, by ``explainer_samples``.
 from __future__ import annotations
 
 import ast
+import asyncio
+import contextlib
+import inspect
 import json
 import linecache
 import re
 import sys
+import traceback
 from ast import Expr, Expression, Module
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
+from io import StringIO
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -116,12 +121,14 @@ class ExplainerSample:
             none.
         in_order: True when a shown block is only some of the printed lines, in order (``data-check="lines"``).
             Otherwise it is all of them.
+        name: The block's ``data-name``, which the docs build finds it by (``explainer_namespace``), or ``None``.
     """
 
     code: str
     line: int
     shown: list[str] = field(default_factory=list)
     in_order: bool = False
+    name: str | None = None
 
 
 class _ExplainerReader(HTMLParser):
@@ -129,6 +136,7 @@ class _ExplainerReader(HTMLParser):
 
     - ``<pre data-lang="py">`` is a sample. ``data-run="no"`` leaves out one that isn't a whole program.
     - ``<script type="text/x-python">`` is setup a sample needs and the page doesn't show, such as its imports.
+    - ``data-name`` on either names it, so the docs build can run the page up to it (``explainer_namespace``).
     - An element whose class has ``out`` is what the Python before it prints. ``data-check="lines"`` on it says
       it shows only some of the printed lines.
     """
@@ -141,6 +149,7 @@ class _ExplainerReader(HTMLParser):
         self._text: list[str] = []
         self._line = 0
         self._lines_only = False
+        self._name: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if self._open:
@@ -150,8 +159,10 @@ class _ExplainerReader(HTMLParser):
         classes = (attr.get("class") or "").split()
         if tag == "pre" and attr.get("data-lang") == "py" and attr.get("data-run") != "no":
             self._start("code", tag)
+            self._name = attr.get("data-name")
         elif tag == "script" and attr.get("type") == "text/x-python":
             self._start("code", tag)
+            self._name = attr.get("data-name")
         elif "out" in classes:
             self._lines_only = attr.get("data-check") == "lines"
             self._start("out", tag)
@@ -171,7 +182,7 @@ class _ExplainerReader(HTMLParser):
         if not text.strip():
             return  # filled in by the page's script
         if self._kind == "code":
-            self.samples.append(ExplainerSample(text, self._line))
+            self.samples.append(ExplainerSample(text, self._line, name=self._name))
         elif self.samples:
             self.samples[-1].shown.append(text)
             self.samples[-1].in_order |= self._lines_only
@@ -191,6 +202,49 @@ def explainer_samples() -> dict[str, list[ExplainerSample]]:
         reader.feed(path.read_text())
         found[_module_name(path)] = reader.samples
     return found
+
+
+def run_explainer_sample(sample: ExplainerSample, module: ModuleType) -> str:
+    """Runs one piece of an illustrated page's Python in ``module``, and returns what it printed.
+
+    A piece that raises prints the exception's last line, ``TypeError: ...``, as a traceback ends, since a page shows
+    a refusal as the output of the code that is refused. The piece's source can be read, as a file's can, so
+    ``@node`` reads a function in it as it reads one in a file.
+    """
+    where = f"{module.__name__}, line {sample.line}"
+    linecache.cache[where] = (len(sample.code), None, sample.code.splitlines(keepends=True), where)
+    code = compile(sample.code, where, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
+    out = StringIO()
+    with contextlib.redirect_stdout(out):
+        try:
+            ran = eval(code, module.__dict__)  # noqa: S307  the page's own code, as a reader runs it
+            if inspect.iscoroutine(ran):
+                asyncio.run(ran)
+        except Exception as error:  # noqa: BLE001  the page shows the refusal as the piece's output
+            print(traceback.format_exception_only(error)[-1].rstrip("\n"))
+    return out.getvalue()
+
+
+def explainer_namespace(page: str, name: str) -> dict[str, Any]:
+    """Runs an illustrated page's Python up to its block named ``name``, and returns the names it defined.
+
+    The docs build writes the data a widget shows from what the page's own code defines, so the data belongs to the
+    code beside it. Run it in a directory the code may write files in.
+
+    Args:
+        page: The page's file name in ``docs/explainers/``, as ``"series-and-tables.html"``.
+        name: The ``data-name`` of the last block to run.
+    """
+    path = ROOT / "docs" / "explainers" / page
+    samples = explainer_samples()[_module_name(path)]
+    assert name in [sample.name for sample in samples], f"{page} has no block named {name}"
+    module = ModuleType(_module_name(path))
+    sys.modules[module.__name__] = module  # a dataclass on the page looks up its module by name
+    for sample in samples:
+        run_explainer_sample(sample, module)
+        if sample.name == name:
+            return module.__dict__
+    raise AssertionError(name)
 
 
 @dataclass

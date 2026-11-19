@@ -448,7 +448,7 @@ def shout(line: str, mark: str = "!") -> str:
 @registry.node("join", title="Join", description="Joins texts with a plus.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)</pre>
-      <script type="text/x-python">
+      <script type="text/x-python" data-name="bench-record">
 record = make_graph(lines, shout, join, constants={"shout.mark": "?"})
 data = json.loads(record.model_dump_json())
 for entry in data["nodes"].values():  # make_graph doesn't keep an order of a node's inputs, so show them by name
@@ -799,7 +799,7 @@ shout lines.result [('line', 'item', 'lines.result'), ('mark', 'constant', None)
     <p class="muted">Compiling checks whether a value of an edge's output type can go to its input's type, from the declared types alone. An edge that doesn't fit is the <a href="problems.html">problem</a> <code>type_mismatch</code>, before anything runs. A few common mistakes have a <a href="problems.html#kinds">kind of their own</a>, whose message says the fix.</p>
   </div>
   <div class="pair">
-    <pre data-lang="py">@registry.node("count", title="Count", description="Counts the characters of a text.")
+    <pre data-lang="py" data-name="bench-nodes">@registry.node("count", title="Count", description="Counts the characters of a text.")
 def count(text: str) -> int:
     return len(text)
 
