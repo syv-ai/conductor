@@ -2496,6 +2496,49 @@ async def test_a_queued_answer_that_completes_a_run_whose_resume_call_failed_sho
     assert (completed.status, completed.outputs) == ("complete", {"signed": True})
 
 
+async def test_a_run_cancelled_after_it_completed_whose_resume_call_fails_before_any_node_call_shows_no_outputs() -> (
+    None
+):
+    """The run as the row has it is complete, but the row says ``failed``, so it shows no outputs."""
+    registry, started, gate, contexts = NodeRegistry(), ThreadEvent(), ThreadEvent(), []
+
+    @registry.node("pieces", title="Pieces", description="Splits a text at its commas.")
+    def pieces(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("hold", title="Hold", description="Waits on a gate, then gives its piece back.")
+    def hold(piece: str) -> str:
+        started.set()
+        gate.wait(10)
+        return piece
+
+    def fails_after_the_first(metadata: object, stop: ThreadEvent) -> None:
+        contexts.append(metadata)
+        if len(contexts) > 1:
+            raise ConnectionError("the secrets service is down")
+
+    store = MemoryStore()
+    graph = make_graph(pieces, hold, edges=[("pieces.result", "hold.piece")])
+    holder = _worker(store, registry, context=fails_after_the_first)
+    other = _worker(store, registry, context=fails_after_the_first)
+    async with holder.serving(), other.serving():
+        run_id = await _started(holder, graph, {"text": "p,q"})
+        await asyncio.to_thread(started.wait, 10)
+        await other.cancel(run_id, allows=EVERY_RUN)
+        gate.set()
+        cancelled = await store.ended(run_id)
+        await other.resume(run_id, allows=EVERY_RUN)
+        failed = await store.ended(run_id)
+
+    assert (cancelled.status, cancelled.outputs) == ("cancelled", None)
+    assert failed.cause is not None
+    assert (failed.status, failed.cause.type, failed.outputs) == (
+        "failed",
+        "raised_outside_a_node",
+        None,
+    )
+
+
 async def test_a_run_whose_end_the_store_fails_to_write_stays_running_and_is_resumed_once_its_lease_runs_out() -> (
     None
 ):
