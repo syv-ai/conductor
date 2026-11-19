@@ -1,4 +1,4 @@
-"""Works out the arguments of one call of a node, from the outcomes a run has so far.
+"""The outcomes of a run: the outcome of every call so far, and the arguments of a call worked out from them.
 
 The example graph in this file::
 
@@ -6,8 +6,14 @@ The example graph in this file::
     shout(line: str, mark: str) -> str       # wired to lines.result: called once per line
     join(texts: Series[str]) -> str          # wired to shout.result: called once, with ["A!", "B!"]
 
-``shout`` is called once per line. Its call for the second line has the item indexes ``(1,)``, one index per
-loop the node is inside. ``ResultReader.arguments_for(shout, (1,))`` returns its arguments,
+A run stores one outcome per call (``outcome.py`` has the four kinds), by the node's path and then by the call's
+item indexes, one index per loop the node is inside. After the run, ``RunOutcomes`` has::
+
+    ("lines",): {():   Done({"result": ["a", "b"]})}
+    ("shout",): {(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"})}
+    ("join",):  {():   Done({"result": "A!+B!"})}
+
+``RunOutcomes.arguments_for(shout, (1,))`` returns the arguments of ``shout``'s call for the second line,
 ``{"line": "b", "mark": "!"}``.
 
 Sometimes a node can't be called, and ``arguments_for`` says why instead. It checks these in order:
@@ -25,7 +31,7 @@ items, it asks whether any item could have a value at all. Say ``mark`` comes fr
 Then every call of ``shout`` is skipped. With two lines, ``join`` would get ``[None, None]``, and with no lines
 ``[]``. Instead, ``join`` is skipped either way, so the answer doesn't depend on how many lines there are.
 
-To ask that question, the reader calls ``arguments_for`` again for ``shout``, with item indexes one index short:
+To ask that question, ``arguments_for`` is called again for ``shout``, with item indexes one index short:
 ``()`` instead of ``(0,)`` or ``(1,)``. ``mark`` is read as usual, since its node is inside no loop. ``line`` is
 one item of a list, and no index says which one. So once the list exists, ``line`` reads as
 ``MAY_HAVE_VALUE``. The result is ``Skipped`` when ``mark`` is ``SKIPPED``, and arguments when some call of
@@ -34,8 +40,9 @@ one item of a list, and no index says which one. So once the list exists, ``line
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, Literal, assert_never
+from collections.abc import Iterator, Mapping
+from types import MappingProxyType
+from typing import Any, Literal, Self, assert_never
 
 import polars as pl
 from typing_extensions import sentinel
@@ -45,46 +52,188 @@ from conductor._internal.graph import CollectingInput, Edge, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import NoSuchFieldError, field_of
 
-from .blueprint import BlueprintFunctionNode, loop_body_of
+from .blueprint import BlueprintFunctionNode, RunBlueprint, loop_body_of
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
-#: Returned in place of a value when the reader is asked about any item of a loop, and some item may have a
-#: value. When no item can have one, the reader returns what every item would get: ``SKIPPED`` or ``None``.
+#: Returned in place of a value when the outcomes are asked about any item of a loop, and some item may have a
+#: value. When no item can have one, what every item would get is returned instead: ``SKIPPED`` or ``None``.
 MAY_HAVE_VALUE = sentinel("MAY_HAVE_VALUE")
 
 
-class ResultReader:
-    """Works out the arguments of a call from a run's outcomes.
+class RunOutcomes:
+    """The outcome of every call of a run so far, and the arguments of each call worked out from them.
 
-    The run makes one reader for its outcomes, and the scheduler asks it for each call's arguments with
-    ``arguments_for``.
+    A run holds one, and never changes it. ``resume()`` gives the scheduler a ``copy()`` to ``record`` the new
+    outcomes in, and the run it returns holds a copy of that. ``with_answers`` and ``with_decline`` make theirs with
+    ``replacing``. A copy shares each node's outcomes with the table it was copied from, until one of the two
+    records an outcome of that node: then it gets a dict of its own first. So a copy costs one step per node.
+
+    Every copy has each node's outcomes in item order. Calls on threads come back in any order, so the table
+    being recorded into may hold them out of order until it is copied.
 
     Attributes:
-        function_nodes: The blueprint's function nodes, by node path.
-        outcomes: The run's outcomes, by node path and then by item indexes.
-        graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``).
-        for_any_item: Empty in the reader a run uses for its calls. A reader made to ask "could any item of this
-            loop have a value?" (``_for_any_item_of``) has here what ``arguments_for`` returned for each node
-            inside the loop.
+        blueprint: The blueprint of the run's graph: every function node, by node path.
+        graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``). It is read-only.
+        for_any_item: Empty in the outcomes a run holds. The outcomes made to ask "could any item of this loop
+            have a value?" (``_for_any_item_of``) have here what ``arguments_for`` returned for each node inside
+            the loop.
     """
 
-    __slots__ = ("for_any_item", "function_nodes", "graph_inputs", "outcomes")
+    __slots__ = ("_by_node", "_out_of_order", "_own", "blueprint", "for_any_item", "graph_inputs")
 
-    def __init__(
-        self,
-        function_nodes: Mapping[NodePath, BlueprintFunctionNode],
-        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
-        graph_inputs: Mapping[str, Any],
-    ) -> None:
-        self.function_nodes, self.outcomes, self.graph_inputs = (
-            function_nodes,
-            outcomes,
-            graph_inputs,
+    def __init__(self, blueprint: RunBlueprint, graph_inputs: Mapping[str, Any]) -> None:
+        """Makes the outcomes of a run that has made no call yet."""
+        self._shaped(
+            blueprint,
+            MappingProxyType(dict(graph_inputs)),
+            {path: {} for path in blueprint.function_nodes},
+            set(blueprint.function_nodes),
         )
+
+    def _shaped(
+        self,
+        blueprint: RunBlueprint,
+        graph_inputs: Mapping[str, Any],
+        by_node: dict[NodePath, dict[ItemIndexes, Outcome]],
+        own: set[NodePath],
+    ) -> None:
+        """Sets every attribute. ``__init__``, ``copy`` and ``sharing`` make their tables with it.
+
+        Args:
+            blueprint: The blueprint of the run's graph.
+            graph_inputs: The graph inputs, read-only.
+            by_node: The outcomes of each function node, by node path and then by item indexes.
+            own: The nodes whose dict of outcomes no other table shares, so ``record`` may write into it.
+        """
+        self.blueprint, self.graph_inputs, self._by_node, self._own = (
+            blueprint,
+            graph_inputs,
+            by_node,
+            own,
+        )
+        #: The nodes whose outcomes ``record`` wrote out of item order. ``copy`` sorts them.
+        self._out_of_order: set[NodePath] = set()
         self.for_any_item: dict[
             BlueprintFunctionNode,
             dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY],
         ] = {}
+
+    @classmethod
+    def sharing(cls, outcomes: RunOutcomes) -> Self:
+        """Returns a table of the same outcomes as ``outcomes``, sharing every node's dict, for reading only.
+
+        ``results.py`` reads a run's outcomes as a host is shown them this way, and ``_for_any_item_of`` reads them
+        for any item of a loop.
+        """
+        shared = object.__new__(cls)
+        shared._shaped(outcomes.blueprint, outcomes.graph_inputs, outcomes._by_node, set())
+        return shared
+
+    # -- the outcomes ------------------------------------------------------------------------------------------
+
+    def of(self, path: NodePath) -> Mapping[ItemIndexes, Outcome]:
+        """Returns the outcomes of the function node at ``path``, by item indexes.
+
+        ``of(("shout",))`` is ``{(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"})}`` in the example. A call
+        with no outcome has no key. The result is in item order, except in a table being recorded into.
+        """
+        return self._by_node[path]
+
+    def __len__(self) -> int:
+        """Returns how many calls have an outcome."""
+        return sum(len(of_node) for of_node in self._by_node.values())
+
+    def calls[O](self, kind: type[O]) -> Iterator[tuple[BlueprintFunctionNode, ItemIndexes, O]]:
+        """Yields every call whose outcome is of ``kind``, with its node and item indexes.
+
+        They come in node order, and then in item order. ``calls(Unanswered)`` yields every call waiting for a
+        person. A call inside a subgraph comes where its subgraph node is.
+        """
+        for node in self.blueprint.function_nodes.values():
+            for item_indexes, outcome in self._by_node[node.node_path].items():
+                if isinstance(outcome, kind):
+                    yield node, item_indexes, outcome
+
+    def record(
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome
+    ) -> None:
+        """Stores the outcome of the call of ``node`` at ``item_indexes``, in place of any it had."""
+        path = node.node_path
+        of_node = self._own_dict(path)
+        if item_indexes not in of_node and of_node and item_indexes < next(reversed(of_node)):
+            self._out_of_order.add(path)
+        of_node[item_indexes] = outcome
+
+    def copy(self) -> RunOutcomes:
+        """Returns a copy to record into, with every node's outcomes in item order. This table is left as it is."""
+        by_node = dict(self._by_node)
+        for path in self._out_of_order:
+            by_node[path] = dict(sorted(by_node[path].items()))
+        copied = object.__new__(RunOutcomes)
+        copied._shaped(self.blueprint, self.graph_inputs, by_node, set(self._out_of_order))
+        # From here on, neither this table nor the copy writes into a dict the other has.
+        self._own = set()
+        return copied
+
+    def replacing(
+        self, changes: Mapping[tuple[BlueprintFunctionNode, ItemIndexes], Outcome | None]
+    ) -> RunOutcomes:
+        """Returns a copy in which each call in ``changes`` has its new outcome. ``None`` takes a call's outcome away.
+
+        ``with_answers`` replaces a waiting call's ``Unanswered`` with ``Done`` this way, and ``with_decline`` takes
+        every ``Unanswered`` away.
+        """
+        copied = self.copy()
+        for (node, item_indexes), outcome in changes.items():
+            if outcome is not None:
+                copied.record(node, item_indexes, outcome)
+                continue
+            del copied._own_dict(node.node_path)[item_indexes]
+        return copied
+
+    def _own_dict(self, path: NodePath) -> dict[ItemIndexes, Outcome]:
+        """Returns the dict of outcomes of the node at ``path`` to write into, copying it first if another table shares it."""
+        if path not in self._own:
+            self._by_node[path] = dict(self._by_node[path])
+            self._own.add(path)
+        return self._by_node[path]
+
+    def item_indexes(
+        self, loops: tuple[tuple[NodePath, str], ...], prefix: ItemIndexes = ()
+    ) -> tuple[list[ItemIndexes], bool]:
+        """Returns the item indexes of every call a node inside ``loops`` will have, and whether that list is final yet.
+
+        ``shout`` is inside one loop, over ``lines.result``. Once ``lines`` has returned two lines,
+        ``item_indexes(shout.loops)`` returns ``([(0,), (1,)], True)``. Before ``lines`` has returned, it returns
+        ``([], False)``: no call is known yet, and more will come. ``lines`` is inside no loop, so for it the result
+        is always ``([()], True)``, one call.
+
+        Args:
+            loops: The loops the node is inside, outermost first. Each is the path of the node that returns the
+                series, and that output's name.
+            prefix: Only return the item indexes that start with these. ``()`` returns all of them. With two nested
+                loops, ``(1,)`` returns the calls for item 1 of the outer loop: ``(1, 0)``, ``(1, 1)``, and so on.
+
+        Returns:
+            The item indexes of each call known so far, and ``True`` once every series the node loops over exists.
+        """
+        every_item_indexes, complete = [prefix], True
+        for depth in range(len(prefix), len(loops)):
+            series_node, output = loops[depth]
+            of_series_node = self._by_node[series_node]
+            one_loop_deeper: list[ItemIndexes] = []
+            for item_indexes in every_item_indexes:
+                outcome = of_series_node.get(item_indexes)
+                if outcome is None or not outcome.has_outputs:
+                    complete = False
+                    continue
+                one_loop_deeper.extend(
+                    (*item_indexes, index) for index in range(length(outcome.outputs[output]))
+                )
+            every_item_indexes = one_loop_deeper
+        return every_item_indexes, complete
+
+    # -- the arguments of a call -------------------------------------------------------------------------------
 
     def arguments_for(
         self, node: BlueprintFunctionNode, item_indexes: ItemIndexes
@@ -166,7 +315,7 @@ class ResultReader:
 
         With one edge, that is what ``read_output`` reads from the output the edge comes from. Several edges into one
         input come from different branches of one node, so for one call no two of them have a value. When the
-        reader is asked about any item of a loop, several may have one.
+        outcomes are asked about any item of a loop, several may have one.
 
         Returns:
             The first value an edge gives. Otherwise ``NOT_READY`` if any edge gave that. Otherwise ``None`` if any
@@ -175,7 +324,7 @@ class ResultReader:
         best: Any = SKIPPED
         for edge in edges:
             value = self.read_output(
-                self.function_nodes[edge.node],
+                self.blueprint.function_nodes[edge.node],
                 edge.output,
                 item_indexes,
                 edge.wired_to.field,
@@ -221,7 +370,7 @@ class ResultReader:
             NoSuchFieldError: The edge reads a field of a record, and the record has no such field.
         """
         depth = len(node.loops)
-        outcome = self.outcomes[node.node_path].get(item_indexes[:depth])
+        outcome = self._by_node[node.node_path].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if (
                 len(item_indexes) < depth
@@ -257,7 +406,7 @@ class ResultReader:
             any item of an outer loop: ``MAY_HAVE_VALUE``, or the ``SKIPPED``, ``NOT_READY`` or ``None`` that every
             item gets.
         """
-        series_node = self.function_nodes[node_input.series[0]]
+        series_node = self.blueprint.function_nodes[node_input.series[0]]
         depth, keeps_none_items = len(series_node.loops), node_input.field.keeps_none_items
         if len(item_indexes) < depth:
             return _may_have_value(
@@ -265,7 +414,7 @@ class ResultReader:
             )
         item_indexes = item_indexes[:depth]
         loop = node_input.series
-        sources = [self.function_nodes[edge.node] for edge in node_input.sources]
+        sources = [self.blueprint.function_nodes[edge.node] for edge in node_input.sources]
         for_any_item = self._for_any_item_of(loop, sources, item_indexes).read_edges(
             node_input.sources, item_indexes
         )
@@ -323,7 +472,7 @@ class ResultReader:
         if value is not MAY_HAVE_VALUE:
             return value
         node_path, output = loop
-        outcome = self.outcomes[node_path].get(item_indexes)
+        outcome = self._by_node[node_path].get(item_indexes)
         return (
             outcome.outputs[output]
             if outcome is not None and outcome.has_outputs
@@ -335,8 +484,8 @@ class ResultReader:
         loop: tuple[NodePath, str],
         sources: list[BlueprintFunctionNode],
         item_indexes: ItemIndexes,
-    ) -> ResultReader:
-        """Returns a new reader that answers for any item of ``loop``.
+    ) -> Self:
+        """Returns outcomes that answer for any item of ``loop``: the same outcomes, read for any item.
 
         Its ``for_any_item`` has what ``arguments_for`` returns at ``item_indexes`` for each node inside the loop that
         ``sources`` depend on. Each node is worked out after the nodes upstream of it (``loop_body_of``).
@@ -346,7 +495,7 @@ class ResultReader:
             sources: The function nodes a value is read from.
             item_indexes: The item indexes of the call that returned the list.
         """
-        any_item = type(self)(self.function_nodes, self.outcomes, self.graph_inputs)
+        any_item = type(self).sharing(self)
         for node in loop_body_of(loop, sources):
             any_item.for_any_item[node] = any_item.arguments_for(node, item_indexes)
         return any_item
@@ -411,3 +560,8 @@ def _without_indexes(
             return value.filter([index not in indexes for index in range(value.height)])
         case _:
             assert_never(value)
+
+
+def length(value: Any) -> int:
+    """Returns how many items the value of a ``Series`` output has. A value of ``None`` or ``SKIPPED`` has 0."""
+    return 0 if value is SKIPPED or value is None else len(value)

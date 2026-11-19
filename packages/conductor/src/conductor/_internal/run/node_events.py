@@ -39,9 +39,7 @@ From those, ``NodeEvents`` makes:
   for it. A subgraph node completes once every node inside it has, and its count is theirs added up.
 - ``NodeRetry`` and ``NodeFailed``, passed on as the scheduler reports them.
 
-Nothing here starts a thread. The only clock it reads is the one that spaces out ``NodeProgress``. So a test can
-make a ``NodeEvents`` with a list's ``append`` as the listener, and call its methods by hand
-(``tests/test_core/test_node_events.py``).
+Nothing here starts a thread. The only clock it reads is the one that spaces out ``NodeProgress``.
 """
 
 from __future__ import annotations
@@ -55,7 +53,6 @@ from typing import assert_never
 from conductor._internal.base import ItemIndexes, NodePath
 from conductor._internal.problem import Problem
 
-from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, BlueprintNode, all_upstream
 from .events import (
     EventBase,
@@ -67,6 +64,7 @@ from .events import (
     NodeWaiting,
 )
 from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
+from .outcomes import RunOutcomes
 from .progress import CallCount, call_count, is_complete
 from .waiting import waiting_record
 
@@ -85,9 +83,7 @@ class NodeEvents:
     Attributes:
         emit: The listener. It is called with each event.
         nodes: Every function node of the graph and of its subgraphs, in topological order.
-        outcomes: The run's outcomes, by node path and item indexes. The scheduler writes them, and this class only
-            looks at them.
-        reader: Looks up the run's outcomes, to find what a waiting call was given.
+        outcomes: The run's outcomes. The scheduler records them, and this class only looks at them.
         started: The nodes that have had ``NodeStart``, in this call or an earlier one.
         complete: The nodes that have had ``NodeComplete``, in this call or an earlier one.
         changed: The nodes that got an outcome since they were last checked for ``NodeComplete``.
@@ -100,10 +96,8 @@ class NodeEvents:
     def __init__(
         self,
         emit: Callable[[EventBase], None],
-        nodes: list[BlueprintFunctionNode],
-        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+        outcomes: RunOutcomes,
         complete: frozenset[NodePath],
-        reader: ResultReader,
     ) -> None:
         """Sets up the events for one call of ``run.resume()`` or ``run.stream()``.
 
@@ -112,15 +106,14 @@ class NodeEvents:
 
         Args:
             emit: The listener.
-            nodes: Every function node, in topological order.
-            outcomes: The run's outcomes, by node path and item indexes.
+            outcomes: The run's outcomes, which the scheduler records into.
             complete: The node paths of the nodes that were complete when the last ``resume()`` ended. A stream
                 has already said so, or would have.
-            reader: Looks up the run's outcomes, to find what a waiting call was given.
         """
-        self.emit, self.nodes, self.outcomes, self.reader = emit, nodes, outcomes, reader
+        nodes = list(outcomes.blueprint.function_nodes.values())
+        self.emit, self.nodes, self.outcomes = emit, nodes, outcomes
         with_outcomes: set[BlueprintFunctionNode] = {
-            node for node in nodes if outcomes[node.node_path]
+            node for node in nodes if outcomes.of(node.node_path)
         }
         self.started: set[BlueprintNode] = set(with_outcomes)
         for node in with_outcomes:
@@ -176,7 +169,7 @@ class NodeEvents:
                 self.emit(
                     NodeWaiting(
                         loc=node.node_path,
-                        waiting=waiting_record(node, item_indexes, outcome, self.reader),
+                        waiting=waiting_record(node, item_indexes, outcome, self.outcomes),
                     )
                 )
             case _:

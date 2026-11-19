@@ -31,7 +31,7 @@ was compiled in:
 - ``loud/strip`` and ``loud/shout`` are inside the loop over ``lines.result``, because ``loud`` is. A blueprint
   node names its loops by full paths too.
 
-``ResultReader`` in ``arguments.py`` uses the blueprint to work out each call's arguments.
+``RunOutcomes`` in ``outcomes.py`` uses the blueprint to work out each call's arguments.
 """
 
 from __future__ import annotations

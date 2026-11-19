@@ -20,10 +20,10 @@ from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, write_waiting_id
 from conductor._internal.field import FieldDescription
 
-from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .call import jsonable
 from .outcome import NoneInput, NotReady, Skipped, Unanswered
+from .outcomes import RunOutcomes
 from .reuse import call_fingerprint
 
 
@@ -64,7 +64,7 @@ def waiting_record(
     node: BlueprintFunctionNode,
     item_indexes: ItemIndexes,
     waiting: Unanswered,
-    reader: ResultReader,
+    outcomes: RunOutcomes,
 ) -> Waiting:
     """Builds the ``Waiting`` a host is shown for one waiting call.
 
@@ -72,7 +72,7 @@ def waiting_record(
         node: The node that asks.
         item_indexes: Which call of the node waits.
         waiting: The call's outcome, with what the ``Ask`` said.
-        reader: Looks up the run's outcomes, to find what the call was given.
+        outcomes: The run's outcomes, to find what the call was given.
     """
     loc, outputs, choices, defaults = (
         outcome_loc(node, item_indexes),
@@ -81,16 +81,16 @@ def waiting_record(
         waiting.defaults,
     )
     return Waiting(
-        id=write_waiting_id(loc, question_fingerprint(node, item_indexes, reader)),
+        id=write_waiting_id(loc, question_fingerprint(node, item_indexes, outcomes)),
         loc=loc,
         prompt=waiting.prompt,
         questions=list(as_asked(outputs, choices, defaults).values()),
-        inputs=jsonable(_arguments(node, item_indexes, reader)),
+        inputs=jsonable(_arguments(node, item_indexes, outcomes)),
     )
 
 
 def question_fingerprint(
-    node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader
+    node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcomes: RunOutcomes
 ) -> str | None:
     """Returns the fingerprint in a waiting call's id: the first eight hex digits of its call fingerprint.
 
@@ -99,13 +99,13 @@ def question_fingerprint(
     as JSON. Such a call's id names just the call, as ``write_waiting_id`` writes it.
     """
     fingerprint = call_fingerprint(
-        node, item_indexes, _arguments(node, item_indexes, reader), reader.outcomes
+        node, item_indexes, _arguments(node, item_indexes, outcomes), outcomes
     )
     return None if fingerprint is None else fingerprint[:8]
 
 
 def _arguments(
-    node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader
+    node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcomes: RunOutcomes
 ) -> dict[str, Any]:
     """Returns the arguments a waiting call was given.
 
@@ -116,7 +116,7 @@ def _arguments(
         RuntimeError: The call comes out as skipped, has a ``None`` input or is not ready, so it has no arguments. That's a bug:
             the call did ask, and the outcomes it was given haven't changed since.
     """
-    match reader.arguments_for(node, item_indexes):
+    match outcomes.arguments_for(node, item_indexes):
         case dict() as arguments:
             return arguments
         case Skipped() | NoneInput() | NotReady.NOT_READY as none:

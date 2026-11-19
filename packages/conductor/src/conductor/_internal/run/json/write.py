@@ -19,7 +19,6 @@ from conductor._internal.types import Type
 
 from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
-from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
 from .codec import saved_type
 from .type import (
@@ -49,7 +48,7 @@ def run_to_json(run: Run) -> str:
     try:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
-        where = first_unwritable_value(saved, run._blueprint.function_nodes)
+        where = first_unwritable_value(saved, run.graph._blueprint.function_nodes)
         raise InvalidCallError(
             [
                 call_problems.run_unwritable(
@@ -73,7 +72,7 @@ def outputs_to_json(run: Run) -> str:
     written = {}
     for text, value in run.outputs.items():
         edge = run.graph._edge_reading(text)
-        function = run._blueprint.function_nodes[edge.node]
+        function = run.graph._blueprint.function_nodes[edge.node]
         hint: Any = saved_type(function.compiled_node.outputs[edge.output]).hint
         # one list, or None in its place, for each loop the function node is inside
         for _ in function.loops:
@@ -102,7 +101,7 @@ def saved_run(run: Run) -> SavedRun:
     under its node path as text (``"loud/shout"``). A node with no outcome and nothing to reuse has no key at all.
     """
     codec = run.graph._codec
-    function_nodes = run._blueprint.function_nodes
+    function_nodes = run.graph._blueprint.function_nodes
     names = {path: place_text(path) for path in function_nodes}
     outcomes = {
         names[path]: saved_outcomes(
@@ -111,7 +110,7 @@ def saved_run(run: Run) -> SavedRun:
             _outcomes_by_call_number(run, node),
         )
         for path, node in function_nodes.items()
-        if run._outcomes[path]
+        if run._outcomes.of(path)
     }
     reusable = {}
     for path, node in function_nodes.items():
@@ -148,11 +147,8 @@ def _outcomes_by_call_number(run: Run, node: BlueprintFunctionNode) -> list[Outc
     An entry's place is its call's call number, and ``None`` is a call that has no outcome yet. For ``shout`` after
     two of its three calls, it is ``[Done(...), Done(...), None]``.
     """
-    outcomes = run._outcomes[node.node_path]
-    return [
-        outcomes.get(item_indexes)
-        for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]
-    ]
+    of_node = run._outcomes.of(node.node_path)
+    return [of_node.get(item_indexes) for item_indexes in run._outcomes.item_indexes(node.loops)[0]]
 
 
 def saved_outcomes(

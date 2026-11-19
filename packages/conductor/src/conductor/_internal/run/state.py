@@ -83,7 +83,7 @@ def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
     last_resume, outcomes = run._last_resume, run._outcomes
     if last_resume == "running":
         return "running", None
-    counts = [call_count(outcomes, node) for node in run._blueprint.function_nodes.values()]
+    counts = [call_count(outcomes, node) for node in run.graph._blueprint.function_nodes.values()]
     if all(is_complete(count) for count in counts):
         return "complete", None
     if last_resume is not None:

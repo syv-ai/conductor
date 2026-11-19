@@ -16,9 +16,9 @@ from conductor._internal.graph import CollectingInput
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
-from .arguments import MAY_HAVE_VALUE, ResultReader
 from .blueprint import BlueprintFunctionNode
 from .outcome import NotReady
+from .outcomes import MAY_HAVE_VALUE, RunOutcomes
 
 if TYPE_CHECKING:
     from .type import Run
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
     """Returns ``run.results``: every node's outputs so far, by node id and output name."""
-    reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
+    reader = DisplayReader.sharing(run._outcomes)
     return {
         n: {
             o: reader.display_value(edge.node, edge.output)
@@ -39,7 +39,7 @@ def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
 
 def outputs_of(run: Run[Any]) -> dict[str, Any]:
     """Returns ``run.outputs`` of a complete run: the graph outputs by name, each shown as ``run.results`` shows it."""
-    reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
+    reader = DisplayReader.sharing(run._outcomes)
     return {
         name: reader.display_value(edge.node, edge.output)
         for name in run.graph._outputs
@@ -47,11 +47,11 @@ def outputs_of(run: Run[Any]) -> dict[str, Any]:
     }
 
 
-class DisplayReader(ResultReader):
+class DisplayReader(RunOutcomes):
     """Reads a run's outputs for a host, for ``run.results`` and ``run.outputs``, whatever the run's status.
 
-    It is a ``ResultReader`` whose ``display_value`` never says "not ready". Where a call hasn't returned or waits
-    for a person, it shows ``None``. So a host is shown the values so far. In the example, while ``shout`` has
+    It reads a run's outcomes as ``RunOutcomes`` reads them for a call, but its ``display_value`` never says "not
+    ready". Where a call hasn't returned or waits for a person, it shows ``None``. So a host is shown the values so far. In the example, while ``shout`` has
     only returned for the first line, ``results["shout"]["result"]`` is ``["A!", None]``.
 
     An edge can name one field of a record (``give.result.name``). If the record has no such field, the node the
@@ -70,7 +70,7 @@ class DisplayReader(ResultReader):
         *,
         one_item: bool,
     ) -> Any:
-        """Returns what ``ResultReader.read_output`` returns, as a host is shown it.
+        """Returns what ``RunOutcomes.read_output`` returns, as a host is shown it.
 
         A field the record doesn't have is ``None``. A ``Series`` output is a plain list of its items. A value that
         isn't there yet stays ``NOT_READY``, so that working out whether any item of a loop may have a value goes as
@@ -78,7 +78,7 @@ class DisplayReader(ResultReader):
         ``None``.
         """
         try:
-            value = ResultReader.read_output(
+            value = RunOutcomes.read_output(
                 self, node, output, item_indexes, record_field, one_item=one_item
             )
         except NoSuchFieldError:
@@ -91,7 +91,7 @@ class DisplayReader(ResultReader):
         It is ``None`` when the edge names a field that a record in the list doesn't have.
         """
         try:
-            return ResultReader.collect(self, node_input, item_indexes)
+            return RunOutcomes.collect(self, node_input, item_indexes)
         except NoSuchFieldError:
             return None
 
@@ -116,7 +116,7 @@ class DisplayReader(ResultReader):
             ``None`` in place of a list when the list being looped over was never made, or when a skipped branch
             outside the loop means no item could have a value.
         """
-        node, depth = self.function_nodes[node_path], len(item_indexes)
+        node, depth = self.blueprint.function_nodes[node_path], len(item_indexes)
         if depth == len(node.loops):  # one call, so show what it returned
             value = self.read_output(node, output, item_indexes, None, one_item=False)
             return None if value is SKIPPED or value is NotReady.NOT_READY else value

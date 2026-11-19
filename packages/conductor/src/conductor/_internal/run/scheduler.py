@@ -16,9 +16,9 @@ For each call, the scheduler asks ``arguments_for(node, item_indexes)`` for its 
 answer is ``NOT_READY`` until ``lines`` has an outcome, and ``{"line": "b", "mark": "!"}`` after that. The scheduler
 then calls ``shout`` with those arguments, and writes what it returns as the call's outcome::
 
-    outcomes[("shout",)][(1,)] = Done({"result": "B!"})
+    outcomes.record(shout, (1,), Done({"result": "B!"}))
 
-Outcomes are the only thing the scheduler writes into a run. The one other thing it changes is the pool of outcomes
+Outcomes are the only thing the scheduler writes, into the copy of the run's outcomes (``RunOutcomes``) it is given. The one other thing it changes is the pool of outcomes
 from an earlier run that its calls may reuse. When a call reuses an outcome of a node that may ask a person, that
 outcome is taken out of the pool, so no other call reuses it too (job 3).
 
@@ -107,7 +107,7 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.ask import Ask
-from conductor._internal.base import ItemIndexes, NodePath, place_text
+from conductor._internal.base import ItemIndexes, place_text
 from conductor._internal.node import LONGEST_WAIT, RunningCalls
 from conductor._internal.problem import (
     ExternalError,
@@ -121,15 +121,8 @@ from conductor._internal.problem import (
 from .blueprint import BlueprintFunctionNode, all_upstream, outcome_loc
 from .call import call, jsonable
 from .node_events import NodeEvents
-from .outcome import (
-    Done,
-    NoneInput,
-    NotReady,
-    Outcome,
-    Skipped,
-    Unanswered,
-)
-from .progress import all_item_indexes, length
+from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
+from .outcomes import RunOutcomes, length
 from .reuse import ReusableOutcomes
 from .state import EndedEarly, LastResume
 
@@ -248,9 +241,7 @@ class Scheduler:
     def __init__(
         self,
         *,
-        nodes: list[BlueprintFunctionNode],
-        threads: int,
-        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+        outcomes: RunOutcomes,
         reusable: ReusableOutcomes,
         max_items: int | None,
         arguments_for: Callable[
@@ -266,14 +257,11 @@ class Scheduler:
         """Sets up the scheduler. Nothing is called until ``run()``.
 
         Args:
-            nodes: Every function node of the graph and of its subgraphs, in topological order.
-            threads: How many pool threads the graph needs. That's the sum of ``concurrency`` over the definitions
-                of its nodes that are called on threads.
-            outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
+            outcomes: The run's outcomes, with the blueprint of its nodes. The scheduler records into them.
             reusable: The outcomes of the previous run that a call may reuse. Some can only be reused once, and the
                 scheduler takes those out as it reuses them.
             max_items: The item limit: the most items a series that a loop runs over may have. ``None`` for no limit.
-            arguments_for: Returns the arguments of one call, or why it can't be called yet (``run/arguments.py``).
+            arguments_for: Returns the arguments of one call, or why it can't be called yet (``RunOutcomes.arguments_for``).
             node_events: Makes the events about each node, for the listener of ``run.stream()``. ``None`` for
                 ``run.resume()``, which has no listener.
             stop: Asked before each call, and every so often while waiting for threads. It returns ``None`` to go
@@ -283,13 +271,11 @@ class Scheduler:
             checkpoint: Hands the host a copy of the run. It is called with why the scheduler stopped, if it did.
             checkpoint_every: The fewest seconds between two checkpoints. ``None`` for no checkpoints.
         """
-        self.nodes, self.threads, self.outcomes, self.max_items, self.arguments_for = (
-            nodes,
-            threads,
-            outcomes,
-            max_items,
-            arguments_for,
-        )
+        #: Every function node of the graph and of its subgraphs, in topological order.
+        self.nodes = list(outcomes.blueprint.function_nodes.values())
+        #: How many pool threads the graph needs (``RunBlueprint.threads``).
+        self.threads = outcomes.blueprint.threads
+        self.outcomes, self.max_items, self.arguments_for = outcomes, max_items, arguments_for
         self.stop, self.context = stop, context
 
         # 1. Choosing the next call.
@@ -408,7 +394,6 @@ class Scheduler:
             _each(self._nodes_waiting(), lambda node: self._count_of(node).stop_waiting(self))
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        self._put_in_order()
         if self.node_events is not None:
             self.node_events.scheduler_ended()
         return self.stopped
@@ -448,8 +433,8 @@ class Scheduler:
         """
         self.out_of_turn, self.recorded_since_last_pass = False, False
         for node in self.nodes:
-            outcomes = self.outcomes[node.node_path]
-            for item_indexes in all_item_indexes(self.outcomes, node.loops, ())[0]:
+            outcomes = self.outcomes.of(node.node_path)
+            for item_indexes in self.outcomes.item_indexes(node.loops)[0]:
                 if item_indexes not in outcomes and (node, item_indexes) not in self.running:
                     heapq.heappush(self.ready, (node.position, item_indexes))
 
@@ -471,7 +456,7 @@ class Scheduler:
             node: The node to call.
             item_indexes: Which call of the node.
         """
-        if item_indexes in self.outcomes[node.node_path] or (node, item_indexes) in self.running:
+        if item_indexes in self.outcomes.of(node.node_path) or (node, item_indexes) in self.running:
             return
         try:
             arguments = self.arguments_for(node, item_indexes)
@@ -507,7 +492,7 @@ class Scheduler:
     ) -> None:
         """One call is over. Writes its outcome into the run, and does what follows from it.
 
-        For example, ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` writes ``outcomes[("lines",)][()]``,
+        For example, ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` records the outcome of ``lines ()``,
         and puts ``shout (0,)``, ``shout (1,)`` and ``shout (2,)`` on ``ready``.
 
         What follows comes in this order: a checkpoint if one is due, the listener, the item limit check, and the
@@ -524,7 +509,7 @@ class Scheduler:
         if type(outcome) is Problem:
             self._fail(node, outcome)
             return
-        self.outcomes[node.node_path][item_indexes] = outcome
+        self.outcomes.record(node, item_indexes, outcome)
         self.recorded_since_last_pass = self.changed = True
         if (
             checkpoints := self.checkpoints
@@ -572,8 +557,8 @@ class Scheduler:
             if shared_indexes < depth:
                 self.collectors.add((downstream, item_indexes[:shared_indexes]))
             else:
-                for downstream_indexes in all_item_indexes(
-                    self.outcomes, downstream.loops, item_indexes
+                for downstream_indexes in self.outcomes.item_indexes(
+                    downstream.loops, item_indexes
                 )[0]:
                     heapq.heappush(self.ready, (downstream.position, downstream_indexes))
 
@@ -624,21 +609,9 @@ class Scheduler:
             ):
                 self.collectors.discard((node, item_indexes))
                 released = True
-                for call_indexes in all_item_indexes(self.outcomes, node.loops, item_indexes)[0]:
+                for call_indexes in self.outcomes.item_indexes(node.loops, item_indexes)[0]:
                     heapq.heappush(self.ready, (node.position, call_indexes))
         return released
-
-    def _put_in_order(self) -> None:
-        """Sorts each node's outcomes by item indexes, if they are out of order.
-
-        Attempts on threads come back in any order. But whenever a host can see the run, its outcomes are in item
-        order. A host sees the run in a checkpoint's copy, and when ``run`` returns.
-        """
-        for outcomes in self.outcomes.values():
-            if any(later < earlier for earlier, later in itertools.pairwise(outcomes)):
-                in_order = sorted(outcomes.items())
-                outcomes.clear()
-                outcomes.update(in_order)
 
     # -- 2. Threads, retries and timeouts -------------------------------------------------------------------------
 
@@ -911,7 +884,7 @@ class Scheduler:
             if (
                 error is None
                 and not self.going
-                and item_indexes not in self.outcomes[node.node_path]
+                and item_indexes not in self.outcomes.of(node.node_path)
             ):
                 self._record(
                     node,
@@ -1112,13 +1085,13 @@ class Scheduler:
         """
         turn = self.item_orders.get(node)
         if turn is None:
-            order, every_call_known = all_item_indexes(self.outcomes, node.loops, ())
+            order, every_call_known = self.outcomes.item_indexes(node.loops)
             if not every_call_known:
                 return False
             turn = self.item_orders[node] = _ItemOrder(
                 order, {indexes: position for position, indexes in enumerate(order)}
             )
-        order, outcomes, reached = turn.order, self.outcomes[node.node_path], turn.reached
+        order, outcomes, reached = turn.order, self.outcomes.of(node.node_path), turn.reached
         while reached < len(order):
             next_indexes = order[reached]
             if not (next_indexes in outcomes or (node, next_indexes) in self.running):
@@ -1140,7 +1113,7 @@ class Scheduler:
             return
         for node in self.nodes:
             if node.looped_outputs:
-                for item_indexes, outcome in self.outcomes[node.node_path].items():
+                for item_indexes, outcome in self.outcomes.of(node.node_path).items():
                     if outcome.has_outputs and self._stop_if_over_item_limit(
                         node, item_indexes, outcome, item_limit
                     ):
@@ -1186,7 +1159,6 @@ class Scheduler:
         return False
 
     def _checkpoint(self, checkpoints: _Checkpoints) -> None:
-        """Hands the host a copy of the run now, with its outcomes in item order, and sets when the next is due."""
+        """Hands the host a copy of the run now, and sets when the next is due."""
         checkpoints.next_at = time.monotonic() + checkpoints.every
-        self._put_in_order()
         checkpoints.save(self.stopped)

@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 from asyncio import Event as AsyncioEvent
-from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
 from functools import cache
 from threading import Event as ThreadEvent
@@ -38,8 +38,7 @@ from conductor._internal.base import (
 from conductor._internal.graph import Graph, LimitsValidator
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, run_problems
 
-from .arguments import ResultReader
-from .blueprint import BlueprintFunctionNode, RunBlueprint, outcome_loc
+from .blueprint import BlueprintFunctionNode, outcome_loc
 from .events import (
     Event,
     EventBase,
@@ -50,14 +49,8 @@ from .events import (
 )
 from .json import outputs_to_json, run_from_json, run_to_json
 from .node_events import NodeEvents
-from .outcome import (
-    Done,
-    NoneInput,
-    NotReady,
-    Outcome,
-    Skipped,
-    Unanswered,
-)
+from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
+from .outcomes import RunOutcomes
 from .progress import RunProgress, call_count, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
@@ -111,10 +104,8 @@ class Run[C]:
     graph: Graph[C]
     inputs: Mapping[str, Any]
     max_items: int | None
-    #: The outcomes of each function node, by the node's path and then by item indexes, in item order.
-    #: ``_outcomes[("w",)]`` is a node of the graph itself, and ``_outcomes[("e", "ask")]`` one inside ``e``. Only
-    #: the scheduler stores them out of order, and it sorts them again before it hands the run on.
-    _outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]
+    #: The outcome of every call so far.
+    _outcomes: RunOutcomes
     #: The outcomes of the previous run that this run's calls may still reuse.
     _reusable: ReusableOutcomes
     #: How the last ``resume()`` left the run (see ``LastResume``).
@@ -127,13 +118,8 @@ class Run[C]:
         """Stores the inputs as a read-only copy, so no one can change a run's inputs after it is made."""
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
 
-    @property
-    def _blueprint(self) -> RunBlueprint:
-        """The blueprint of the run's graph: the function nodes the run calls."""
-        return self.graph._blueprint
-
     def __repr__(self) -> str:
-        return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
+        return f"<Run {self.status}: {len(self._outcomes)} outcomes>"
 
     @property
     def status(self) -> RunStatus:
@@ -267,9 +253,9 @@ class Run[C]:
         checkpoint_every: float | None = None,
         only_costs_nothing: bool = False,
     ) -> Run[C]:
-        """Runs the scheduler on a copy of this run, and returns the copy.
+        """Runs the scheduler on a copy of this run's outcomes, and returns a new run with them.
 
-        The copy has the outcomes the scheduler stored and says how the scheduler stopped. The scheduler sends the
+        The new run has the outcomes the scheduler recorded and says how the scheduler stopped. The scheduler sends the
         events about each node. The events about the run itself (that it started, a checkpoint, how it ended) are sent
         here, since they carry the run.
 
@@ -282,26 +268,22 @@ class Run[C]:
                 any other node is treated as not ready.
 
         Returns:
-            The copy, as the scheduler left it.
+            The new run, with the outcomes as the scheduler left them.
 
         Raises:
             RuntimeError: The scheduler wasn't stopped, yet it left a call untried that was ready. That is a bug in the
                 scheduler.
         """
-        # The scheduler stores outcomes into this copy's dicts as calls return. The run returned at the end is made
-        # from it, with how the scheduler stopped and which nodes are complete.
-        working = self._copy()
-        blueprint = self._blueprint
-        nodes = blueprint.function_nodes
-        complete_before = working._complete_nodes
-        reader, function_nodes = working._reader, list(nodes.values())
+        # The scheduler records outcomes into copies of this run's outcomes and of what it may reuse. The run
+        # returned at the end is made from them, with how the scheduler stopped and which nodes are complete.
+        outcomes, reusable = self._outcomes.copy(), self._reusable.copy()
+        nodes = self.graph._blueprint.function_nodes
+        complete_before = self._complete_nodes
         node_events: NodeEvents | None = None
         checkpoint: Callable[[LastResume], None] | None = None
         if emit is not None:
-            emit(RunStart(waiting=tuple(working.waiting)))
-            node_events = NodeEvents(
-                emit, function_nodes, working._outcomes, complete_before, reader
-            )
+            emit(RunStart(waiting=tuple(self.waiting)))
+            node_events = NodeEvents(emit, outcomes, complete_before)
             if checkpoint_every is not None:
                 listener, announced = emit, node_events.complete
 
@@ -309,7 +291,9 @@ class Run[C]:
                 # announce them again.
                 def checkpoint(stopped: LastResume) -> None:
                     saved = dataclasses.replace(
-                        working._copy(),
+                        self,
+                        _outcomes=outcomes.copy(),
+                        _reusable=reusable.copy(),
                         _last_resume="running" if stopped is None else stopped,
                         _complete_nodes=frozenset(
                             path for path, node in nodes.items() if node in announced
@@ -323,29 +307,32 @@ class Run[C]:
             stopped = self._last_resume
         else:
             stopped = Scheduler(
-                nodes=function_nodes,
-                threads=blueprint.threads,
-                outcomes=working._outcomes,
-                reusable=working._reusable,
-                max_items=working.max_items,
-                arguments_for=_only_costs_nothing(reader)
+                outcomes=outcomes,
+                reusable=reusable,
+                max_items=self.max_items,
+                arguments_for=_only_costs_nothing(outcomes)
                 if only_costs_nothing
-                else reader.arguments_for,
+                else outcomes.arguments_for,
                 node_events=node_events,
                 stop=stop,
                 context=context,
                 checkpoint=checkpoint,
                 checkpoint_every=checkpoint_every,
             ).run()
-        outcomes = working._outcomes
         complete = frozenset(
             path
             for path, node in nodes.items()
             if path in complete_before or is_complete(call_count(outcomes, node))
         )
         # A complete node has no call left to reuse an outcome of the previous run.
-        working._reusable.drop(complete)
-        run = dataclasses.replace(working, _last_resume=stopped, _complete_nodes=complete)
+        reusable.drop(complete)
+        run = dataclasses.replace(
+            self,
+            _outcomes=outcomes.copy(),
+            _reusable=reusable,
+            _last_resume=stopped,
+            _complete_nodes=complete,
+        )
         if (
             stopped is None
             and not only_costs_nothing
@@ -437,16 +424,11 @@ class Run[C]:
         # A cancel or a timeout is dropped only once a call is answered after it.
         if not answered:
             return self
-        run = dataclasses.replace(
-            self._copy(share_outcomes=True), _last_resume=kept_by_an_answer(self._last_resume)
+        return dataclasses.replace(
+            self,
+            _outcomes=self._outcomes.replacing(answered),
+            _last_resume=kept_by_an_answer(self._last_resume),
         )
-        for changed in {
-            node for node, _ in answered
-        }:  # each node that gets an answer gets its own dict of outcomes; the others are shared
-            run._outcomes[changed.node_path] = dict(self._outcomes[changed.node_path])
-        for (node, item_indexes), now in answered.items():
-            run._outcomes[node.node_path][item_indexes] = now
-        return run
 
     def with_decline(self, waiting: Waiting | str, /, *, reason: str | None = None) -> Run[C]:
         """Returns a new run in which a person declined to answer a waiting call, and so ended the run for good.
@@ -478,18 +460,15 @@ class Run[C]:
         _, _, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         cause = run_problems.answer_declined(*loc, reason=reason)
-        run = dataclasses.replace(
-            self._copy(share_outcomes=True), _last_resume=EndedEarly(status="declined", cause=cause)
-        )
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome.
-        asked = {(node.node_path, indexes) for node, indexes, _ in self._waiting_outcomes()}
-        for path in {path for path, _ in asked}:
-            run._outcomes[path] = {
-                indexes: outcome
-                for indexes, outcome in self._outcomes[path].items()
-                if (path, indexes) not in asked
-            }
-        return run
+        asked = {
+            (node, item_indexes): None for node, item_indexes, _ in self._outcomes.calls(Unanswered)
+        }
+        return dataclasses.replace(
+            self,
+            _outcomes=self._outcomes.replacing(asked),
+            _last_resume=EndedEarly(status="declined", cause=cause),
+        )
 
     @staticmethod
     def queued_as_json(
@@ -563,8 +542,8 @@ class Run[C]:
         """
         loc, nodes, item_indexes, fingerprint = WaitingIdValidator(status=status)(waiting_id)
         # None when the id names a subgraph, a node the graph doesn't have, or no node at all ("" reads as ())
-        node = self._blueprint.function_nodes.get(nodes)
-        outcome = self._outcomes[nodes].get(item_indexes) if node is not None else None
+        node = self.graph._blueprint.function_nodes.get(nodes)
+        outcome = self._outcomes.of(nodes).get(item_indexes) if node is not None else None
         match node, outcome:
             case BlueprintFunctionNode(), Unanswered() as found if (
                 outcome_loc(node, item_indexes) == loc
@@ -581,7 +560,7 @@ class Run[C]:
                 )
             case _:
                 assert_never(outcome)
-        asked = question_fingerprint(node, item_indexes, self._reader)
+        asked = question_fingerprint(node, item_indexes, self._outcomes)
         if fingerprint is not None and asked != fingerprint:
             raise InvalidCallError(
                 [
@@ -602,20 +581,15 @@ class Run[C]:
         call of the node at ``nodes``. This finds it by the question's fingerprint.
         """
         # None when the id names a subgraph, a node the graph doesn't have, or no node at all ("" reads as ())
-        node = self._blueprint.function_nodes.get(nodes)
+        node = self.graph._blueprint.function_nodes.get(nodes)
         if node is None:
             return None
-        reader = self._reader
-        for item_indexes, outcome in self._outcomes[nodes].items():
-            match outcome:
-                case Unanswered() if (
-                    question_fingerprint(node, item_indexes, reader) == fingerprint
-                ):
-                    return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
-                case Unanswered() | Done() | Skipped() | NoneInput():
-                    pass
-                case _:
-                    assert_never(outcome)
+        for item_indexes, outcome in self._outcomes.of(nodes).items():
+            if (
+                isinstance(outcome, Unanswered)
+                and question_fingerprint(node, item_indexes, self._outcomes) == fingerprint
+            ):
+                return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
         return None
 
     def with_inputs(
@@ -650,7 +624,7 @@ class Run[C]:
         fresh = self.with_inputs()
         # Forgetting a subgraph node forgets every node inside it.
         fresh._reusable.drop(
-            {path for path in self._blueprint.function_nodes if path[0] in node_ids}
+            {path for path in self.graph._blueprint.function_nodes if path[0] in node_ids}
         )
         return fresh
 
@@ -679,23 +653,10 @@ class Run[C]:
 
         A call inside a subgraph is listed where its subgraph node is.
         """
-        reader = self._reader
         return [
-            waiting_record(node, item_indexes, outcome, reader)
-            for node, item_indexes, outcome in self._waiting_outcomes()
+            waiting_record(node, item_indexes, outcome, self._outcomes)
+            for node, item_indexes, outcome in self._outcomes.calls(Unanswered)
         ]
-
-    def _waiting_outcomes(self) -> Iterator[tuple[BlueprintFunctionNode, ItemIndexes, Unanswered]]:
-        """Yields every call waiting for a person, with its node and item indexes, in node order and then item order."""
-        for node in self._blueprint.function_nodes.values():
-            for item_indexes, outcome in self._outcomes[node.node_path].items():
-                match outcome:
-                    case Unanswered():
-                        yield node, item_indexes, outcome
-                    case Done() | Skipped() | NoneInput():
-                        pass
-                    case _:
-                        assert_never(outcome)
 
     @property
     def progress(self) -> RunProgress:
@@ -717,19 +678,10 @@ class Run[C]:
 
         A call inside a subgraph is listed where its subgraph node is.
         """
-        calls = []
-        for node in self._blueprint.function_nodes.values():
-            for item_indexes, outcome in self._outcomes[node.node_path].items():
-                match outcome:
-                    case NoneInput():
-                        calls.append(
-                            NoneInputCall(loc=outcome_loc(node, item_indexes), input=outcome.input)
-                        )
-                    case Done() | Skipped() | Unanswered():
-                        pass
-                    case _:
-                        assert_never(outcome)
-        return calls
+        return [
+            NoneInputCall(loc=outcome_loc(node, item_indexes), input=outcome.input)
+            for node, item_indexes, outcome in self._outcomes.calls(NoneInput)
+        ]
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
@@ -770,13 +722,6 @@ class Run[C]:
         """
         return outputs_to_json(self)
 
-    # -- the arguments of a call ------------------------------------------------
-
-    @property
-    def _reader(self) -> ResultReader:
-        """A ``ResultReader`` on this run's outcomes, which works out the arguments of a call."""
-        return ResultReader(self._blueprint.function_nodes, self._outcomes, self.inputs)
-
     # -- JSON -------------------------------------------------------------------
 
     @classmethod
@@ -809,32 +754,14 @@ class Run[C]:
         """
         return run_to_json(self)
 
-    def _copy(self, *, share_outcomes: bool = False) -> Run[C]:
-        """Returns a copy of this run to change.
-
-        By default the copy has its own outcomes to store into and its own reusable outcomes to take from. With
-        ``share_outcomes``, it shares this run's dict of outcomes for each node and its reusable outcomes. That suits
-        a caller that only replaces whole nodes' dicts and takes nothing.
-
-        Args:
-            share_outcomes: Whether the copy shares this run's outcomes of each node and its reusable outcomes.
-        """
-        if share_outcomes:
-            return dataclasses.replace(self, _outcomes=dict(self._outcomes))
-        return dataclasses.replace(
-            self,
-            _outcomes={name: dict(held) for name, held in self._outcomes.items()},
-            _reusable=self._reusable.copy(),
-        )
-
 
 def _only_costs_nothing(
-    reader: ResultReader,
+    outcomes: RunOutcomes,
 ) -> Callable[
     [BlueprintFunctionNode, ItemIndexes],
     dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY],
 ]:
-    """Wraps ``reader.arguments_for`` so that a node whose ``Policy`` doesn't say ``costs_nothing`` is never ready.
+    """Wraps ``outcomes.arguments_for`` so that a node whose ``Policy`` doesn't say ``costs_nothing`` is never ready.
 
     ``resume(only_costs_nothing=True)`` gives this to the scheduler. If only ``lines`` costs nothing, the scheduler
     then calls ``lines`` and never ``shout``.
@@ -844,7 +771,7 @@ def _only_costs_nothing(
         node: BlueprintFunctionNode, item_indexes: ItemIndexes
     ) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         return (
-            reader.arguments_for(node, item_indexes)
+            outcomes.arguments_for(node, item_indexes)
             if node.policy.costs_nothing
             else NotReady.NOT_READY
         )
@@ -861,14 +788,11 @@ def make_run[C](
     that run's outcomes (see ``Run.with_inputs``).
     """
     blueprint = graph._blueprint
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {
-        path: {} for path in blueprint.function_nodes
-    }
     return Run(
         graph,
         inputs,
         max_items,
-        outcomes,
+        RunOutcomes(blueprint, inputs),
         ReusableOutcomes.from_run(previous, into=blueprint)
         if previous is not None
         else ReusableOutcomes(),

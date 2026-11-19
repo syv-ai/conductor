@@ -10,7 +10,8 @@ The files, roughly in the order a run uses them:
 - ``type.py``: ``Run`` itself, and ``make_run``, which ``graph.with_inputs`` calls.
 - ``blueprint.py``: the function nodes a run calls, with what each call reads. It is built once per graph.
 - ``outcome.py``: the outcome of one call, such as ``Done`` or ``Unanswered``.
-- ``arguments.py``: works out the arguments of one call from the outcomes so far.
+- ``outcomes.py``: ``RunOutcomes``, the outcome of every call so far, and the arguments of a call worked out from
+  them.
 - ``scheduler.py``: calls every node that is ready, for ``run.resume()`` and ``run.stream()``.
 - ``call.py``: one call of a node's function.
 - ``stream.py``, ``events.py`` and ``node_events.py``: ``run.stream()`` and the events it yields.

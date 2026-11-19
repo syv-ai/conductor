@@ -241,24 +241,24 @@ repos:
           - "@conventions/principles.md#fewer-concepts-and-models"
         examples:
           bad:
-            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+            - path: packages/conductor/src/conductor/_internal/run/outcomes.py
               code: |
                 CallInputs = dict[str, Any]
               expect: { lines: [1] }
-            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+            - path: packages/conductor/src/conductor/_internal/run/outcomes.py
               code: |
                 type Scope = tuple[str, ...]
               expect: { lines: [1] }
           good:
-            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+            - path: packages/conductor/src/conductor/_internal/run/outcomes.py
               code: |
                 def call(inputs: dict[str, Any]) -> None:
                     seen = dict[str, int]()
-            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+            - path: packages/conductor/src/conductor/_internal/run/outcomes.py
               code: |
                 _CTX = TypeAdapter(dict[str, JsonValue])
           baseline:
-            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+            - path: packages/conductor/src/conductor/_internal/run/outcomes.py
               before: |
                 CallInputs = dict[str, Any]
                 x = 1

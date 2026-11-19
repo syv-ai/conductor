@@ -23,7 +23,7 @@ Nothing here is saved or counted as the run goes. Every number is worked out fro
 
 ``call_count`` is the one count of a node. ``run.progress``, the ``NodeProgress`` and ``NodeComplete`` events, and
 a run's status all read it, so they never disagree. ``is_complete`` is the one rule for whether a node is complete,
-read from its count. ``all_item_indexes`` lists the item indexes of every call a node will have.
+read from its count.
 """
 
 from __future__ import annotations
@@ -31,10 +31,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, assert_never
 
-from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes, NodePath, place_text
+from conductor._internal.base import SKIPPED, ConductorModel, place_text
 
 from .blueprint import BlueprintFunctionNode, BlueprintNode, BlueprintSubgraphNode
-from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
+from .outcome import Done, NoneInput, Skipped, Unanswered
+from .outcomes import RunOutcomes
 
 if TYPE_CHECKING:
     from .type import Run
@@ -86,9 +87,7 @@ class RunProgress(CallCount):
     nodes: dict[str, CallCount]
 
 
-def call_count(
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintNode
-) -> CallCount:
+def call_count(outcomes: RunOutcomes, node: BlueprintNode) -> CallCount:
     """Returns the count of one node, from a run's outcomes.
 
     Before ``lines`` has returned, ``shout``'s count is
@@ -96,7 +95,7 @@ def call_count(
     the sum of the counts of the nodes inside it.
 
     Args:
-        outcomes: The run's outcomes, by node path and then by item indexes.
+        outcomes: The run's outcomes.
         node: The node.
     """
     match node:
@@ -106,7 +105,7 @@ def call_count(
             pass
         case _:
             assert_never(node)
-    of_node = outcomes[node.node_path]
+    of_node = outcomes.of(node.node_path)
     waiting = skipped = none_input = 0
     for outcome in of_node.values():
         match outcome:
@@ -122,7 +121,7 @@ def call_count(
                 )
             case _:
                 assert_never(outcome)
-    calls, final = all_item_indexes(outcomes, node.loops, ())
+    calls, final = outcomes.item_indexes(node.loops)
     known = len(calls)
     return CallCount.model_construct(
         finished=len(of_node) - waiting,
@@ -148,7 +147,7 @@ def progress_of(run: Run[Any]) -> RunProgress:
 
     The nodes are in blueprint order, and each subgraph node comes right after the nodes inside it.
     """
-    blueprint, outcomes = run._blueprint, run._outcomes
+    blueprint, outcomes = run.graph._blueprint, run._outcomes
     nodes = {place_text(path): call_count(outcomes, node) for path, node in blueprint.nodes.items()}
     whole = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
     return RunProgress.model_construct(**dict(whole), nodes=nodes)
@@ -173,49 +172,3 @@ def _sum(counts: Iterable[CallCount]) -> CallCount:
         known=known,
         total=total,
     )
-
-
-def all_item_indexes(
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
-    loops: tuple[tuple[NodePath, str], ...],
-    prefix: ItemIndexes,
-) -> tuple[list[ItemIndexes], bool]:
-    """Returns the item indexes of every call a node will have, and whether that list is final yet.
-
-    ``shout`` is inside one loop, over ``lines.result``. Once ``lines`` has returned three lines,
-    ``all_item_indexes(outcomes, shout.loops, ())`` returns ``([(0,), (1,), (2,)], True)``. Before ``lines`` has
-    returned, it returns ``([], False)``: no call is known yet, and more will come. ``lines`` is inside no loop, so
-    for it the result is always ``([()], True)``, one call.
-
-    Args:
-        outcomes: The run's outcomes, by node path and then by item indexes. Every node has an entry, empty until
-            its first outcome.
-        loops: The loops the node is inside, outermost first. Each is the path of the node that returns the series,
-            and that output's name.
-        prefix: Only return the item indexes that start with these. ``()`` returns all of them. With two nested
-            loops, ``(1,)`` returns the calls for item 1 of the outer loop: ``(1, 0)``, ``(1, 1)``, and so on.
-
-    Returns:
-        The item indexes of each call known so far, and ``True`` once every series the node loops over exists.
-    """
-    start, deepest = len(prefix), len(loops)
-    every_item_indexes, complete = [prefix], True
-    for depth in range(start, deepest):
-        series_node, output = loops[depth]
-        of_series_node = outcomes[series_node]
-        one_loop_deeper: list[ItemIndexes] = []
-        for item_indexes in every_item_indexes:
-            outcome = of_series_node.get(item_indexes)
-            if outcome is None or not outcome.has_outputs:
-                complete = False
-                continue
-            one_loop_deeper.extend(
-                (*item_indexes, index) for index in range(length(outcome.outputs[output]))
-            )
-        every_item_indexes = one_loop_deeper
-    return every_item_indexes, complete
-
-
-def length(value: Any) -> int:
-    """Returns how many items the value of a ``Series`` output has. A value of ``None`` or ``SKIPPED`` has 0."""
-    return 0 if value is SKIPPED or value is None else len(value)

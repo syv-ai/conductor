@@ -21,7 +21,7 @@ from conductor._internal.series import SeriesItems
 
 from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
-from ..progress import all_item_indexes
+from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
 from .codec import where_in
 from .type import (
@@ -114,11 +114,10 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         raise InvalidCallError(
             [call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]
         ) from None
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {}
+    outcomes = RunOutcomes(blueprint, read.inputs)
     for path, node in blueprint.function_nodes.items():
-        outcomes[path] = {}
         if (of_node := in_call_order.get(path)) is not None:
-            every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
+            every_item_indexes, _ = outcomes.item_indexes(node.loops)
             if len(of_node) != len(every_item_indexes):
                 reason = f"its lists have {len(of_node)} entries, but the saved series give the node {len(every_item_indexes)} calls"
                 raise InvalidCallError(
@@ -128,11 +127,9 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
                         )
                     ]
                 )
-            outcomes[path] = {
-                item_indexes: outcome
-                for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True)
-                if outcome is not None
-            }
+            for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
+                if outcome is not None:
+                    outcomes.record(node, item_indexes, outcome)
     # Outcomes that other code produced are never reused, and neither are those of a node whose Policy says
     # reuse_when_inputs_match=False now, whatever it said when the run was saved.
     never_reused = [

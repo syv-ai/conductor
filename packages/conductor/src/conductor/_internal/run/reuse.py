@@ -34,7 +34,8 @@ from conductor._internal.base import ItemIndexes, NodePath, json_hash
 from conductor._internal.table import hash_fallback
 
 from .blueprint import BlueprintFunctionNode, RunBlueprint
-from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
+from .outcome import Done, NoneInput, NotReady, Skipped, Unanswered
+from .outcomes import RunOutcomes
 
 if TYPE_CHECKING:
     from .type import Run
@@ -99,7 +100,7 @@ class ReusableOutcomes:
         make the save bigger.
         """
         reusable, previous = cls(), run._reusable
-        for path, old_node in run._blueprint.function_nodes.items():
+        for path, old_node in run.graph._blueprint.function_nodes.items():
             new_node = into.function_nodes.get(path)
             if (
                 new_node is None
@@ -143,7 +144,7 @@ class ReusableOutcomes:
         node: BlueprintFunctionNode,
         item_indexes: ItemIndexes,
         arguments: dict[str, Any],
-        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+        outcomes: RunOutcomes,
         in_turn: Callable[[], bool],
     ) -> Done | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
         """Returns the outcome a call reuses instead of calling the function, or ``None`` if there is none.
@@ -162,7 +163,7 @@ class ReusableOutcomes:
             node: The node.
             item_indexes: The item indexes of the call.
             arguments: The arguments of the call.
-            outcomes: The run's outcomes, by node path and then by item indexes.
+            outcomes: The run's outcomes.
             in_turn: Returns whether every earlier call of the node has been tried.
         """
         path = node.node_path
@@ -216,15 +217,16 @@ def _called(
 ) -> Iterator[tuple[str, ItemIndexes, Done | Unanswered]]:
     """Yields the outcome of each call of ``node`` in ``run`` that called its function, in item order, with the call's
     fingerprint and item indexes. A call whose arguments can't be written as JSON has no fingerprint, and is left out."""
-    for item_indexes, outcome in run._outcomes[node.node_path].items():
+    outcomes = run._outcomes
+    for item_indexes, outcome in outcomes.of(node.node_path).items():
         match outcome:
             # The function wasn't called for the item, so there is nothing to reuse.
             case Skipped() | NoneInput():
                 continue
             # The function was called, so the call's arguments all exist.
             case Done() | Unanswered():
-                arguments = cast("dict[str, Any]", run._reader.arguments_for(node, item_indexes))
-                fingerprint = call_fingerprint(node, item_indexes, arguments, run._outcomes)
+                arguments = cast("dict[str, Any]", outcomes.arguments_for(node, item_indexes))
+                fingerprint = call_fingerprint(node, item_indexes, arguments, outcomes)
                 if fingerprint is not None:
                     yield fingerprint, item_indexes, outcome
             case _:
@@ -235,7 +237,7 @@ def call_fingerprint(
     node: BlueprintFunctionNode,
     item_indexes: ItemIndexes,
     arguments: dict[str, Any],
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+    outcomes: RunOutcomes,
 ) -> str | None:
     """Returns the fingerprint of one call: a short hash of its node's code fingerprint and its arguments.
 
@@ -254,7 +256,7 @@ def call_fingerprint(
         node: The node.
         item_indexes: The item indexes of the call.
         arguments: The call's arguments, by input name.
-        outcomes: The run's outcomes, by node path and then by item indexes.
+        outcomes: The run's outcomes.
 
     Returns:
         The fingerprint, or ``None`` when an argument or an item can't be written as JSON. A call with no
@@ -266,7 +268,7 @@ def call_fingerprint(
         # series exists.
         hashed.append(
             [
-                outcomes[series][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
+                outcomes.of(series)[item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
                 for depth, (series, output) in enumerate(node.loops)
             ]
         )
