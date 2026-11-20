@@ -135,7 +135,11 @@ def _fit(
     if checked:
         # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call,
         # unless the target's choices are of a kind of JSON the source never gives, and every call would fail
-        if (choices := Type(target).choices) is not None and _gives_none_of(source, bare, choices):
+        if (
+            param.choices is not None
+            and (choices := Type(target).choices) is not None
+            and _gives_none_of(source, bare, choices)
+        ):
             return False
         return not exact and _fit(bare, source, bound, False)
     target = bare
