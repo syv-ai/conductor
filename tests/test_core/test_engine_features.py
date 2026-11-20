@@ -118,6 +118,7 @@ def chain(*ids, then_join=None):
             "inputs": {"texts": {"sources": [{"node": ids[-1], "output": "result"}]}},
         }
     return {
+        "inputs": {"text": {}},
         "nodes": nodes,
         "outputs": {"result": {"node": "join" if then_join else ids[-1], "output": "result"}},
     }
@@ -223,6 +224,7 @@ def test_waiting_and_skipped_events():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "split": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
                     "gate": {
@@ -312,6 +314,7 @@ def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "docs": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
                     "split": {
@@ -380,6 +383,7 @@ def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"n": {}},
                 "nodes": {
                     "n": {"node": "numbers", "inputs": {"n": {"graph_input": "n"}}},
                     "e": {
@@ -524,6 +528,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"down": {"node": "down", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "down", "output": "result"}},
             }
@@ -538,6 +543,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"bug": {"node": "bug", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "bug", "output": "result"}},
             }
@@ -565,6 +571,7 @@ def test_attempt_timeout_is_final():
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"hang": {"node": "hang", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "hang", "output": "result"}},
             }
@@ -677,6 +684,7 @@ def test_added_inputs_follow_the_formula_constant():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "n": {"node": "number", "inputs": {"text": {"graph_input": "text"}}},
                     "f": {
@@ -700,6 +708,7 @@ def test_added_inputs_follow_the_formula_constant():
     broken = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"a": {}},
                 "nodes": {
                     "f": {
                         "node": "formula",
@@ -709,7 +718,7 @@ def test_added_inputs_follow_the_formula_constant():
                         "node": "formula",
                         "inputs": {"zz": {"sources": [{"node": "f", "output": "result"}]}},
                     },
-                }
+                },
             }
         ),
         reg3,
@@ -722,6 +731,7 @@ def test_computed_outputs_take_the_type_that_arrives_on_their_input():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
                     "n": {
@@ -757,6 +767,7 @@ def test_computed_outputs_take_the_type_that_arrives_on_their_input():
     wrong = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "n": {"node": "number", "inputs": {"text": {"graph_input": "text"}}},
                     "r": {
@@ -908,6 +919,7 @@ def test_own_types_accept_and_round_trip():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "c": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
                     "d": {
@@ -945,13 +957,14 @@ def test_own_types_accept_and_round_trip():
     wrong = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"x": {}},
                 "nodes": {
                     "d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}},
                     "c": {
                         "node": "count",
                         "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
                     },
-                }
+                },
             }
         ),
         reg4,
@@ -1006,6 +1019,7 @@ def _edge(source: Any, target: Any) -> Any:
     return Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "a": {"node": source.id, "inputs": {"text": {"graph_input": "text"}}},
                     "b": {
@@ -1317,6 +1331,7 @@ def test_an_edge_from_a_host_models_field_that_doesnt_fit_is_a_type_mismatch():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "a": {"node": "give-tint-model", "inputs": {"text": {"graph_input": "text"}}},
                     "b": {
@@ -1417,6 +1432,7 @@ def pair_optional(a: Series[str | None], b: Series[str | None]) -> str:
 def test_two_series_on_different_branches_refused():
     reg6 = registry_of(split, decide, upper, pair_lists, pair_optional)
     record = {
+        "inputs": {"text": {}},
         "nodes": {
             "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
             "d": {
@@ -1466,6 +1482,7 @@ def test_a_compiled_graph_describes_a_nodes_added_inputs_with_one_that_no_edge_r
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "c": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
                     "f": {
@@ -1577,6 +1594,7 @@ def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_re
     box = subgraph("two", title="Two", description="For a test.")(
         GraphRecord.model_validate(
             {
+                "inputs": {"a": {}, "b": {}},
                 "nodes": {
                     "x": {"node": "mark", "inputs": {"a": {"graph_input": "a"}}},
                     "y": {"node": "confirm", "inputs": {"b": {"graph_input": "b"}}},
@@ -1591,6 +1609,7 @@ def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_re
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"a": {}, "b": {}},
                 "nodes": {
                     "e": {
                         "node": "two",

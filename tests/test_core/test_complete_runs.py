@@ -199,6 +199,7 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
             )(function)
         )
     shout_words = {
+        "inputs": {"text": {}},
         "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "u": {
@@ -214,6 +215,7 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
         )(GraphRecord.model_validate(shout_words))
     )
     joined = {
+        "inputs": shout_words["inputs"],
         "nodes": {
             **shout_words["nodes"],
             "j": {
@@ -229,6 +231,7 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
         )(GraphRecord.model_validate(joined))
     )
     stamped = {
+        "inputs": {"text": {}},
         "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "k": {"node": "upper", "inputs": {"text": {"constant": "k"}}},

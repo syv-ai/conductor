@@ -117,6 +117,7 @@ Conductor checks the limits on every value a graph sets and every value a caller
 from conductor import GraphRecord
 
 drawn = {
+    "inputs": {"text": {}},
     "nodes": {"repeat": {"node": "repeat", "inputs": {"text": {"graph_input": "text"}, "times": {"constant": 20}}}},
     "outputs": {"result": {"node": "repeat", "output": "result"}},
 }
@@ -832,7 +833,7 @@ saved = make_graph(greet_v1, constants={"greet.name": "Ida"})
 print(Graph.compile(saved, registry).run().outputs)  # {'result': 'Hello Ida'}: it still runs version 1
 
 moved = registry.upgrade(saved, "greet")
-print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person': InputEntry(constant='Ida')}
+print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person': ConstantEntry(constant='Ida')}
 ```
 
 Only the newest version goes on the registry. A saved graph keeps running the version it names, because compiling never upgrades. The host calls `registry.upgrade` and shows the graph's author the result. To tell an editor that a version is going away, and which node to use instead, pass `deprecation=Deprecation(...)`. The rules are in `python -m conductor.about versions-and-policies`.

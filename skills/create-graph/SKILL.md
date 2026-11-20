@@ -12,7 +12,7 @@ A graph is data, a `GraphRecord`. It lists the graph's nodes by id. Each node na
 To declare a node, use the **add-node** skill. The installed library is the authority on every rule: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Source, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, Series
+from conductor import Source, Graph, GraphInputEntry, GraphInputRecord, GraphRecord, NodeRecord, NodeRegistry, SourcesEntry, ConstantEntry, Series
 
 registry = NodeRegistry(category="text")
 
@@ -33,12 +33,13 @@ def join(parts: Series[str], separator: str = "") -> str:
 
 
 record = GraphRecord(
+    inputs={"text": GraphInputRecord()},
     nodes={
-        "words": NodeRecord(node="text-split", inputs={"text": InputEntry(graph_input="text")}),
-        "loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Source("words", "result"),))}),
+        "words": NodeRecord(node="text-split", inputs={"text": GraphInputEntry(graph_input="text")}),
+        "loud": NodeRecord(node="text-uppercase", inputs={"text": SourcesEntry(sources=(Source("words", "result"),))}),
         "joined": NodeRecord(node="text-join", inputs={
-            "parts": InputEntry(sources=(Source("loud", "result"),)),
-            "separator": InputEntry(constant=" + "),
+            "parts": SourcesEntry(sources=(Source("loud", "result"),)),
+            "separator": ConstantEntry(constant=" + "),
         }),
     },
     outputs={"result": Source("joined", "result")},
@@ -61,20 +62,21 @@ assert graph.describe().nodes["joined"].per_item_of is None  # parts is Series[s
 An editor writes the same record as JSON, and a host stores that:
 
 ```json
-{"nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}},
+{"inputs": {"text": {}},
+ "nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}},
            "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}},
            ...},
  "outputs": {"result": {"node": "joined", "output": "result"}}}
 ```
 
-A graph declares what it takes and returns, the way a function declares its parameters and return value. A graph input exists only where an input's entry names it. A graph output exists only in `outputs`.
+A graph declares what it takes and returns, the way a function declares its parameters and return value. Each graph input is declared once in `inputs`, with its `default` if it has one (`{"text": {"default": "a,b"}}`), and an entry names it. A graph output exists only in `outputs`. A declared graph input no entry names is `graph_input_not_used`, and an entry naming one the record doesn't declare is `graph_input_not_declared`.
 
 ## What an input gets
 
 Each input the record lists gets exactly one of:
 
 - a `constant`, the same on every call;
-- a `graph_input`, the caller's value, with an optional `default`;
+- a `graph_input`, the caller's value, named as the record declares it in `inputs`;
 - `sources`, the edges into it.
 
 An input the record leaves out takes its declared default. A required input left out is `input_has_no_value`.

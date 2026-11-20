@@ -18,7 +18,7 @@ from .type import ProblemCatalogue
 COMPILE_PROBLEMS = ProblemCatalogue(
     "Compiling a graph",
     "These are listed in `graph.problems`. Compiling never raises for them, but a graph with any of them doesn't "
-    "run. `loc` is `(node_id,)` or `(node_id, input)`, or `()` for a problem with the graph's declared outputs. For a "
+    "run. `loc` is `(node_id,)` or `(node_id, input)`, or `()` for a problem with the graph's declared inputs or outputs. For a "
     'node inside a subgraph, the subgraph node\'s id comes first: `("loud", "shout", "line")`.',
 )
 
@@ -42,7 +42,7 @@ def branches_from_different_loops(node_id: str, input: str, /, *, series: list[s
             edge from a node that is in no loop.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "r": {"node": "route", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}},
             "letters": {"node": "words", "inputs": {"text": {"sources": [{"node": "r", "output": "short"}]}}},
@@ -283,7 +283,7 @@ def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> s
         outputs: The outputs its node has, each as ``node.output``.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "u", "output": "shout"}}})
     """
@@ -305,7 +305,7 @@ def graph_output_names_missing_node(*, output: str, source: str, missing: str) -
         missing: The id of the node that isn't in the graph record.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "gone", "output": "result"}}})
     """
@@ -428,7 +428,7 @@ def invalid_value_bound_default(
             return one
 
 
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "f": {"node": "first", "inputs": {"one": {"sources": [{"node": "u", "output": "result"}]}}}
         }})
@@ -475,7 +475,7 @@ def output_default_bound_invalid(
             return Halves[T](whole)  # type: ignore[arg-type]
 
 
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "h": {"node": "halve", "inputs": {"whole": {"sources": [{"node": "u", "output": "result"}]}}}
         }})
@@ -503,7 +503,7 @@ def series_from_different_branches(*loc: str | int, inputs: list[str]) -> str:
             return f"{a} {b}"
 
 
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "r": {"node": "route", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}},
             "p": {"node": "pair", "inputs": {"a": {"sources": [{"node": "r", "output": "short"}]}, "b": {"sources": [{"node": "r", "output": "long"}]}}}
@@ -533,7 +533,7 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) 
         inputs: The two inputs that read them.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"names_text": {}, "greetings_text": {}}, "nodes": {
             "names": {"node": "words", "inputs": {"text": {"graph_input": "names_text"}}},
             "greetings": {"node": "words", "inputs": {"text": {"graph_input": "greetings_text"}}},
             "g": {"node": "greet", "inputs": {"name": {"sources": [{"node": "names", "output": "result"}]}, "greeting": {"sources": [{"node": "greetings", "output": "result"}]}}}
@@ -566,7 +566,7 @@ def series_not_nested_inside_subgraph(
 
     Example:
         registry.subgraph("split", title="Split", description="Returns the words of a text.")(make_graph(words))
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "e": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "g": {"node": "greet", "inputs": {"name": {"sources": [{"node": "w", "output": "result"}]}, "greeting": {"sources": [{"node": "e", "output": "result"}]}}}
@@ -597,7 +597,7 @@ def several_edges_into_one_input(node_id: str, input: str, /, *, sources: list[s
         sources: The edges' sources, as text.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"a_text": {}, "b_text": {}}, "nodes": {
             "a": {"node": "upper", "inputs": {"text": {"graph_input": "a_text"}}},
             "b": {"node": "upper", "inputs": {"text": {"graph_input": "b_text"}}},
             "c": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}, {"node": "b", "output": "result"}]}}}
@@ -627,7 +627,7 @@ def type_mismatch(node_id: str, input: str, /, *, source: str, got: str, expecte
         expected: The type the input takes.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"n": {}}, "nodes": {
             "c": {"node": "count", "inputs": {"n": {"graph_input": "n"}}},
             "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result"}]}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
@@ -666,7 +666,7 @@ def type_mismatch_whole_table_or_list(
         fields: The fields each row or item has, so an editor can offer them. Empty if they aren't known.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
             "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result"}]}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
@@ -716,7 +716,7 @@ def type_mismatch_missing_column(
             return int(invoices["amount"].sum())
 
 
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
             "t": {"node": "total", "inputs": {"invoices": {"sources": [{"node": "c", "output": "result"}]}}}
         }})
@@ -869,7 +869,7 @@ def input_takes_only_a_constant(
         given: The record's key for what it gives the input: ``sources`` for edges, or ``graph_input``.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "pick": {"node": "pick", "inputs": {"names": {"sources": [{"node": "u", "output": "result"}]}}}
         }})
@@ -881,15 +881,15 @@ def input_takes_only_a_constant(
 def graph_input_used_two_ways(node_id: str, input: str, /, *, graph_input: str) -> str:
     """Two inputs take the same graph input, and they don't agree on it.
 
-    A caller gives a graph input one value, and a host shows it once. So every input it feeds must agree on three
+    A caller gives a graph input one value, and a host shows it once. So every input it feeds must agree on two
     things:
 
     - The type, as written in its hint, with its limits, choices and validators. ``int`` and
       ``Annotated[int, Param()]`` agree, and so do ``Annotated[int, annotated_types.Ge(0)]`` and
       ``Annotated[int, Param(ge=0)]``.
     - How a host shows it: the same title, description and widget.
-    - The default. A graph input's default comes from the record, and may be written on any of the inputs. Where it is
-      written twice, it must be the same. An input's own default plays no part.
+
+    The default is the record's, declared once under ``inputs``, so it is never in question.
 
     To fix it, give each input a graph input of its own, or make them agree.
 
@@ -899,12 +899,57 @@ def graph_input_used_two_ways(node_id: str, input: str, /, *, graph_input: str) 
         graph_input: The graph input's name.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"x": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
             "c": {"node": "count", "inputs": {"n": {"graph_input": "x"}}},
         }})
     """
-    return f"'{input}' and another input both take the graph input '{graph_input}', but they don't agree on its type, how it's shown or its default. Give each input a graph input of its own."
+    return f"'{input}' and another input both take the graph input '{graph_input}', but they don't agree on its type or how it's shown. Give each input a graph input of its own."
+
+
+@COMPILE_PROBLEMS.problem
+def graph_input_not_declared(
+    node_id: str, input: str, /, *, graph_input: str, declared: list[str]
+) -> str:
+    """An input takes a graph input the graph record doesn't declare.
+
+    A record declares each graph input once, under ``inputs``, with its default if it has one, as in
+    ``{"inputs": {"text": {}}}``. An entry like ``{"graph_input": "text"}`` then names it.
+
+    To fix it, declare the graph input under ``inputs``, or name one in ``ctx.declared``.
+
+    Args:
+        node_id: The node.
+        input: The input.
+        graph_input: The name the input gives, which the record doesn't declare.
+        declared: The graph inputs the record declares.
+
+    Example:
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
+        }})
+    """
+    return f"'{input}' takes the graph input '{graph_input}', which the graph doesn't declare. Declare it under the graph's inputs."
+
+
+@COMPILE_PROBLEMS.problem
+def graph_input_not_used(*, graph_input: str) -> str:
+    """The graph record declares a graph input that no input takes.
+
+    A graph input's type is the type of the inputs it feeds. One that feeds none has no type, so no caller could
+    give it a value. The problem belongs to the graph, not to a node, so its ``loc`` is empty.
+
+    To fix it, name it on an input, as in ``{"graph_input": "text"}``, or remove it from ``inputs``.
+
+    Args:
+        graph_input: The graph input's name.
+
+    Example:
+        problems({"inputs": {"text": {}, "spare": {}}, "nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
+        }})
+    """
+    return f"The graph input '{graph_input}' is declared, but no input takes it. Name it on an input, or remove it."
 
 
 @COMPILE_PROBLEMS.problem
@@ -920,7 +965,7 @@ def unknown_input(node_id: str, input: str, /, *, inputs: list[str]) -> str:
         inputs: The node's inputs.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "inputs": {"txt": {"constant": "a"}, "text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
@@ -965,7 +1010,7 @@ def unknown_output(
         field: The field the edge names, if the output's value has no field by that name.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "text"}]}}}
         }, "outputs": {"result": {"node": "b", "output": "result"}}})
@@ -997,7 +1042,7 @@ def unknown_output_field_of_whole_table_or_list(
         fields: The fields each row or item has, so an editor can offer them. Empty if they aren't known.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
             "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result", "field": "email"}]}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
@@ -1022,7 +1067,7 @@ def unknown_version(*loc: str | int, node: str, version: int, newest: int) -> st
         newest: The newest version of the node definition.
 
     Example:
-        problems({"nodes": {
+        problems({"inputs": {"text": {}}, "nodes": {
             "u": {"node": "upper", "version": 9, "inputs": {"text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """

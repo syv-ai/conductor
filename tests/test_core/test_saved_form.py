@@ -126,6 +126,7 @@ def _registry() -> NodeRegistry:
     )
     inner = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "q": {"node": "ask", "inputs": {"text": {"graph_input": "text"}}},
                 "m": {
@@ -610,6 +611,7 @@ def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_o
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "o", "output": "result"}},
             }
@@ -688,6 +690,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
         Graph.compile(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"text": {}},
                     "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
                     "outputs": {"result": {"node": "o", "output": "result"}},
                 }
@@ -775,6 +778,7 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_skipped_branch() -> N
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"listed_text": {}, "letters_text": {}},
                 "nodes": {
                     "listed": {
                         "node": "listed",

@@ -124,9 +124,10 @@ def test_a_compiled_graph_prints_a_one_line_summary():
             Graph.compile(
                 GraphRecord.model_validate(
                     {
+                        "inputs": {"value": {}},
                         "nodes": {
                             "s": {"node": "scale", "inputs": {"value": {"graph_input": "value"}}}
-                        }
+                        },
                     }
                 ),
                 registry,
@@ -344,6 +345,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"upto": {}},
                 "nodes": {
                     "n": {"node": "numbers", "inputs": {"upto": {"graph_input": "upto"}}},
                     "e": {
@@ -544,6 +546,7 @@ def _streamed_events() -> list[Any]:
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"f_x": {}, "s_x": {}},
                 "nodes": {
                     "f": {"node": "frame", "inputs": {"x": {"graph_input": "f_x"}}},
                     "s": {"node": "same", "inputs": {"x": {"graph_input": "s_x"}}},
@@ -936,6 +939,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
         Graph.compile(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"text": {}},
                     "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
                     "outputs": {"result": {"node": "u", "output": "result"}},
                 }

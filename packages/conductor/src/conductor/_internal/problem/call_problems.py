@@ -170,7 +170,7 @@ def cannot_move_to_version_rewrite_returned_invalid(
 ) -> str:
     """``registry.upgrade`` ran the ``rewrite`` of a version's ``Upgrade``, and it returned no dict of input names.
 
-    A rewrite returns the node's constants and graph-input defaults as a dict whose keys are input names. Anything
+    A rewrite returns the node's constants as a dict whose keys are input names. Anything
     else, such as ``None`` when it forgets its ``return``, is refused. ``ctx.errors`` has pydantic's error, with
     ``loc`` ``[]``: ``dict_type`` for no dict, ``string_type`` for a key that isn't text. A rewrite that raises is
     ``cannot_move_to_version_rewrite_failed`` or ``cannot_move_to_version_raised``.
@@ -627,6 +627,29 @@ def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> 
         refused(lambda: make_graph(upper, upper, edges=[], outputs={"a": "upper-1.result", "b": "upper-2.result"}))
     """
     return f"The inputs {comma_separated(inputs)} would each become the graph input '{name}'. Name them, or say they share one value, with make_graph's inputs=."
+
+
+@CALL_PROBLEMS.problem
+def graph_input_given_two_defaults(*loc: str | int, name: str, inputs: list[str]) -> str:
+    """``make_graph``'s ``defaults=`` gives two inputs of one graph input different defaults.
+
+    A graph record declares each graph input once, with one default. So when ``inputs=`` makes two inputs one graph
+    input, ``defaults=`` can give it a default on either of them, but not two different ones.
+
+    To fix it, give the default on one of the inputs, or give them both the same one.
+
+    Args:
+        loc: ``"inputs"`` and the graph input's name.
+        name: The graph input's name.
+        inputs: The inputs ``defaults=`` gives a default, each as ``node.input``.
+
+    Example:
+        refused(lambda: make_graph(
+            ("a", upper), ("b", upper), edges=[], inputs={"text": ["a.text", "b.text"]},
+            defaults={"a.text": "x", "b.text": "y"}, outputs={"a": "a.result", "b": "b.result"},
+        ))
+    """
+    return f"The inputs {comma_separated(inputs)} both take the graph input '{name}', and defaults= gives them different defaults. Give the graph input one default."
 
 
 @CALL_PROBLEMS.problem
