@@ -764,7 +764,7 @@ def input_without_type() -> str:
 def invalid_declaration_argument(
     *, declared_with: str, reason: str, errors: list[dict[str, Any]]
 ) -> str:
-    """``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type`` is given an argument it can't take, such as
+    """``@node``, ``subgraph``, ``NodeRegistry``, ``@host_type`` or ``Param`` is given an argument it can't take, such as
     ``tags="text"``, ``version=True``, an id with a ``.`` or a blank title.
 
     Each argument is held to its annotation, strictly: text is a ``str``, ``version`` a whole number of 1 or more and
@@ -779,7 +779,7 @@ def invalid_declaration_argument(
     type's id, given to ``@host_type``, is one word of letters, digits, ``_``, ``.`` or ``-`` that starts with a letter
     or ``_``, since it is written inside other ids such as ``list[money]`` (``type_id_not_one_word``). It isn't the id
     of one of conductor's own types, such as ``str`` (``conductors_own_type_id``). A title or description is what a
-    person reads in a palette, so it isn't empty or only whitespace (``blank_text``). ``@host_type`` put above a class
+    person reads in a palette, so it isn't empty or only whitespace (``blank_text``), and so is a ``Param``'s. ``@host_type`` put above a class
     conductor names itself, such as ``HttpUrl``, is refused too (``conductors_own_type``, at ``loc`` ``["cls"]``, the
     class): declare a subclass of it to give it an id of your own.
 
@@ -795,7 +795,7 @@ def invalid_declaration_argument(
     To fix it, give each argument the type the signature says, or as its fault says.
 
     Args:
-        declared_with: ``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type``.
+        declared_with: ``@node``, ``subgraph``, ``NodeRegistry``, ``@host_type`` or ``Param``.
         reason: Every fault, each after the argument it is in, with ``; `` between them.
         errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 

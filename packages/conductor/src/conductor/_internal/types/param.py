@@ -20,7 +20,15 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from annotated_types import Ge, GroupedMetadata, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue, StringConstraints
+from pydantic import (
+    ConfigDict,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+    JsonValue,
+    StringConstraints,
+    ValidationError,
+)
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import (
     CoreSchema,
@@ -29,11 +37,17 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import canonical_json, plain_json, value_parts
-from conductor._internal.problem import NodeDeclarationError, declaration_problems
+from conductor._internal.problem import (
+    NodeDeclarationError,
+    arguments_reason,
+    declaration_problems,
+    shape_error,
+)
 from conductor.widgets import Widget
 
 from .choice import check_one_of, declared_choices, pick_texts
 from .hint import READ_AS, literal_classes, union_members, union_of
+from .host_type import NotBlank
 
 #: The limits ``Param`` takes: by the keyword that writes each, the class pydantic is handed it as, whose attribute
 #: of that name is its value. ``Param(ge=0)`` is handed over as ``Ge(ge=0)``, and ``Param(pattern="x")`` as
@@ -64,6 +78,14 @@ CHOICES = "conductor_choices"
 
 #: What a bound like ``ge`` may be: a number, a date, a time or a duration.
 _Bound = float | Decimal | datetime.date | datetime.time | datetime.timedelta
+
+
+@pydantic_dataclass(config=ConfigDict(strict=True))
+class _Texts:
+    """The two texts of a ``Param`` a person reads, which are not blank."""
+
+    title: NotBlank | None
+    description: NotBlank | None
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -112,10 +134,23 @@ class Param:
     pattern: str | None = None
 
     def __post_init__(self) -> None:
-        """Stores a list of choices as a tuple, in the order given.
+        """Checks the title and description, and stores a list of choices as a tuple, in the order given.
 
         Anything else is kept as given, for ``Type.choices`` to refuse: text or a set isn't a list of choices.
+
+        Raises:
+            NodeDeclarationError: ``invalid_declaration_argument``, with ``blank_text`` in ``ctx.errors`` for a title
+                or description that is empty or only whitespace, as a node's is, and pydantic's code if it isn't text.
         """
+        try:
+            _Texts(title=self.title, description=self.description)
+        except ValidationError as error:
+            faults = [shape_error(fault, fault["loc"]) for fault in error.errors()]
+            raise NodeDeclarationError(
+                declaration_problems.invalid_declaration_argument(
+                    declared_with="Param", reason=arguments_reason(faults), errors=faults
+                )
+            ) from None
         if isinstance(self.choices, list):
             object.__setattr__(self, "choices", tuple(self.choices))
 

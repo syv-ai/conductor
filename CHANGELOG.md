@@ -14,6 +14,7 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
+- **A `Param`'s `title` and `description` can't be blank.** `Param(title="  ")` was taken; now it is refused when the `Param` is written, as a node's is (`invalid_declaration_argument`, with `blank_text` in `ctx.errors`). It is provisional.
 - **A graph record is its nodes by id, and declares what the graph takes and returns.** `{"nodes": {"shout":
   {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node": "join", "output": "result"}}}`. Each input a
   node lists gets exactly one of a `constant`, a `graph_input` (with an optional `default`) or the `sources` of the
