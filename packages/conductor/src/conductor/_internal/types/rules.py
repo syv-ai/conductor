@@ -17,7 +17,7 @@ the host's rules.
   tuples don't, so the walk refuses them, and ``@node`` does (``named_value_invalid``).
 
 ``Type.argument_validator`` is built with ``with_rules``, since it is read laxly as well as strictly: an edge's value
-and a saved run are read laxly, a graph input and a constant strictly, and ``Type.takes_value`` asks it.
+is read laxly, a graph input, a constant and a saved run's graph input strictly, and ``Type.takes_value`` asks it.
 ``Type.output_validator`` is built with ``with_strict_rules``, since every caller of it reads strictly: what a node
 returns, a person's answer, and an ``Ask``'s choices and default. Each door's test pins that a ``bool`` is refused
 there.

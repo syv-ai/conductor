@@ -32,7 +32,6 @@ from conductor._internal.base import (
     ItemIndexes,
     Loc,
     NodePath,
-    parse_waiting_id,
     write_waiting_id,
 )
 from conductor._internal.graph import Graph, LimitsValidator
@@ -391,21 +390,26 @@ class Run[C]:
                 ``ctx.moved_to`` when that question now waits on another call.
         """
         match waiting, value:
-            case ((Waiting(id=key) | str(key)), (one,)):
-                given: Mapping[str, Any] = {key: one}
             case Mapping(), ():
-                given = waiting
+                given: list[tuple[Any, Any]] = list(waiting.items())
+            case _, (one,) if not isinstance(waiting, Mapping):
+                given = [(waiting.id if isinstance(waiting, Waiting) else waiting, one)]
             case _:
                 raise TypeError(
                     "run.with_answers takes a waiting call and its answer, or a mapping of waiting ids to answers"
                 )
+        read_id = WaitingIdValidator(
+            function="run.with_answers", argument="waiting", keyed=isinstance(waiting, Mapping)
+        )
         problems: list[Problem] = []
         answered: dict[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = {}
         # Working out the status looks at every outcome, so it is only done when a refusal needs it.
         status = cache(lambda: self.status)
-        for waiting_id, one in given.items():
+        for waiting_id, one in given:
             try:
-                node, item_indexes, loc, found = self._waiting_call(waiting_id, status)
+                node, item_indexes, loc, found = self._waiting_call(
+                    waiting_id, read_id(waiting_id), status
+                )
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 continue
@@ -463,8 +467,9 @@ class Run[C]:
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
+        read_id = WaitingIdValidator(function="run.with_decline", argument="waiting", keyed=False)
         node, item_indexes, loc, declined = self._waiting_call(
-            waiting_id, cache(lambda: self.status)
+            waiting_id, read_id(waiting_id), cache(lambda: self.status)
         )
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome. The
@@ -505,12 +510,15 @@ class Run[C]:
             InvalidCallError: Every refusal at once, each at the call its waiting id names: ``invalid_decline_reason``
                 for a reason that isn't a ``str`` JSON can write, or ``None``.
         """
+        read_id = WaitingIdValidator(
+            function="Run.declines_as_json", argument="declines", keyed=True
+        )
         problems: list[Problem] = []
         reasons: dict[str, str | None] = {}
         for waiting_id, reason in declines.items():
             try:
                 reasons[waiting_id] = DeclineValidator(
-                    loc=parse_waiting_id(waiting_id)[0], waiting_id=waiting_id
+                    loc=read_id(waiting_id)[0], waiting_id=waiting_id
                 )(reason)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
@@ -519,14 +527,19 @@ class Run[C]:
         return reasons
 
     def _waiting_call(
-        self, waiting_id: str, status: Callable[[], RunStatus]
+        self,
+        waiting_id: str,
+        parts: tuple[Loc, NodePath, ItemIndexes, str | None],
+        status: Callable[[], RunStatus],
     ) -> tuple[BlueprintFunctionNode, ItemIndexes, Loc, Unanswered]:
         """Finds the call that ``waiting_id`` names, still waiting on the question the id was written for.
 
-        ``with_answers`` and ``with_decline`` name a call this way.
+        ``with_answers`` and ``with_decline`` name a call this way. Only the exact text ``write_waiting_id`` would
+        write names a call: ``"approve@01"`` names none, since the index would be written ``1``.
 
         Args:
             waiting_id: The id, as a host gave it.
+            parts: The id split by ``WaitingIdValidator``: its loc, node path, item indexes and fingerprint.
             status: Returns the run's status, for a refusal's message. It is only called when the id is refused.
 
         Returns:
@@ -536,7 +549,11 @@ class Run[C]:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call. ``answer_stale`` for an id whose
                 call now asks another question, with ``ctx.moved_to`` when that question now waits on another call.
         """
-        loc, nodes, item_indexes, fingerprint = WaitingIdValidator(status=status)(waiting_id)
+        loc, nodes, item_indexes, fingerprint = parts
+        if write_waiting_id(loc, fingerprint) != waiting_id:
+            raise InvalidCallError(
+                [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())]
+            )
         # None when the id names a subgraph, a node the graph doesn't have, or no node at all ("" reads as ())
         node = self.graph._blueprint.function_nodes.get(nodes)
         outcome = self._outcomes.of(nodes).get(item_indexes) if node is not None else None

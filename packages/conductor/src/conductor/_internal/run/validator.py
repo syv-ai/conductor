@@ -2,7 +2,8 @@
 forget.
 
 ``EdgeValidator`` checks a value an edge brings to an input when the graph's types can't vouch for it.
-``WaitingIdValidator`` reads the id a host names a waiting call by in ``run.with_answers`` and ``run.with_decline``.
+``WaitingIdValidator`` reads the id a host names a waiting call by, in ``run.with_answers``, ``run.with_decline``,
+``graph.answers_as_json`` and ``Run.declines_as_json``.
 ``ForgetValidator`` checks the node ids a host gives ``run.with_forgotten``.
 
 When a graph is compiled, each edge is checked: the output's type must fit the input's type. Often that's enough
@@ -28,10 +29,10 @@ node.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, assert_never
 
-from pydantic import ValidationError
+from pydantic import StrictStr, TypeAdapter, ValidationError
 
 from conductor._internal.base import (
     SKIPPED,
@@ -40,11 +41,10 @@ from conductor._internal.base import (
     NodePath,
     Validator,
     parse_waiting_id,
-    write_waiting_id,
 )
 from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.port import Port
-from conductor._internal.problem import InvalidCallError, call_problems, run_problems
+from conductor._internal.problem import InvalidCallError, call_problems, run_problems, shape_error
 from conductor._internal.table import is_bare_table_row, with_rows_checked
 from conductor._internal.types import Type
 
@@ -145,42 +145,57 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
         return read
 
 
-class WaitingIdValidator(Validator[str, tuple[Loc, NodePath, ItemIndexes, str | None]]):
-    """A validator for the id a host names a waiting call by, in ``run.with_answers`` and ``run.with_decline``.
+#: Text, as a waiting id must be: a ``str`` or a subclass of it, never a number.
+_TEXT = TypeAdapter(StrictStr)
 
-    It undoes ``write_waiting_id``: ``"review@0/approve@1~3fa2c0d1"`` gives the loc
-    ``("review", 0, "approve", 1)``, the node path ``("review", "approve")``, the item indexes ``(0, 1)`` and the
-    fingerprint ``"3fa2c0d1"``. An id with no ``~`` part names just the call, and its fingerprint is ``None``.
 
-    Only the exact text ``write_waiting_id`` would write is taken. ``"approve@01"`` names nothing, since the index
-    would be written ``1``, and ``"review//approve"`` names nothing, since a node id can't be empty. An id that names
-    no node, such as ``""``, reads as the loc ``()``; the run finds no call there.
+class WaitingIdValidator(Validator[object, tuple[Loc, NodePath, ItemIndexes, str | None]]):
+    """A validator for the id a host names a waiting call by: in ``run.with_answers``, ``run.with_decline``,
+    ``graph.answers_as_json`` and ``Run.declines_as_json``.
+
+    The id must be text. Then it is split as ``write_waiting_id`` wrote it: ``"review@0/approve@1~3fa2c0d1"`` gives
+    the loc ``("review", 0, "approve", 1)``, the node path ``("review", "approve")``, the item indexes ``(0, 1)`` and
+    the fingerprint ``"3fa2c0d1"``. An id with no ``~`` part names just the call, and its fingerprint is ``None``.
+    Text that isn't such an id, such as ``"approve@01"`` or ``""``, is split as far as ``parse_waiting_id`` reads it;
+    the run finds no call waiting under it (``not_waiting``).
 
     Raises (when called):
-        InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. Its loc is
-            as far as ``parse_waiting_id`` reads one.
+        InvalidCallError: ``invalid_argument`` if the id isn't text. The fault's ``loc`` is ``[]`` for the waiting
+            call given alone, and ``["[key]"]`` for a key of a mapping, which isn't quoted.
     """
 
-    def __init__(self, *, status: Callable[[], str]) -> None:
-        """Builds the validator for the ids a run is given.
+    def __init__(self, *, function: str, argument: str, keyed: bool) -> None:
+        """Builds the validator for the ids one function is given.
 
         Args:
-            status: Returns the run's status, for the refusal's message. It is only called when an id is refused.
+            function: The function, such as ``run.with_decline``, for the refusal's message.
+            argument: The argument the id is given in, as the function's signature names it.
+            keyed: Whether the ids are the keys of a mapping, rather than one id given alone.
         """
-        self._status = status
+        self._function, self._argument = function, argument
+        self._loc = ["[key]"] if keyed else []
 
-    def __call__(self, waiting_id: str) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
+    def __call__(self, waiting_id: object) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
         """Returns the call's loc, its node path, its item indexes, and the fingerprint of its question.
 
         Raises:
             InvalidCallError: See the class.
         """
-        loc, node_path, item_indexes, fingerprint = parse_waiting_id(waiting_id)
-        if write_waiting_id(loc, fingerprint) != waiting_id:
+        try:
+            text = _TEXT.validate_python(waiting_id)
+        except ValidationError as error:
+            errors = [shape_error(fault, self._loc) for fault in error.errors()]
             raise InvalidCallError(
-                [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self._status())]
-            )
-        return loc, node_path, item_indexes, fingerprint
+                [
+                    call_problems.invalid_argument(
+                        self._argument,
+                        function=self._function,
+                        reason=errors[0]["msg"],
+                        errors=errors,
+                    )
+                ]
+            ) from None
+        return parse_waiting_id(text)
 
 
 class ForgetValidator(Validator[tuple[str, ...], tuple[str, ...]]):

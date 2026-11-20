@@ -386,7 +386,7 @@ class Type:
         """The schema an argument of the type is checked by: the type's ``schema`` with conductor's rules added
         (``with_rules``), so a number refuses a ``bool``.
 
-        A saved run's values are read by it too, so the rules reach every door.
+        A saved run's graph inputs are read by it too, strictly, so the rules reach every door.
         """
         return with_rules(self.schema)
 

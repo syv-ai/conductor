@@ -2525,3 +2525,72 @@ def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refu
         ).ctx["where"]
         == "ended_early.status"
     )
+
+
+def test_a_saved_run_whose_cause_does_not_fit_its_status_is_refused():
+    """A run that ended early keeps the problem that ended it, and each status has its own.
+
+    A failed run keeps the problem its call failed with, at that call. A stopped run keeps ``item_limit``, a cancelled
+    one ``run_cancelled`` and a timed-out one ``run_timed_out``. A saved run whose cause is another is refused.
+    """
+
+    @node("blast", title="Blast", description="Fails on 'x'.")
+    def blast(text: str) -> str:
+        if text == "x":
+            raise ValueError("no")
+        return text
+
+    graph = Graph.compile(make_graph(blast), registry_of(blast))
+    failed = json.loads(graph.run({"text": "x"}).to_json())
+    cause = failed["ended_early"]["cause"]
+    assert (failed["ended_early"]["status"], cause["type"]) == ("failed", "execution_failed")
+    assert Run.from_json(json.dumps(failed), graph).status == "failed"
+    cancelled = {"type": "run_cancelled", "loc": [], "msg": "The run was cancelled."}
+    for ended_early in (
+        {"status": "cancelled", "cause": cause},
+        {"status": "timed_out", "cause": cause},
+        {"status": "stopped", "cause": cause},
+        {"status": "failed", "cause": cancelled},
+        {"status": "timed_out", "cause": cancelled},
+    ):
+        problem = _refused(graph, {**failed, "ended_early": ended_early})
+        assert problem.ctx["where"] == "ended_early", ended_early
+    read = Run.from_json(
+        json.dumps({**failed, "ended_early": {"status": "cancelled", "cause": cancelled}}), graph
+    )
+    assert (read.status, read.cause.type) == ("cancelled", "run_cancelled")
+
+
+class _Verdict(TypedDict):
+    ok: bool
+
+
+@pytest.mark.parametrize(
+    ("before", "saved_value", "after"),
+    [
+        (str, "Yes", bool),
+        (str, "no", bool),
+        (str, "3", int),
+        (str, "1.5", float),
+        (int, 1, bool),
+        (dict[str, str], {"ok": "Yes"}, _Verdict),
+        (list[str], ["1"], list[int]),
+    ],
+)
+def test_a_saved_value_is_read_strictly_by_the_type_a_deploy_gives_its_output(
+    before: Any, saved_value: Any, after: Any
+):
+    """A saved run is read by each output's declared type as strictly as a value that enters a graph is. So once a
+    deploy changes an output to ``bool``, a saved ``"Yes"`` is refused, never read as ``True``."""
+
+    def graph_returning(returns: Any) -> Graph:
+        @node("verdict", title="Verdict", description="For a test.")
+        def verdict(text: str) -> returns:  # type: ignore[valid-type]
+            return saved_value
+
+        return Graph.compile(make_graph(verdict), registry_of(verdict))
+
+    saved = graph_returning(before).run({"text": "a"}).to_json()
+
+    problem = _refused(graph_returning(after), json.loads(saved))
+    assert problem.ctx["where"] == "outcomes.verdict.outputs.result.0"

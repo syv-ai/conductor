@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import MISSING
 
 from conductor._internal.ask import AnswerAsJsonValidator
-from conductor._internal.base import Loc, json_hash, parse_waiting_id, place_text
+from conductor._internal.base import Loc, json_hash, place_text
 from conductor._internal.context import ContextValidator
 from conductor._internal.node import NodeDefinition
 from conductor._internal.port import Port, PortDescription
@@ -375,13 +375,19 @@ class Graph[C]:
         """
         if self.problems:
             raise InvalidCallError(self.problems)
+        # run/ imports graph/, so it is imported here
+        from conductor._internal.run import WaitingIdValidator
+
+        read_id = WaitingIdValidator(
+            function="graph.answers_as_json", argument="answers", keyed=True
+        )
         problems: list[Problem] = []
         queued: dict[str, Any] = {}
         for waiting_id, answer in answers.items():
-            loc, node_path, _, _ = parse_waiting_id(waiting_id)
-            # None when the id names a subgraph, a node the graph doesn't have, or no node at all
-            node = self._blueprint.function_nodes.get(node_path)
             try:
+                loc, node_path, _, _ = read_id(waiting_id)
+                # None when the id names a subgraph, a node the graph doesn't have, or no node at all
+                node = self._blueprint.function_nodes.get(node_path)
                 queued[waiting_id] = AnswerAsJsonValidator(
                     node.compiled_node.outputs if node is not None else None,
                     loc=loc,

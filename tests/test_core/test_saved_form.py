@@ -820,6 +820,23 @@ def test_a_waiting_call_whose_every_saved_choice_its_type_refuses_is_shown_with_
     assert back.with_answers(back.waiting[0], "Sure").resume().status == "complete"
 
 
+def test_a_saved_choice_with_no_title_is_refused_where_it_is() -> None:
+    """Every choice has a title, so a saved choice with none is refused as any damaged key is."""
+    graph = _draft_graph()
+    saved = json.loads(graph.run({"text": "a"}).to_json())
+    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {"result": [{"id": "Yes"}]}
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"]) == (
+        "saved_run_unreadable",
+        "outcomes.reply.questions.0.choices.result",
+    )
+    assert problem.ctx["errors"][0]["type"] == "missing"
+
+
 @pytest.mark.parametrize(
     "offered", [[], [{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}]]
 )

@@ -70,6 +70,11 @@ class Choice(ConductorModel):
         }  # passed as keywords, since the base class's own signature names no fields
         super().__init__(**fields)
 
+    # Pydantic reads a choice from data, such as a saved run's, field by field, and doesn't call __init__ for it.
+    # Called with the fields as keywords, __init__ would raise a TypeError for a missing title, where pydantic says
+    # "missing" at the field.
+    __init__.__pydantic_base_init__ = True  # type: ignore[attr-defined]
+
 
 def choices_schema(
     read: Callable[[Any], Any],

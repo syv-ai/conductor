@@ -1903,6 +1903,43 @@ def test_a_waiting_id_has_one_spelling_and_any_other_names_nothing():
     )  # An id is found with or without its fingerprint.
 
 
+def test_a_waiting_id_that_is_not_text_is_refused_as_invalid_argument_by_every_call_that_takes_one():
+    """A waiting id is text. Each call that names a waiting call by its id refuses any other value, given alone or
+    as a key, as an argument of the wrong type, and quotes nothing of it."""
+    gate, _ = _counted()
+    _, run = _waiting_outcomes(gate, text="b1,b2")
+    not_text: Any = 5
+    for call, function, argument, loc in [
+        (lambda: run.with_decline(not_text), "run.with_decline", "waiting", []),
+        (lambda: run.with_answers(not_text, "B"), "run.with_answers", "waiting", []),
+        (lambda: run.with_answers({not_text: "B"}), "run.with_answers", "waiting", ["[key]"]),
+        (
+            lambda: run.graph.answers_as_json({not_text: "B"}),
+            "graph.answers_as_json",
+            "answers",
+            ["[key]"],
+        ),
+        (
+            lambda: Run.declines_as_json({not_text: None}),
+            "Run.declines_as_json",
+            "declines",
+            ["[key]"],
+        ),
+    ]:
+        (problem,) = _refused(call)
+        assert (problem.type, problem.loc, problem.ctx["function"], problem.ctx["argument"]) == (
+            "invalid_argument",
+            (argument,),
+            function,
+            argument,
+        )
+        assert [(e["type"], e["loc"]) for e in problem.ctx["errors"]] == [("string_type", loc)]
+        assert "5" not in problem.msg
+    # the faults of a mapping come together, the ids that are text read as before
+    faults = _refused(lambda: run.with_answers({not_text: "B", "nope": "B"}))
+    assert [f.type for f in faults] == ["invalid_argument", "not_waiting"]
+
+
 def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
