@@ -25,6 +25,7 @@ from conductor import (
     NodeRegistry,
     Run,
     Series,
+    Table,
     host_type,
     make_graph,
     node,
@@ -780,24 +781,74 @@ def test_a_series_of_rows_with_a_hosts_class_in_a_cell_runs_and_its_saved_run_re
     assert Run.from_json(run.to_json(), graph).outputs == {"result": [value]}
 
 
-def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs_and_keeps_the_cell_as_its_fields() -> (
-    None
-):
-    """A node may return a table for a Series of rows whose cell is a model. The table keeps the cell as polars does,
-    a struct, so each row's cell is the model's fields as a dict."""
+class MoniesRow(TypedDict):
+    monies: list[Money]
 
-    @node("rows", title="Rows", description="For a test.")
-    def rows() -> Series[MoneyRow]:
-        return pl.DataFrame({"money": [{"amount": 1.0}]})  # type: ignore[return-value]
 
+class ColourCellRow(TypedDict):
+    colour: Colour
+
+
+#: A row type with a host's class in its cell, the row as a node returns it in a list, and the same row as a frame
+#: keeps it: a struct of its fields, its value, or a list of structs.
+_HOSTS_CLASS_CELLS = [
+    (MoneyRow, {"money": Money(amount=1)}, {"money": {"amount": 1.0}}),
+    (PointRow, {"point": Point(1.0, 2.0)}, {"point": {"x": 1.0, "y": 2.0}}),
+    (ColourCellRow, {"colour": Colour.RED}, {"colour": "red"}),
+    (MoniesRow, {"monies": [Money(amount=1)]}, {"monies": [{"amount": 1.0}]}),
+]
+_CELL_IDS = ["model", "dataclass", "enum", "list of models"]
+
+
+@pytest.mark.parametrize(("row", "value", "kept"), _HOSTS_CLASS_CELLS, ids=_CELL_IDS)
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_series_of_rows_gives_a_hosts_class_in_a_cell_whether_the_node_returned_a_list_or_a_frame(
+    row: Any, value: dict[str, Any], kept: dict[str, Any], returned: str
+) -> None:
+    """A node may return a Series of rows as a frame. A cell of a host's class is still the class, as when the node
+    returns a list, for the run, for a node wired to it and in the saved run read back."""
+    got: list[Any] = []
+
+    def returns() -> Series[row]:  # type: ignore[valid-type]
+        return pl.DataFrame([kept]) if returned == "frame" else [value]  # type: ignore[return-value]
+
+    def takes(rows: Series[row]) -> int:  # type: ignore[valid-type]
+        got.extend(rows)
+        return len(rows)
+
+    rows = node("rows", title="Rows", description="For a test.")(returns)
+    counts = node("counts", title="Counts", description="For a test.")(takes)
     registry = NodeRegistry()
-    registry.add(rows)
-    graph = Graph.compile(make_graph(rows), registry)
+    registry.add(rows, counts)
+    graph = Graph.compile(
+        make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
+    )
     run = graph.run({})
 
-    # the cell is a dict until a frame's model cells are read by the row's type
-    assert run.outputs == {"result": [{"money": {"amount": 1.0}}]}
-    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+    assert run.results["rows"] == {"result": [value]}
+    assert got == [value]
+    assert Run.from_json(run.to_json(), graph).results == run.results
+
+
+@pytest.mark.parametrize(("row", "value", "kept"), _HOSTS_CLASS_CELLS, ids=_CELL_IDS)
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_table_keeps_a_hosts_class_in_a_cell_as_its_fields_or_its_value(
+    row: Any, value: dict[str, Any], kept: dict[str, Any], returned: str
+) -> None:
+    """Polars has no type for a host's class, so a table keeps such a cell as its fields or its value, whether the node returned
+    rows or a frame. Each cell is checked by the row's type, and the saved run reads it back the same."""
+
+    def returns() -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame([kept]) if returned == "frame" else [value]  # type: ignore[return-value]
+
+    table = node("table", title="Table", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(table)
+    graph = Graph.compile(make_graph(table), registry)
+    run = graph.run({})
+
+    assert run.outputs["result"].to_dicts() == [kept]
+    assert Run.from_json(run.to_json(), graph).outputs["result"].to_dicts() == [kept]
 
 
 @dataclasses.dataclass
@@ -889,6 +940,23 @@ def test_a_plain_dataclass_in_a_row_is_read_by_the_rows_config_and_its_saved_run
     graph = Graph.compile(make_graph(labels), registry)
     run = graph.run({})
     run = run.with_answers(run.waiting[0], [{"label": {"text": "  a  "}}]).resume()
+
+    assert run.outputs == {"result": [{"label": Label("a")}]}
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+def test_a_plain_dataclass_in_a_frame_for_a_series_of_rows_is_read_by_the_rows_config() -> None:
+    """A frame's cell is read by the row's own schema of its field, so a plain dataclass takes the row's config there
+    too."""
+
+    @node("labels", title="Labels", description="For a test.")
+    def labels() -> Series[StrippedRow]:
+        return pl.DataFrame({"label": [{"text": "  a  "}]})  # type: ignore[return-value]
+
+    registry = NodeRegistry()
+    registry.add(labels)
+    graph = Graph.compile(make_graph(labels), registry)
+    run = graph.run({})
 
     assert run.outputs == {"result": [{"label": Label("a")}]}
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs

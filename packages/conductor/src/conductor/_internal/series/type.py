@@ -167,7 +167,7 @@ class SeriesType(Type, of=_Series):
                         as_items, handler.generate_schema(self.carried)
                     ),
                     SeriesRows.__name__: core_schema.no_info_after_validator_function(
-                        SeriesRows, handler.generate_schema(table.carried)
+                        lambda frame: SeriesRows(frame, row), handler.generate_schema(table.carried)
                     ),
                 },
                 discriminator=form_of,
@@ -177,7 +177,7 @@ class SeriesType(Type, of=_Series):
         # Pydantic names a class's schema by a ref that doesn't say the config it was built under, and refuses one
         # ref declared twice. The build goes through Type, so it is made under conductor's own config as every
         # type's is; the type is Any because the hook makes the whole schema.
-        table = self._table
+        table, row = self._table, self.item.bare
         return Type(Annotated[Any, GetPydanticSchema(both_forms)]).schema
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
