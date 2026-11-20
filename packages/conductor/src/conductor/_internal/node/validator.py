@@ -400,7 +400,7 @@ def _hint_and_default(given: Any) -> tuple[Any, Any]:
 class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
     """A validator for what the ``rewrite`` of an ``Upgrade`` returns, for one step of ``registry.upgrade``.
 
-    A rewrite returns the node's constants and graph-input defaults as a dict of input name to value. The validator
+    A rewrite returns the node's constants as a dict of input name to value. The validator
     checks that it is such a dict, and writes each value as the JSON a graph record stores. Say a rewrite returns
     ``{"day": date(2026, 1, 2)}``. The validator gives ``{"day": "2026-01-02"}``.
 

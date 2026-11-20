@@ -47,7 +47,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Literal, TypeVar
 
-from pydantic import MISSING, JsonValue
+from pydantic import MISSING
 from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
@@ -67,7 +67,15 @@ from conductor._internal.problem import (
     Problem,
     compile_problems,
 )
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
+from conductor._internal.record import (
+    ConstantEntry,
+    GraphInputEntry,
+    GraphRecord,
+    InputEntry,
+    NodeRecord,
+    RecordValidator,
+    SourcesEntry,
+)
 from conductor._internal.types import Type, choices_in_message
 
 from .input import (
@@ -171,6 +179,7 @@ class Compiler:
                     self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
+        self._graph_inputs_not_used()
         return Graph(
             self.record,
             self.problems,
@@ -179,6 +188,21 @@ class Compiler:
             self._graph_outputs(),
             self.definitions.context_type,
         )
+
+    def _graph_inputs_not_used(self) -> None:
+        """Adds ``graph_input_not_used`` for each graph input the record declares and no entry names.
+
+        Its type is that of the inputs it feeds, so a graph input that feeds none has no type a caller could give a
+        value of. An entry of a node that didn't compile still names its graph input.
+        """
+        named = {
+            entry.graph_input
+            for node_record in self.record.nodes.values()
+            for entry in node_record.inputs.values()
+            if isinstance(entry, GraphInputEntry)
+        }
+        for name in sorted(self.record.inputs.keys() - named):
+            self.problems.append(compile_problems.graph_input_not_used(graph_input=name))
 
     def _graph_outputs(self) -> dict[str, Field]:
         """Returns each graph output whose node compiled, by name, sorted, as the field of the node output behind it.
@@ -438,8 +462,8 @@ class Compiler:
             node_id: The node's id.
             node_record: The node in the graph record.
             fields: The node's inputs, by name.
-            constants: The constant or default the record gives each input, by name, already converted by the
-                input's type. ``_INVALID`` where the type refused it.
+            constants: The constant the record gives each input, by name, already converted by the input's type.
+                ``_INVALID`` where the type refused it.
             edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
         """
         for name in sorted(node_record.inputs.keys() - fields.keys()):
@@ -504,35 +528,31 @@ class Compiler:
                 its node declares.
             sources: What the edges into the input carry, when the record wires edges to it. ``None`` when one of
                 them can't be used (the graph has the problem), and for every other input.
-            value: What the input gets when no edge and no caller gives it a value, converted by its type. That's
-                the record's constant, the default the record gives its graph input, or, when the record gives the
-                input nothing, the default its node declares. ``REQUIRED`` when there's none, and ``_INVALID`` when
-                the type refused it.
+            value: The input's constant, converted by its type: the record's, or, when the record gives the input
+                nothing, the default its node declares. ``REQUIRED`` when there's none, and ``_INVALID`` when the
+                type refused it.
         """
         if field.param.constant_only:  # _constants_of refused an edge or graph input into it
             return _constant_input(field, value)
-        if entry is None:
-            if value is REQUIRED:
+        match entry:
+            case None if value is REQUIRED:
                 self.problems.append(compile_problems.input_has_no_value(node_id, field.name))
                 return MissingInput(field)
-            return _constant_input(field, value)
-        if entry.sources is not MISSING:
-            if sources is None:
-                return MissingInput(field)
-            collects, expected = _collects_and_expected_type(field, sources)
-            if not self._edges_fit(node_id, field, expected, sources):
-                return MissingInput(field)
-            loops = sources[0].loops_of_value  # a kept input's edges are all in the same loops
-            if collects and loops:
-                return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
-            return EdgeInput(
-                field, tuple(sources), loops
-            )  # one that collects gets one value per call, and is refused (_inputs_given_one_value)
-        if entry.graph_input is not MISSING:
-            return self._graph_input(
-                node_id, field, entry.graph_input, value
-            )  # a REQUIRED default means the caller must give a value
-        return _constant_input(field, value)
+            case None | ConstantEntry():
+                return _constant_input(field, value)
+            case GraphInputEntry(graph_input=name):
+                return self._graph_input(node_id, field, name)
+            case SourcesEntry():
+                if sources is None:
+                    return MissingInput(field)
+                collects, expected = _collects_and_expected_type(field, sources)
+                if not self._edges_fit(node_id, field, expected, sources):
+                    return MissingInput(field)
+                loops = sources[0].loops_of_value  # a kept input's edges are all in the same loops
+                if collects and loops:
+                    return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
+                # one that collects gets one value per call, and is refused (_inputs_given_one_value)
+                return EdgeInput(field, tuple(sources), loops)
 
     def _inputs_given_one_value(
         self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]
@@ -627,54 +647,57 @@ class Compiler:
             refused.add(name)
         return refused
 
-    def _graph_input(
-        self, node_id: str, field: Field, name: str, default: Any
-    ) -> GraphInput | MissingInput:
+    def _graph_input(self, node_id: str, field: Field, name: str) -> GraphInput | MissingInput:
         """Returns the compiled input of ``field`` on ``node_id``, whose value the caller gives as the graph input
         ``name``, and adds the graph input to ``graph_inputs``.
+
+        The record declares the graph input, with its default if it has one. The first input that names it gives it
+        its type, and its default is converted by that type. A default the type refuses is ``invalid_value`` at the
+        input. A graph input the record doesn't declare is ``graph_input_not_declared``. The input's own declared
+        default plays no part: a graph input the record declares with no default is required.
 
         Several inputs may name one graph input. Say ``strip.line`` and ``shout.line`` both name ``line``. Then a
         caller's ``line="a"`` is the value of both. For that to work, the inputs must agree:
 
         - They read the same type from their hints, limits, choices and validators included (one ``Type``).
         - A host is shown them the same way (one ``description``, apart from the default).
-        - Where the record gives both a default, it's the same default.
 
-        If they don't agree, the graph gets ``graph_input_used_two_ways``, and the second input gets no value.
+        If they don't agree, the graph gets ``graph_input_used_two_ways``, and the later input gets no value.
         ``int`` and ``Annotated[int, Param()]`` agree, and so do ``Annotated[int, Ge(0)]`` and
         ``Annotated[int, Param(ge=0)]``. ``int`` and ``Annotated[int, Param(title="Count")]`` don't.
-
-        The graph input is the first input's field. A later input replaces it only if it brings the record's
-        default and the first didn't. The input's own declared default plays no part: a graph input that the record
-        gives no default is required.
-
-        Args:
-            node_id: The node.
-            field: The input.
-            name: The graph input's name.
-            default: The record's default, converted by the input's type. ``REQUIRED`` when the record gives none,
-                and ``_INVALID`` when the input's type refused it.
         """
-        if default is _INVALID:
+        declared = self.record.inputs.get(name)
+        if declared is None:
+            self.problems.append(
+                compile_problems.graph_input_not_declared(
+                    node_id, field.name, graph_input=name, declared=sorted(self.record.inputs)
+                )
+            )
             return MissingInput(field)
-        used = Field(name, field.hint, default, is_output=False)
         found = self.graph_inputs.get(name)
-        if found is not None and not _same_graph_input(found, used):
+        if found is None:
+            default = REQUIRED
+            if declared.default is not MISSING:
+                try:
+                    default = ConstantValidator(node_id, field)(declared.default)
+                except InvalidCallError as refused:
+                    self.problems += refused.problems
+                    return MissingInput(field)
+            self.graph_inputs[name] = Field(name, field.hint, default, is_output=False)
+        elif not _same_graph_input(found, Field(name, field.hint, REQUIRED, is_output=False)):
             self.problems.append(
                 compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name)
             )
             return MissingInput(field)
-        if found is None or (found.default is REQUIRED and used.default is not REQUIRED):
-            self.graph_inputs[name] = used
         return GraphInput(field, name)
 
     def _constants_of(
         self, node_id: str, node_record: NodeRecord, fields: Mapping[str, Field]
     ) -> dict[str, Any]:
-        """Returns the constant, or graph input default, that the record gives each of ``fields``, by name.
+        """Returns the constant that the record gives each of ``fields``, by name.
 
-        Each value is converted by the input's type. An input the record gives neither is left out. Where the type
-        refuses a value, the graph gets ``invalid_value`` and the input gets ``_INVALID``.
+        Each value is converted by the input's type. An input the record gives no constant is left out. Where the
+        type refuses a value, the graph gets ``invalid_value`` and the input gets ``_INVALID``.
 
         This is also the one place that checks ``constant_only``, on an input that takes only a constant. If the
         record gives such an input an edge or a graph input, it gets ``input_takes_only_a_constant``. If it has no
@@ -683,35 +706,28 @@ class Compiler:
         """
         constants: dict[str, Any] = {}
         for name, field in fields.items():
-            entry = node_record.inputs.get(name)
-            if field.param.constant_only and entry is None and field.default is REQUIRED:
-                self.problems.append(
-                    compile_problems.input_has_no_value_constant_only(node_id, name)
-                )
-                constants[name] = _INVALID
-                continue
-            if field.param.constant_only and entry is not None and entry.constant is MISSING:
-                given: Literal["sources", "graph_input"] = (
-                    "sources" if entry.sources is not MISSING else "graph_input"
-                )
-                self.problems.append(
-                    compile_problems.input_takes_only_a_constant(node_id, name, given=given)
-                )
-                constants[name] = _INVALID
-                continue
-            value: JsonValue | MISSING
-            if entry is None:
-                value = MISSING
-            elif entry.constant is not MISSING:
-                value = entry.constant
-            else:
-                value = entry.default
-            if value is not MISSING:
-                try:
-                    constants[name] = ConstantValidator(node_id, field)(value)
-                except InvalidCallError as refused:
-                    self.problems += refused.problems
+            match node_record.inputs.get(name):
+                case None if field.param.constant_only and field.default is REQUIRED:
+                    self.problems.append(
+                        compile_problems.input_has_no_value_constant_only(node_id, name)
+                    )
                     constants[name] = _INVALID
+                case SourcesEntry() | GraphInputEntry() as entry if field.param.constant_only:
+                    given: Literal["sources", "graph_input"] = (
+                        "sources" if isinstance(entry, SourcesEntry) else "graph_input"
+                    )
+                    self.problems.append(
+                        compile_problems.input_takes_only_a_constant(node_id, name, given=given)
+                    )
+                    constants[name] = _INVALID
+                case ConstantEntry(constant=value):
+                    try:
+                        constants[name] = ConstantValidator(node_id, field)(value)
+                    except InvalidCallError as refused:
+                        self.problems += refused.problems
+                        constants[name] = _INVALID
+                case _:
+                    pass
         return constants
 
     def _hook(
@@ -945,12 +961,12 @@ def _edges_into(node_record: NodeRecord) -> dict[str, tuple[Source, ...]]:
     """Returns the outputs that the edges into each input of a node come from, by input name.
 
     In the example, ``shout``'s are ``{"line": (Source("lines", "result"),)}``. An input with a constant or a
-    default isn't in it.
+    graph input isn't in it.
     """
     return {
         name: entry.sources
         for name, entry in node_record.inputs.items()
-        if entry.sources is not MISSING
+        if isinstance(entry, SourcesEntry)
     }
 
 
@@ -960,21 +976,13 @@ def _same_graph_input(found: Field, used: Field) -> bool:
     ``Compiler._graph_input`` says what agreeing means.
 
     Args:
-        found: The graph input as the earlier inputs named it, with the record's default if one gave it.
-        used: The graph input as one more input names it, with the record's default for it, if any.
+        found: The graph input as the first input that names it made it, with the record's default.
+        used: The graph input as one more input names it.
     """
     shown, shown_again = (
         field.description.model_dump(exclude={"default", "required"}) for field in (found, used)
     )
-    return (
-        found.whole.hint == used.whole.hint
-        and shown == shown_again
-        and (
-            found.default is REQUIRED
-            or used.default is REQUIRED
-            or found.default_json == used.default_json
-        )
-    )
+    return found.whole.hint == used.whole.hint and shown == shown_again
 
 
 def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:

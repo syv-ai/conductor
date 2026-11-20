@@ -26,7 +26,6 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeRecord,
     Param,
@@ -35,6 +34,7 @@ from conductor import (
     Run,
     Series,
     Source,
+    SourcesEntry,
     Table,
     host_type,
     make_graph,
@@ -74,7 +74,7 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
             nodes={
                 "a": NodeRecord(node="give"),
                 "b": NodeRecord(
-                    node=sink.id, inputs={name: InputEntry(sources=[Source("a", "result")])}
+                    node=sink.id, inputs={name: SourcesEntry(sources=[Source("a", "result")])}
                 ),
             },
             outputs={output: Source("b", output) for output in sink.outputs},
@@ -788,7 +788,12 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_giv
     with pytest.raises(InvalidCallError) as given:
         Graph.compile(
             GraphRecord.model_validate(
-                {"nodes": {"t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}}}
+                {
+                    "inputs": {"lines": {}},
+                    "nodes": {
+                        "t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}
+                    },
+                }
             ),
             registry_of(total),
         ).run({"lines": yes_no})
@@ -817,6 +822,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
         Graph.compile(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"rows": {}},
                     "nodes": {
                         "c": {"node": "count_rows", "inputs": {"rows": {"graph_input": "rows"}}}
                     },
@@ -1089,6 +1095,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"scores": {}, "people": {}},
                 "nodes": {
                     "t": {
                         "node": "tally",

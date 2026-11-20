@@ -523,7 +523,7 @@ except NodeDeclarationError as error:
     print(repr(error.problems[0]))</pre><p class="out-label">prints</p><pre class="out">True
 fetch_async (version 1): a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads.
 Problem(type='async_run', loc=('fetch_async',), msg='a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads.')</pre></div><div class="panel" data-i="1" hidden><pre data-lang="py"># count returns an int, and its result is wired into upper's text, a str
-record = {"nodes": {
+record = {"inputs": {"n": {}}, "nodes": {
     "c": {"node": "count", "inputs": {"n": {"graph_input": "n"}}},
     "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result"}]}}},
 }, "outputs": {"result": {"node": "u", "output": "result"}}}

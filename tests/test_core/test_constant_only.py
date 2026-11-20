@@ -53,14 +53,15 @@ REGISTRY = _registry(word, pad, parts)
 
 
 def _problems(
-    inputs: dict[str, Any], node_id: str = "pad"
+    inputs: dict[str, Any], node_id: str = "pad", declared: dict[str, Any] | None = None
 ) -> list[tuple[str, tuple[str | int, ...]]]:
     record = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}, **(declared or {})},
             "nodes": {
                 "w": {"node": "word", "inputs": {"text": {"graph_input": "text"}}},
                 "p": {"node": node_id, "inputs": {"text": {"constant": "a"}, **inputs}},
-            }
+            },
         }
     )
     return [(p.type, p.loc) for p in Graph.compile(record, REGISTRY).problems]
@@ -68,29 +69,32 @@ def _problems(
 
 @pytest.mark.parametrize("node_id", ["pad", "parts"])
 @pytest.mark.parametrize(
-    "entry",
+    ("entry", "declared"),
     [
-        {"sources": [{"node": "w", "output": "result"}]},
-        {"graph_input": "width"},
-        {"graph_input": "width", "default": 3},
+        ({"sources": [{"node": "w", "output": "result"}]}, {}),
+        ({"graph_input": "width"}, {"width": {}}),
+        ({"graph_input": "width"}, {"width": {"default": 3}}),
     ],
     ids=["edge", "graph_input", "graph_input_with_default"],
 )
 def test_an_input_that_takes_only_a_constant_refuses_an_edge_and_a_graph_input(
-    node_id: str, entry: dict[str, Any]
+    node_id: str, entry: dict[str, Any], declared: dict[str, Any]
 ):
-    assert _problems({"width": entry}, node_id) == [("input_takes_only_a_constant", ("p", "width"))]
+    assert _problems({"width": entry}, node_id, declared) == [
+        ("input_takes_only_a_constant", ("p", "width"))
+    ]
 
 
 def test_the_problem_says_what_the_record_gave_and_what_to_give():
     record = GraphRecord.model_validate(
         {
+            "inputs": {"w": {}},
             "nodes": {
                 "p": {
                     "node": "parts",
                     "inputs": {"text": {"constant": "a"}, "width": {"graph_input": "w"}},
                 }
-            }
+            },
         }
     )
     [problem] = Graph.compile(record, REGISTRY).problems
@@ -203,10 +207,11 @@ def test_a_param_given_none_feeds_one_graph_input_with_one_given_nothing():
     said_node = node("said", title="Said", description="For a test.")(said)
     record = GraphRecord.model_validate(
         {
+            "inputs": {"n": {}},
             "nodes": {
                 "a": {"node": "plain", "inputs": {"n": {"graph_input": "n"}}},
                 "b": {"node": "said", "inputs": {"n": {"graph_input": "n"}}},
-            }
+            },
         }
     )
     assert Graph.compile(record, _registry(plain, said_node)).problems == []

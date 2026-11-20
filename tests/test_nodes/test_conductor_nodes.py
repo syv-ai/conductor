@@ -117,9 +117,10 @@ def test_a_decision_sends_its_value_down_one_branch_and_the_other_branch_is_skip
 
 def test_a_decision_with_nothing_wired_to_when_is_a_problem_when_compiled() -> None:
     record = {
+        "inputs": {"value": {}},
         "nodes": {
             "decide": {"node": "control-decide", "inputs": {"value": {"graph_input": "value"}}}
-        }
+        },
     }
 
     assert [(p.type, p.loc) for p in Graph.compile(record, conductor_nodes.registry).problems] == [

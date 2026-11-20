@@ -38,8 +38,6 @@ from conductor._internal.problem import (
 )
 from conductor._internal.record import (
     GraphRecord,
-    InputEntry,
-    NodeRecord,
     RecordValidator,
     WrittenValuesValidator,
 )
@@ -76,7 +74,7 @@ def make_graph(
 
     Constants and defaults. Both are keyed by ``"node.input"``. A constant is the input's value on every call. A
     default makes the input a graph input, with that value when the caller gives none. Each value is written into
-    the record as JSON.
+    the record as JSON. A graph input's default is declared once, under the record's ``inputs``.
 
     Graph inputs and outputs. The record declares them for you. Each required input that gets nothing (no edge, no
     constant) becomes a graph input with the input's name, unless it's ``constant_only``. So does each key of
@@ -108,6 +106,8 @@ def make_graph(
             ``invalid_value``: a value has no JSON form, or has a set in it.
             ``graph_inputs_share_a_name`` or ``graph_outputs_share_a_name``: two graph inputs or outputs have one
             name.
+            ``graph_input_given_two_defaults``: ``defaults=`` gives two inputs of one graph input different
+            defaults, and a graph input has one.
             ``invalid_record``: the record itself is refused. For example, an input is given both a value and an
             edge, an edge is written twice, one id is given to two nodes, or a name isn't a valid name.
             ``not_a_chain``: there are no ``edges``, and the nodes can't be chained. The automatic graph
@@ -159,46 +159,47 @@ def make_graph(
         gap,
         problems,
     )
-    default_of |= _own_defaults(definitions, graph_input_of, arguments["inputs"], default_of.keys())
     given = dict.fromkeys([*constant_of, *default_of, *sources_of, *graph_input_of])
-    declared_inputs = [
+    node_inputs = [
         (node_id, name)
         for node_id, definition in definitions.items()
         for name in definition.input_names
     ]
-    declared_at = {place: position for position, place in enumerate(declared_inputs)}
-    entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in definitions}
+    declared_at = {place: position for position, place in enumerate(node_inputs)}
+    entries: dict[str, dict[str, dict[str, Any]]] = {node_id: {} for node_id in definitions}
     # each node's inputs in the order the node declares them, then any it doesn't declare, such as one a hook adds,
     # in the order they are gathered here: constants, defaults, edges, then graph inputs
     for place in sorted(given, key=lambda place: declared_at.get(place, len(declared_at))):
         node_id, name = place
-        entries[node_id][name] = (
-            InputEntry.model_construct(  # built unchecked; the record validator below checks it, an entry of two kinds too
-                constant=constant_of.get(place, MISSING),
-                graph_input=graph_input_of.get(place, MISSING),
-                default=default_of.get(place, MISSING),
-                sources=tuple(sources_of[place]) if place in sources_of else MISSING,
-            )
-        )
+        # An input given two kinds, such as a constant and an edge, gets both keys, and the record validator below
+        # refuses the entry.
+        entry: dict[str, Any] = {}
+        if place in constant_of:
+            entry["constant"] = constant_of[place]
+        if place in graph_input_of:
+            entry["graph_input"] = graph_input_of[place]
+        if place in sources_of:
+            entry["sources"] = sources_of[place]
+        entries[node_id][name] = entry
     led_out = {source.node for found in sources_of.values() for source in found}
     # A chain leads out of every node but its last, so only the last one's outputs are the graph's. An edge that
     # can't be written may have led out of any node, so then no node's are.
     if gap:
         led_out |= set(list(definitions)[:-1] if chained else definitions)
-    declared = _graph_outputs(definitions, arguments["outputs"], led_out, problems)
-    written = GraphRecord.model_construct(
-        nodes={
-            node_id: NodeRecord.model_construct(
-                node=definition.id, version=definition.version, inputs=entries[node_id]
-            )
+    written = {
+        "inputs": _declared_inputs(definitions, graph_input_of, default_of, problems),
+        "nodes": {
+            node_id: {
+                "node": definition.id,
+                "version": definition.version,
+                "inputs": entries[node_id],
+            }
             for node_id, definition in definitions.items()
         },
-        outputs=declared,
-    )
+        "outputs": _graph_outputs(definitions, arguments["outputs"], led_out, problems),
+    }
     try:
-        record = RecordValidator(written_by="make_graph's arguments")(
-            written.model_dump(mode="json")
-        )
+        record = RecordValidator(written_by="make_graph's arguments")(written)
     # such as an input given both a value and an edge, an edge given twice, or a name that isn't valid
     except InvalidCallError as refused:
         problems += refused.problems
@@ -333,55 +334,62 @@ def _graph_inputs(
     return {**graph_input_of, **{(node_id, name): name for node_id, name in automatic}}
 
 
-def _own_defaults(
+def _declared_inputs(
     definitions: Mapping[str, NodeDefinition],
     graph_input_of: Mapping[tuple[str, str], str],
-    named: Mapping[str, Sequence[str]],
-    defaulted: Set[tuple[str, str]],
-) -> dict[tuple[str, str], JsonValue]:
-    """Returns the defaults the graph inputs ``named`` in ``inputs=`` take from their node's own inputs, by place.
+    default_of: Mapping[tuple[str, str], JsonValue],
+    problems: list[Problem],
+) -> dict[str, dict[str, JsonValue]]:
+    """Returns the graph inputs the record declares, by name, each with its default if it has one.
 
-    Naming an input in ``inputs=`` gives it a graph input of another name, and keeps it as optional as it was.
-    ``shout(text, mark: str = "!")`` with ``inputs={"m": "shout.mark"}`` has the graph input ``m``, with the
-    default ``"!"``. A graph input that feeds several inputs takes their default when each of them declares the
-    same one, and is required otherwise. One that ``defaults=`` gives a default on any of its inputs keeps that.
+    A graph input takes the default that ``defaults=`` gives on any of its inputs. When ``defaults=`` gives two of
+    them different ones, ``graph_input_given_two_defaults`` goes to ``problems``. Else it takes the default its
+    inputs declare themselves, when each of them declares the same one, so it stays as optional as they are:
+    ``shout(text, mark: str = "!")`` with ``inputs={"m": "shout.mark"}`` has the graph input ``m``, with the default
+    ``"!"``. Else it is required.
     """
     inputs_of: dict[str, list[tuple[str, str]]] = {}
     for place, name in graph_input_of.items():
-        if name in named:
-            inputs_of.setdefault(name, []).append(place)
-    found: dict[tuple[str, str], JsonValue] = {}
-    for places in inputs_of.values():
-        own = [_own_default(definitions[node_id], input_name) for node_id, input_name in places]
-        declared = [default for default in own if default is not MISSING]
-        if (
-            defaulted.isdisjoint(places)
-            and len(declared) == len(places)
-            and len({canonical_json(default) for default in declared}) == 1
-        ):
-            found |= {place: declared[0] for place in places}
-    return found
+        inputs_of.setdefault(name, []).append(place)
+    declared: dict[str, dict[str, JsonValue]] = {}
+    for name, inputs in inputs_of.items():
+        defaulted = [place for place in inputs if place in default_of]
+        given = {canonical_json(default_of[place]): default_of[place] for place in defaulted}
+        own = [
+            default
+            for node_id, input_name in inputs
+            if (default := _own_default(definitions[node_id], input_name)) is not MISSING
+        ]
+        declared[name] = {}
+        if len(given) > 1:
+            problems.append(
+                call_problems.graph_input_given_two_defaults(
+                    "inputs",
+                    name,
+                    name=name,
+                    inputs=[
+                        place_text((node_id,), input_name) for node_id, input_name in defaulted
+                    ],
+                )
+            )
+        elif given:
+            [declared[name]["default"]] = given.values()
+        elif len(own) == len(inputs) and len(set(map(canonical_json, own))) == 1:
+            declared[name]["default"] = own[0]
+    return declared
 
 
 def _own_default(definition: NodeDefinition, name: str) -> JsonValue | MISSING:
     """Returns the default that the input ``name`` of a node declares, as JSON, or ``MISSING`` when it has none.
 
-    A function's input declares it in the function's signature. A subgraph's input is a graph input of its record,
-    and its default is the one its record gives. An input a hook adds isn't known before the graph is compiled,
-    so it has none here.
+    A function's input declares it in the function's signature. A subgraph's input is a graph input its record
+    declares, with its default. An input a hook adds isn't known before the graph is compiled, so it has none here.
     """
     if isinstance(definition, FunctionDefinition):
         field = definition.inputs.get(name)
         return MISSING if field is None else field.default_json
-    return next(
-        (
-            entry.default
-            for node_record in definition.graph.nodes.values()
-            for entry in node_record.inputs.values()
-            if entry.graph_input == name and entry.default is not MISSING
-        ),
-        MISSING,
-    )
+    declared = definition.graph.inputs.get(name)
+    return MISSING if declared is None else declared.default
 
 
 def _graph_outputs(

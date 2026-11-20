@@ -113,6 +113,7 @@ This is what an editor saves for the invoice graph:
 
 ```python
 record = """{
+  "inputs": {"csv": {}},
   "nodes": {
     "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
     "approve": {"node": "approve", "inputs": {
@@ -135,10 +136,10 @@ Each node has an id of its own in the graph, and `node` says which of your funct
 Each input gets one of three things:
 
 - a `constant`, the same on every call;
-- a `graph_input`, a value the caller gives when they start a run;
+- a `graph_input`, a value the caller gives when they start a run, under a name the record declares in `inputs`;
 - `sources`, the edges into it. `{"node": "read", "output": "result", "field": "name"}` is the `name` of each invoice `read` returns.
 
-`outputs` names what the graph returns. A graph's inputs and outputs work like a function's parameters and return value: here it takes `csv` and returns `summary`.
+`inputs` declares what the graph takes, each with a `default` if it has one, as `{"csv": {"default": "..."}}`, and `outputs` names what the graph returns. A graph's inputs and outputs work like a function's parameters and return value: here it takes `csv` and returns `summary`.
 
 ## When something is wrong
 
@@ -146,6 +147,7 @@ A half-finished graph still compiles. Each mistake becomes a problem tied to a p
 
 ```python
 unfinished = Graph.compile("""{
+  "inputs": {"csv": {}},
   "nodes": {
     "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
     "approve": {"node": "approve", "inputs": {"name": {"sources": [{"node": "read", "output": "result", "field": "name"}]}}},

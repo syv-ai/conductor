@@ -332,12 +332,13 @@ def test_a_value_in_a_graph_record_is_in_no_problem() -> None:
         f'{{"nodes": {{"t": {{"node": "take", "inputs": {{"x": {{"constant": {{"{SECRET}": 1, "{SECRET}": 2}}}}}}}}}}}}',
         {"nodes": {"t": {"node": "take", "inputs": {"x": {"constant": {SECRET: {1, 2}}}}}}},
         {
+            "inputs": {"x": {"default": {SECRET: float("nan")}}},
             "nodes": {
                 "t": {
                     "node": "take",
-                    "inputs": {"x": {"graph_input": "x", "default": {SECRET: float("nan")}}},
+                    "inputs": {"x": {"graph_input": "x"}},
                 }
-            }
+            },
         },
         {"nodes": {"t": {"node": "take", "display": {SECRET: {1}}}}},
     ],

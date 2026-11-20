@@ -572,6 +572,7 @@ def test_edges_from_two_branches_into_one_input_from_different_loops_are_refused
 def test_an_input_is_a_graph_input_only_where_its_entry_says_so_and_one_with_no_entry_is_a_problem_on_any_node():
     record = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                 "p": {
@@ -579,7 +580,7 @@ def test_an_input_is_a_graph_input_only_where_its_entry_says_so_and_one_with_no_
                     "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}},
                 },
                 "v": {"node": "upper"},
-            }
+            },
         }
     )
     graph = Graph.compile(record, REGISTRY)
@@ -658,12 +659,13 @@ def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_
     registry = _with_subgraph({"p": "pair"}, [])
     record = GraphRecord.model_validate(
         {
+            "inputs": {"first": {}, "second": {}},
             "nodes": {
                 "e": {
                     "node": "inner",
                     "inputs": {"a": {"graph_input": "first"}, "b": {"graph_input": "second"}},
                 }
-            }
+            },
         }
     )
     graph = Graph.compile(record, registry)
@@ -673,7 +675,10 @@ def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_
 def test_a_subgraphs_problems_are_the_outer_graphs_with_the_subgraph_nodes_id_in_front():
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
-    inner = {  # Written by hand, since make_graph would turn the unwired p.b into a graph input.
+    inner = {
+        "inputs": {
+            "text": {}
+        },  # Written by hand, since make_graph would turn the unwired p.b into a graph input.
         "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "p": {

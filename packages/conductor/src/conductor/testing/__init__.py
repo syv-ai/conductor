@@ -59,7 +59,15 @@ from conductor._internal.node import (
     SubgraphDefinition,
 )
 from conductor._internal.problem import InvalidCallError, Problem
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, WrittenValuesValidator
+from conductor._internal.record import (
+    ConstantEntry,
+    GraphInputEntry,
+    GraphInputRecord,
+    GraphRecord,
+    InputEntry,
+    NodeRecord,
+    WrittenValuesValidator,
+)
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param
 
@@ -190,14 +198,15 @@ def _one_node_graph(
     Raises:
         InvalidCallError: ``invalid_value`` at the node and input, for a value with no JSON form.
     """
-    inputs = {
-        name: InputEntry(graph_input=name) for name in graph_inputs if name not in constants
-    } | {
-        name: InputEntry(constant=value)
+    taken = [name for name in graph_inputs if name not in constants]
+    inputs: dict[str, InputEntry] = {name: GraphInputEntry(graph_input=name) for name in taken}
+    inputs.update(
+        (name, ConstantEntry(constant=value))
         for name, value in WrittenValuesValidator(version.id)(constants).items()
-    }
+    )
     return GraphRecord(
-        nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)}
+        inputs={name: GraphInputRecord() for name in taken},
+        nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)},
     )
 
 

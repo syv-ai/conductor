@@ -408,7 +408,7 @@ print(dumps(json.loads(saved)))</pre>
     </div>
     <pre data-lang="json" class="out">547
 {
-  "graph": "c96702e39729ef2d",
+  "graph": "834e65c8c11714cd",
   "ended_early": null,
   "max_items": null,
   "inputs": {
@@ -513,8 +513,8 @@ print(dumps(json.loads(blanks.to_json())["outcomes"]["up"]))</pre>
 
           <text class="d-title" x="340" y="24">this graph's codec</text>
           <rect class="d-box int" x="340" y="36" width="500" height="96" rx="8"/>
-          <text class="d-label" x="356" y="60">SavedRun_c96702e39729ef2d</text>
-          <text class="d-sub" x="356" y="80">graph: Literal["c96702e39729ef2d"]</text>
+          <text class="d-label" x="356" y="60">SavedRun_834e65c8c11714cd</text>
+          <text class="d-sub" x="356" y="80">graph: Literal["834e65c8c11714cd"]</text>
           <text class="d-sub" x="356" y="96">inputs: exactly {"text": str}</text>
           <text class="d-sub" x="356" y="112">outcomes: only lines, shout, join · shout's "result": list[str | None]</text>
 
@@ -772,9 +772,9 @@ try:
 except InvalidCallError as error:
     print(error.problems[0].type, error.problems[0].ctx)
     print(error.problems[0].msg)</pre>
-      <p class="out">c96702e39729ef2d b5e964323f943bba
-saved_run_of_another_graph {'graph': 'b5e964323f943bba', 'saved': 'c96702e39729ef2d'}
-This saved run is of another graph, not this one (b5e964323f943bba). Load it into the graph it was saved from.</p>
+      <p class="out">834e65c8c11714cd f64023e68fa7dedd
+saved_run_of_another_graph {'graph': 'f64023e68fa7dedd', 'saved': '834e65c8c11714cd'}
+This saved run is of another graph, not this one (f64023e68fa7dedd). Load it into the graph it was saved from.</p>
       <p class="muted">Start a new run of the edited graph instead, with the old run as <code>previous</code>. Only <code>join</code> is called. <code>lines</code> and <code>shout</code> get the same arguments under the same code.</p>
       <pre data-lang="py">again = edited.with_inputs({"text": "a\nb\nc"}, previous=run).resume()
 print(took(), again.outputs)</pre>

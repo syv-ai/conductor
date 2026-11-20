@@ -456,6 +456,9 @@ for entry in data["nodes"].values():  # make_graph doesn't keep an order of a no
 print(dumps(data))
       </script>
       <pre data-lang="json" class="out record">{
+  "inputs": {
+    "text": {}
+  },
   "nodes": {
     "lines": {
       "node": "lines",
@@ -494,12 +497,12 @@ print(dumps(data))
 }</pre>
     </div>
     <div class="stack">
-      <p>This record is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>nodes</code> and <code>outputs</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
+      <p>This record is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>inputs</code>, <code>nodes</code> and <code>outputs</code>. <code>inputs</code> declares each graph input once, by name, with its <code>default</code> if it has one: <code>{"text": {}}</code> here, or <code>{"text": {"default": "a"}}</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
       <p>A <code>NodeRecord</code> names the node it uses in <code>node</code>, its <code>version</code> (1 unless it says otherwise), its <code>inputs</code>, and <code>display</code>. That last one is the host's own data, like a position on a canvas. Conductor saves it and doesn't read it, and it's left out of the <a href="saved-runs-and-reuse.html#keys">graph's fingerprint</a>.</p>
-      <p>Each input's <code>InputEntry</code> is one of these kinds (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
+      <p>Each input's entry is one of three kinds, each a class of its own: <code>ConstantEntry</code>, <code>GraphInputEntry</code> and <code>SourcesEntry</code>. The one key it has says which (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
       <ul class="muted" style="display:grid;gap:.4rem;padding-left:1.1rem">
         <li><code>{"constant": "?"}</code>: the same value on every call of every run.</li>
-        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. Add <code>"default"</code> for a value to use when the caller gives none. Several inputs may name one graph input and share its value.</li>
+        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. The name is one the record declares in <code>inputs</code>, with the default for when the caller gives none. Several inputs may name one graph input and share its value and its one default.</li>
         <li><code>{"sources": [...]}</code>: the outputs whose edges lead into this input. Several sources are alternatives, from different <a href="nodes-and-types.html#outputs">branches</a> of one node.</li>
       </ul>
       <p>An input the record leaves out takes the node's own default. <code>shout.mark</code> would be <code>"!"</code>.</p>
@@ -891,12 +894,16 @@ print(dumps(json.loads(wired.nodes["shout"].inputs["line"].model_dump_json())))
 
 renamed = make_graph(shout, inputs={"m": "shout.mark"})
 print(dumps(json.loads(renamed.nodes["shout"].inputs["mark"].model_dump_json())))
+print(dumps(json.loads(renamed.model_dump_json())["inputs"]))
 
 try:
     make_graph(lines, shout, edges=[("lines", "shout.line")])
 except InvalidCallError as error:
     print([(p.type, p.loc) for p in error.problems])</pre>
       <pre class="out">{
+  "inputs": {
+    "text": {}
+  },
   "nodes": {
     "lines": {
       "node": "lines",
@@ -936,8 +943,13 @@ except InvalidCallError as error:
   "sources": [{"node": "person", "output": "result", "field": "email"}]
 }
 {
-  "graph_input": "m",
-  "default": "!"
+  "graph_input": "m"
+}
+{
+  "m": {
+    "default": "!"
+  },
+  "line": {}
 }
 [('invalid_place', ('edges', 0, 0))]</pre>
     </div>
@@ -981,7 +993,7 @@ print(calls)
 print([(f.name, f.type, f.required) for f in graph.describe().nodes["route"].outputs])
 print(graph.run({"text": "hello", "chosen": "big"}).outputs)
 
-broken = Graph.compile({"nodes": {   # the record by hand: no graph outputs
+broken = Graph.compile({"inputs": {"text": {}, "chosen": {}}, "nodes": {   # the record by hand: no graph outputs
     "count": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
     "route": {"node": "route", "inputs": {
         "value": {"sources": [{"node": "count", "output": "result"}]},
@@ -1022,7 +1034,7 @@ def shout_v2(line: str, mark: str = "!") -> str:
 versions = NodeRegistry()   # a registry with shout at version 2
 versions.add(shout_v2)
 
-saved = GraphRecord.model_validate({"nodes": {"s": {"node": "shout", "inputs": {
+saved = GraphRecord.model_validate({"inputs": {"text": {}}, "nodes": {"s": {"node": "shout", "inputs": {
     "text": {"graph_input": "text"}, "mark": {"constant": "?"}}}},
     "outputs": {"result": {"node": "s", "output": "result"}}})
 graph = Graph.compile(saved, versions)
@@ -1034,6 +1046,9 @@ print(versions.upgrade(moved, "s") is moved)</pre>
     <div class="stack">
       <pre class="out">True {'result': 'HI?'}
 {
+  "inputs": {
+    "text": {}
+  },
   "nodes": {
     "s": {
       "node": "shout",
@@ -1059,7 +1074,7 @@ print(versions.upgrade(moved, "s") is moved)</pre>
 True</pre>
       <ul class="muted" style="display:grid;gap:.45rem;padding-left:1.1rem">
         <li>A renamed input takes what it got along with it. Here that is the graph input <code>text</code>, which keeps its name for the caller.</li>
-        <li>A <code>rewrite</code> gets the node's constants and graph-input defaults as one dict. A default stays a default. Every other key it returns becomes a constant.</li>
+        <li>A <code>rewrite</code> gets the node's constants as one dict, and every key it returns becomes a constant. A graph input's default belongs to the whole graph, so no rewrite changes it.</li>
         <li>An input the newer version neither has nor renames is dropped. Edges and graph outputs from a renamed output move to its new name.</li>
         <li>After each step the new record's shape is checked again, so a step can't write a record of the wrong shape. A node already at the target version comes back as the same object.</li>
       </ul>

@@ -294,6 +294,7 @@ def test_a_list_into_an_input_that_takes_a_list_is_the_plain_mismatch_as_a_call_
     given = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"x": {}},
                 "nodes": {"t": {"node": "takes", "inputs": {"x": {"graph_input": "x"}}}},
                 "outputs": {"result": {"node": "t", "output": "result"}},
             }

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
-from pydantic import JsonValue
+from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter
@@ -295,13 +295,17 @@ class SubgraphDefinition(_Version):
 
     @property
     def input_names(self) -> tuple[str, ...]:
-        """The names of the graph inputs in its record, sorted."""
-        return self.graph.input_names
+        """The names of the graph inputs its record declares, sorted."""
+        return tuple(sorted(self.graph.inputs))
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
-        """The names of the graph inputs in its record that have no default, sorted."""
-        return self.graph.required_inputs
+        """The names of the graph inputs its record declares with no default, sorted."""
+        return tuple(
+            sorted(
+                name for name, declared in self.graph.inputs.items() if declared.default is MISSING
+            )
+        )
 
     @property
     def output_names(self) -> tuple[str, ...]:
