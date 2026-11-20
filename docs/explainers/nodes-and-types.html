@@ -735,7 +735,7 @@ unnamed Unnamed</pre>
     </div>
     <div>
       <p class="label">What <code>@host_type</code> checks</p>
-      <p class="muted">It checks its arguments when the class statement ends, and a class it can't take raises a <code>NodeDeclarationError</code>. A dataclass or a pydantic model is declared frozen, as the two above are, since a node never changes a value it is given: every node that reads a value gets the same object. What it checks, the rule, and which classes <code>registry.types</code> holds, is in the reference: <code>python -m conductor.about types</code>.</p>
+      <p class="muted">It checks its arguments when the class statement ends, and a class it can't take raises a <code>NodeDeclarationError</code>. A dataclass or a pydantic model is declared frozen, as the two above are. Why, what else it checks, and which classes <code>registry.types</code> holds, is in the reference: <code>python -m conductor.about types</code>.</p>
     </div>
   </div>
 </section>
@@ -1177,7 +1177,7 @@ except NodeDeclarationError as error:
     print(error)</pre>
       <p class="label">raised at import</p>
       <pre class="out">type_not_frozen
-@host_type can't take its arguments: cls: Reading isn't frozen, so a node could change a value that every node reading it shares; declare it with @dataclass(frozen=True), or with model_config = ConfigDict(frozen=True) on a pydantic model, and make a changed value with dataclasses.replace or model_copy(update=...). Fix each argument as its fault says.</pre>
+@host_type can't take its arguments: cls: Reading isn't frozen; declare it with @dataclass(frozen=True), or with model_config = ConfigDict(frozen=True) on a pydantic model, and make a changed value with dataclasses.replace or model_copy(update=...). Fix each argument as its fault says.</pre>
     </div>
     <div class="fault-view" id="fault-view-14" hidden data-label="a dot in the id">
       <pre data-lang="py">try:
