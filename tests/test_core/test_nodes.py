@@ -287,6 +287,21 @@ def test_an_argument_of_the_wrong_type_is_refused_where_a_node_or_a_subgraph_is_
     assert _faults(lambda: subgraph("x", **given)) == faults
 
 
+@pytest.mark.parametrize(
+    ("arguments", "faults"),
+    [
+        ({"title": "  "}, [("blank_text", ["title"])]),
+        ({"description": ""}, [("blank_text", ["description"])]),
+        (
+            {"title": "\t", "description": " "},
+            [("blank_text", ["title"]), ("blank_text", ["description"])],
+        ),
+    ],
+)
+def test_a_blank_title_or_description_of_a_param_is_refused_as_a_nodes_is(arguments, faults):
+    assert _faults(lambda: Param(**arguments), ()) == faults
+
+
 @pytest.mark.parametrize("declare", [node, subgraph])
 def test_every_fault_in_a_declaration_is_found_in_one_pass(declare: Callable[..., object]):
     given: dict[str, Any] = {"title": " ", "description": "For a test.", "tags": "ab"}
