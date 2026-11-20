@@ -15,6 +15,11 @@ checks ``n`` against its type. If ``letters`` returns 12, that call of ``small``
 An edge from ``shout.result: str`` into ``join.texts: Series[str]`` needs no such check. A node none of whose inputs
 needs one has no edge validator at all.
 
+A ``Table[R]`` input that collects rows is the one input always read by the edge validator, since the rows are made
+into a table there. Its rows are checked against ``R`` only where an output wired to it declares less than ``R``,
+as an item is for a ``Series`` input. Rows from ``-> Series[R]`` aren't checked again; the table's own checks still
+hold: its limits, and that a saved run keeps each cell (``ROWS_CHECKED``).
+
 Compiling checks that each edge's types fit. Which inputs still need a check at run time is worked out once, when
 the run blueprint is built, by ``EdgeValidator.of``. The validator is built then, and called before each call of the
 node.
@@ -39,6 +44,7 @@ from conductor._internal.base import (
 from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.problem import InvalidCallError, call_problems, run_problems
+from conductor._internal.table import ROWS_CHECKED
 
 
 def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
@@ -50,23 +56,22 @@ def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
     check. An edge from ``-> int`` into ``Annotated[int, Param(le=3)]`` does, and so does an edge from ``-> Any``.
 
     An input that collects a loop gets one item of its value from each edge, not the whole value. Then each output
-    is compared with the input's item type. An input that collects rows into a table is always checked, since
-    each row has to be checked against the table's columns.
+    is compared with the input's item type, which for a table is its row type.
     """
     field, sources = node_input.field, [edge.type for edge in node_input.sources]
     match node_input:
         case EdgeInput():
             return not all(field.whole.holds(source) for source in sources)
         case CollectingInput():
-            return field.whole.row is not None or not all(
-                field.type.holds(source) for source in sources
-            )
+            item = field.type if field.whole.row is None else field.whole.row
+            return not all(item.holds(source) for source in sources)
         case _:
             assert_never(node_input)
 
 
 class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
-    """A validator for the arguments of a node's call, for the inputs the graph's types can't vouch for.
+    """A validator for the arguments of a node's call, for the inputs the graph's types can't vouch for and the
+    table inputs that collect rows.
 
     It checks each of those inputs against the input's type, and returns the arguments with the checked values. A
     value whose class is exactly one of the type's plain classes is kept as it is, and so is ``SKIPPED``.
@@ -83,29 +88,34 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
     def of(cls, inputs: Mapping[str, EdgeInput | CollectingInput]) -> EdgeValidator | None:
         """Returns the edge validator for a node, or ``None`` if it needs none.
 
-        The validator checks each input whose type asks for more than the outputs wired to it promise. If every
-        edge's output already fits its input, nothing needs checking, and this returns ``None``.
+        The validator checks each input whose type asks for more than the outputs wired to it promise. A table
+        input that collects rows whose outputs all declare its row type is read too, with ``ROWS_CHECKED``: its rows
+        are made into a table without their cells being checked again. If nothing needs either, this returns
+        ``None``.
 
         Args:
             inputs: The node's inputs that get their values through edges, by name.
         """
-        read = {
-            name: node_input.field
-            for name, node_input in inputs.items()
-            if _demands_more(node_input)
-        }
+        read: dict[str, tuple[Field, object]] = {}
+        for name, node_input in inputs.items():
+            if _demands_more(node_input):
+                read[name] = (node_input.field, None)
+            elif isinstance(node_input, CollectingInput) and node_input.field.whole.row is not None:
+                read[name] = (node_input.field, ROWS_CHECKED)
         return cls(read) if read else None
 
-    def __init__(self, inputs: Mapping[str, Field]) -> None:
-        """Builds the validator for ``inputs``, the inputs to check, by name."""
+    def __init__(self, inputs: Mapping[str, tuple[Field, object]]) -> None:
+        """Builds the validator for ``inputs``: by name, each input to check and the pydantic context it is checked
+        with, ``None`` or ``ROWS_CHECKED``."""
         self._inputs = tuple(
             (
                 name,
                 field.whole,
                 field.whole.exact_classes,
                 field.whole.argument_validator.validate_python,
+                context,
             )
-            for name, field in inputs.items()
+            for name, (field, context) in inputs.items()
         )
 
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -115,12 +125,12 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
             InvalidCallError: See the class.
         """
         read = dict(arguments)
-        for name, whole, exact, validate in self._inputs:
+        for name, whole, exact, validate, context in self._inputs:
             value = read[name]
             if value is SKIPPED or type(value) in exact:
                 continue
             try:
-                read[name] = validate(value, strict=False)
+                read[name] = validate(value, strict=False, context=context)
             except ValidationError as error:
                 raise InvalidCallError(
                     [run_problems.invalid_edge_value(input=name, **whole.refusal(error))]

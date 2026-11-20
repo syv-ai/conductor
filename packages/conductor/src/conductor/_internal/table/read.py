@@ -20,9 +20,10 @@ from typing import Any, NotRequired, TypeVar, get_args, get_origin
 
 import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, ValidationInfo
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
+from typing_extensions import sentinel
 
 from conductor._internal.base import json_typed_dict_schema
 from conductor._internal.problem import (
@@ -351,6 +352,12 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
         ) from None
 
 
+#: The context a table is checked with when each of its rows is already a value of the table's row type, as a run
+#: knows when the rows come from outputs that declare it. The rows are made into a frame without their cells being
+#: checked again. The table's own checks still hold: its limits, such as ``Param(min_length=1)``, and ``as_saved``.
+ROWS_CHECKED = sentinel("ROWS_CHECKED")
+
+
 def _table_form(value: Any) -> str | None:
     """Says which of a table's three forms ``value`` is in: a frame, a list of rows, or conductor's JSON."""
     if isinstance(value, pl.DataFrame):
@@ -436,6 +443,13 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             strict=False,
         )
 
+    def from_rows_unless_checked(
+        rows: list[Any],
+        read_rows: Callable[[list[Any]], list[dict[str, Any]]],
+        info: ValidationInfo,
+    ) -> pl.DataFrame:
+        return from_rows(rows if info.context is ROWS_CHECKED else read_rows(rows))
+
     def from_frame(
         frame: pl.DataFrame, read_columns: Callable[[dict[str, list[Any]]], dict[str, list[Any]]]
     ) -> pl.DataFrame:
@@ -516,26 +530,32 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         else core_schema.is_instance_schema(pl.DataFrame)
     )
     written = core_schema.no_info_after_validator_function(_frame_written, WRITTEN_TABLE)
-    any_form = core_schema.tagged_union_schema(
-        {
-            "frame": as_frame,
-            "rows": core_schema.no_info_after_validator_function(
-                from_rows, core_schema.list_schema(one_row)
-            ),
-            "written": core_schema.chain_schema([written, as_frame]),
-        },
-        discriminator=_table_form,
-        custom_error_type="not_a_table",
-        custom_error_message="a table must be a frame, or a list with one object per row",
-        custom_error_context=dict(OWN_MESSAGE),
-    )
-    kept = core_schema.no_info_after_validator_function(as_saved, any_form)
-    # The same schema for JSON and for Python. It is deliberately not a function schema at the top: that way, a
-    # limit pydantic has no rule for on a table, like ``Param(ge=1)``, is reported when the node is declared. It says
-    # its values are sized (SIZED), so a length limit, like ``Param(min_length=1)``, counts the table's rows.
+    rows = core_schema.list_schema(one_row)
+
+    def kept(rows_form: CoreSchema) -> CoreSchema:
+        any_form = core_schema.tagged_union_schema(
+            {
+                "frame": as_frame,
+                "rows": rows_form,
+                "written": core_schema.chain_schema([written, as_frame]),
+            },
+            discriminator=_table_form,
+            custom_error_type="not_a_table",
+            custom_error_message="a table must be a frame, or a list with one object per row",
+            custom_error_context=dict(OWN_MESSAGE),
+        )
+        return core_schema.no_info_after_validator_function(as_saved, any_form)
+
+    # It is deliberately not a function schema at the top: that way, a limit pydantic has no rule for on a table,
+    # like ``Param(ge=1)``, is reported when the node is declared. It says its values are sized (SIZED), so a length
+    # limit, like ``Param(min_length=1)``, counts the table's rows. Only a run's own rows, given in Python, are ever
+    # ``ROWS_CHECKED``. JSON never is, and keeps a plain schema, since a function that wraps the rows' check hides
+    # from a union how exactly they matched: a saved run's Series of rows would read back as a frame, not a list.
     return core_schema.json_or_python_schema(
-        json_schema=kept,
-        python_schema=kept,
+        json_schema=kept(core_schema.no_info_after_validator_function(from_rows, rows)),
+        python_schema=kept(
+            core_schema.with_info_wrap_validator_function(from_rows_unless_checked, rows)
+        ),
         serialization=core_schema.plain_serializer_function_ser_schema(
             written_table, when_used="json"
         ),
