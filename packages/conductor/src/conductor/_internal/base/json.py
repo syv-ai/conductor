@@ -9,12 +9,12 @@ as JSON, so it gives the same result as the same value sent over HTTP.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 from collections.abc import Callable, Iterator
 from typing import Any, Final, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
-from pydantic._internal._config import ConfigWrapper
 from pydantic_core import (
     CoreConfig,
     PydanticCustomError,
@@ -86,14 +86,27 @@ def json_typed_dict_schema(
         extra_behavior: What to do with a key that isn't a field, as ``typed_dict_schema`` takes it.
     """
     own = getattr(cls, "__pydantic_config__", None)
-    config = (
-        JSON_CORE_CONFIG
-        if cls is None or own is None
-        else ConfigWrapper(own).core_config(cls.__name__)
-    )
+    config = JSON_CORE_CONFIG if cls is None or own is None else _own_core_config(cls)
     return core_schema.typed_dict_schema(
         fields, cls=cls, extra_behavior=extra_behavior, config=config
     )
+
+
+@functools.cache  # a row type's schema is built once, however many tables name it
+def _own_core_config(cls: type) -> CoreConfig:
+    """Returns the core config pydantic reads ``cls``'s fields by, from the schema pydantic builds for ``cls``.
+
+    Pydantic turns the class's ``with_config`` mapping into the ``config`` of its typed dict schema itself, so nothing
+    is copied here. A class that refers to itself is built as ``definitions`` around a reference to its schema.
+    """
+    schema: Any = TypeAdapter(cls).core_schema
+    if schema["type"] == "definitions":
+        by_ref = {one["ref"]: one for one in schema["definitions"]}
+        schema = schema["schema"]
+        if schema["type"] == "definition-ref":
+            schema = by_ref[schema["schema_ref"]]
+    config: CoreConfig = schema["config"]
+    return config
 
 
 def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> JsonValue:
