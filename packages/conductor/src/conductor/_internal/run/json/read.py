@@ -109,7 +109,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             reusable_outcomes = outcomes_from_saved(node.compiled_node, saved_reusable)
             if len(saved_reusable.item_indexes) != len(reusable_outcomes):
                 raise ValueError("'item_indexes' is not as long as 'states'")
-            reusable.add(node, zip(saved_reusable.item_indexes, reusable_outcomes, strict=True))
+            reusable.add(node, zip(saved_reusable.item_indexes, reusable_outcomes))
     except ValueError as wrong:
         raise InvalidCallError([_lists_disagree(where, str(wrong))]) from None
     outcomes = RunOutcomes(blueprint, read.inputs)

@@ -102,12 +102,18 @@ class SavedReusable(SavedOutcomes):
     Each outcome is written once, and every node's the same way, whether it may ask or not. Only the order matters
     differently. For a node that never asks, the first listed with a fingerprint is the one any call with that
     fingerprint reuses, and each other one is reused only by the call with its item indexes. A node that may ask
-    has its outcomes with one fingerprint taken by its calls in the order listed.
+    has its outcomes with one fingerprint taken by its calls in the order listed. It never reuses an outcome by its
+    item indexes, so its ``item_indexes`` are read only to be written again when the run is saved.
+
+    Only a call that was made can be reused, so every outcome here is a done or a waiting call with a fingerprint.
+    A ``null`` fingerprint is refused, and so is a skipped call, or one not made, which has a ``null`` one.
 
     Attributes:
+        fingerprints: For each outcome, its call fingerprint.
         item_indexes: For each outcome, the item indexes its call had in the previous run.
     """
 
+    fingerprints: list[str]  # type: ignore[assignment]  # narrower than SavedOutcomes': no outcome here lacks one
     item_indexes: list[tuple[NonNegativeInt, ...]]
 
 

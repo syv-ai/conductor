@@ -423,8 +423,8 @@ def test_a_saved_reusable_entry_without_item_indexes_for_each_outcome_is_refused
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
 
-    assert [(p.type, p.ctx["where"]) for p in refused.value.problems] == [
-        ("saved_run_unreadable", "reusable.tag")
+    assert [(p.type, p.ctx["where"], p.ctx["reason"]) for p in refused.value.problems] == [
+        ("saved_run_unreadable", "reusable.tag", "'item_indexes' is not as long as 'states'")
     ]
 
 
@@ -494,6 +494,59 @@ def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_an
         in_memory.results["approve"]["result"]
         == read_back.results["approve"]["result"]
         == [False, True]
+    )
+
+
+def test_a_node_that_asks_and_was_not_called_for_a_none_reuses_its_answers_in_the_next_run() -> (
+    None
+):
+    """The outcomes a run made from another may reuse are read from that run's outcomes, which have a call not made
+    for a ``None`` among them. That call has no outcome to reuse, and the answers beside it are reused."""
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str | None]:
+        return [line or None for line in text.split(",")]
+
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(line: str) -> bool:
+        raise Ask(f"Approve {line}?")
+
+    graph = Graph.compile(make_graph(registry["lines"], registry["approve"]), registry)
+    first = graph.run({"text": "a,"})
+    first = first.with_answers({waiting.id: True for waiting in first.waiting})
+    assert first.status == "complete" and first.none_input_calls
+
+    edited = first.with_inputs({"text": "b,,a"}).resume()
+
+    assert edited.results["approve"]["result"] == [None, None, True]
+    assert [waiting.loc for waiting in edited.waiting] == [("approve", 0)]
+
+
+def test_a_node_that_asks_saves_one_call_twice_when_two_answers_wait_for_it_and_reuses_both_read_back() -> (
+    None
+):
+    """A node that may ask can have two reusable answers with one fingerprint, from calls with one item indexes in
+    two earlier runs. Its save then lists that call twice, and read back, each answer is reused once."""
+    graph = _approve_graph(asks=True)
+    first = graph.run({"text": "a\na\nc"})
+    first = first.with_answers({w.id: w.loc[-1] == 0 for w in first.waiting if w.loc[-1] < 2})
+    second = first.with_inputs({"text": "a\nc"}).resume()
+    third = second.with_inputs({"text": "c\na"}).resume()
+    edited = third.with_inputs({"text": "a\na\nc"})
+    saved = json.loads(edited.to_json())["reusable"]["approve"]
+
+    in_memory = edited.resume()
+    read_back = Run.from_json(edited.to_json(), graph).resume()
+
+    assert (
+        list(zip(saved["item_indexes"], saved["fingerprints"]))[1:]
+        == [([1], saved["fingerprints"][1])] * 2
+    )
+    assert (
+        in_memory.results["approve"]["result"]
+        == read_back.results["approve"]["result"]
+        == [True, False, None]
     )
 
 

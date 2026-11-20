@@ -980,7 +980,7 @@ assert GraphRecord.model_validate_json(text) == record
 - The run's inputs.
 - The outcome of each call of each node: its outputs, waiting (with what its `Ask` said), a `None` input, or skipped. Each output is written by the output's type, the same whether the function returned it or a person answered.
 - Each call's fingerprint, taken when the call was made, which a later run reuses its outcome by.
-- The reusable outcomes from a previous run, in the same lists, with the item indexes each call had. Every node's are written the same way, whether it may ask or not.
+- The reusable outcomes from a previous run, in the same lists, with the item indexes each call had. Each is a done or a waiting call with its fingerprint. Every node's are written the same way, whether it may ask or not, though a node that may ask reuses an outcome by its fingerprint alone, so its item indexes are read only to be written back.
 - How the last `resume()` ended.
 - Only nodes that were called are in it. So a long graph waiting at its start saves small.
 - Each output's value is written under that output. Say a node `people` returns a table, and `split` splits it. Then the table is written under both `outcomes.people.outputs.result` and `outcomes.split.outputs.result`.

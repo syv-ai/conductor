@@ -99,10 +99,15 @@ class ReusableOutcomes:
     ) -> None:
         """Adds the outcomes of one node's calls that a later call of the node may reuse.
 
-        Each outcome comes with the item indexes of the call that made it, in the order they are to be reused. Only
-        a ``Done`` or ``Unanswered`` with a fingerprint is kept, since only a call that was made has one, and an
-        ``Unanswered`` only for a node that may ask. Nothing is kept for a node whose ``Policy`` doesn't say
-        ``reuse_when_inputs_match``.
+        Each outcome comes with the item indexes of the call that made it, in the order they are to be reused.
+        Nothing is kept for a node whose ``Policy`` doesn't say ``reuse_when_inputs_match``.
+
+        A run's own outcomes, which ``from_previous`` gives, have skipped calls and calls not made for a ``None``
+        among them. Only a call that was made has an outcome to reuse, so those are left out. A saved run has none,
+        since its codec refuses them. The other two checks only keep the tables' types: a call whose arguments have
+        no JSON form has no fingerprint, and no call reuses an outcome without one (``take``), and a waiting
+        question given a node that never asks, from a save made while it asked, has a code fingerprint no call of
+        the node has now.
 
         A node that may ask keeps every one of them, since each is reused once. A node that never asks keeps an
         outcome if it is the first with its fingerprint, which any call with that fingerprint reuses, or the first
