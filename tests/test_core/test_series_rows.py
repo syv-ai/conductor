@@ -6,7 +6,7 @@ plain rows. And the table is checked column by column when the node returns it.
 """
 
 import json
-from typing import Any, NotRequired, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
 import polars as pl
 import pytest
@@ -17,6 +17,7 @@ from conductor import (
     InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
+    Param,
     Run,
     Series,
     Source,
@@ -25,6 +26,7 @@ from conductor import (
     node,
     subgraph,
 )
+from pydantic import AfterValidator
 
 from tests.test_core.nodes import input_entry, registry_of
 
@@ -552,3 +554,118 @@ def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_decla
         node("declared", title="Declared", description="For a test.")(declared)
     assert refused.value.problems[0].type == "row_field_optional"
     assert "name" in refused.value.problems[0].msg and "| None" in refused.value.problems[0].msg
+
+
+# -- rows collected into a table ----------------------------------------------------------------------------------
+
+CHECKED: list[int] = []
+
+
+def _counted(value: int) -> int:
+    CHECKED.append(value)
+    return value
+
+
+class Counted(TypedDict):
+    name: str
+    amount: Annotated[int, AfterValidator(_counted)]
+
+
+class Positive(TypedDict):
+    name: str
+    amount: Annotated[int, Param(ge=0)]
+
+
+class Tagged(TypedDict):
+    name: str
+    tags: list[float]
+
+
+@node("counted-rows", title="Counted rows", description="For a test.")
+def counted_rows(k: int) -> Series[Counted]:
+    return [{"name": str(i), "amount": i} for i in range(k)]
+
+
+@node("counted-words", title="Counted words", description="For a test.")
+def counted_words(k: int) -> Series[str]:
+    return [str(i) for i in range(k)]
+
+
+@node("counted-row", title="Counted row", description="For a test.")
+def counted_row(word: str) -> Counted:
+    return {"name": word, "amount": int(word)}
+
+
+@node("counted-height", title="Counted height", description="For a test.")
+def counted_height(table: Table[Counted]) -> int:
+    return table.height
+
+
+@pytest.mark.parametrize(
+    "nodes",
+    [(counted_rows, counted_height), (counted_words, counted_row, counted_height)],
+    ids=["a series of rows", "rows collected from a loop"],
+)
+def test_rows_whose_source_declares_the_tables_row_type_are_checked_once(nodes) -> None:
+    graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
+    CHECKED.clear()
+    run = graph.run({"k": 3})
+
+    assert (run.status, run.outputs["result"], CHECKED) == ("complete", 3, [0, 1, 2])
+
+
+class Amounts(TypedDict):
+    name: str
+    amount: int
+
+
+@node("amount-rows", title="Amount rows", description="For a test.")
+def amount_rows(k: int) -> Series[Amounts]:
+    return [{"name": str(i), "amount": i - 1} for i in range(k)]
+
+
+@node("positive-height", title="Positive height", description="For a test.")
+def positive_height(table: Table[Positive]) -> int:
+    return table.height
+
+
+@node("two-or-more", title="Two or more", description="For a test.")
+def two_or_more(table: Annotated[Table[Amounts], Param(min_length=2)]) -> int:
+    return table.height
+
+
+@node("tagged-rows", title="Tagged rows", description="For a test.")
+def tagged_rows(k: int) -> Series[Tagged]:
+    return [{"name": str(i), "tags": [float("nan")]} for i in range(k)]
+
+
+@node("tagged-height", title="Tagged height", description="For a test.")
+def tagged_height(table: Table[Tagged]) -> int:
+    return table.height
+
+
+@pytest.mark.parametrize(
+    ("nodes", "k", "error"),
+    [
+        ((amount_rows, positive_height), 3, "greater_than_equal"),
+        ((amount_rows, two_or_more), 1, "too_short"),
+        ((tagged_rows, tagged_height), 1, "column_not_saved"),
+    ],
+    ids=[
+        "a limit only the input's row has",
+        "the table's own limit",
+        "a cell a saved run can't keep",
+    ],
+)
+def test_rows_collected_into_a_table_are_still_refused_for_what_their_source_does_not_declare(
+    nodes, k, error
+) -> None:
+    graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
+    run = graph.run({"k": k})
+
+    cause = run.cause
+    assert (run.status, cause.type, [one["type"] for one in cause.ctx["errors"]]) == (
+        "failed",
+        "invalid_edge_value",
+        [error],
+    )
