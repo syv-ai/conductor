@@ -303,6 +303,7 @@ class Attachment(BaseModel):
 - It is refused by an edge (`type_mismatch`), as a constant (`invalid_value`), and from a caller (`invalid_input`).
 - It is refused in a table's `int` or `float` column: returned (`invalid_output`), brought by an edge (`invalid_edge_value`) or given (`invalid_input`).
 - `true` read from JSON is refused for a number in the same way. That covers a person's answer (`invalid_answer`) and a saved run handed to `Run.from_json` (`saved_run_unreadable`). The reason is the same as for a caller's `True`: "a yes or no is not a number".
+- A node's `version` in a graph record is read as JSON's own whole number, from text and from plain data alike. `true` is `invalid_record` with `bool_is_not_a_number`, and `1.0` and `"2"` are `invalid_record` with `int_type`, at `("record", "nodes", id, "version")`. It is provisional.
 
 **How a type is named.** What a person sees for a type is declared, never guessed.
 
