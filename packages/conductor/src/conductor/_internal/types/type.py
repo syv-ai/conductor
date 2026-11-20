@@ -287,8 +287,7 @@ class Type:
         This is the very check a value an edge gives gets on its call, laxly, so a question asked at compile of a
         type's values is answered by the run's own rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is
         taken by ``Annotated[float, Param(choices=[1.0])]``, ``None`` by any type that takes ``None`` beside its
-        choices, and ``True`` is not taken by ``Literal[1]``. It asks a source's type the same of a target's choices,
-        in their JSON form: ``int`` takes the float choice ``1.0``, but not ``2.5`` or ``"a"``.
+        choices, and ``True`` is not taken by ``Literal[1]``.
 
         Args:
             value: The value to check.
