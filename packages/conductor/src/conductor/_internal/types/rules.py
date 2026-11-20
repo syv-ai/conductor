@@ -34,7 +34,12 @@ from conductor._internal.base import (
     validate_as_json,
     with_schemas_in,
 )
-from conductor._internal.problem import NodeDeclarationError, conductor_error, declaration_problems
+from conductor._internal.problem import (
+    NodeDeclarationError,
+    Problem,
+    conductor_error,
+    declaration_problems,
+)
 
 from .hint import a_number
 
@@ -113,19 +118,30 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
 def _check_named_values(schema: Mapping[str, Any]) -> None:
     """Refuses a ``literal`` or ``enum`` schema whose named values don't each read back from their own JSON.
 
+    Raises:
+        NodeDeclarationError: The problem ``_named_value_fault`` finds.
+    """
+    if (fault := _named_value_fault(schema)) is not None:
+        raise NodeDeclarationError(fault)
+
+
+def _named_value_fault(schema: Mapping[str, Any]) -> Problem | None:
+    """Returns the problem with a ``literal`` or ``enum`` schema whose named values don't each read back from their
+    own JSON, or ``None`` when they do.
+
     Each value is written as JSON and read back by the schema, as a saved run or an answer reads it
     (``validate_as_json``), and must come back as itself, of the same class. ``Literal["a", 1]``,
     ``Literal[IntEnum.ONE]`` and an enum of text do. ``Literal[Color.RED]`` of a plain enum, ``Literal[b"a"]``,
-    ``Literal[float("nan")]`` and an enum of tuples don't.
+    ``Literal[float("nan")]`` and an enum of tuples don't. Any other schema has no named values, so it is ``None``.
 
-    Raises:
-        NodeDeclarationError: ``named_value_invalid`` for a ``Literal``'s value, ``named_value_invalid_enum`` for an enum's
-            member, and ``named_value_invalid_alike`` for two of a ``Literal``'s values or an enum's members written as the same JSON, like
-            ``inf`` and ``"Infinity"``.
+    Returns:
+        ``named_value_invalid`` for a ``Literal``'s value, ``named_value_invalid_enum`` for an enum's member, and
+        ``named_value_invalid_alike`` for two of a ``Literal``'s values or an enum's members written as the same JSON,
+        like ``inf`` and ``"Infinity"``.
     """
     kind = schema.get("type")
     if kind not in ("literal", "enum"):
-        return
+        return None
     values = schema["expected"] if kind == "literal" else schema["members"]
     reader = SchemaValidator(schema, config=JSON_CORE_CONFIG)
     for value in values:
@@ -141,36 +157,30 @@ def _check_named_values(schema: Mapping[str, Any]) -> None:
         if read_back:
             continue
         if kind == "enum":
-            raise NodeDeclarationError(
-                declaration_problems.named_value_invalid_enum(
-                    enum=schema["cls"].__name__, member=repr(value)
-                )
+            return declaration_problems.named_value_invalid_enum(
+                enum=schema["cls"].__name__, member=repr(value)
             )
         # what to write instead: the enum as the type, when the enum reads its own members back
         instead = f"Take {type(value).__name__} as the type, with Param(choices=[...]) for some of its values."
         if isinstance(value, Enum):
             from .type import Type  # Type is built on these rules, so it is imported here
 
-            try:
-                Type(type(value)).argument_schema  # noqa: B018  fails for an enum whose members don't read back
-            except NodeDeclarationError:
-                instead = (
-                    f"Give the values of the enum {type(value).__name__} as text, numbers or yes or no, and take it"
-                    " as the type."
-                )
-            else:
+            # an enum's schema is its enum schema, whose members are checked as this Literal's values are
+            if _named_value_fault(Type(type(value)).schema) is None:
                 instead = (
                     f"Take the enum {type(value).__name__} as the type, with Param(choices=[...]) for some of its"
                     " members."
                 )
-        raise NodeDeclarationError(
-            declaration_problems.named_value_invalid(value=repr(value), instead=instead)
-        )
+            else:
+                instead = (
+                    f"Give the values of the enum {type(value).__name__} as text, numbers or yes or no, and take it"
+                    " as the type."
+                )
+        return declaration_problems.named_value_invalid(value=repr(value), instead=instead)
     # two values written as one JSON can't be told apart, in a Literal or an enum, like inf and "Infinity"
     if len({canonical_json(plain_json(value)) for value in values}) != len(values):
-        raise NodeDeclarationError(
-            declaration_problems.named_value_invalid_alike(values=list(values))
-        )
+        return declaration_problems.named_value_invalid_alike(values=list(values))
+    return None
 
 
 def _walked_inside(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:
