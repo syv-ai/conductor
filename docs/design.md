@@ -513,7 +513,7 @@ line.
 
 The router never drops an answer: one sent while a run is running is queued, then taken or listed in `refused`. It's
 proved with two real workers in `tests/test_providers/test_serving_runs.py`: a killed worker's run is taken over and
-repeats at most 6 of 40 calls, and a deploy repeats none. [Serving runs over HTTP](serving-runs.md) walks through it.
+repeats exactly the calls its last checkpoint doesn't keep, and a deploy repeats none. [Serving runs over HTTP](serving-runs.md) walks through it.
 React and Mermaid adapters, an `/execute` endpoint and a built-in store were left out.
 
 ## Where to start reading
