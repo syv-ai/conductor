@@ -90,9 +90,9 @@ def choices_schema(
     Two ids are the same choice when their JSON texts match (``choice_texts``). So ``{"a": 1, "b": 2}`` and
     ``{"b": 2, "a": 1}`` are one choice given twice, which is refused.
 
-    The caller's ``read`` decides the rules. ``Param`` reads by its own type, limits included. The ``Ask`` validator
-    reads by the output's type as an answer is read (``read_as_output``), so a choice a person couldn't give, such as
-    ``inf``, is refused.
+    The caller's ``read`` checks one id. A ``Param``'s choices are read by ``declared_choices`` and an ``Ask``'s by
+    the output's type (``read_as_output``). Both read an id as an answer is read, by one reader
+    (``read_entering_value``), so a choice a person couldn't give, such as ``inf``, is refused either way.
 
     Args:
         read: Checks one id by the type the choices are values of, raising pydantic's ``ValidationError`` for one
@@ -188,7 +188,7 @@ def declared_choices(
         write: Converts a value ``reader`` gave back to JSON.
         where: Where the choices are, which the problem names: a field of a class, as ``Order.size``, or a type.
 
-    A choice is read from its JSON form, as an answer is (``read_as_json_text``). So ``inf`` and ``nan`` are
+    A choice is read from its JSON form, as an answer is (``read_entering_value``). So ``inf`` and ``nan`` are
     refused, a dict's key included: no one could pick them. A choice with a set in it is refused too
     (``set_has_no_order``), since its JSON form would be a list. A host's object is written by its own class's
     schema, as its default is.
@@ -199,10 +199,10 @@ def declared_choices(
     """
 
     # Type is built on choices, so the reader is imported here
-    from .read import read_as_json_text
+    from .read import read_entering_value
 
     def read(value: Any) -> Any:
-        return read_as_json_text(reader, value, title="choice")
+        return read_entering_value(reader, value, title="choice")
 
     try:
         return read_choices(given, read, write)
