@@ -445,7 +445,7 @@ def test_a_yes_or_no_is_never_taken_as_a_number_of_a_union_without_a_yes_or_no()
         return repr(n)
 
     @local_registry.node("returns-yes", title="Returns yes", description="For a test.")
-    def returns_yes(n: int) -> Literal[1, 2] | float:
+    def returns_yes(n: int) -> Literal[1, 2] | str:
         return True  # type: ignore[return-value]
 
     for node_id in ("either", "or-text"):

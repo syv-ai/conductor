@@ -1679,7 +1679,8 @@ class _Agreed(TypedDict):
 @pytest.mark.parametrize("returns", [Table, Series])
 def test_a_saved_tables_text_is_no_bool_after_a_deploy_that_makes_its_column_one(returns: Any):
     """A saved table is read strictly, as any saved value is, so ``"Yes"`` saved for a text column doesn't read
-    back as ``true`` once the column is a ``bool``."""
+    back as ``true`` once the column is a ``bool``. A Series of rows saved as a table reports the table's own fault,
+    not that it isn't the list a Series may also be saved as."""
     graphs = []
     for row in (_Answered, _Agreed):
 
@@ -1693,7 +1694,9 @@ def test_a_saved_tables_text_is_no_bool_after_a_deploy_that_makes_its_column_one
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, after)
-    assert [problem.type for problem in refused.value.problems] == ["saved_run_unreadable"]
+    (problem,) = refused.value.problems
+    assert problem.type == "saved_run_unreadable"
+    assert [error["type"] for error in problem.ctx["errors"]] == ["bool_type"]
 
 
 # -- a saved run that does not fit its graph is refused ---------------------------------------

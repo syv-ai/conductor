@@ -30,6 +30,7 @@ from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import (
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
+    ValidationError,
     ValidatorFunctionWrapHandler,
 )
 from pydantic.json_schema import JsonSchemaValue
@@ -41,6 +42,7 @@ from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
     declaration_problems,
+    raised_again,
 )
 from conductor._internal.types import (
     SIZED,
@@ -195,9 +197,13 @@ def _converts_exactly(dtype: Any, saved: Any) -> bool:
     if isinstance(dtype, pl.List | pl.Array):
         return isinstance(saved, pl.List) and _converts_exactly(dtype.inner, saved.inner)
     if isinstance(dtype, pl.Struct):
-        return isinstance(saved, pl.Struct) and all(
-            _converts_exactly(field.dtype, kept.dtype)
-            for field, kept in zip(dtype.fields, saved.fields, strict=True)
+        return (
+            isinstance(saved, pl.Struct)
+            and [field.name for field in dtype.fields] == [field.name for field in saved.fields]
+            and all(
+                _converts_exactly(field.dtype, kept.dtype)
+                for field, kept in zip(dtype.fields, saved.fields, strict=True)
+            )
         )
     if dtype == saved:
         return True
@@ -503,6 +509,76 @@ def _columns_as_json(frame: pl.DataFrame, names: list[str]) -> str:
         ) from None
 
 
+def _columns_as_cells(frame: pl.DataFrame, names: list[str]) -> dict[str, list[Any]]:
+    """Returns the columns ``names`` of ``frame`` as each column's cells, as polars gives them in Python.
+
+    Python's ``time``, ``datetime`` and ``timedelta`` stop at microseconds, so a column with a time finer than that,
+    or a millisecond time too far out, is refused, as ``_columns_as_json`` refuses it.
+
+    Raises:
+        PydanticCustomError: ``column_not_saved`` for a column with a time finer than a microsecond or too far out
+            to count in microseconds.
+    """
+    for name in names:
+        for check in (_finer_than_a_microsecond, _out_of_microseconds):
+            if (fault := check(frame[name])) is not None:
+                raise conductor_error(
+                    "column_not_saved", "column '{column}' " + fault, {"column": name}
+                )
+    return {name: frame[name].to_list() for name in names}
+
+
+def _read(
+    read_columns: ValidatorFunctionWrapHandler,
+    given: str | dict[str, list[Any]],
+    dtypes: Mapping[str, tuple[Any, Any]] | None = None,
+) -> dict[str, list[Any]]:
+    """Reads columns given as JSON text or as cells by the table's check of them, each fault at its place in the
+    columns, without the form they were given in.
+
+    Args:
+        read_columns: The table's check of its columns.
+        given: The columns.
+        dtypes: For columns read as their rows (``_read_as_rows``), each one's polars type and the polars type its
+            declared type is kept as, which a fault in it names, in its message and its ``ctx`` (``column_type``,
+            ``kept_type``): ``(the column is String, where a Date column is taken as it is)``.
+    """
+    try:
+        read: dict[str, list[Any]] = read_columns(given)
+    except ValidationError as error:
+        faults = []
+        for fault in error.errors():
+            loc = tuple(fault["loc"][1:])
+            if dtypes is None or not loc or (column := str(loc[0])) not in dtypes:
+                faults.append(raised_again(fault, loc))
+                continue
+            dtype, kept = dtypes[column]
+            said = fault["msg"].replace("{", "{{").replace("}", "}}")
+            named = conductor_error(
+                fault["type"],
+                said
+                + " (the column is {column_type}, where a {kept_type} column is taken as it is)",
+                {**fault.get("ctx", {}), "column_type": str(dtype), "kept_type": str(kept)},
+            )
+            faults.append({"type": named, "loc": loc, "input": fault["input"]})
+        raise ValidationError.from_exception_data(error.title, faults) from None
+    return read
+
+
+def _read_as_rows(dtype: Any, kept: Any) -> bool:
+    """Says whether a frame's column of ``dtype`` is read as its rows would be, strictly from the values polars
+    gives, rather than from its JSON as a saved table's is.
+
+    A column is read from its JSON when it is of ``kept``, the polars type its declared type is kept as, or converts
+    to it with no cell changed (``_converts_exactly``): an ``Int32`` column of an ``int``, a ``String`` column of an
+    enum of texts, a ``Date`` column of a ``date``. So is a column of Python objects (``Object``), read by each
+    object's own class, and any column of a type whose cells decide its polars type (``kept`` is ``None``). Any
+    other column is read as its rows: a ``String`` or ``Datetime`` column of a ``date`` is refused, as a row's text
+    or ``datetime`` is.
+    """
+    return kept is not None and dtype != pl.Object and not _converts_exactly(dtype, kept)
+
+
 def _has_json_form(cells: list[Any]) -> bool:
     """Whether the cells of one column can be written as JSON, each object by its own class's schema."""
     try:
@@ -627,7 +703,7 @@ def _table_schemas(
         return frame, {}
 
     def from_frame(
-        frame: pl.DataFrame, read_columns: ValidatorFunctionWrapHandler
+        frame: pl.DataFrame, read_columns: ValidatorFunctionWrapHandler, *, given: bool = True
     ) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
         # a table with no rows still has every column, empty and of its declared type
         if not frame.height:
@@ -651,10 +727,23 @@ def _table_schemas(
         # a frame of R's own values, with exactly the polars types R's own frame has, is kept as it is
         if rows_checked and frame.schema == kept_schema:
             return frame, {}
-        read = [
-            name for name, column in columns.items() if _read_from_json(column, frame.schema[name])
-        ]
-        cells: dict[str, list[Any]] = read_columns(_columns_as_json(frame, read)) if read else {}
+        # a frame a host gave is read as its rows would be, unless its column is of its kept type; a saved table's
+        # frame is read from its JSON, as it was saved
+        as_json, as_rows = [], []
+        for name, column in columns.items():
+            if given and _read_as_rows(frame.schema[name], kept_schema[name]):
+                as_rows.append(name)
+            elif _read_from_json(column, frame.schema[name]):
+                as_json.append(name)
+        cells: dict[str, list[Any]] = {}
+        if as_json:
+            cells |= _read(read_columns, _columns_as_json(frame, as_json))
+        if as_rows:
+            cells |= _read(
+                read_columns,
+                _columns_as_cells(frame, as_rows),
+                {name: (frame.schema[name], kept_schema[name]) for name in as_rows},
+            )
         # the frame keeps each cell as it was read, so a value its type changes, like a text a model strips, is
         # the same in the table, in a Series of its rows and in a saved run
         if cells:
@@ -710,22 +799,31 @@ def _table_schemas(
         cls=row_class,
     )
     by_column["config"] = {**by_column.get("config", {}), "strict": True}
-    as_frame = (
-        core_schema.no_info_wrap_validator_function(from_frame, core_schema.json_schema(by_column))
-        if declared
-        else core_schema.no_info_after_validator_function(
-            lambda frame: (frame, {}), core_schema.is_instance_schema(pl.DataFrame)
-        )
+    # the columns are given as JSON text, or as each column's cells in Python; the form is not part of a fault's
+    # place (``_read``)
+    columns_given = core_schema.tagged_union_schema(
+        {"json": core_schema.json_schema(by_column), "cells": by_column},
+        discriminator=lambda given: "json" if isinstance(given, str) else "cells",
     )
+
+    def as_frame(given: bool) -> CoreSchema:
+        if not declared:
+            return core_schema.no_info_after_validator_function(
+                lambda frame: (frame, {}), core_schema.is_instance_schema(pl.DataFrame)
+            )
+        return core_schema.no_info_wrap_validator_function(
+            functools.partial(from_frame, given=given), columns_given
+        )
+
     written = core_schema.no_info_after_validator_function(_frame_written, WRITTEN_TABLE)
     rows = core_schema.list_schema(one_row)
 
     def with_cells(rows_form: CoreSchema) -> CoreSchema:
         any_form = core_schema.tagged_union_schema(
             {
-                "frame": as_frame,
+                "frame": as_frame(given=True),
                 "rows": rows_form,
-                "written": core_schema.chain_schema([written, as_frame]),
+                "written": core_schema.chain_schema([written, as_frame(given=False)]),
             },
             discriminator=_table_form,
             custom_error_type="not_a_table",

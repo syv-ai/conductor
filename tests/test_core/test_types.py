@@ -5,8 +5,12 @@ test picks one place where a hint could be read two ways, and checks that it is 
 """
 
 import datetime
-from enum import Enum
+from decimal import Decimal
+from enum import Enum, IntEnum
+from ipaddress import IPv4Address
+from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
+from uuid import UUID
 
 import polars as pl
 import pytest
@@ -549,6 +553,17 @@ class _Wader(Enum):
     HERON = "heron"
 
 
+@host_type("half", title="Half")
+class _Half(float, Enum):
+    HALF = 0.5
+
+
+@host_type("clutch", title="Clutch")
+class _Clutch(IntEnum):
+    ONE = 1
+    TWO = 2
+
+
 @pytest.mark.parametrize(
     ("hint", "where"),
     [
@@ -557,13 +572,31 @@ class _Wader(Enum):
         (_KindTern | _KindGull, "_KindTern | _KindGull"),
         (_Tern | _TernRecord, "_Tern | _TernRecord"),
         (_TernRecord | _GullRecord, "_TernRecord | _GullRecord"),
-        (_Tern | dict[str, str], "_Tern | dict"),
+        (_Tern | dict[str, str], "_Tern | dict[str, str]"),
         (_ShoreBird | _SeaBird, "_ShoreBird | _SeaBird"),
         (_ShoreBird | Literal["tern", "gull"], "_ShoreBird | Literal['tern', 'gull']"),
         (_ShoreBird | str, "_ShoreBird | str"),
         (list[_Tern | _Gull | None], "_Tern | _Gull"),
         (Series[_BirdRow], "_BirdRow.bird"),
         (_Flock, "_Flock.birds"),
+        (int | _Clutch, "int | _Clutch"),
+        (_Clutch | Literal[2, 3], "_Clutch | Literal[2, 3]"),
+        (Literal[1] | float, "Literal[1] | float"),
+        (list[_Tern] | list[_Gull], "list[_Tern] | list[_Gull]"),
+        (tuple[_Tern, int] | tuple[_Gull, int], "tuple[_Tern, int] | tuple[_Gull, int]"),
+        (list[int] | tuple[int, ...], "list[int] | tuple[int]"),
+        (str | datetime.date, "str | date"),
+        (datetime.date | str, "date | str"),
+        (datetime.date | datetime.datetime, "date | datetime"),
+        (str | Decimal, "str | Decimal"),
+        (str | bytes, "str | bytes"),
+        (_Half | float, "_Half | float"),
+        (str | Path, "str | Path"),
+        (Path | str, "Path | str"),
+        (str | IPv4Address, "str | IPv4Address"),
+        (Table[_TernRecord] | list[_TernRecord], "Table[_TernRecord] | list[_TernRecord]"),
+        (Literal[True] | int, "Literal[True] | int"),
+        (dict[str, _Tern] | dict[str, _Gull], "dict[str, _Tern] | dict[str, _Gull]"),
     ],
     ids=[
         "two models of the same fields",
@@ -578,6 +611,24 @@ class _Wader(Enum):
         "in a list",
         "in a Series of rows",
         "in a field of a host's model",
+        "a number and an IntEnum",
+        "an IntEnum and a Literal sharing a value",
+        "a Literal of a number and float",
+        "two lists of alike items",
+        "two tuples of alike items",
+        "a list and a tuple",
+        "a text and a date",
+        "a date and a text",
+        "a date and a datetime",
+        "a text and a Decimal",
+        "a text and bytes",
+        "a float enum and float",
+        "a text and a path",
+        "a path and a text",
+        "a text and an IP address",
+        "a table, read from a list of rows, and a list",
+        "a Literal of True and int, which reads 1 as True",
+        "two dicts of alike values",
     ],
 )
 def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_declared(
@@ -601,6 +652,30 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         (_Tern | str, _Tern(name="t")),
         (_ShoreBird | _Wader, _Wader.HERON),
         (int | str, "1"),
+        (int | float, 1),
+        (int | float, 1.0),
+        (float | int, 1),
+        (_Clutch | Literal[3], _Clutch.TWO),
+        (_ShoreBird | Literal["heron"], _ShoreBird.TERN),
+        (Literal["auto"] | float, "auto"),
+        (Literal["auto"] | float, float("inf")),
+        (Literal["auto"] | str, "x"),
+        (int | Decimal, Decimal("1.5")),
+        (bool | int, 1),
+        (list[int] | list[str], ["a"]),
+        (tuple[_Tern, int] | tuple[_Tern, str], (_Tern(name="t"), "a")),
+        (float | str, 1.5),
+        (float | str, "1.5"),
+        (float | Decimal, Decimal("1.5")),
+        (Literal["Infinity"] | float, 1.5),
+        (Literal["auto"] | datetime.date, datetime.date(2026, 1, 2)),
+        (Literal["auto"] | datetime.datetime, "auto"),
+        (Literal["auto"] | Decimal, Decimal("1.5")),
+        (Literal["none"] | UUID, UUID(int=5)),
+        (tuple[str, int] | tuple[str, Decimal], ("a", Decimal("1"))),
+        (Literal[1, 1.5] | int, 1),
+        (Literal["1"] | int, 1),
+        (dict[str, int] | dict[str, str], {"a": "x"}),
     ],
     ids=[
         "told apart by a discriminator",
@@ -608,6 +683,30 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         "a model or a text",
         "two enums of no value in common",
         "a number or a text",
+        "a whole number of int or float",
+        "a float of int or float",
+        "a whole number of float or int",
+        "an IntEnum and a Literal of no value in common",
+        "an enum and a Literal of no value in common",
+        "a Literal's text of a Literal or float",
+        "a float that isn't finite of a Literal or float",
+        "a Literal and the type of its values",
+        "a Decimal, written as text, or int",
+        "a number or a yes or no",
+        "lists of items of different kinds",
+        "tuples of alike items only where the class is the same",
+        "a float of a float or text",
+        "a text of a float or text",
+        "a Decimal, written as text, or float",
+        "a float of a Literal of a float's text or float",
+        "a date beside a Literal its type doesn't read",
+        "a Literal's text beside a datetime",
+        "a Decimal beside a Literal its type doesn't read",
+        "a UUID beside a Literal its type doesn't read",
+        "tuples compared position by position",
+        "a Literal of values of int's class beside int",
+        "a Literal of a number's text beside int",
+        "dicts of values of different kinds",
     ],
 )
 def test_a_union_whose_members_json_tells_apart_reads_back_as_each_values_own_class(

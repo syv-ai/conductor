@@ -1292,18 +1292,32 @@ def type_not_supported_set(*, type: str) -> str:
 @DECLARATION_PROBLEMS.problem
 def union_members_alike(*, type: str, member: str, alike: str) -> str:
     """An input's or output's type is or holds a union with two members JSON can't tell apart by their class, like
-    ``Heron | Egret``, two models.
+    ``Heron | Egret``, two models, or ``str | date``.
 
     A run keeps every value as JSON, which says nothing of a value's class, and pydantic reads a union back as the
     member that takes the value best, the first where two take it as well. So an ``Egret`` a node returned could come
-    back as a ``Heron`` from a saved run, or across an edge that reads it again. Two members are written alike when
-    both are written as an object (a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``), or when one is an
-    enum and the other an enum, a ``Literal`` or ``str`` that shares a value with it. Such a union is refused even
-    where pydantic might tell its members apart, by their fields or their types. ``X | None``, and members of
-    different JSON kinds, like ``int | str``, are taken.
+    back as a ``Heron`` from a saved run, or across an edge that reads it again, and a ``date`` as a ``str``. Two
+    members are written alike when:
 
-    To fix it, give each member a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
-    ``Annotated[Heron | Egret, Discriminator("kind")]``. For an enum, give it values the other member doesn't take.
+    - pydantic's JSON schema of each says it is written as the same JSON kind, a string, a number, a yes or no, an
+      array or an object, and they are of different classes: two models, a model and a dict, ``str | date``,
+      ``date | time``, ``str | Path``, ``list[int] | tuple[int, ...]``. ``int | float`` is taken, since JSON writes
+      a float with its point, which an ``int`` never reads;
+    - one is an enum or a ``Literal`` and the other reads one of its values as a value of another class, from its
+      JSON or as Python reads an equal value: ``int | IntEnum``, ``Literal[1] | float``, ``Literal[True] | int``,
+      ``str | StrEnum``. ``Literal["auto"] | date`` is taken, since a date reads no ``"auto"``;
+    - two lists, two tuples or two dicts hold alike members at the same place: a list's items, a tuple's position,
+      a dict's keys or values, like ``list[Heron] | list[Egret]``;
+    - one is a table and the other a list or a tuple of objects, which the table reads as its rows.
+
+    Such a union is refused even where pydantic might tell its members apart, by their fields or their types.
+    ``X | None``, members of different JSON kinds, like ``int | str`` or ``float | str``, and a ``Literal`` beside
+    the type of its values, like ``Literal["auto"] | str``, are taken. A float that isn't finite is written as
+    text, so under ``float | str`` it reads back as its text.
+
+    To fix it, give each model a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
+    ``Annotated[Heron | Egret, Discriminator("kind")]``. For other members, declare one type, or types JSON writes
+    as different kinds, like a model holding the value; for an enum, give it values the other member doesn't take.
 
     Args:
         type: Where the union is: the field of a model, dataclass or ``TypedDict`` that holds it, as
@@ -1331,7 +1345,7 @@ def union_members_alike(*, type: str, member: str, alike: str) -> str:
 
         declaration_refused(lambda: node("spot-bird", title="Spot bird", description="Names the bird in a text.")(spot_bird))
     """
-    return f"{member} and {alike} in {type} are written alike as JSON, so a saved value may read back as the other one; such a union is refused even where pydantic might tell them apart. Give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator('kind')], or, for an enum, give it values the other member doesn't take."
+    return f"{member} and {alike} in {type} are written alike as JSON, so a saved value may read back as the other one; such a union is refused even where pydantic might tell them apart. For two models, give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator('kind')]; else declare one type, or types JSON writes differently, or, for an enum, give it values the other member doesn't take."
 
 
 @DECLARATION_PROBLEMS.problem
