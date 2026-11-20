@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Self
 
-from pydantic import MISSING, JsonValue, SerializeAsAny, model_validator
+from pydantic import MISSING, JsonValue, model_validator
 
 from conductor._internal.base import ConductorModel
 from conductor._internal.problem import conductor_error
@@ -75,7 +75,7 @@ class PortDescription(ConductorModel):
     json_schema: dict[str, Any]
     required: bool
     default: JsonValue | MISSING = MISSING
-    choices: tuple[SerializeAsAny[Choice], ...] | None = None
+    choices: tuple[Choice, ...] | None = None
     widget: dict[str, Any] | None = None
     constant_only: bool = False
     loops: list[str] = []

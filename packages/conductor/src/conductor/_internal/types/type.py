@@ -61,6 +61,7 @@ from conductor._internal.base import (
     HOSTS_OWN_CLASSES,
     JSON_CONFIG,
     JSON_CORE_CONFIG,
+    WRITE_BY_NAME,
     looked_up,
     plain_json,
     schemas_in,
@@ -645,7 +646,7 @@ class Type:
         It is ``{}`` for a type pydantic can't write a JSON schema for. An editor then offers no control for it.
         """
         try:
-            return self._built[1].json_schema()
+            return self._built[1].json_schema(**WRITE_BY_NAME)
         except PydanticInvalidForJsonSchema:
             return {}
 
@@ -748,7 +749,7 @@ class Type:
         Raises:
             PydanticSerializationError: The value can't be written as JSON.
         """
-        return plain_json(self.serializer.to_python(value, mode="json"))
+        return plain_json(self.serializer.to_python(value, mode="json", **WRITE_BY_NAME))
 
     def fits(self, source: Type) -> dict[TypeVar, Any] | None:
         """Says whether an edge may pass a value of ``source`` to this type, and what that binds its type variables
@@ -1227,7 +1228,7 @@ def _check_choices(
     declared_choices(
         read,
         SchemaValidator(whole, config=JSON_CORE_CONFIG),
-        lambda value: plain_json(serializer.to_python(value, mode="json")),
+        lambda value: plain_json(serializer.to_python(value, mode="json", **WRITE_BY_NAME)),
         where=as_written(on.bare),
     )
 

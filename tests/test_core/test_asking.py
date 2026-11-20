@@ -428,9 +428,10 @@ def test_an_ask_proposing_none_for_a_series_that_takes_none_waits_with_that_defa
 
 class Person(Choice):
     team: str = ""
+    since: datetime.date | None = None
 
 
-def test_a_port_whose_choices_are_a_hosts_own_keeps_their_class_beside_one_with_the_same_json():
+def test_a_hosts_own_choice_is_a_plain_choice_with_its_fields_as_keywords_on_a_port():
     @node("plain", title="Plain", description="For a test.")
     def plain(x: Annotated[str, Param(choices=[Choice("ida", "Ida", team="s")])]) -> str:
         return x
@@ -439,39 +440,72 @@ def test_a_port_whose_choices_are_a_hosts_own_keeps_their_class_beside_one_with_
     def own(x: Annotated[str, Param(choices=[Person("ida", "Ida", team="s")])]) -> str:
         return x
 
-    assert [type(c) for c in plain.describe().inputs[0].choices or ()] == [Choice]
-    assert [type(c) for c in own.describe().inputs[0].choices or ()] == [Person]
+    (given,) = plain.describe().inputs[0].choices or ()
+    (subclassed,) = own.describe().inputs[0].choices or ()
+    assert (type(given), given.model_dump()) == (Choice, {"id": "ida", "title": "Ida", "team": "s"})
+    assert (type(subclassed), subclassed.model_dump()) == (
+        Choice,
+        {"id": "ida", "title": "Ida", "team": "s", "since": None},
+    )
 
 
-def test_a_hosts_own_choice_keeps_its_fields_in_the_question():
+def test_a_hosts_own_choice_keeps_its_fields_in_the_question_as_a_plain_choice():
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign(ticket: str) -> str:
         raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
 
     _, run = _once(assign, ticket="T-1")
-    assert run.waiting[0].questions[0].choices == (Person("ida", "Ida B.", team="sales"),)
+    assert run.waiting[0].questions[0].choices == (
+        Choice("ida", "Ida B.", team="sales", since=None),
+    )
     assert run.with_answers("q", "ida").resume().outputs == {"result": "ida"}
 
 
-def test_a_hosts_own_choice_keeps_its_fields_in_a_description_and_a_saved_question_read_back():
+def test_a_hosts_own_choice_is_shown_the_same_live_in_a_description_and_read_back_from_a_save():
+    """A choice is kept as its JSON form, so a subclass's field of a type JSON writes as text, like a ``date``, is
+    the same text in the question, in the description, in ``run.asked`` and in a run read back."""
+
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign(
         ticket: str,
         team: Annotated[str, Param(choices=[Person("sales", "Sales", team="north")])] = "sales",
     ) -> str:
-        raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
+        raise Ask(
+            f"Who takes {ticket}?",
+            choices=[Person("ida", "Ida B.", team="sales", since=datetime.date(2026, 1, 2))],
+        )
 
+    expected = {"id": "ida", "title": "Ida B.", "team": "sales", "since": "2026-01-02"}
     described = assign.describe().inputs[1]
-    assert described.choices == (Person("sales", "Sales", team="north"),)
-    assert type(described).model_validate_json(described.model_dump_json()).choices[
-        0
-    ].model_dump() == {"id": "sales", "title": "Sales", "team": "north"}
+    assert type(described).model_validate_json(described.model_dump_json()) == described
     graph, run = _once(assign, ticket="T-1")
     loaded = Run.from_json(run.to_json(), graph)
-    assert [choice.model_dump() for choice in loaded.waiting[0].questions[0].choices] == [
-        {"id": "ida", "title": "Ida B.", "team": "sales"}
-    ]
-    assert loaded.with_answers("q", "ida").resume().outputs == {"result": "ida"}
+    for waiting in (run, loaded):
+        (choice,) = waiting.waiting[0].questions[0].choices or ()
+        assert (type(choice), choice.model_dump()) == (Choice, expected)
+    answered = loaded.with_answers("q", "ida").resume()
+    assert answered.outputs == {"result": "ida"}
+    for read in (answered, Run.from_json(answered.to_json(), graph)):
+        assert [c.model_dump() for c in read.asked[0].question.questions[0].choices or ()] == [
+            expected
+        ]
+
+
+def test_a_choice_with_a_set_in_a_keyword_is_refused_since_a_set_has_no_order():
+    @node("tag", title="Tag", description="For a test.", asks=True)
+    def tag(ticket: str) -> str:
+        raise Ask(f"Tag {ticket}?", choices=[Choice("a", "A", tags={"x", "y"})])
+
+    _, run = _once(tag, ticket="T-1")
+    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
+    assert [error["type"] for error in run.cause.ctx["errors"]] == ["set_has_no_order"]
+    with pytest.raises(NodeDeclarationError, match="a set has no order"):
+
+        @node("tagged", title="Tagged", description="For a test.")
+        def tagged(
+            x: Annotated[str, Param(choices=[Choice("a", "A", tags=frozenset({1}))])],
+        ) -> str:
+            return x
 
 
 def test_a_choice_is_read_by_the_type_it_is_a_value_of_so_1_on_a_float_is_1_0():

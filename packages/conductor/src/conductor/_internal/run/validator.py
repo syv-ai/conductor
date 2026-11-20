@@ -29,12 +29,14 @@ node.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Collection, Iterable, Mapping
 from typing import Any, assert_never
 
 from pydantic import StrictStr, TypeAdapter, ValidationError
 
 from conductor._internal.base import (
+    READ_BY_NAME,
     SKIPPED,
     ItemIndexes,
     Loc,
@@ -125,7 +127,7 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
                 name,
                 port.whole,
                 port.whole.exact_classes,
-                checked_by.argument_validator.validate_python,
+                functools.partial(checked_by.argument_validator.validate_python, **READ_BY_NAME),
             )
             for name, (port, checked_by) in inputs.items()
         )

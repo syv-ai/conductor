@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
+from conductor._internal.base import READ_BY_NAME, SKIPPED, NodePath, parse_node_path, place_text
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.port import Port
 from conductor._internal.problem import (
@@ -68,7 +68,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     blueprint, codec = graph._blueprint, graph._codec
     try:
         # a field is saved under its name, never an alias (the codec's _SavedValue), so it is read by its name
-        read = codec.model_validate_json(saved, by_alias=False, by_name=True)
+        read = codec.model_validate_json(saved, **READ_BY_NAME)
     except ValidationError as error:
         first = error.errors()[0]
         # the fingerprint under "graph" is not this graph's

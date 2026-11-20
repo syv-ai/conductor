@@ -23,6 +23,7 @@ from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import (
     HOSTS_OWN_CLASSES,
+    WRITE_BY_NAME,
     json_typed_dict_schema,
     place_text,
     schemas_in,
@@ -76,7 +77,7 @@ class _SavedValue:
         schema = _read_strictly(value_type.output_schema if output else value_type.argument_schema)
         if _holds_a_model(schema):
             as_json = core_schema.plain_serializer_function_ser_schema(
-                functools.partial(value_type.serializer.to_python, mode="json", by_alias=False)
+                functools.partial(value_type.serializer.to_python, mode="json", **WRITE_BY_NAME)
             )
             # what pydantic defined beside the type stays beside it
             inner, definitions = under_definitions(schema)

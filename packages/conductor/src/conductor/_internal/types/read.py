@@ -29,7 +29,7 @@ import polars as pl
 from pydantic import ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError, SchemaValidator
 
-from conductor._internal.base import finite_json_text, holds_a_set, value_parts
+from conductor._internal.base import READ_BY_NAME, finite_json_text, holds_a_set, value_parts
 from conductor._internal.problem import no_json_form, set_has_no_order
 
 from .type import Type, json_by_its_class
@@ -81,7 +81,11 @@ def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
             raise ValidationError.from_exception_data(
                 value_type.id, [{"type": "finite_number", "loc": (column,), "input": value}]
             )
-        return _checked(value_type.id, value, lambda: validator.validate_python(value, strict=True))
+        return _checked(
+            value_type.id,
+            value,
+            lambda: validator.validate_python(value, strict=True, **READ_BY_NAME),
+        )
     return read_entering_value(validator, value, title=value_type.id)
 
 
@@ -89,8 +93,9 @@ def read_entering_value(validator: SchemaValidator, value: Any, *, title: str) -
     """Reads a value that enters a graph strictly by a bare validator, held to the rules of such a value.
 
     It reads ``value`` the way ``validator`` reads the same value sent as JSON text, with every rule this module
-    names: a number that isn't finite, a set and a value with no JSON form are refused, and a host's object is
-    written by its own class's schema. ``read_as_argument`` and ``read_as_output`` read a value by a type through
+    names: a number that isn't finite, a set and a value with no JSON form are refused, a host's object is
+    written by its own class's schema, and each field of a host's model or dataclass is written and read under its
+    name, never an alias (``WRITE_BY_NAME``, ``READ_BY_NAME``). ``read_as_argument`` and ``read_as_output`` read a value by a type through
     it. A type's choices are read by it too (``declared_choices``), since a choice is given as an answer is, by a
     validator that may hold more checks than the type's own.
 
@@ -115,7 +120,9 @@ def read_entering_value(validator: SchemaValidator, value: Any, *, title: str) -
             a frame among them.
     """
     text = written_as_json(title, value, lambda: finite_json_text(value, title, fallback=_written))
-    read = _checked(title, value, lambda: validator.validate_json(text, strict=True))
+    read = _checked(
+        title, value, lambda: validator.validate_json(text, strict=True, **READ_BY_NAME)
+    )
     # A dict's key is text in the JSON, so the text can't show a key that isn't finite, like dict[float, str]'s
     # "Infinity", until the validator has read it. A saved run is read by its own reader, so it may keep such keys.
     finite_json_text(

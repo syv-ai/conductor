@@ -35,7 +35,14 @@ from pydantic_core import (
 )
 from pydantic_core.core_schema import TypedDictField
 
-from conductor._internal.base import REQUIRED, SKIPPED, Loc, Validator, validate_as_json
+from conductor._internal.base import (
+    REQUIRED,
+    SKIPPED,
+    WRITE_BY_NAME,
+    Loc,
+    Validator,
+    validate_as_json,
+)
 from conductor._internal.port import Port, answer_by_output, outputs_schema, without_skipped
 from conductor._internal.problem import (
     InvalidCallError,
@@ -369,7 +376,10 @@ def _check_picks(port: Port, answer: Any, choices: tuple[Choice, ...] | None) ->
     """
     if choices is None and not (port.is_series and port.type.choices is not None):
         return
-    picks = pick_texts(port.whole.serializer.to_python(answer, mode="json"), several=port.is_series)
+    picks = pick_texts(
+        port.whole.serializer.to_python(answer, mode="json", **WRITE_BY_NAME),
+        several=port.is_series,
+    )
     if choices is not None:
         check_one_of(choices, picks)
     if len(set(picks)) != len(picks):

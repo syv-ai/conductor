@@ -36,7 +36,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import canonical_json, plain_json, value_parts
+from conductor._internal.base import WRITE_BY_NAME, canonical_json, plain_json, value_parts
 from conductor._internal.problem import (
     NodeDeclarationError,
     arguments_reason,
@@ -252,7 +252,9 @@ class Param:
 
             A float that is not finite stays a float, and ``canonical_json`` writes it as text.
             """
-            written: JsonValue = value_type.serializer.to_python(value, mode="json")
+            written: JsonValue = value_type.serializer.to_python(
+                value, mode="json", **WRITE_BY_NAME
+            )
             return written
 
         read = declared_choices(

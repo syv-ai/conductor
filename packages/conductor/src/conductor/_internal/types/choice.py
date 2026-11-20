@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence, Set
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ConfigDict, JsonValue, ValidationError
 from pydantic_core import (
@@ -27,7 +27,13 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import ConductorModel, canonical_json
+from conductor._internal.base import (
+    WRITE_BY_NAME,
+    ConductorModel,
+    canonical_json,
+    holds_a_set,
+    plain_json,
+)
 from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
@@ -42,8 +48,10 @@ class Choice(ConductorModel):
     """One option a person can pick, with an id and a title: ``Choice("ida", "Ida B.")``.
 
     A host can add more fields to say more about an option, such as an icon. Pass them as keywords, or declare
-    them on a subclass. They are passed on as given to the question and to a dropdown, and they survive a saved run
-    and a description. A keyword the class doesn't declare is kept, not refused, so a misspelt one is kept too.
+    them on a subclass. A choice is kept as its JSON form, as a saved run keeps it: once a type or an ``Ask`` has
+    read it, it is a plain ``Choice`` with each other field a keyword, its value written as JSON, so a ``date`` is
+    its ISO text. So a question, a description and a run read back show the same choice. A keyword the class doesn't
+    declare is kept, not refused, so a misspelt one is kept too.
 
     Attributes:
         id: The value an answer has when this choice is picked.
@@ -88,7 +96,8 @@ def choices_schema(
     JSON text would be. Then ``write`` turns it back into JSON. A bare value that is the id of a ``known`` choice
     becomes that choice, title and all. Any other bare value becomes a ``Choice`` titled by its text, and an enum
     member by its id's text (``"red"`` for ``Color.RED``, ``"1"`` for a member whose value is 1). A ``Choice`` keeps
-    its class and all its fields.
+    all its fields, written as JSON, on a plain ``Choice``, so a subclass's own fields are its keywords, as a saved
+    run reads them back.
 
     For a ``float``, the schema reads ``[1, Choice(2, "Two")]`` as ``(Choice(1.0, "1"), Choice(2.0, "Two"))``.
 
@@ -109,7 +118,7 @@ def choices_schema(
     Returns:
         A schema whose errors are pydantic's. An error of one choice has the choice's index first in its ``loc``,
         then the steps of ``read``'s own error: the type's refusal, or ``no_json_form`` if the id can't be written as
-        JSON. An error of the whole list has the ``loc`` ``()``: ``set_has_no_order`` for a set, ``list_type`` for
+        JSON. A ``Choice`` with a set in any of its fields is ``set_has_no_order`` at its index. An error of the whole list has the ``loc`` ``()``: ``set_has_no_order`` for a set, ``list_type`` for
         anything else that isn't a list or a tuple, text included, ``too_short`` for no choices, and
         ``choice_twice`` for an id given twice.
     """
@@ -125,7 +134,15 @@ def choices_schema(
     def one(choice: Any) -> Choice:
         try:
             if isinstance(choice, Choice):
-                return choice.model_copy(update={"id": write(read(choice.id))})
+                # JSON writes a set as a list in no fixed order, so the choice would differ between processes
+                if holds_a_set(choice):
+                    raise set_has_no_order()
+                # a model's fields are a JSON object
+                fields = cast(
+                    "dict[str, Any]",
+                    plain_json(choice.model_dump(exclude={"id"}, **WRITE_BY_NAME)),
+                )
+                return Choice(write(read(choice.id)), **fields)
             written = write(read(choice))
         except PydanticSerializationError:
             raise no_json_form() from None

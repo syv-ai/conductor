@@ -45,7 +45,10 @@ from conductor import (
     subgraph,
 )
 from pydantic import (
+    MISSING,
     AfterValidator,
+    AliasChoices,
+    AliasPath,
     BaseModel,
     ConfigDict,
     Discriminator,
@@ -53,6 +56,7 @@ from pydantic import (
     TypeAdapter,
     with_config,
 )
+from pydantic.alias_generators import to_camel
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
@@ -2838,3 +2842,188 @@ def test_a_host_type_with_aliased_fields_reads_back_from_its_save_as_it_was(
 
     assert back.results["aliased"]["result"] == value
     assert back.to_json() == saved
+
+
+@host_type("aliased-only", title="Aliased only")
+class _AliasedOnly(BaseModel, frozen=True):
+    model_config = ConfigDict(validate_by_name=False, validate_by_alias=True)
+    first_name: str = Field(alias="fn")
+
+
+@host_type("aliased-camel", title="Aliased camel")
+class _AliasedCamel(BaseModel, frozen=True):
+    model_config = ConfigDict(alias_generator=to_camel, serialize_by_alias=True)
+    first_name: str
+    last_name: float
+
+
+@host_type("aliased-swap", title="Aliased swap")
+class _AliasedSwap(BaseModel, frozen=True):
+    model_config = ConfigDict(validate_by_name=True)
+    a: int = Field(alias="b")
+    b: str = Field(alias="a")
+
+
+@host_type("aliased-paths", title="Aliased paths")
+class _AliasedPaths(BaseModel, frozen=True):
+    x: int = Field(
+        validation_alias=AliasChoices("xx", AliasPath("deep", 0)), serialization_alias="ex"
+    )
+
+
+@host_type("aliased-names-only", title="Aliased names only")
+class _AliasedNamesOnly(BaseModel, frozen=True):
+    model_config = ConfigDict(validate_by_alias=False, validate_by_name=True)
+    x: int = Field(alias="ex")
+
+
+#: A value of each way pydantic lets a class give its fields aliases, with the type a port declares it as.
+_ALIASED = [
+    (_AliasedReading, _AliasedReading(p=1, vm=2, k=3)),
+    (_AliasedByName, _AliasedByName(p=4, inner=[_AliasedReading(p=1, vm=2, k=3)])),
+    (_AliasedPair, _AliasedPair(l=8)),  # type: ignore[call-arg]
+    (_AliasedOnly, _AliasedOnly(fn="Ida")),
+    (_AliasedCamel, _AliasedCamel(firstName="Ida", lastName=1.5)),
+    (_AliasedSwap, _AliasedSwap(b=1, a="s")),
+    (_AliasedPaths, _AliasedPaths(xx=3)),
+    (_AliasedNamesOnly, _AliasedNamesOnly(x=5)),
+    (list[_AliasedSwap], [_AliasedSwap(b=1, a="s")]),
+    (_AliasedSwap | None, _AliasedSwap(b=1, a="s")),
+]
+_ALIASED_IDS = [
+    "alias beside another validation alias",
+    "serialized by alias",
+    "a pydantic dataclass",
+    "read by alias only",
+    "an alias generator",
+    "aliases swapped",
+    "alias choices and paths",
+    "read by name only",
+    "a list",
+    "or none",
+]
+
+
+@pytest.mark.parametrize(("hint", "value"), _ALIASED, ids=_ALIASED_IDS)
+def test_a_value_with_aliased_fields_enters_at_every_door_and_comes_out_as_itself(
+    hint: Any, value: Any
+):
+    """A value of a host's class is written as JSON and read back where it enters a graph, under each field's name,
+    whatever the class's alias config says, so a graph input, a constant, a node's default, an ``Ask``'s default and
+    choice, and an answer all take it as itself."""
+
+    def echo(x):  # type: ignore[no-untyped-def]
+        return x
+
+    echo.__annotations__ = {"x": hint, "return": hint}
+    echoing = node("echo", title="Echo", description="For a test.")(echo)
+    as_input = Graph.compile(make_graph(echoing), registry_of(echoing))
+    as_constant = Graph.compile(
+        make_graph(echoing, constants={"echo.x": value}), registry_of(echoing)
+    )
+
+    def echo_default(x=value):  # type: ignore[no-untyped-def]
+        return x
+
+    echo_default.__annotations__ = {"x": hint, "return": hint}
+    defaulted = node("echo", title="Echo", description="For a test.")(echo_default)
+    by_default = Graph.compile(make_graph(defaulted), registry_of(defaulted))
+
+    given = as_input.run({"x": value})
+    assert given.outputs["result"] == value
+    as_json = json.loads(given.outputs_to_json())["result"]
+    assert as_constant.run({}).outputs["result"] == value
+    assert by_default.run({}).outputs["result"] == value
+
+    for proposed in ({"default": value}, {"choices": [value]}):
+
+        def ask(text: str):  # type: ignore[no-untyped-def]
+            raise Ask("Which?", **proposed)
+
+        ask.__annotations__ = {"text": str, "return": hint}
+        asking = node("ask", title="Ask", description="For a test.", asks=True)(ask)
+        graph = Graph.compile(make_graph(asking), registry_of(asking))
+        run = graph.run({"text": "a"})
+
+        assert run.status == "waiting"
+        (question,) = run.waiting[0].questions
+        assert question.default == (as_json if "default" in proposed else MISSING)
+        assert [choice.id for choice in question.choices or ()] == (
+            [] if "default" in proposed else [as_json]
+        )
+        answered = run.with_answers(run.waiting[0], value)
+        assert answered.outputs["result"] == value
+        assert Run.from_json(answered.to_json(), graph).outputs["result"] == value
+
+
+class _AliasedCell(TypedDict):
+    who: _AliasedCamel
+
+
+def test_a_table_cell_with_aliased_fields_round_trips_by_its_field_names():
+    """A table writes a cell of a host's class as JSON under each field's name and reads it back by name, whatever
+    the class's alias config says: a node's return, an edge, a graph input as rows or as a frame of field names, a
+    saved run and ``outputs_to_json()`` given back all take it. A frame of the aliases alone is refused."""
+    who = _AliasedCamel(firstName="Ida", lastName=1.5)
+
+    @node("make", title="Make", description="For a test.")
+    def make(n: int) -> Table[_AliasedCell]:
+        return [{"who": who}] * n  # type: ignore[return-value]
+
+    @node("listed", title="Listed", description="For a test.")
+    def listed(n: int) -> Series[_AliasedCell]:
+        return [{"who": who}] * n
+
+    @node("same", title="Same", description="For a test.")
+    def same(table: Table[_AliasedCell]) -> Table[_AliasedCell]:
+        return table
+
+    as_json = {
+        "columns": [
+            {"name": "who", "type": "json", "values": [{"first_name": "Ida", "last_name": 1.5}]}
+        ]
+    }
+    for nodes in ((make,), (listed,), (make, same)):
+        graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
+        run = graph.run({"n": 1})
+        assert run.status == "complete"
+        written = json.loads(run.outputs_to_json())["result"]
+        assert written in (as_json, [{"who": {"first_name": "Ida", "last_name": 1.5}}])
+        assert Run.from_json(run.to_json(), graph).outputs_to_json() == run.outputs_to_json()
+
+    passing = Graph.compile(make_graph(same), registry_of(same))
+    for given in (
+        [{"who": who}],
+        [{"who": {"first_name": "Ida", "last_name": 1.5}}],
+        pl.DataFrame({"who": [{"first_name": "Ida", "last_name": 1.5}]}),
+        as_json,
+    ):
+        run = passing.run({"table": given})
+        assert json.loads(run.outputs_to_json())["result"] == as_json
+    with pytest.raises(InvalidCallError) as refused:
+        passing.run({"table": pl.DataFrame({"who": [{"firstName": "Ida", "lastName": 1.5}]})})
+    assert [problem.type for problem in refused.value.problems] == ["invalid_input"]
+
+
+def test_a_host_sees_a_value_with_aliased_fields_under_its_field_names_and_gives_it_so():
+    """What a host is shown of a host's class, an output's JSON, an input's JSON schema and a waiting call's inputs,
+    names each field by its name, never an alias, whatever the class's config says. A value given as JSON data is
+    read the same way, so a field given under its alias is missing."""
+
+    @node("camel", title="Camel", description="For a test.", asks=True)
+    def camel(who: _AliasedCamel) -> _AliasedCamel:
+        raise Ask("Who?", default=who)
+
+    graph = Graph.compile(make_graph(camel), registry_of(camel))
+    run = graph.run({"who": {"first_name": "Ida", "last_name": 1.5}})
+
+    assert graph.inputs["who"].json_schema["properties"].keys() == {"first_name", "last_name"}
+    assert run.waiting[0].model_dump(mode="json")["inputs"] == {
+        "who": {"first_name": "Ida", "last_name": 1.5}
+    }
+    assert json.loads(
+        run.with_answers(run.waiting[0], {"first_name": "Bo", "last_name": 2}).outputs_to_json()
+    ) == {"result": {"first_name": "Bo", "last_name": 2.0}}
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run({"who": {"firstName": "Ida", "lastName": 1.5}})
+    assert [problem.type for problem in refused.value.problems] == ["invalid_input"]

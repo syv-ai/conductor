@@ -12,7 +12,7 @@ import dataclasses
 import functools
 from collections.abc import Callable, Iterator
 from json import JSONEncoder
-from typing import Any, Final, Literal, NoReturn
+from typing import Any, Final, Literal, NoReturn, TypedDict
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
@@ -67,6 +67,33 @@ JSON_CORE_CONFIG: Final = CoreConfig(
     ser_json_bytes=JSON_CONFIG["ser_json_bytes"],
     val_json_bytes=JSON_CONFIG["val_json_bytes"],
 )
+
+
+class _WrittenByName(TypedDict):
+    """The argument of a pydantic call that writes a value which says whether a field is written under its alias."""
+
+    by_alias: bool
+
+
+class _ReadByName(TypedDict):
+    """The arguments of a pydantic call that reads a value which say whether a field is read by its alias or its
+    name."""
+
+    by_alias: bool
+    by_name: bool
+
+
+#: How conductor writes the fields of a host's own model or dataclass as JSON: each under its name, never an alias,
+#: whatever the class's config says. Every pydantic call that writes a value conductor reads back, hashes or shows a
+#: host takes it: ``serializer.to_python(value, mode="json", **WRITE_BY_NAME)``. Pydantic's own defaults differ by
+#: call, and an alias need not read back: a ``serialization_alias`` beside a different ``validation_alias``, or an
+#: alias on a class that reads only names, would be written under a key its check never reads.
+WRITE_BY_NAME: Final[_WrittenByName] = {"by_alias": False}
+
+#: How conductor reads the fields of a host's own model or dataclass from JSON it wrote (``WRITE_BY_NAME``): each by
+#: its name, never its alias, whatever the class's config says. Every pydantic call that checks a value from its JSON
+#: takes it: ``validator.validate_json(text, **READ_BY_NAME)``.
+READ_BY_NAME: Final[_ReadByName] = {"by_alias": False, "by_name": True}
 
 
 def json_typed_dict_schema(
@@ -183,7 +210,7 @@ def validate_as_json(
         PydanticCustomError: ``fallback`` refused the value.
         ValidationError: The type refuses the value.
     """
-    return validator.validate_json(json_text(value, fallback), strict=True)
+    return validator.validate_json(json_text(value, fallback), strict=True, **READ_BY_NAME)
 
 
 def json_text(value: Any, fallback: Callable[[Any], Any] | None = None) -> str:
@@ -290,7 +317,7 @@ def _written(
     """
     try:
         data = to_jsonable_python(
-            value, fallback=fallback, bytes_mode=JSON_CONFIG["ser_json_bytes"]
+            value, fallback=fallback, bytes_mode=JSON_CONFIG["ser_json_bytes"], **WRITE_BY_NAME
         )
     except (PydanticCustomError, PydanticSerializationError):
         raise
