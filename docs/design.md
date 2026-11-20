@@ -83,10 +83,18 @@ the record. The exact shape is in `python -m conductor.about the-graph-record`.
 `version` defaults to 1, and compiling never upgrades. Only `registry.upgrade` moves a graph to a newer version, and
 only when asked.
 
-Each input gets exactly one thing: a `constant`, a `graph_input` (the caller's value, maybe with a `default`), or the
-`sources` of its edges. That was chosen over a map per kind of value or a `locked` flag. An input can't be given two
-things, so no rule has to say which one wins. A graph input ignores the default the node declares: only the record's
-`default` counts, and a graph input without one is required.
+Each input gets exactly one thing: a `constant`, a `graph_input` (the caller's value), or the `sources` of its edges.
+Inside conductor each is a class of its own, and the one key an entry's JSON has says which, with no tag of its
+own; outside, `InputEntry` is the type of an entry, and a host reads and writes the JSON. That was chosen over a map
+per kind of value or a `locked` flag. An input can't be given two things, so no rule has to say which one wins, and
+the compiler matches on the kind.
+
+A graph input is declared once, under the record's `inputs`, with its `default` if it has one, as the graph's
+outputs are declared under `outputs`. Each entry that takes it only names it. A default written on the entries was
+rejected: several entries may name one graph input, so the record, the compiler and `make_graph` each had to work out
+which entry's default counted. A graph input ignores the default the node declares: only the record's counts, and a
+graph input declared without one is required. A declared graph input that no entry names is a problem, since its type
+is that of the inputs it feeds.
 
 Constants, defaults and `display` are stored as JSON: a date as its ISO text. So a record always equals its own JSON,
 and its fingerprint survives a store. The cost is that a value with no JSON form, like a polars frame, can't be a
@@ -111,7 +119,7 @@ only saves the record hears about them only when it's compiled. The rules are in
 
 ```python
 record = make_graph(words, upper, join)
-print(record.model_dump_json())  # {"nodes":{"words":{"node":"words","inputs":{"text":{"graph_input":"text"}}},"upper":{"node":"upper","inputs":{"text":{"sources":[{"node":"words","output":"result"}]}}},"join":{"node":"join","inputs":{"texts":{"sources":[{"node":"upper","output":"result"}]}}}},"outputs":{"result":{"node":"join","output":"result"}}}
+print(record.model_dump_json())  # {"inputs":{"text":{}},"nodes":{"words":{"node":"words","inputs":{"text":{"graph_input":"text"}}},"upper":{"node":"upper","inputs":{"text":{"sources":[{"node":"words","output":"result"}]}}},"join":{"node":"join","inputs":{"texts":{"sources":[{"node":"upper","output":"result"}]}}}},"outputs":{"result":{"node":"join","output":"result"}}}
 
 
 @registry.node("half", title="Half", description="Halves a number.")

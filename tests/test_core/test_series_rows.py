@@ -12,8 +12,8 @@ import polars as pl
 import pytest
 from conductor import (
     Graph,
+    GraphInputRecord,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
@@ -26,7 +26,7 @@ from conductor import (
     subgraph,
 )
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 class Contact(TypedDict):
@@ -87,14 +87,17 @@ def _graph(source: Any = contacts) -> Any:
     }
     readers = {
         node_id: NodeRecord(
-            node=node_id, inputs={name: InputEntry(sources=[Source("c", "result", field)])}
+            node=node_id, inputs={name: input_entry({"sources": [Source("c", "result", field)]})}
         )
         for node_id, (name, field) in reads.items()
     }
     return Graph.compile(
         GraphRecord(
+            inputs={"text": GraphInputRecord()},
             nodes={
-                "c": NodeRecord(node=source.id, inputs={"text": InputEntry(graph_input="text")}),
+                "c": NodeRecord(
+                    node=source.id, inputs={"text": input_entry({"graph_input": "text"})}
+                ),
                 **readers,
             },
             outputs={node_id: Source(node_id, "result") for node_id in reads},
@@ -288,6 +291,7 @@ def test_a_series_of_rows_returned_per_item_inside_a_subgraph_reaches_a_series_i
     registry = registry_of(parts, contacts, count)
     inner = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "p": {"node": "parts", "inputs": {"text": {"graph_input": "text"}}},
                 "c": {
@@ -302,6 +306,7 @@ def test_a_series_of_rows_returned_per_item_inside_a_subgraph_reaches_a_series_i
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}},
                     "count": {

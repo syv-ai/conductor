@@ -46,8 +46,8 @@ from conductor import (
     Deprecation,
     ExternalError,
     Graph,
+    GraphInputRecord,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -91,6 +91,8 @@ from pydantic import (
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import core_schema
 
+from tests.test_core.nodes import input_entry
+
 
 def registry_of(*definitions):
     registry = NodeRegistry()
@@ -123,11 +125,12 @@ def node_record(definition_id, *, version=1, constants=None, graph_inputs=(), so
         sources: For each input wired to an edge, the ``(node, output)`` the edge starts from.
     """
     inputs: dict[str, Any] = {
-        name: InputEntry(constant=value) for name, value in (constants or {}).items()
+        name: input_entry({"constant": value}) for name, value in (constants or {}).items()
     }
-    inputs |= {name: InputEntry(graph_input=name) for name in graph_inputs}
+    inputs |= {name: input_entry({"graph_input": name}) for name in graph_inputs}
     inputs |= {
-        name: InputEntry(sources=(Source(*source),)) for name, source in (sources or {}).items()
+        name: input_entry({"sources": (Source(*source),)})
+        for name, source in (sources or {}).items()
     }
     return NodeRecord(node=definition_id, version=version, inputs=inputs)
 
@@ -1183,11 +1186,12 @@ def test_a_bool_and_a_date_reach_the_next_node_as_their_own_type():
         flip,
         when,
         record=GraphRecord(
+            inputs={"on": GraphInputRecord(), "day": GraphInputRecord()},
             nodes={
                 "f": node_record("flags", graph_inputs=("on", "day")),
                 "n": node_record("flip", sources={"on": ("f", "result")}),
                 "w": node_record("when", graph_inputs=("day",)),
-            }
+            },
         ),
     )
     run = graph.run({"on": True, "day": datetime.date(2026, 1, 1)})
@@ -1474,7 +1478,10 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
     for saved, body in ((1, "one"), (3, "three")):
         graph = compiled_graph(
             v3,
-            record=GraphRecord(nodes={"n": node_record("v", version=saved, graph_inputs=("x",))}),
+            record=GraphRecord(
+                inputs={"x": GraphInputRecord()},
+                nodes={"n": node_record("v", version=saved, graph_inputs=("x",))},
+            ),
         )
         assert graph.run({"x": "a"}).results["n"]["result"] == body
 
@@ -1542,7 +1549,10 @@ def test_a_subgraph_may_be_declared_at_a_version_of_its_own():
     graph = compiled_graph(
         read,
         inner,
-        record=GraphRecord(nodes={"e": node_record("inner", version=3, graph_inputs=("text",))}),
+        record=GraphRecord(
+            inputs={"text": GraphInputRecord()},
+            nodes={"e": node_record("inner", version=3, graph_inputs=("text",))},
+        ),
     )
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 
@@ -1682,7 +1692,10 @@ def test_each_version_has_its_own_hooks():
     for saved, name in ((1, "first"), (2, "second")):
         graph = compiled_graph(
             h2,
-            record=GraphRecord(nodes={"n": node_record("h", version=saved, graph_inputs=("x",))}),
+            record=GraphRecord(
+                inputs={"x": GraphInputRecord()},
+                nodes={"n": node_record("h", version=saved, graph_inputs=("x",))},
+            ),
         )
         assert graph.run({"x": "a"}).results["n"] == {name: "a"}
 
@@ -1760,7 +1773,10 @@ def test_a_node_whose_hook_gives_no_outputs_leaves_the_graph_runnable():
     graph = compiled_graph(
         empty,
         record=GraphRecord.model_validate(
-            {"nodes": {"empty": {"node": "empty", "inputs": {"x": {"graph_input": "x"}}}}}
+            {
+                "inputs": {"x": {}},
+                "nodes": {"empty": {"node": "empty", "inputs": {"x": {"graph_input": "x"}}}},
+            }
         ),
     )
     assert (
@@ -1791,10 +1807,11 @@ def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
             definition,
             echo,
             record=GraphRecord(
+                inputs={name: GraphInputRecord() for name in graph_inputs},
                 nodes={
                     "n": node_record(kind, graph_inputs=graph_inputs),
                     "r": node_record("echo", sources={"v": ("n", "result")}),
-                }
+                },
             ),
         )
         # The node after it has no problem of its own.
@@ -1822,10 +1839,11 @@ def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothi
         echo,
         outs,
         record=GraphRecord(
+            inputs={"v": GraphInputRecord()},
             nodes={
                 "e": node_record("echo", graph_inputs=("v",)),
                 "n": node_record("outs", sources={"x": ("e", "nothing")}),
-            }
+            },
         ),
     )
     assert codes(graph) == ["unknown_output"] and arrived == [Any]
@@ -2183,12 +2201,20 @@ def test_a_param_on_a_tables_column_limits_what_the_node_returns():
 
     assert (
         Graph.compile(
-            GraphRecord(nodes={"r": node_record("rows", graph_inputs=("text",))}), registry_of(rows)
+            GraphRecord(
+                inputs={"text": GraphInputRecord()},
+                nodes={"r": node_record("rows", graph_inputs=("text",))},
+            ),
+            registry_of(rows),
         ).problems
         == []
     )
     run = Graph.compile(
-        GraphRecord(nodes={"r": node_record("rows", graph_inputs=("text",))}), registry_of(rows)
+        GraphRecord(
+            inputs={"text": GraphInputRecord()},
+            nodes={"r": node_record("rows", graph_inputs=("text",))},
+        ),
+        registry_of(rows),
     ).run({"text": "x"})
     assert (run.status, run.cause.type) == ("failed", "invalid_output")
 

@@ -21,7 +21,6 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeRegistry,
@@ -37,6 +36,7 @@ from conductor import (
 )
 
 from tests.test_core.nodes import (
+    input_entry,
     join,
     lower,
     mail,
@@ -81,19 +81,20 @@ invoicing.add(each_invoice)
 
 #: A graph record that reads invoices from a CSV, then makes one item per invoice.
 INVOICES = {
+    "inputs": {"text": {}},
     "nodes": {
         "read": {"node": "read-csv", "inputs": {"text": {"graph_input": "text"}}},
         "each": {
             "node": "each-invoice",
             "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
         },
-    }
+    },
 }
 
 
 def invoices_then(nodes: dict) -> dict:
     """Returns the ``INVOICES`` record with ``nodes`` added, keyed by node id."""
-    return {"nodes": {**INVOICES["nodes"], **nodes}}
+    return {**INVOICES, "nodes": {**INVOICES["nodes"], **nodes}}
 
 
 def each_field(field: str) -> dict:
@@ -227,6 +228,7 @@ def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to
     open_first = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "a", "output": "result"}},
             }
@@ -245,6 +247,7 @@ def test_every_problem_of_one_node_is_reported_at_once():
     later = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                     "b": {
@@ -286,6 +289,7 @@ def test_nested_loops_are_collected_one_level_at_a_time():
     # Documents are split into lines, each line is upper-cased, and the lines of each document are joined.
     # ``all`` joins the lines without upper-casing them, also once per document.
     record = {
+        "inputs": {"text": {}},
         "nodes": {
             "docs": {
                 "node": "split",
@@ -332,6 +336,7 @@ def test_nested_loops_are_collected_one_level_at_a_time():
 
 def test_items_of_two_series_at_one_node_are_refused():
     record = {
+        "inputs": {"a_text": {}, "a_sep": {}, "b_text": {}, "b_sep": {}},
         "nodes": {
             "a": {
                 "node": "split",
@@ -375,12 +380,13 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}, "sep": {"default": ","}},
                 "nodes": {
                     "s": {
                         "node": "split",
                         "inputs": {
                             "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep", "default": ","},
+                            "sep": {"graph_input": "sep"},
                         },
                     },
                     "r": {
@@ -435,6 +441,7 @@ def test_a_list_given_for_one_value_is_refused():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "up": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                 },
@@ -455,12 +462,13 @@ def test_max_items():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}, "sep": {"default": ","}},
                 "nodes": {
                     "s": {
                         "node": "split",
                         "inputs": {
                             "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep", "default": ","},
+                            "sep": {"graph_input": "sep"},
                         },
                     },
                     "m": {
@@ -490,6 +498,7 @@ def test_an_upgraded_subgraph_keeps_the_name_of_its_output():
     """
     enrich_v1 = make_graph(upper, tail)
     enrich_v2 = {
+        "inputs": {"text": {}},
         "nodes": {
             "lower": {"node": "lower", "inputs": {"text": {"graph_input": "text"}}},
             "dot": {"node": "tail", "inputs": {"text": edge_from("lower")}},
@@ -504,6 +513,7 @@ def test_an_upgraded_subgraph_keeps_the_name_of_its_output():
     reg = registry_of(upper, lower, tail, v2)
     outer = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "e": {"node": "enrich", "version": 1, "inputs": {"text": {"graph_input": "text"}}},
                 "u": {
@@ -533,6 +543,7 @@ def test_an_upgrade_moves_an_edge_reading_a_subgraphs_output_to_the_name_the_new
     reg = registry_of(upper, lower, tail, v2)
     outer = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "e": {"node": "enrich", "version": 1, "inputs": {"text": {"graph_input": "text"}}},
                 "u": {
@@ -566,6 +577,7 @@ def test_upgrade_renames():
     reg = registry_of(greet, upper)
     stored = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                 "g": {
@@ -578,7 +590,7 @@ def test_upgrade_renames():
     )
     assert Graph.compile(stored, reg).run({"text": "ida"}).outputs == {"result": "hello IDA"}
     moved = reg.upgrade(stored, "g")
-    assert moved.nodes["g"].inputs == {"who": InputEntry(sources=(Source("u", "result"),))}
+    assert moved.nodes["g"].inputs == {"who": input_entry({"sources": (Source("u", "result"),)})}
     assert Graph.compile(moved, reg).run({"text": "ida"}).outputs == {"result": "hello IDA!"}
 
 
@@ -604,12 +616,13 @@ def test_ask_forms_and_several():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}, "sep": {"default": ","}},
                 "nodes": {
                     "s": {
                         "node": "split",
                         "inputs": {
                             "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep", "default": ","},
+                            "sep": {"graph_input": "sep"},
                         },
                     },
                     "r": {
@@ -681,6 +694,7 @@ def test_pause_on_a_nested_item():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "docs": {
                         "node": "split",

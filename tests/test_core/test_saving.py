@@ -28,8 +28,8 @@ from conductor import (
     SKIPPED,
     Ask,
     Graph,
+    GraphInputRecord,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
@@ -48,7 +48,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, TypeA
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 @pytest.fixture(autouse=True)
@@ -151,7 +151,11 @@ def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:
     if per_item:
         nodes["split"] = {"node": "split", "inputs": {"text": {"graph_input": "text"}}}
     record = GraphRecord.model_validate(
-        {"nodes": nodes, "outputs": {"result": {"node": "s", "output": "result"}}}
+        {
+            "inputs": {"text": {}},
+            "nodes": nodes,
+            "outputs": {"result": {"node": "s", "output": "result"}},
+        }
     )
     graph = Graph.compile(record, registry_of(split, definition, check, see))
     return graph, seen
@@ -241,6 +245,7 @@ def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "m": {"node": "maybe-readings", "inputs": {"text": {"graph_input": "text"}}}
                 },
@@ -415,6 +420,7 @@ def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_s
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "e": {"node": "everything", "inputs": {"text": {"graph_input": "text"}}},
                     "c": {
@@ -914,6 +920,7 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"n_text": {}, "a_text": {}},
                 "nodes": {
                     "n": {"node": "names", "inputs": {"text": {"graph_input": "n_text"}}},
                     "a": {"node": "ages", "inputs": {"text": {"graph_input": "a_text"}}},
@@ -1448,6 +1455,7 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"o": {"node": "opaque", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "o", "output": "result"}},
             }
@@ -1503,6 +1511,7 @@ def test_an_input_with_no_json_form_is_refused_where_it_is_given_so_every_run_ca
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"value": {}},
                 "nodes": {"t": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}},
                 "outputs": {"result": {"node": "t", "output": "result"}},
             }
@@ -1610,6 +1619,7 @@ def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"x": {}, "f": {}},
                 "nodes": {
                     "whole": {"node": "whole", "inputs": {**from_x, "f": {"graph_input": "f"}}},
                     "many": {"node": "many", "inputs": from_x},
@@ -1809,6 +1819,7 @@ def _saved_table() -> tuple[Any, dict[str, Any]]:
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "n": {"node": "names", "inputs": {"text": {"graph_input": "text"}}},
                     "c": {
@@ -1839,10 +1850,14 @@ def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_displa
     def with_default(default: str, **display: Any) -> GraphRecord:
         node_record = NodeRecord(
             node="shout",
-            inputs={"text": InputEntry(graph_input="text", default=default)},
+            inputs={"text": input_entry({"graph_input": "text"})},
             display=display,
         )
-        return GraphRecord(nodes={"s": node_record}, outputs={"result": Source("s", "result")})
+        return GraphRecord(
+            inputs={"text": GraphInputRecord(default=default)},
+            nodes={"s": node_record},
+            outputs={"result": Source("s", "result")},
+        )
 
     record = with_default("a")
     saved = Graph.compile(record, registry_of(shout)).run().to_json()
@@ -1911,7 +1926,10 @@ def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
         )
 
     outer = GraphRecord.model_validate(
-        {"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}}}
+        {
+            "inputs": {"text": {}},
+            "nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}},
+        }
     )
     saved = Graph.compile(outer, with_inner(shout)).run({"text": "a"}).to_json()
 
@@ -1998,6 +2016,7 @@ def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_
 ) -> None:
     registry = registry_of(sheet, sheet_rows, ok_row, column_order)
     record = {
+        "inputs": {"text": {}},
         "nodes": {
             "s": {
                 "node": "sheet",
@@ -2284,6 +2303,7 @@ def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "split": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
                     "upper": {
@@ -2326,6 +2346,7 @@ def test_a_none_input_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "a": {"node": "addresses", "inputs": {"text": {"graph_input": "text"}}},
                     "s": {

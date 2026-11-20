@@ -320,6 +320,7 @@ def test_an_input_is_checked_against_its_choices_by_their_json_as_an_answer_is()
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"x": {}},
                 "nodes": {"q": {"node": "take", "inputs": {"x": {"graph_input": "x"}}}},
                 "outputs": {"result": {"node": "q", "output": "result"}},
             }
@@ -345,6 +346,7 @@ def test_two_fields_whose_choices_python_takes_as_equal_each_accept_only_their_o
         return Graph.compile(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"x": {}},
                     "nodes": {"q": {"node": take.id, "inputs": {"x": {"graph_input": "x"}}}},
                     "outputs": {"result": {"node": "q", "output": "result"}},
                 }
@@ -1428,6 +1430,7 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "m": {"node": "make", "inputs": {"text": {"graph_input": "text"}}},
                     "a": {
@@ -2092,6 +2095,7 @@ def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_
         raise Ask("Right?")
 
     record = {
+        "inputs": {"data": {}},
         "nodes": {"q": {"node": "check", "inputs": {"data": {"graph_input": "data"}}}},
         "outputs": _outputs_of(check),
     }
@@ -2109,6 +2113,7 @@ def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
                     "q": {
@@ -2133,6 +2138,7 @@ def test_an_answer_names_its_item_by_index_so_one_for_an_item_that_no_longer_wai
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
                     "q": {
@@ -2506,6 +2512,7 @@ def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_cal
         subgraph("both", title="Both", description="For a test.")(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"first": {}, "second": {}},
                     "nodes": {
                         "q": {"node": "ask", "inputs": {"text": {"graph_input": "first"}}},
                         "q2": {"node": "ask2", "inputs": {"text": {"graph_input": "second"}}},
@@ -2548,6 +2555,7 @@ def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_field_names
         subgraph("both", title="Both", description="For a test.")(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"z1_t": {}, "z2_t": {}},
                     "nodes": {
                         "z1": {"node": "form", "inputs": {"t": {"graph_input": "z1_t"}}},
                         "z2": {"node": "form", "inputs": {"t": {"graph_input": "z2_t"}}},
@@ -2565,6 +2573,7 @@ def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_field_names
     run = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"z1_t": {}, "z2_t": {}},
                 "nodes": {
                     "e": {
                         "node": "both",
@@ -3336,6 +3345,7 @@ def test_results_show_one_none_per_item_of_a_branch_inside_a_loop_while_a_questi
         return {"sources": [{"node": node_id, "output": output}]}
 
     record = {
+        "inputs": {"text": {}},
         "nodes": {
             "lines": {"node": "lines", "inputs": {"text": {"graph_input": "text"}}},
             "gate": {"node": "gate", "inputs": {"text": {"graph_input": "text"}}},

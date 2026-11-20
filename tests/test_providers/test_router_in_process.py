@@ -105,6 +105,7 @@ def _doubling() -> tuple[NodeRegistry, NodeRegistry, dict[str, Any]]:
         bare,
         GraphRecord.model_validate(
             {
+                "inputs": {"x": {}},
                 "nodes": {"d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}}},
                 "outputs": {"result": {"node": "d", "output": "result"}},
             }

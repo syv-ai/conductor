@@ -31,8 +31,8 @@ from conductor import (
     SKIPPED,
     Ask,
     Graph,
+    GraphInputRecord,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeRecord,
     NoneInputCall,
@@ -49,7 +49,7 @@ from conductor import (
 )
 from pydantic import MISSING
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 # -- the nodes ---------------------------------------------------------------------------------
 
@@ -988,22 +988,26 @@ def test_collecting_a_series_not_returned_for_a_none_item_is_a_none_input_not_an
     reg = registry_of(docs, lines, count, width, as_table, total)
     compiled = Graph.compile(
         GraphRecord(
+            inputs={"text": GraphInputRecord()},
             nodes={
-                "d": NodeRecord(node="docs", inputs={"text": InputEntry(graph_input="text")}),
+                "d": NodeRecord(node="docs", inputs={"text": input_entry({"graph_input": "text"})}),
                 "l": NodeRecord(
-                    node="lines", inputs={"text": InputEntry(sources=[Source("d", "result")])}
+                    node="lines", inputs={"text": input_entry({"sources": [Source("d", "result")]})}
                 ),
                 "c": NodeRecord(
-                    node="count", inputs={"items": InputEntry(sources=[Source("l", "result")])}
+                    node="count",
+                    inputs={"items": input_entry({"sources": [Source("l", "result")]})},
                 ),
                 "t": NodeRecord(
-                    node="total", inputs={"ns": InputEntry(sources=[Source("c", "result")])}
+                    node="total", inputs={"ns": input_entry({"sources": [Source("c", "result")]})}
                 ),
                 "a": NodeRecord(
-                    node="as_table", inputs={"text": InputEntry(sources=[Source("d", "result")])}
+                    node="as_table",
+                    inputs={"text": input_entry({"sources": [Source("d", "result")]})},
                 ),
                 "w": NodeRecord(
-                    node="width", inputs={"table": InputEntry(sources=[Source("a", "result")])}
+                    node="width",
+                    inputs={"table": input_entry({"sources": [Source("a", "result")]})},
                 ),
             },
         ),
@@ -1320,7 +1324,7 @@ def test_a_series_input_downstream_of_an_input_not_wired_yet_gets_the_problem_it
             "upper": NodeRecord(node="upper"),
             "join": NodeRecord(
                 node="join",
-                inputs={"texts": InputEntry(sources=[Source(node="upper", output="result")])},
+                inputs={"texts": input_entry({"sources": [Source(node="upper", output="result")]})},
             ),
         }
     )  # upper.text may yet be wired to a loop, which would make join collect
@@ -3151,6 +3155,7 @@ def test_a_subgraph_node_wired_from_upstream_needs_every_other_input_wired_too()
     inner = as_subgraph("pairer", {"id": "p", "node": "pair"})
     record = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {
                 "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                 "e": {
@@ -3482,7 +3487,11 @@ def test_a_subgraph_node_listed_before_its_upstream_node_compiles_and_runs_the_s
     for outer in ({"docs": docs, "sub": sub}, {"sub": sub, "docs": docs}):
         compiled = Graph.compile(
             GraphRecord.model_validate(
-                {"nodes": outer, "outputs": {"result": {"node": "sub", "output": "result"}}}
+                {
+                    "inputs": {"text": {}},
+                    "nodes": outer,
+                    "outputs": {"result": {"node": "sub", "output": "result"}},
+                }
             ),
             registry,
         )

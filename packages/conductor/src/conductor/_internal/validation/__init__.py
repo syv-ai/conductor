@@ -26,9 +26,11 @@ graph, a caller's input, a person's answer, a record's constant or default, or a
 """
 
 from .json import json_data, read_as_json
+from .kind_by_key import KindByKey
 from .type import Validator
 
 __all__ = [
+    "KindByKey",
     "Validator",
     "json_data",
     "read_as_json",

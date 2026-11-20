@@ -12,7 +12,7 @@ A graph is data, a `GraphRecord`. It lists the graph's nodes by id. Each node na
 To declare a node, use the **add-node** skill. The installed library is the authority on every rule: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Source, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, Series
+from conductor import Graph, GraphRecord, NodeRegistry, Series
 
 registry = NodeRegistry(category="text")
 
@@ -32,17 +32,18 @@ def join(parts: Series[str], separator: str = "") -> str:
     return separator.join(parts)
 
 
-record = GraphRecord(
-    nodes={
-        "words": NodeRecord(node="text-split", inputs={"text": InputEntry(graph_input="text")}),
-        "loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Source("words", "result"),))}),
-        "joined": NodeRecord(node="text-join", inputs={
-            "parts": InputEntry(sources=(Source("loud", "result"),)),
-            "separator": InputEntry(constant=" + "),
-        }),
+record = GraphRecord.model_validate({   # the record's JSON, as an editor saves it
+    "inputs": {"text": {}},
+    "nodes": {
+        "words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}},
+        "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}},
+        "joined": {"node": "text-join", "inputs": {
+            "parts": {"sources": [{"node": "loud", "output": "result"}]},
+            "separator": {"constant": " + "},
+        }},
     },
-    outputs={"result": Source("joined", "result")},
-)
+    "outputs": {"result": {"node": "joined", "output": "result"}},
+})
 
 graph = Graph.compile(record, registry)
 if not graph.is_runnable:
@@ -61,20 +62,21 @@ assert graph.describe().nodes["joined"].per_item_of is None  # parts is Series[s
 An editor writes the same record as JSON, and a host stores that:
 
 ```json
-{"nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}},
+{"inputs": {"text": {}},
+ "nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}},
            "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}},
            ...},
  "outputs": {"result": {"node": "joined", "output": "result"}}}
 ```
 
-A graph declares what it takes and returns, the way a function declares its parameters and return value. A graph input exists only where an input's entry names it. A graph output exists only in `outputs`.
+A graph declares what it takes and returns, the way a function declares its parameters and return value. Each graph input is declared once in `inputs`, with its `default` if it has one (`{"text": {"default": "a,b"}}`), and an entry names it. A graph output exists only in `outputs`. A declared graph input no entry names is `graph_input_not_used`, and an entry naming one the record doesn't declare is `graph_input_not_declared`.
 
 ## What an input gets
 
 Each input the record lists gets exactly one of:
 
 - a `constant`, the same on every call;
-- a `graph_input`, the caller's value, with an optional `default`;
+- a `graph_input`, the caller's value, named as the record declares it in `inputs`;
 - `sources`, the edges into it.
 
 An input the record leaves out takes its declared default. A required input left out is `input_has_no_value`.
@@ -101,7 +103,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes a record too.
 
 **Edges.**
-- With no `edges=`, the nodes form a chain. Each node's one required input that has no constant is wired to the one output of the node before it.
+- With no `edges=`, the nodes form a chain. Each node's one required input that `constants=`, `defaults=` and `inputs=` don't name is wired to the one output of the node before it.
 - With `edges=[...]`, those are all the edges. Nothing is matched by name.
 
 **Node ids.** Each node gets its definition's id. A node used twice gets `-1` and `-2` on the end, such as `text-split-1` and `text-split-2`.
@@ -114,6 +116,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 
 **What it raises.**
 - Two graph inputs that would share a name raise `graph_inputs_share_a_name`. Two outputs raise `graph_outputs_share_a_name`.
+- One input given two of a constant, a graph input and edges, such as `edges=` and `inputs=` both naming `shout.text`, raises `input_given_two_ways`.
 - A text that isn't `"node.name"`, or whose id or name has a `/`, `@` or `~` in it, raises `invalid_place`. Its message lists the characters a name can't have.
 
 ## Quick reference

@@ -37,6 +37,7 @@ def join(texts: Series[str]) -> str:
 assert upper("a") == "A"  # a node is called like its function
 
 graph = Graph.compile(GraphRecord.model_validate({            # a graph is data: a GraphRecord, or its JSON text
+    "inputs": {"text": {}},
     "nodes": {
         "lines": {"node": "lines", "inputs": {"text": {"graph_input": "text"}}},
         "upper": {"node": "upper", "inputs": {"text": {"sources": [{"node": "lines", "output": "result"}]}}},
@@ -46,7 +47,7 @@ graph = Graph.compile(GraphRecord.model_validate({            # a graph is data:
 }), registry)
 assert graph.is_runnable, graph.problems
 
-run = graph.run({"text": "a\nb\nc"})    # the graph input text, declared on lines
+run = graph.run({"text": "a\nb\nc"})    # the graph input text, declared under inputs and taken by lines
 run.outputs                        # {"result": "A+B+C"}: what the graph returns, by the names its outputs declare
 run.results["upper"]["result"]     # ["A", "B", "C"]: ran once per item of lines.result
 run.results["join"]["result"]      # "A+B+C": Series[str] received every value, once
@@ -199,9 +200,9 @@ The values are checked. `concurrency` is at least 1, or `None`. `retries` is at 
 - `Upgrade(renamed_inputs={old: new}, renamed_outputs={old: new}, rewrite=fn)` goes beside `replaces=`. It says how a graph record moves to the new version.
   - An input rename carries the input's entry along: its constant, its graph input or the edges into it.
   - An output rename carries the edges out of the output, those out of a field of it, and the graph outputs that name it.
-  - `fn` takes the node's constants and graph-input defaults as one dict, and returns them. A default stays a default, and every other key it returns is written as a constant. A value for an input that edges lead into is refused (`invalid_record`). A `NodeError` `fn` raises keeps its code and message, as `cannot_move_to_version_rewrite_failed`, at the node. Any other exception is `cannot_move_to_version_raised`. A return that isn't a dict whose keys are text, such as `None`, is `cannot_move_to_version_rewrite_returned_invalid`, with pydantic's `dict_type` or `string_type` in `ctx.errors`, as a hook's return is.
-  - An input the new version neither keeps nor renames loses what it gets: its constant, its graph input or the edges into it. `fn` sees its constant or default first. Since every key `fn` returns is written, `fn` leaves out the keys of inputs that are gone, as `_split_name` above pops `name`. A key it keeps for a gone input is `unknown_input` when the graph is compiled.
-  - A subgraph's inputs are the graph inputs its record names.
+  - `fn` takes the node's constants as one dict, and returns them. Every key it returns is written as a constant. A value for an input that edges lead into, or that takes a graph input, is refused (`invalid_record`). A graph input belongs to the whole graph, so its default is never the rewrite's: an upgrade of one node leaves every graph input's default as it is. A `NodeError` `fn` raises keeps its code and message, as `cannot_move_to_version_rewrite_failed`, at the node. Any other exception is `cannot_move_to_version_raised`. A return that isn't a dict whose keys are text, such as `None`, is `cannot_move_to_version_rewrite_returned_invalid`, with pydantic's `dict_type` or `string_type` in `ctx.errors`, as a hook's return is.
+  - An input the new version neither keeps nor renames loses what it gets: its constant, its graph input or the edges into it. A graph input that only gone inputs took is dropped from `inputs` with them, so it leaves what a caller gives. `fn` sees a gone input's constant first; an input that took a graph input or edges isn't in its dict, so a node whose inputs all take graph inputs gives `fn` `{}`. Since every key `fn` returns is written, `fn` leaves out the keys of inputs that are gone, as `_split_name` above pops `name`. A key it keeps for a gone input is `unknown_input` when the graph is compiled.
+  - A subgraph's inputs are the graph inputs its record declares.
   - An `Upgrade` is required only when a field name of the replaced version is gone, for a subgraph as for a function. A gone input needs a rename or `fn`, and a gone output a rename. Without one, the declaration raises `upgrade_missing`.
   - Each rename starts at a field the replaced version declares and ends at one the new version declares, or the declaration raises `upgrade_renames_unknown`. A version with a `compute_added_inputs` hook has its input renames left unchecked, and one with a `compute_outputs` hook its output renames, since those fields aren't known until a graph is compiled.
 - `registry.upgrade(record, node_id, *, to=None)` moves one node of a record to a version, and returns a `GraphRecord`. What it can't do raises `InvalidCallError`.
@@ -363,17 +364,18 @@ To a type checker, a `Table[R]` is a frame that names `R`. Frame methods need no
 
 A graph record is a graph as data. A graph declares what it takes and what it returns, the way a function declares its parameters and its return value.
 
-`GraphRecord(nodes={id: NodeRecord, ...}, outputs={name: Source, ...})` is stored like this:
+`GraphRecord(inputs={name: GraphInputRecord, ...}, nodes={id: NodeRecord, ...}, outputs={name: Source, ...})` is stored like this:
 
 ```json
-{"nodes": {"b": {"node": "b", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}}}},
+{"inputs": {"text": {}, "mark": {"default": "!"}},
+ "nodes": {"b": {"node": "b", "inputs": {"text": {"graph_input": "text"}, "mark": {"graph_input": "mark"}}}},
  "outputs": {"result": {"node": "b", "output": "result"}}}
 ```
 
+- `GraphInputRecord(default=)` is one graph input, declared once under `inputs`: `{}`, or `{"default": v}` for one a caller may leave out. A graph output is declared under `outputs`. Used as a subgraph, these are the node's inputs and outputs.
 - `NodeRecord(node=, version=1, inputs=, display=)` is one node of the graph. `node` is the id of the node it uses. Empty fields, and a `version` of 1, are left out when it is saved.
-- Each input's entry is one of three kinds: `InputEntry(constant=)`, `InputEntry(graph_input=, default=)` or `InputEntry(sources=(Source(node, output, field=None), ...))`.
+- Each input's entry is one of three kinds, and the one key its JSON has says which: `{"constant": v}`, `{"graph_input": name}` or `{"sources": [{"node", "output", "field"?}, ...]}`. `InputEntry` is the type of an entry, the union of the three. It is a type alias, so it can't be called or used with `isinstance`: a record reads an entry from its JSON, `NodeRecord(node=..., inputs={"text": {"constant": "x"}})` or `GraphRecord.model_validate(data)`, and `make_graph` writes entries for you. Read one's kind by its key in `record.model_dump(mode="json")`.
 - A dict of the same shape is read too: `GraphRecord.model_validate(data)`.
-- A graph input exists only where an entry names it, and a graph output only in `outputs`. Used as a subgraph, these are the node's inputs and outputs.
 - Constants, defaults and a node's `display` are JSON values. `make_graph` writes a Python value as its JSON, as a caller's value for an `Any` input is written ("Starting a run"): a date as its ISO text, an enum as its value, and a host's object by its own schema. So a record equals what its JSON reads back as. A float that isn't finite is refused, by `make_graph` with `finite_number` ("Starting a run"), and by a record built with one in it.
 - A value with no JSON form is `invalid_value` at the call, with `no_json_form` in `ctx.errors`. A `polars.DataFrame` is one: give a table as a list of rows instead.
 - A constant and a graph input's default are read by the input's type when the graph is compiled, by the one rule a caller's graph input is read by ("Starting a run"): strictly, from their JSON form. So `"3"` is no `int` and `"yes"` no `bool`, while `"2026-01-02"` is a `date`. A value its type refuses is `invalid_value`, with the type's codes in `ctx.errors`. It is provisional.
@@ -389,12 +391,14 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 - `{"constant": v}` is the input's value on every call of every run. The graph doesn't offer that input to a caller.
   - Each run made with `graph.run` or `graph.with_inputs` gets its own copy of the graph's constants and graph-input defaults, made once when the run is made (a frame by `clone()`, any other value by `copy.deepcopy`). A node must not change a value it is given, but one that changes a constant or a default, say by appending to a constant list, changes only that run's copy, never what the next run made from the graph gets. The copy has the same JSON, so it doesn't change which calls are reused. It costs in proportion to a constant's size: a frame's clone costs almost nothing, but a 10k-row `list[dict]` constant takes about 10 ms per run. A constant `copy.deepcopy` can't copy raises its `TypeError` when the run is made.
   - Nothing else is copied. A value a caller gives, a frame too, is handed to the nodes as it is. `run.again()` and `run.with_inputs` repeat the run's inputs as they now are, so a node that changes one carries that change into the next run. So does every run made from one `Run` object (`resume` twice, `with_answers`, `with_decline`), since they share one copy of the constants. An outcome reused from `previous=` ("Running again") is still the previous run's own value. It is provisional.
-- `{"graph_input": name}` is the caller's value, under that name. `{"graph_input": name, "default": v}` adds a value for when the caller gives none.
-  - The default is the record's. `{"graph_input": name}` with no `default` is required, whatever the input's own default.
+- `{"graph_input": name}` is the caller's value, under a name the record declares in `inputs`.
+  - The default is the record's, declared with the graph input. One declared with no `default` is required, whatever the input's own default.
+  - Its type is that of the inputs that take it, the first of them in the order the nodes are compiled. Its default is read by that type once every input that takes it is known, so two inputs that disagree on its type are always `graph_input_used_two_ways`, whichever node comes first, and the default is then not read. A default the type refuses is `invalid_value` at the first input that takes it.
   - Several inputs may name one graph input, and the caller's one value feeds them all.
-  - Two of them must agree, else they are `graph_input_used_two_ways`. They clash when they read different types from their hints (a different type, limits, choices or validators), are shown differently (a different title, description or widget), or have different record defaults.
+  - Two of them must agree, else they are `graph_input_used_two_ways`. They clash when they read different types from their hints (a different type, limits, choices or validators), or are shown differently (a different title, description or widget).
   - `int` and `Annotated[int, Param()]` agree, and so do `Annotated[int, annotated_types.Ge(0)]` and `Annotated[int, Param(ge=0)]`.
-- An entry has exactly one of `constant`, `graph_input` and `sources` (`invalid_record`, `one_of_constant_graph_input_sources` in `ctx.errors`). It has `default` only beside `graph_input` (`default_without_graph_input`).
+  - An entry naming a graph input the record doesn't declare is `graph_input_not_declared`, with `ctx.declared`. A declared graph input that no entry names is `graph_input_not_used`, with `loc` `()`, since it would have no type. An entry on a node that didn't compile still names its graph input.
+- An entry has exactly one of `constant`, `graph_input` and `sources` (`invalid_record`, `one_of_constant_graph_input_sources` in `ctx.errors`). Any other key is refused, a `default` beside `graph_input` among them (`extra_forbidden`): a default goes on the graph input it is for.
 - With nothing set, the input takes its declared default. A required input with nothing set, on any node, is `input_has_no_value`.
 - `display` is the host's own. It is stored, and never read. What a host keeps about the whole graph, such as a name or a viewport, it stores beside the record.
 
@@ -467,12 +471,12 @@ chained = Graph.compile(make_graph(lines, upper, join), registry)    # the quick
 print(chained.run({"text": "a\nb"}).outputs)  # {'result': 'A+B'}
 
 record = make_graph(upper, join, constants={"upper.text": "x"})
-print(record.nodes["upper"].inputs["text"].constant)  # x
+print(record.model_dump(mode="json")["nodes"]["upper"]["inputs"])  # {'text': {'constant': 'x'}}
 ```
 
 **Node ids.** Each node is written at its version, under its own id. That is the id given with it, as in `make_graph(("a", upper), ("b", upper))`, or else its definition's. A definition used twice gets `upper-1` and `upper-2`.
 
-**A chain.** With no `edges`, the nodes form a chain. Each node gets an edge from the one output of the node before it, into its one required input that has no constant or default and that the edge can feed.
+**A chain.** With no `edges`, the nodes form a chain. Each node gets an edge from the one output of the node before it, into its one required input that the edge can feed and that `constants=`, `defaults=` and `inputs=` don't name.
 
 - When that can't be drawn, it is `not_a_chain`. When the only required inputs left take only a constant, it is `not_a_chain_constant_only`, with `ctx.inputs`.
 - By itself, `make_graph` never wires an input that takes only a constant, or makes it a graph input. Compiled without a constant, such an input is `input_has_no_value_constant_only`.
@@ -483,13 +487,13 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 
 **Constants and defaults.** `constants={"upper.text": "x"}` gives inputs constants, the same on every call of every run. `defaults=` makes inputs graph inputs, with values the caller may change.
 
-**The graph's inputs and outputs.** `make_graph` declares them.
+**The graph's inputs and outputs.** `make_graph` declares them, each graph input once under `inputs` with its default.
 
 - The graph inputs are every required input that gets nothing (no edge, no constant), on any node, named by the input. Every key of `defaults` is one too.
 - An optional input that gets nothing takes its own default, and is no graph input.
 - The graph outputs are every output of the nodes no edge leaves, named by the output. A node that any edge leaves gives no automatic output, not even an output no edge reads: with `edges=[("route.large", "notify.amount")]`, the branch `route.small` is no graph output. `outputs=` names it.
 - `inputs=` and `outputs=` give some of them other names: `inputs={"who": "greet.name"}`, `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both), `outputs={"long": "join.result"}`. A field named there is declared under that name, and the other automatic ones stay. So `outputs={}` still declares every automatic output.
-- An optional input named in `inputs=` stays optional: `make_graph` writes the input's own default as the graph input's `default`, so `shout(text, mark: str = "!")` with `inputs={"m": "shout.mark"}` runs without `m`. A graph input that feeds several inputs takes their default when each declares the same one, and is required otherwise. A key of `defaults=` gives its own. An input a hook adds has no default here.
+- An optional input named in `inputs=` stays optional: `make_graph` writes the input's own default as the graph input's `default`, so `shout(text, mark: str = "!")` with `inputs={"m": "shout.mark"}` runs without `m`. A graph input that feeds several inputs takes their default when each declares the same one, and is required otherwise. A key of `defaults=` gives its own, on any of the inputs it feeds; two keys that give one graph input different defaults raise `graph_input_given_two_defaults` (`ctx.inputs`). An input a hook adds has no default here.
 - Two graph inputs that would share a name, automatic or named in `inputs=`, raise `graph_inputs_share_a_name` (`ctx.inputs`). Two graph outputs raise `graph_outputs_share_a_name` (`ctx.outputs`).
 - A field a hook adds or returns is known only when the graph is compiled. So a graph input or output on one is named in `inputs=` or `outputs=`. A node with a `compute_outputs` hook that no edge leaves, and none of whose outputs `outputs=` names, raises `hook_outputs_not_named`, since the graph would return nothing from it. A hook that returns no outputs at all leaves nothing to name, so `make_graph` can't write that graph: write its record by hand.
 
@@ -498,8 +502,9 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 - a place that names a node it wasn't given, in any argument: an edge, a constant, a default, `inputs=` or `outputs=` (`node_not_in_graph`);
 - a value with no JSON form, or with a set in it (`invalid_value`);
 - a place that isn't `"node.name"`, or whose id or name isn't a valid name, such as `"greet.result~"` (`invalid_place`). Its `loc` is the argument and where in it: `("edges", 1, 0)` or `("constants", key)`;
-- two graph inputs or two graph outputs of one name;
-- what the record refuses (`invalid_record`, with `ctx.written_by` `make_graph's arguments`): an input given a constant and an edge, an edge written twice, one id given to two nodes, a field on a graph output;
+- two graph inputs or two graph outputs of one name, and two defaults for one graph input (`graph_input_given_two_defaults`);
+- one input given two of a constant (`constants=`), a graph input (`inputs=` or `defaults=`, which may both name it) and edges (`edges=`), at `(node, input)`, with the arguments that name it in `ctx.ways` (`input_given_two_ways`). It is provisional;
+- what the record refuses (`invalid_record`, with `ctx.written_by` `make_graph's arguments`): an edge written twice, one id given to two nodes, a field on a graph output;
 - a chain it can't draw (`not_a_chain`). The automatic graph inputs, and the automatic outputs of every node but the last, aren't made then, so a clash that would only follow from the gap isn't listed; what `inputs=`, `outputs=` and `defaults=` name is still checked. An edge it can't write, such as one that names a node it wasn't given, leaves out every automatic graph input and output the same way, so `make_graph(shout, count, edges=[("shuot.result", "count.text")])` raises `node_not_in_graph` alone;
 - a node with a `compute_outputs` hook whose outputs no edge reads and `outputs=` doesn't name (`hook_outputs_not_named`).
 
@@ -521,10 +526,10 @@ It never raises for a fault in the graph. Each fault is a `Problem` (`type`, `lo
 - a key written twice in one JSON object, such as two nodes with one id (`repeated_key`);
 - a node id, input or port that is not a name (`not_a_name`), and a field that is empty or starts with `.` (`not_a_field`);
 - a source listed twice (`repeated_source`), and an empty list of sources (`no_sources`);
-- an entry of no kind or of two (`one_of_constant_graph_input_sources`), and a `default` without `graph_input` (`default_without_graph_input`);
+- an entry of no kind or of two (`one_of_constant_graph_input_sources`), and a key an entry doesn't have, such as a `default` beside `graph_input` (`extra_forbidden`);
 - a field on a graph output (`output_has_field`).
 
-The `loc` goes down to the fault. An entry of no kind or of two ends at its input, `("record", "nodes", "b", "inputs", "text")`. A fault inside an entry goes on, as `("record", "nodes", "b", "inputs", "text", "sources")` for a source listed twice. A node id or input that is not a name ends in `"[key]"`. A record that `make_graph` or an `Upgrade` wrote says so in `ctx.written_by`. Its message ends "Fix make_graph's arguments." or "Fix the Upgrade of 'split' to version 2.".
+The `loc` goes down to the fault. An entry of no kind or of two ends at its input, `("record", "nodes", "b", "inputs", "text")`. A fault inside an entry goes on to its place in the JSON, as `("record", "nodes", "b", "inputs", "text", "sources")` for a source listed twice and `("record", "nodes", "b", "inputs", "text", "default")` for a `default` beside a `graph_input`. A node id or input that is not a name ends in `"[key]"`. A record that `make_graph` or an `Upgrade` wrote says so in `ctx.written_by`. Its message ends "Fix make_graph's arguments." or "Fix the Upgrade of 'split' to version 2.".
 
 `read_json(text)` reads JSON text as data, with every object's keys seen. For a key written twice, or text that is not JSON, it raises `InvalidCallError` of `invalid_record`, with `repeated_key` or pydantic's `json_invalid` in `ctx.errors`.
 
@@ -533,7 +538,7 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - The graph keeps its own copy of the definitions it resolved, so a later change to the registry doesn't reach it.
 - A graph that uses subgraphs made for one request is compiled with a registry of its own: a new `NodeRegistry`, then `add_subregistry(shared)`, then `add(*definitions)`. `docs/subgraphs.md` teaches it.
 - `graph.inputs` is the graph inputs the record declares, by name. Each is the `FieldDescription` a caller gives a value for. Its `default` is the record's default as JSON, and is absent when it is `required`.
-- They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that leaves a choice, and a node's own in the order it declares them. The record keeps no order, so `record.input_names` and `record.required_inputs` are sorted.
+- They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that leaves a choice, and a node's own in the order it declares them. The record keeps no order, so the order its `inputs` are declared in plays no part.
 - A graph input with no value yet is not a problem. A required input that gets nothing is `input_has_no_value`.
 - `graph.outputs` is the graph outputs the record declares, by name, sorted. Each is the `FieldDescription` of what a complete run gives for it: the output of the node behind it, under the graph output's name. It is described as a subgraph node's output is: one that needs a branch is `"required": false` with no `default`, and one whose node is inside loops is a list with its `loops`. A graph output whose node didn't compile isn't in it.
 - `graph.inputs` and `graph.outputs` are read-only mappings, shared by every caller and by `describe()`: writing into one is a `TypeError`. `dict(graph.outputs)` is a copy to change.
@@ -562,9 +567,9 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - `unknown_input`: an entry names an input the node lacks.
 - `unknown_output`: an edge names an output, or a field of an output, that the node doesn't give. For a graph output it is `graph_output_not_found`.
 - `type_mismatch`: an edge between types that don't meet.
-- `invalid_value`: a constant or default its type refuses. `invalid_value_bound_default` is an input's declared default that doesn't fit the type an edge gives a type variable, and `output_default_bound_invalid` an output's.
+- `invalid_value`: a constant, or a graph input's default, its type refuses. `invalid_value_bound_default` is an input's declared default that doesn't fit the type an edge gives a type variable, and `output_default_bound_invalid` an output's.
 - `compute_hook_failed`, `compute_hook_raised` and `compute_hook_returned_invalid`: see "Field Hooks". `context_does_not_fit`: see "Context".
-- `input_has_no_value` and `graph_input_used_two_ways`.
+- `input_has_no_value`, `graph_input_used_two_ways`, `graph_input_not_declared` and `graph_input_not_used`: see "The graph record".
 - `cycle`.
 - `subgraph_contains_itself`, on the node that closes the circle.
 - `input_takes_only_a_constant`: an edge or a graph input into an input that takes only a constant.

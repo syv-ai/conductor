@@ -181,6 +181,7 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "source", "inputs": {"text": {"graph_input": "text"}}},
                     "l": {
@@ -302,6 +303,7 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
     skipping = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"o": {"node": "only-short", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "o", "output": "result"}},
             }
@@ -415,6 +417,7 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
     pinned = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "f": {
                         "node": "fetch",
@@ -430,6 +433,7 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
     newest = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "f": {
                         "node": "fetch",
@@ -764,6 +768,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "slow-second", "inputs": {"text": {"graph_input": "text"}}}
                 },
@@ -1382,6 +1387,7 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"r": {"node": "raises", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "r", "output": "result"}},
             }
@@ -1979,6 +1985,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
     prepared = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {"f": {"node": "flaky", "inputs": {"text": {"graph_input": "text"}}}},
                 "outputs": {"result": {"node": "f", "output": "result"}},
             }
@@ -2193,6 +2200,7 @@ def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_t
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "m": {"node": "measure", "inputs": {"text": {"graph_input": "text"}}},
                     "c": {
@@ -2243,6 +2251,7 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "b": {"node": "bare", "inputs": {"text": {"graph_input": "text"}}},
                     "r": {
@@ -2286,6 +2295,7 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
                     "r": {
@@ -2356,6 +2366,7 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"b_text": {}, "m_text": {}},
                 "nodes": {
                     "b": {"node": "boom", "inputs": {"text": {"graph_input": "b_text"}}},
                     "m": {"node": "many", "inputs": {"text": {"graph_input": "m_text"}}},
@@ -2395,6 +2406,7 @@ def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_ne
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"l_text": {}, "o_text": {}},
                 "nodes": {
                     "l": {"node": "late", "inputs": {"text": {"graph_input": "l_text"}}},
                     "o": {"node": "long", "inputs": {"text": {"graph_input": "o_text"}}},
@@ -2756,6 +2768,7 @@ def test_a_none_into_a_subgraph_node_makes_its_inner_nodes_none_input_calls_as_i
     inner = subgraph("twice", title="Twice", description="For a test.")(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                     "v": {
@@ -2770,6 +2783,7 @@ def test_a_none_into_a_subgraph_node_makes_its_inner_nodes_none_input_calls_as_i
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
                     "sub": {

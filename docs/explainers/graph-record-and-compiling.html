@@ -456,6 +456,9 @@ for entry in data["nodes"].values():  # make_graph doesn't keep an order of a no
 print(dumps(data))
       </script>
       <pre data-lang="json" class="out record">{
+  "inputs": {
+    "text": {}
+  },
   "nodes": {
     "lines": {
       "node": "lines",
@@ -494,12 +497,12 @@ print(dumps(data))
 }</pre>
     </div>
     <div class="stack">
-      <p>This record is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>nodes</code> and <code>outputs</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
+      <p>This record is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>inputs</code>, <code>nodes</code> and <code>outputs</code>. <code>inputs</code> declares each graph input once, by name, with its <code>default</code> if it has one: <code>{"text": {}}</code> here, or <code>{"text": {"default": "a"}}</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
       <p>A <code>NodeRecord</code> names the node it uses in <code>node</code>, its <code>version</code> (1 unless it says otherwise), its <code>inputs</code>, and <code>display</code>. That last one is the host's own data, like a position on a canvas. Conductor saves it and doesn't read it, and it's left out of the <a href="saved-runs-and-reuse.html#keys">graph's fingerprint</a>.</p>
-      <p>Each input's <code>InputEntry</code> is one of these kinds (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
+      <p>Each input's entry, an <code>InputEntry</code>, is one of three kinds, and the one key it has says which (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
       <ul class="muted" style="display:grid;gap:.4rem;padding-left:1.1rem">
         <li><code>{"constant": "?"}</code>: the same value on every call of every run.</li>
-        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. Add <code>"default"</code> for a value to use when the caller gives none. Several inputs may name one graph input and share its value.</li>
+        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. The name is one the record declares in <code>inputs</code>, with the default for when the caller gives none. Several inputs may name one graph input and share its value and its one default.</li>
         <li><code>{"sources": [...]}</code>: the outputs whose edges lead into this input. Several sources are alternatives, from different <a href="nodes-and-types.html#outputs">branches</a> of one node.</li>
       </ul>
       <p>An input the record leaves out takes the node's own default. <code>shout.mark</code> would be <code>"!"</code>.</p>
@@ -891,12 +894,16 @@ print(dumps(json.loads(wired.nodes["shout"].inputs["line"].model_dump_json())))
 
 renamed = make_graph(shout, inputs={"m": "shout.mark"})
 print(dumps(json.loads(renamed.nodes["shout"].inputs["mark"].model_dump_json())))
+print(dumps(json.loads(renamed.model_dump_json())["inputs"]))
 
 try:
     make_graph(lines, shout, edges=[("lines", "shout.line")])
 except InvalidCallError as error:
     print([(p.type, p.loc) for p in error.problems])</pre>
       <pre class="out">{
+  "inputs": {
+    "text": {}
+  },
   "nodes": {
     "lines": {
       "node": "lines",
@@ -936,13 +943,18 @@ except InvalidCallError as error:
   "sources": [{"node": "person", "output": "result", "field": "email"}]
 }
 {
-  "graph_input": "m",
-  "default": "!"
+  "graph_input": "m"
+}
+{
+  "m": {
+    "default": "!"
+  },
+  "line": {}
 }
 [('invalid_place', ('edges', 0, 0))]</pre>
     </div>
     <div class="stack">
-      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that no constant or default fills. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose fields a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
+      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that <code>constants=</code>, <code>defaults=</code> and <code>inputs=</code> don't name. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose fields a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
       <p><b>Graph inputs and outputs.</b> Each required input that gets nothing becomes a graph input under its own name (<code>text</code>), unless it <a href="nodes-and-types.html#hooks">takes only a constant</a>. So does each key of <code>defaults</code>. Each output of a node that no edge leaves becomes a graph output (<code>result</code>). <code>inputs=</code> and <code>outputs=</code> name others. An optional input that <code>inputs=</code> names keeps its own default, so <code>m</code> above defaults to <code>"!"</code> and isn't required. A key of <code>defaults</code> gives its own. A node with a <code>compute_outputs</code> hook that no edge leaves needs <code>outputs=</code> to name what the graph returns from it. Without that, <code>make_graph</code> raises <code>hook_outputs_not_named</code>.</p>
       <p><b>Ids.</b> A definition used twice gets <code>shout-1</code> and <code>shout-2</code>, so no node keeps the bare id <code>shout</code> for another to take over.</p>
       <p><b>What it raises.</b> <code>make_graph</code> raises one <a href="problems.html#moments"><code>InvalidCallError</code></a> with every fault it can see while writing. In the last call, <code>"lines"</code> isn't <code>"node.name"</code>, so it is <code>invalid_place</code> and that edge isn't written. With an edge left out, <code>make_graph</code> makes no automatic graph inputs or outputs, so a name clash that would only follow from the gap isn't listed.</p>
@@ -981,7 +993,7 @@ print(calls)
 print([(f.name, f.type, f.required) for f in graph.describe().nodes["route"].outputs])
 print(graph.run({"text": "hello", "chosen": "big"}).outputs)
 
-broken = Graph.compile({"nodes": {   # the record by hand: no graph outputs
+broken = Graph.compile({"inputs": {"text": {}, "chosen": {}}, "nodes": {   # the record by hand: no graph outputs
     "count": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
     "route": {"node": "route", "inputs": {
         "value": {"sources": [{"node": "count", "output": "result"}]},
@@ -1022,7 +1034,7 @@ def shout_v2(line: str, mark: str = "!") -> str:
 versions = NodeRegistry()   # a registry with shout at version 2
 versions.add(shout_v2)
 
-saved = GraphRecord.model_validate({"nodes": {"s": {"node": "shout", "inputs": {
+saved = GraphRecord.model_validate({"inputs": {"text": {}}, "nodes": {"s": {"node": "shout", "inputs": {
     "text": {"graph_input": "text"}, "mark": {"constant": "?"}}}},
     "outputs": {"result": {"node": "s", "output": "result"}}})
 graph = Graph.compile(saved, versions)
@@ -1034,6 +1046,9 @@ print(versions.upgrade(moved, "s") is moved)</pre>
     <div class="stack">
       <pre class="out">True {'result': 'HI?'}
 {
+  "inputs": {
+    "text": {}
+  },
   "nodes": {
     "s": {
       "node": "shout",
@@ -1059,7 +1074,7 @@ print(versions.upgrade(moved, "s") is moved)</pre>
 True</pre>
       <ul class="muted" style="display:grid;gap:.45rem;padding-left:1.1rem">
         <li>A renamed input takes what it got along with it. Here that is the graph input <code>text</code>, which keeps its name for the caller.</li>
-        <li>A <code>rewrite</code> gets the node's constants and graph-input defaults as one dict. A default stays a default. Every other key it returns becomes a constant.</li>
+        <li>A <code>rewrite</code> gets the node's constants as one dict, and every key it returns becomes a constant. A graph input's default belongs to the whole graph, so no rewrite changes it.</li>
         <li>An input the newer version neither has nor renames is dropped. Edges and graph outputs from a renamed output move to its new name.</li>
         <li>After each step the new record's shape is checked again, so a step can't write a record of the wrong shape. A node already at the target version comes back as the same object.</li>
       </ul>
@@ -1174,9 +1189,9 @@ const BREAKS = JSON.parse(document.getElementById("breaks-data").textContent);
     type_mismatch: "The node lines now uses count, which returns an int. The edge is refused from the declared types alone. Nothing has run. count returns one value, so shout is in no loop and join.texts gets one value too.",
     invalid_value: "The constant is checked by mark's type while compiling. The message says what the type refused and doesn't quote the value.",
     unknown_input: "The node has no input colour. Its other inputs keep their sources, and shout still runs per line in describe().",
-    input_has_no_value: "A required input has no entry. The graph still compiles and describe() still draws lines. Running it would raise [InvalidCallError](problems.html#moments) with this [problem](problems.html).",
+    input_has_no_value: "A required input has no entry. The graph still compiles and describe() still draws lines. Running it would raise [InvalidCallError](problems.html#moments) with this [problem](problems.html). lines.text was the last entry that took the graph input text, so deleting it leaves text declared under inputs with nothing that takes it, and that is a problem of its own, graph_input_not_used: remove the declaration too.",
     several_edges_into_one_input: "A fourth node, more, is added. Several sources on one input must be alternatives, from different [branches](nodes-and-types.html#outputs) of one node. These two can both have a value on the same call. shout.line is missing then, so join.texts gets one value too.",
-    cycle: "Every node on the cycle gets the [problem](problems.html). Compiling goes on from join, the first of them by id, so the edge into join.texts comes from a node not compiled yet, and that input is missing.",
+    cycle: "Every node on the cycle gets the [problem](problems.html). Compiling goes on from join, the first of them by id, so the edge into join.texts comes from a node not compiled yet, and that input is missing. The cycle wires lines.text to join instead of the graph input text, so text is declared and nothing takes it: graph_input_not_used.",
     graph_output_not_found: "This [problem](problems.html) belongs to the graph, not to a node, so its [loc](subgraphs.html#places) is empty and no node is marked.",
     one_of_constant_graph_input_sources: "This is a fault in the record's shape. Graph.compile raises instead of returning a Graph, so there's nothing to draw.",
     not_a_name: "A name can't contain . / @ or ~, since places are written with them. Reading the record refuses it where it's written.",

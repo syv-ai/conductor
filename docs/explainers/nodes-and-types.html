@@ -963,23 +963,23 @@ print(Graph.compile(saved, registry).run().outputs)</pre>
         <div class="ver-step" data-short="saved" data-v="1" style="display:grid;gap:.6rem">
           <h3>The record as it was saved</h3>
           <p class="muted">The record names version 1 and gives name a constant. Compiled as it is, it runs version 1, which is still in the chain.</p>
-          <pre data-lang="py">print(saved.nodes["greet"].version, saved.nodes["greet"].inputs)</pre>
-<pre class="out">1 {'name': InputEntry(constant='Ida Berg')}</pre>
+          <pre data-lang="py">print(saved.model_dump(mode="json")["nodes"]["greet"])</pre>
+<pre class="out">{'node': 'greet', 'inputs': {'name': {'constant': 'Ida Berg'}}}</pre>
         </div>
         <div class="ver-step" data-short="to=2" data-v="2" style="display:grid;gap:.6rem" hidden>
           <h3>Version 2's Upgrade renames an input</h3>
           <p class="muted">renamed_inputs carries what the input got, here its constant, over to the new name.</p>
           <pre data-lang="py">step = registry.upgrade(saved, "greet", to=2)
-print(step.nodes["greet"].version, step.nodes["greet"].inputs)</pre>
-<pre class="out">2 {'person': InputEntry(constant='Ida Berg')}</pre>
+print(step.model_dump(mode="json")["nodes"]["greet"])</pre>
+<pre class="out">{'node': 'greet', 'version': 2, 'inputs': {'person': {'constant': 'Ida Berg'}}}</pre>
         </div>
         <div class="ver-step" data-short="newest" data-v="3" style="display:grid;gap:.6rem" hidden>
           <h3>Version 3's Upgrade rewrites the values</h3>
-          <p class="muted">The rewrite gets the node's constants and defaults as one dict and returns them for the newer version. It pops person, since every key it returns is written.</p>
+          <p class="muted">The rewrite gets the node's constants as one dict and returns them for the newer version. It pops person, since every key it returns is written.</p>
           <pre data-lang="py">moved = registry.upgrade(saved, "greet")
-print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)
+print(moved.model_dump(mode="json")["nodes"]["greet"])
 print(Graph.compile(moved, registry).run().outputs)</pre>
-<pre class="out">3 {'first': InputEntry(constant='Ida'), 'last': InputEntry(constant='Berg')}
+<pre class="out">{'node': 'greet', 'version': 3, 'inputs': {'first': {'constant': 'Ida'}, 'last': {'constant': 'Berg'}}}
 {'result': 'Hello Ida Berg'}</pre>
         </div>
       </div>

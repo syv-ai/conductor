@@ -53,7 +53,13 @@ from conductor._internal.problem import (
     ProblemCatalogue,
     ProblemKind,
 )
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, read_json
+from conductor._internal.record import (
+    GraphInputRecord,
+    GraphRecord,
+    InputEntry,
+    NodeRecord,
+    read_json,
+)
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import (
     CallCount,
@@ -93,6 +99,7 @@ __all__ = [
     "NodeRegistry",
     # A graph
     "GraphRecord",
+    "GraphInputRecord",
     "NodeRecord",
     "InputEntry",
     "Source",

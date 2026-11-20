@@ -422,10 +422,15 @@ class NodeRegistry[C]:
         version's ``Upgrade`` runs in turn. A step works like this:
 
         - Each renamed input takes along what it got: its constant, its graph input or the edges into it.
-        - The ``rewrite``, if there is one, gets the node's constants and graph-input defaults as one dict. A key that
-          was a default stays a default. Every other key it returns becomes a constant.
+        - The ``rewrite``, if there is one, gets the node's constants as one dict. Every key it returns becomes a
+          constant. A graph input's default belongs to the whole graph, so no step changes it, and an input that
+          takes a graph input or edges isn't in the dict: for a node whose inputs all take graph inputs, the rewrite
+          gets ``{}``. A key it returns for such an input gives the input two kinds of entry, and the record is
+          refused (``invalid_record``, whose ``ctx.written_by`` names the step).
         - An input the newer version neither has nor renames is dropped, with whatever it got. The rewrite still
-          sees its value first. If the rewrite returns its key, it stays in the record as a constant.
+          sees its constant first. If the rewrite returns its key, it stays in the record as a constant. When a
+          dropped input took a graph input that no other input takes, that graph input is dropped from the
+          record's ``inputs`` too, so it leaves what a caller gives the graph.
         - Every edge and graph output from a renamed output, or from a field of it, moves to the new name.
 
         A node already at ``to`` gives back the record as it is. The record returned isn't compiled. Compile it to

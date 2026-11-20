@@ -1,15 +1,16 @@
 """``NodeRecord``, one node of a graph record, and ``InputEntry``, what one of its inputs gets.
 
-In JSON, a node looks like ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``.
+In JSON, a node looks like ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``. An entry is one of three
+kinds, each a class of its own, and the one key its JSON has says which: ``ConstantEntry``, ``GraphInputEntry`` or
+``SourcesEntry``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any, Self
+from typing import Annotated, Any
 
 from pydantic import (
-    MISSING,
     AfterValidator,
     ConfigDict,
     Field,
@@ -17,11 +18,11 @@ from pydantic import (
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
-    model_validator,
 )
 
 from conductor._internal.base import ConductorModel, Name, Source
 from conductor._internal.problem import conductor_error, value_free_errors
+from conductor._internal.validation import KindByKey
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
@@ -50,7 +51,7 @@ def _one_fault(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
 
 
 #: A field whose value a graph carries, such as a constant: a fault inside it is reported at the field.
-_CARRIED = WrapValidator(_one_fault)
+CARRIED = WrapValidator(_one_fault)
 
 
 def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
@@ -75,53 +76,62 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
     )
 
 
-class InputEntry(ConductorModel):
-    """What one input of a node gets in a graph record: a constant, a graph input or sources.
+class ConstantEntry(ConductorModel):
+    """An input that gets a fixed value, as in ``{"constant": "?"}``.
 
-    Each entry is exactly one of the three:
-
-    - ``{"constant": "?"}`` is a fixed value. The input has it on every call of every run, and no caller can change
-      it.
-    - ``{"graph_input": "text"}`` is a value the caller gives when a run starts, as in ``graph.run({"text": "a b"})``.
-      Add ``"default"`` for a value to use when the caller gives none. Without one, the caller must give it.
-      Several inputs may name the same graph input, and then they all get the caller's one value.
-    - ``{"sources": [{"node": "lines", "output": "result"}]}`` lists the outputs whose edges lead into the input.
-      A source may also name one field of the output's value, as in ``{"node": "read", "output": "result", "field":
-      "email"}``. Several sources come from different branches of one node.
+    The input has the value on every call of every run, and no caller can change it.
 
     Attributes:
         constant: The fixed value.
+    """
+
+    model_config = ConductorModel.model_config | JSON_ONLY
+
+    constant: Annotated[JsonValue, CARRIED]
+
+
+class GraphInputEntry(ConductorModel):
+    """An input that gets the value of a graph input, as in ``{"graph_input": "text"}``.
+
+    The caller gives the value when a run starts, as in ``graph.run({"text": "a b"})``. The record declares the graph
+    input, with its default if it has one, under ``GraphRecord.inputs``. Several inputs may name the same graph
+    input, and then they all get the caller's one value.
+
+    Attributes:
         graph_input: The name of the graph input.
-        default: The graph input's default.
+    """
+
+    model_config = ConductorModel.model_config | JSON_ONLY
+
+    graph_input: Name
+
+
+class SourcesEntry(ConductorModel):
+    """An input that edges lead into, as in ``{"sources": [{"node": "lines", "output": "result"}]}``.
+
+    Each source is an output an edge comes from. A source may also name one field of the output's value, as in
+    ``{"node": "read", "output": "result", "field": "email"}``. Several sources come from different branches of one
+    node.
+
+    Attributes:
         sources: The outputs the edges come from, sorted.
     """
 
     model_config = ConductorModel.model_config | JSON_ONLY
 
-    constant: Annotated[JsonValue, _CARRIED] | MISSING = MISSING
-    graph_input: Name | MISSING = MISSING
-    default: Annotated[JsonValue, _CARRIED] | MISSING = MISSING
-    sources: Annotated[tuple[Source, ...], AfterValidator(_sorted_once)] | MISSING = MISSING
+    sources: Annotated[tuple[Source, ...], AfterValidator(_sorted_once)]
 
-    @model_validator(mode="after")
-    def _one_kind(self) -> Self:
-        """Checks that the entry is exactly one kind, and has a default only beside a graph input.
 
-        Raises:
-            PydanticCustomError: ``one_of_constant_graph_input_sources`` if the entry is none of the three kinds or
-                more than one. ``default_without_graph_input`` if it has a default but no graph input.
-        """
-        if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
-            raise conductor_error(
-                "one_of_constant_graph_input_sources",
-                "an input must get exactly one of a constant, a graph input or sources",
-            )
-        if self.default is not MISSING and self.graph_input is MISSING:
-            raise conductor_error(
-                "default_without_graph_input",
-                "the entry has a default but no graph_input, and only a graph input can have a default",
-            )
-        return self
+#: What one input of a node gets in a graph record: a constant, a graph input or sources, each a class of its own.
+#: The one key its JSON has, the name of its kind's one field, says which. An entry of no kind or of two is
+#: ``one_of_constant_graph_input_sources``.
+type InputEntry = Annotated[
+    ConstantEntry | GraphInputEntry | SourcesEntry,
+    KindByKey(
+        "one_of_constant_graph_input_sources",
+        "an input must get exactly one of a constant, a graph input or sources",
+    ),
+]
 
 
 class NodeRecord(ConductorModel):
@@ -141,6 +151,6 @@ class NodeRecord(ConductorModel):
     #: What each input gets, by the input's name.
     inputs: Mapping[Name, InputEntry] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own data, like position, size or a title a person edited. Conductor saves it and never looks at it.
-    display: Annotated[Mapping[str, JsonValue], _CARRIED] = Field(
+    display: Annotated[Mapping[str, JsonValue], CARRIED] = Field(
         default_factory=dict, exclude_if=_empty
     )

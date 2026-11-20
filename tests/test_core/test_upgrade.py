@@ -17,7 +17,6 @@ import pytest
 from conductor import (
     Graph,
     GraphRecord,
-    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -33,7 +32,7 @@ from conductor import (
 )
 from conductor.widgets import Textarea
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 @host_type("upgrade-test-txt", title="Text")
@@ -104,12 +103,14 @@ def _graph(version: int = 1) -> GraphRecord:
             "r": NodeRecord(
                 node="rename",
                 version=version,
-                inputs={"name": InputEntry(constant="Ada Lovelace")} if version == 1 else {},
+                inputs={"name": input_entry({"constant": "Ada Lovelace"})} if version == 1 else {},
             ),
             "e": NodeRecord(
                 node="echo",
                 inputs={
-                    "text": InputEntry(sources=(Source("r", "result" if version < 3 else "text"),))
+                    "text": input_entry(
+                        {"sources": (Source("r", "result" if version < 3 else "text"),)}
+                    )
                 },
             ),
         },
@@ -342,20 +343,23 @@ def test_an_input_the_upgrade_removes_loses_its_constant_its_graph_input_or_its_
     registry = registry_of(three, summed, *used)
     graph = GraphRecord.model_validate(
         {
+            "inputs": {"bee": {}} if "graph_input" in gone else {},
             "nodes": {
                 "t": {"node": "three"},
                 "s": {"node": "summed", "version": 1, "inputs": {"a": {"constant": 1}, "b": gone}},
-            }
+            },
         }
     )
     assert Graph.compile(graph, registry).problems == []
 
     upgraded = registry.upgrade(graph, "s")
     assert _inputs(upgraded, "s") == {"a": {"constant": 1}}
+    # a graph input that only the gone input took goes with it
+    assert upgraded.inputs == {}
     assert Graph.compile(upgraded, registry).problems == []
 
 
-def test_a_rewrite_sees_constants_and_defaults_together_and_a_default_stays_a_default():
+def test_a_rewrite_sees_only_constants_and_a_graph_inputs_default_stays_the_graphs():
     def counted_v1(
         src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0
     ) -> Annotated[Txt, Param(title="R")]:
@@ -377,15 +381,16 @@ def test_a_rewrite_sees_constants_and_defaults_together_and_a_default_stays_a_de
     with_both = registry.upgrade(
         GraphRecord.model_validate(
             {
+                "inputs": {"src": {"default": "x"}},
                 "nodes": {
                     "c": {
                         "node": "counted",
                         "inputs": {
                             "n": {"constant": 2},
-                            "src": {"graph_input": "src", "default": "x"},
+                            "src": {"graph_input": "src"},
                         },
                     }
-                }
+                },
             }
         ),
         "c",
@@ -397,8 +402,9 @@ def test_a_rewrite_sees_constants_and_defaults_together_and_a_default_stays_a_de
     assert _inputs(with_both, "c") == {
         "n": {"constant": 3},
         "added": {"constant": 1},
-        "src": {"graph_input": "src", "default": "x"},
+        "src": {"graph_input": "src"},
     }
+    assert with_both.model_dump(mode="json")["inputs"] == {"src": {"default": "x"}}
     assert _inputs(with_neither, "c") == {"n": {"constant": 1}, "added": {"constant": 1}}
 
 
@@ -678,7 +684,9 @@ def test_upgrading_a_subgraph_sets_only_its_version():
     def inner_graph(inner_id: str) -> GraphRecord:
         return GraphRecord(
             nodes={
-                inner_id: NodeRecord(node="echo", inputs={"text": InputEntry(graph_input="text")})
+                inner_id: NodeRecord(
+                    node="echo", inputs={"text": input_entry({"graph_input": "text"})}
+                )
             }
         )
 
@@ -983,11 +991,12 @@ def test_a_subgraphs_input_rename_moves_only_the_edge_into_that_exact_input():
     def inner(last: str, name: str) -> GraphRecord:
         return GraphRecord.model_validate(
             {
+                "inputs": {"ab": {}, "cb": {}, name: {}},
                 "nodes": {
                     "a": {"node": "takes-b", "inputs": {"b": {"graph_input": "ab"}}},
                     "c": {"node": "takes-b", "inputs": {"b": {"graph_input": "cb"}}},
                     "x": {"node": last, "inputs": {name: {"graph_input": name}}},
-                }
+                },
             }
         )
 
@@ -1038,13 +1047,14 @@ def test_a_rename_keeps_a_constant_a_graph_input_and_edges_as_they_are():
     registry = registry_of(echo, carry)
     graph = GraphRecord.model_validate(
         {
+            "inputs": {"bee": {"default": "2"}},
             "nodes": {
                 "src": {"node": "echo"},
                 "k": {
                     "node": "carry3",
                     "inputs": {
                         "a": {"constant": "1"},
-                        "b": {"graph_input": "bee", "default": "2"},
+                        "b": {"graph_input": "bee"},
                         "c": {"sources": [{"node": "src", "output": "result"}]},
                     },
                 },
@@ -1057,17 +1067,28 @@ def test_a_rename_keeps_a_constant_a_graph_input_and_edges_as_they_are():
 
     assert _inputs(upgraded, "k") == {
         "x": {"constant": "1"},
-        "y": {"graph_input": "bee", "default": "2"},
+        "y": {"graph_input": "bee"},
         "z": {"sources": [{"node": "src", "output": "result"}]},
     }
     assert Graph.compile(upgraded, registry).problems == []
 
 
-def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
-    """A rewrite that gives a value to an input with edges into it is refused.
+@pytest.mark.parametrize(
+    ("declared", "entry"),
+    [
+        ({}, {"sources": [{"node": "src", "output": "result"}]}),
+        ({"text": {"default": "a"}}, {"graph_input": "text"}),
+    ],
+    ids=["edges", "graph_input"],
+)
+def test_a_rewrite_giving_a_value_to_an_input_with_edges_or_a_graph_input_is_refused(
+    declared: dict, entry: dict
+):
+    """A rewrite that gives a value to an input with edges into it, or a graph input, is refused.
 
-    An input gets exactly one of a constant, a graph input or edges. A value on an input with edges would give it two.
-    So the record's validator refuses what the step wrote.
+    An input gets exactly one of a constant, a graph input or edges. A value on such an input would give it two.
+    So the record's validator refuses what the step wrote. A graph input's default is the whole graph's, so a
+    rewrite never turns it into a node's constant.
     """
 
     def fed_v1(text: str) -> str:
@@ -1086,13 +1107,8 @@ def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
     registry = registry_of(echo, fed)
     graph = GraphRecord.model_validate(
         {
-            "nodes": {
-                "src": {"node": "echo"},
-                "f": {
-                    "node": "fed",
-                    "inputs": {"text": {"sources": [{"node": "src", "output": "result"}]}},
-                },
-            }
+            "inputs": declared,
+            "nodes": {"src": {"node": "echo"}, "f": {"node": "fed", "inputs": {"text": entry}}},
         }
     )
 

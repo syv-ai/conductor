@@ -14,20 +14,32 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
+- **`make_graph` names the arguments that give one input two ways (provisional).** An input given two of a constant (`constants=`), a graph input (`inputs=` or `defaults=`) and edges (`edges=`) raised `invalid_record`, whose message said only "Fix make_graph's arguments". Now it raises `input_given_two_ways` at `(node, input)`, with the arguments in `ctx.ways`. And a chain skips an input that `inputs=` names, as it skips one with a constant or a default: `make_graph(hello, pair, inputs={"m": "pair.mark"})` chains into `pair.text`, where it raised `not_a_chain`.
+- **A `SubgraphDefinition`'s `compute_added_inputs` and `compute_outputs` are `None` (provisional),** as a function's are when it has no hooks; reading them raised `AttributeError` before.
 - **A generic `TypedDict` is a row everywhere.** `Row[int]`, for `class Row[T](TypedDict)`, was taken in a `Table` but refused on a field and in a `Series` with `type_not_named`, whose fix (`@host_type`) a `TypedDict` can't take. Now it is taken on an input, an output, a `Series`, a `Table` and an edge's field, with its arguments filled in; its id is `row`, as any `TypedDict`'s. A field written `ReadOnly` is taken the same way, and a `TypedDict` input with a `NotRequired` field takes an edge from a row that has the field or lacks it. An edge reading a field of a generic pydantic model, `Box[int]`, reads it as `int`, where it read `T`. A generic dataclass of outputs returned bare, `-> Pair`, crashed `@node` with a `ValueError`; its open type variable is now `Any`, as a bare generic `TypedDict`'s is. It is provisional.
 - **A `Param`'s `title` and `description` can't be blank.** `Param(title="  ")` was taken; now it is refused when the `Param` is written, as a node's is (`invalid_declaration_argument`, with `blank_text` in `ctx.errors`). It is provisional.
-- **A graph record is its nodes by id, and declares what the graph takes and returns.** `{"nodes": {"shout":
-  {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node": "join", "output": "result"}}}`. Each input a
-  node lists gets exactly one of a `constant`, a `graph_input` (with an optional `default`) or the `sources` of the
-  edges into it, each `{"node", "output", "field"?}`. A graph input sits on any node's input, and several inputs
-  may name one when they read the same type from their hints (type, limits, choices and validators) and are shown
-  alike (title, description, widget), so `int` and `Annotated[int, Param()]` agree, and so do a `Ge(0)` and a `Param(ge=0)`, else
-  `graph_input_used_two_ways`; a graph output is named in `outputs`. A subgraph's inputs and
-  outputs are those names, so an edge reads `loud.result`, never a node inside. The record keeps no order of its
-  nodes: where order matters, nodes go by id. A key written twice in the JSON (two nodes with one id), a name with
-  `.`, `/`, `@` or `~`, a source listed twice, an empty list of sources, an input given no kind or two, a `default`
-  without a `graph_input` and a field on a graph output are refused when the record is read (`invalid_record`, with
-  the fault in `ctx.error`). A graph input's default is the record's: an entry with no `default` is required.
+- **A graph record is its nodes by id, and declares what the graph takes and returns.** `{"inputs": {"text": {},
+  "mark": {"default": "!"}}, "nodes": {"shout": {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node":
+  "join", "output": "result"}}}`. Each graph input is declared once under `inputs` (a `GraphInputRecord`), with its
+  `default` if it has one, and each graph output under `outputs`. Each input a node lists gets exactly one of a
+  `constant`, a `graph_input` naming a declared graph input, or the `sources` of the edges into it, each `{"node",
+  "output", "field"?}`, and the one key an entry's JSON has says which. `InputEntry` is the type of an entry, a type
+  alias of the three kinds, so `InputEntry(...)` and `isinstance(x, InputEntry)` raise `TypeError`: a record reads
+  its entries from JSON, as `NodeRecord(node="upper", inputs={"text": {"constant": "x"}})`. Several inputs may name one graph input when they read
+  the same type from their hints (type, limits, choices and validators) and are shown alike (title, description,
+  widget), so `int` and `Annotated[int, Param()]` agree, and so do a `Ge(0)` and a `Param(ge=0)`, else
+  `graph_input_used_two_ways`. An entry naming a graph input the record doesn't declare is
+  `graph_input_not_declared`, and a declared graph input no entry names is `graph_input_not_used` (provisional). A
+  subgraph's inputs and outputs are those names, so an edge reads `loud.result`, never a node inside. The record
+  keeps no order of its nodes: where order matters, nodes go by id. A key written twice in the JSON (two nodes with
+  one id), a name with `.`, `/`, `@` or `~`, a source listed twice, an empty list of sources, an input given no kind
+  or two, any other key on an entry (a `default` among them) and a field on a graph output are refused when the
+  record is read (`invalid_record`, with the fault in `ctx.error`; a fault inside an entry is at its place in the JSON,
+  as `("record", "nodes", "b", "inputs", "text", "default")` for a `default` on an entry). A graph input's default is the record's: one
+  declared with no `default` is required. Declaring graph inputs once leaves one rule for which graph inputs a record
+  has and what their defaults are, where four were written, and the record gains types (its models go from 3 to 6).
+  Compiling a record with no default shared over its entries is about 9% slower (a 50-node chain, 0.91 to 1.00 ms),
+  and faster only where one default sat on every entry that takes it (1.86 to 1.31 ms for 50).
   `graph.inputs`, `run.inputs`, `graph.outputs` and `run.outputs` are keyed by the declared names. `graph.inputs` and
   `graph.outputs` are read-only mappings: writing into `graph.outputs` changed what `describe()`, a subgraph node
   that uses the graph and the registry's palette showed, and writing into one is now a `TypeError`. `make_graph`
@@ -36,7 +48,9 @@ What changes in how you work, before the name-by-name tables:
   output's name; `inputs=` and `outputs=` name some of them otherwise, on top of that, and two of one name are
   refused (`graph_inputs_share_a_name`, `graph_outputs_share_a_name`). A node given as `(id, definition)` gets that
   id. `Graph.compile` takes a `GraphRecord`, its JSON text or that JSON as data, and `read_json(text)` reads JSON
-  text with every key seen. New public names: `InputEntry`, `Source`, `read_json`. New codes: `input_has_no_value`,
+  text with every key seen. New public names: `GraphInputRecord`, `InputEntry`, `Source`, `read_json`. New codes:
+  `input_has_no_value`, `graph_input_not_declared`,
+  `graph_input_not_used`, `graph_input_given_two_defaults`,
   `graph_input_used_two_ways`, `graph_output_not_found`, `graph_inputs_share_a_name`, `graph_outputs_share_a_name`,
   `invalid_place`.
 - **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`. Without it,
@@ -174,8 +188,8 @@ What changes in how you work, before the name-by-name tables:
   column of one value, since such a column is now refused when the graph is compiled.
 - **A graph's inputs and outputs are read from the compiled graph (provisional).** `graph.inputs` lists the graph
   inputs in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that
-  leaves a choice, and a node's own in the order it declares them. The record keeps no order, so
-  `GraphRecord.input_names` and `required_inputs`, and a `SubgraphDefinition`'s `input_names`, `required_inputs`
+  leaves a choice, and a node's own in the order it declares them. The record keeps no order, so a
+  `SubgraphDefinition`'s `input_names`, `required_inputs`
   and `output_names`, are sorted; they followed the order the record's JSON listed its nodes in, which
   `graph.inputs` and the palette didn't. `graph.outputs`, and `graph.describe().outputs`, are the graph outputs by
   name, sorted, each the `FieldDescription` of what a complete run gives, where they were a list of names: as a
@@ -355,10 +369,14 @@ What changes in how you work, before the name-by-name tables:
 - **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
   as their type says. `InvalidCallError` with `invalid_record` problems is what JSON text of the wrong shape raises.
 - **`registry.upgrade` drops an input the newer version doesn't have, for a subgraph as for a function.** What it gets (a constant, a graph input
-  or the edges into it) goes once a `rewrite` has read its constant or default, and a subgraph's inputs are the graph inputs its record names, so
+  or the edges into it) goes once a `rewrite` has read its constant, and a subgraph's inputs are the graph inputs its record declares, so
   a subgraph node upgraded to a version that takes fewer graph inputs compiles clean (it kept them, and compiling said `unknown_input`). A subgraph's
   newer version that drops a graph input or output of the one it replaces needs an `Upgrade` saying where it went, as a function's does
   (`upgrade_missing` where it is declared).
+- **Breaking: an `Upgrade`'s `rewrite` gets only the node's constants, and never changes a graph input's default**
+  [provisional]. A graph input is declared once for the whole graph, so an upgrade of one node leaves its default as
+  it is; a key the rewrite returns for an input that takes a graph input, or edges, is refused (`invalid_record`). A
+  graph input that only the inputs an upgrade drops took is dropped from the record's `inputs` with them.
 - **A call's fingerprint is taken once, when the call is made, and kept with its outcome** [provisional]. Reuse and waiting ids read it from there, where a run worked the call's arguments out again at every `with_inputs`, for every `run.waiting` and for every answer. Breaking for a saved run: each node's outcomes have a list `fingerprints`, one entry per call (`null` for a call that wasn't made, or whose arguments have no JSON form); a `reusable` entry has the keys of a node's outcomes plus `item_indexes`, with no `outcomes` or `fingerprints` beside them; and the saved run's `code` map is gone. A saved run written before this change is refused as `saved_run_unreadable` (`ctx.where` names the first key it lacks or no longer takes, such as `outcomes.shout.fingerprints`, `reusable.shout.states` or `code`). A waiting id's eight hex digits hash the call's fingerprint with the node's code fingerprint now: the same graph and code give the same id on every run and after a save, a deploy that changes the node's code makes the id stale (`answer_stale`), and `ctx.moved_to` finds a moved question as before, but a waiting id written before this change no longer matches, so a host holding one (a queued answer, a link) reads `run.waiting` again. Two reuse changes after a deploy that changes a node's code, read with `Run.from_json`: the outcomes made with the old code stay among the reusable outcomes, unmatched, until the node is complete, and a save in between writes them, where they were dropped on read (so a deploy and its revert reuse them again); and an outcome made after the deploy is reused by the next run, where every outcome of the node in that saved run was called again.
 - **An `Upgrade` renames only declared fields.** `@node` and `subgraph` raise `NodeDeclarationError` with the new
   declaration problem `upgrade_renames_unknown` (`ctx.old`, `ctx.new`) when a name in `renamed_inputs` or
@@ -714,9 +732,10 @@ What changes in how you work, before the name-by-name tables:
   'ok~7eb8816a', since its inputs or its node's code changed after that id was written. Use that id instead." It
   said the question "was replaced by a newer one", which was wrong after a deploy that changed only the node's code.
 - **`make_graph`'s `inputs=` keeps an optional input optional.** `make_graph(shout, inputs={"m": "shout.mark"})`
-  for `shout(text, mark: str = "!")` writes `{"graph_input": "m", "default": "!"}`, so a run may leave `m` out. It
+  for `shout(text, mark: str = "!")` declares `{"inputs": {"m": {"default": "!"}}}`, so a run may leave `m` out. It
   wrote no default, so the graph input was required and the function's default was lost. A graph input that feeds
-  several inputs takes their default when each declares the same one, and is required otherwise.
+  several inputs takes their default when each declares the same one, and is required otherwise. `defaults=` that
+  give two inputs of one graph input different defaults raise `graph_input_given_two_defaults`.
 - **A `Series` wired into a `list[T]` input says to declare it `Series[T]` (provisional).** The new compile
   code `type_mismatch_series_into_list` (`ctx` `source`, `got`, `expected`, `item`) reads "'words.result' gives
   Series[str], but 'bundle.parts' takes list[str]. To take every item as one list, declare the input Series[str] in
@@ -992,13 +1011,13 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 
 ### Converting a stored 1.x graph
 
-A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": {id: node, ...}, "outputs": {...}}`. Each `GraphNode` becomes a `NodeRecord` under its id, `{node, version, inputs, display}`, empty fields left out. Each `GraphEdge` becomes a source on the input it leads into, `{"sources": [{"node": source, "output": source_handle}]}`. Declare the graph's inputs (`{"graph_input": name}` on each input a caller fills) and outputs (`outputs`). Compile the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: return the list from a node as a `Series[X]` and wire it to the input that took one item, and the node runs once per item; a node after it that collected the items takes them through a `Series` input.
+A 1.x `Flow` becomes a `GraphRecord`, `{"inputs": {...}, "nodes": {id: node, ...}, "outputs": {...}}`. Each `GraphNode` becomes a `NodeRecord` under its id, `{node, version, inputs, display}`, empty fields left out. Each `GraphEdge` becomes a source on the input it leads into, `{"sources": [{"node": source, "output": source_handle}]}`. Declare the graph's inputs (`inputs`, `{name: {"default": v}}`, with `{"graph_input": name}` on each input a caller fills) and outputs (`outputs`). Compile the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: return the list from a node as a `Series[X]` and wire it to the input that took one item, and the node runs once per item; a node after it that collected the items takes them through a `Series` input.
 
 | 1.x field | 2.0 |
 |---|---|
 | `GraphNode.id` | its key in `nodes`, without `.`, `/`, `@` or `~` |
 | `GraphNode.type` | `node` (the id of the node it uses) and `version`, 1 when left out |
-| `GraphNode.data` | an input's entry: `{"constant": v}` for what is fixed, `{"graph_input": name, "default": v}` for what a caller may change; an input wired by an edge has `{"sources": [...]}` |
+| `GraphNode.data` | an input's entry: `{"constant": v}` for what is fixed, `{"graph_input": name}` for what a caller may change, its default declared once under the record's `inputs`; an input wired by an edge has `{"sources": [...]}` |
 | `GraphNode.produces` | gone: the node's outputs are its return type's |
 | `GraphNode.consumes` | gone: the node's inputs are its signature's |
 | `GraphNode.compensation` | gone with compensation |

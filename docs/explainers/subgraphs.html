@@ -577,15 +577,15 @@ print(list(json.loads(run.to_json())["outcomes"]))</pre>
       <p class="label">Run it</p>
 <script type="text/x-python">
 broken = subgraph("broken", title="Broken", description="Names a node that isn't there.")(
-    '{"nodes": {"x": {"node": "nothere", "inputs": {"line": {"graph_input": "line"}}}},'
+    '{"inputs": {"line": {}}, "nodes": {"x": {"node": "nothere", "inputs": {"line": {"graph_input": "line"}}}},'
     ' "outputs": {"result": {"node": "x", "output": "result"}}}'
 )
 loop_b = subgraph("self-b", title="B", description="Uses self-a.")(
-    '{"nodes": {"y": {"node": "self-a", "inputs": {"line": {"graph_input": "line"}}}},'
+    '{"inputs": {"line": {}}, "nodes": {"y": {"node": "self-a", "inputs": {"line": {"graph_input": "line"}}}},'
     ' "outputs": {"result": {"node": "y", "output": "result"}}}'
 )
 loop_a = subgraph("self-a", title="A", description="Uses self-b.")(
-    '{"nodes": {"x": {"node": "self-b", "inputs": {"line": {"graph_input": "line"}}}},'
+    '{"inputs": {"line": {}}, "nodes": {"x": {"node": "self-b", "inputs": {"line": {"graph_input": "line"}}}},'
     ' "outputs": {"result": {"node": "x", "output": "result"}}}'
 )
 registry.add(broken, loop_b, loop_a)
