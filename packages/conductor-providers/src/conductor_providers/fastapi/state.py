@@ -7,8 +7,7 @@ person, the outputs, and how far the run is. It can be megabytes, so it is writt
 each checkpoint. A store keeps both as text and never reads them.
 
 Every change of a state is a method here that returns a new state, so a test can call it on a ``Run`` with no store
-at all. The three that take a run, ``ended_with``, ``failed`` and ``declined``, also return the row's ``run`` and
-``outcome`` to write with it.
+at all. The one that takes a run, ``ended_with``, also returns the row's ``run`` and ``outcome`` to write with it.
 ``RunView`` is what a reader sees: the run's status and outcome, without the worker's own bookkeeping.
 """
 
@@ -201,70 +200,79 @@ class RunState(BaseModel):
         refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
         return self.model_copy(update={"refused": refused})
 
-    def declined(self, run: Run[Any]) -> tuple[RunState, str, RunOutcome]:
-        """This state once a person's decline ended the run for good: ``declined``, with nothing queued or asked.
+    def ended_with(
+        self, run: Run[Any] | None, *, saved: str | None = None, cause: Problem | None = None
+    ) -> tuple[RunState, str | None, RunOutcome]:
+        """This state once the run has stopped, given what was queued meanwhile, in the order it came.
 
-        Args:
-            run: The run that took the decline.
-
-        Returns:
-            The state, ``declined`` with the run's ``answer_declined`` as its cause, and the row's ``run`` (as JSON)
-            and ``outcome`` to write with it.
-        """
-        state = self.model_copy(
-            update={"status": run.status, "cause": run.cause, "queued": [], "cancel_asked": False}
-        )
-        return state, run.to_json(), RunOutcome.of(run, state.status)
-
-    def ended_with(self, run: Run[Any], saved: str) -> tuple[RunState, str, RunOutcome]:
-        """This state once a resume call stops and the run is given what was queued meanwhile, in the order it came.
-
+        A run stops when its resume call ends or raises. A run that isn't running also stops here once it takes a
+        person's decline, with nothing queued. Either way the row that stops holds no queue.
         ``python -m conductor.about answers-and-declines`` has the queue's rules. A reply whose check raises
         something other than a refusal (a fault in a host's type) is logged and refused as ``raised_outside_a_node``.
 
         A run that takes a decline has ended for good: it is ``declined``, and a reply queued after the decline is
-        refused, as the run refuses it. Else a run that takes any answer is running again, for the worker to resume
-        at once. A cancel asked that the run didn't end on then stays asked, and ends the next resume call before any
-        node call. So does one asked of a run that ends ``waiting``.
+        refused, as the run refuses it. Else a call that raised leaves the run ``failed`` with ``cause``. An answer
+        to a question the run asked after its last checkpoint is then refused as ``not_waiting``, and that question
+        waits again on the next resume. When the row's run couldn't be loaded, there is no run to give the queue
+        to, so each queued reply is refused with ``cause``.
 
-        A run that completes with a cancel asked ends ``cancelled``. The cancel came before the run's end was
-        written, so the run ends as the cancel's answer said it would, even though its last calls were made: another
-        worker hears a cancel only at its next checkpoint or lease renewal. Every call's outcome is kept, so a resume
-        makes no call and completes the run. Like any row that isn't complete, it shows no outputs until then. A run
-        that ended early keeps how it ended, and the cancel is cleared.
+        Else a run that takes any answer is running again, for the worker to resume at once. A cancel asked that the
+        run didn't end on then stays asked, and ends the next resume call before any node call. So does one asked of
+        a run that ends ``waiting``. A run that completes with a cancel asked ends ``cancelled``. The cancel came
+        before the run's end was written, so the run ends as the cancel's answer said it would, even though its last
+        calls were made: another worker hears a cancel only at its next checkpoint or lease renewal. Every call's
+        outcome is kept, so a resume makes no call and completes the run. Like any row that isn't complete, it shows
+        no outputs until then. A run that ended early keeps how it ended, and any other cancel is cleared.
 
-        The row keeps the run given the queue, and shows the outcome of the run as the call returned it, so what
-        a reader sees changes only when the run stops again.
+        The row shows the outcome of the run it keeps, the one given the queue. A run that is running again shows
+        the run as its call returned it instead, before the answers it took, so what a reader sees changes only when
+        the run stops again.
 
         Args:
-            run: The run the resume call returned.
-            saved: ``run``, as JSON.
+            run: The run that stopped: the run a resume call returned, the run as the row has it (its last
+                checkpoint) for a call that raised, or a run that took a decline. ``None`` when the row's run
+                couldn't be loaded.
+            saved: ``run`` as JSON, when the row doesn't keep it yet; ``None`` when it does.
+            cause: Why the resume call raised; ``None`` for one that didn't.
 
         Returns:
-            The new state, and the row's ``run`` (as JSON) and ``outcome`` to write with it.
+            The new state, the row's ``run`` (as JSON) to write with it, ``None`` to keep the row's, and its
+            ``outcome``.
         """
-        given, taken, refused = self._given_to(run)
-        if given.status == "declined":
-            return self.model_copy(update={"refused": refused}).declined(given)
-        # a cancel asked that the run didn't end on: this resume call heard it too late, or not at all
-        unheard = self.cancel_asked and run.status != "cancelled"
-        status: RunStatus
-        if taken or (unheard and run.status == "waiting"):
-            status, cause, cancel_asked = "running", None, unheard
-        elif unheard and run.status == "complete":
-            status, cause, cancel_asked = "cancelled", _RUN_CANCELLED(), False
+        if run is None:
+            given, taken, refused = None, False, dict(self.refused)
         else:
-            status, cause, cancel_asked = run.status, run.cause, False
+            given, taken, refused = self._given_to(run)
+        # a cancel asked that the run didn't end on: this resume call heard it too late, or not at all
+        unheard = self.cancel_asked and run is not None and run.status != "cancelled"
+        status: RunStatus
+        if given is not None and given.status == "declined":
+            status, why, cancel_asked = given.status, given.cause, False
+        elif cause is not None:
+            status, why, cancel_asked = "failed", cause, False
+            if given is None:
+                refused |= {reply.waiting_id: [cause] for reply in self.queued}
+        elif given is None:
+            raise ValueError("ended_with takes the cause when the row's run couldn't be loaded")
+        elif taken or (unheard and given.status == "waiting"):
+            status, why, cancel_asked = "running", None, unheard
+        elif unheard and given.status == "complete":
+            status, why, cancel_asked = "cancelled", _RUN_CANCELLED(), False
+        else:
+            status, why, cancel_asked = given.status, given.cause, False
         state = self.model_copy(
             update={
                 "status": status,
-                "cause": cause,
+                "cause": why,
                 "queued": [],
                 "refused": refused,
                 "cancel_asked": cancel_asked,
             }
         )
-        return state, given.to_json() if taken else saved, RunOutcome.of(run, status)
+        if run is None or given is None:
+            return state, None, RunOutcome(waiting=[], outputs=None, progress=None)
+        shown = run if state.is_running else given
+        return state, given.to_json() if taken else saved, RunOutcome.of(shown, status)
 
     def _given_to(self, run: Run[Any]) -> tuple[Run[Any], bool, dict[str, list[Problem]]]:
         """``run`` once it is given the queued replies, in the order they came.
@@ -294,49 +302,6 @@ class RunState(BaseModel):
                 taken = True
                 refused.pop(reply.waiting_id, None)
         return given, taken, refused
-
-    def failed(
-        self, cause: Problem, run: Run[Any] | None
-    ) -> tuple[RunState, str | None, RunOutcome]:
-        """This state once a resume call raised, or conductor refused it, so it returned no run.
-
-        The run as the row has it, its last checkpoint, is given the replies queued meanwhile then and there, as
-        ``ended_with`` gives them. So a row that stops never holds a queue, and a later answer, decline or resume
-        acts on the run alone. A run that takes a decline is ``declined``; else it is ``failed`` with ``cause``. An
-        answer to a question the run asked after its last checkpoint is refused as ``not_waiting`` in ``refused``,
-        and that question waits again on the next resume. A cancel asked is cleared, since the run has stopped.
-
-        When the row's run can't be loaded, there is no run to give the queue to, so each queued reply is refused
-        with ``cause``, in ``refused`` by its waiting id.
-
-        Args:
-            cause: Why the resume call failed.
-            run: The run as the row has it, or ``None`` when it couldn't be loaded.
-
-        Returns:
-            The state, the row's ``run`` (as JSON) and its ``outcome`` to write with it. The ``run`` is the run given
-            the queue when it took any of it, else ``None`` to keep the row's run as it is. The outcome is that of
-            the run given the queue, with nothing waiting when the run couldn't be loaded.
-        """
-        if run is None:
-            given, taken = None, False
-            refused = {**self.refused, **{reply.waiting_id: [cause] for reply in self.queued}}
-        else:
-            given, taken, refused = self._given_to(run)
-            if given.status == "declined":
-                return self.model_copy(update={"refused": refused}).declined(given)
-        state = self.model_copy(
-            update={
-                "status": "failed",
-                "cause": cause,
-                "queued": [],
-                "refused": refused,
-                "cancel_asked": False,
-            }
-        )
-        if given is None:
-            return state, None, RunOutcome(waiting=[], outputs=None, progress=None)
-        return state, given.to_json() if taken else None, RunOutcome.of(given, state.status)
 
 
 class RunView(RunOutcome):
