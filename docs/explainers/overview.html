@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conductor Map</title>
+<style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
+<style>
+/* =====================================================================
+   DESIGN TOKENS: the look of the conductor series.
+   Layout: one reading column (about 76ch) that widens to 1360px for the
+   map and the walk-through; sections are separated by space
+   and a faint staff of rules, never by boxes.
+   Reuse this whole block on every later page.
+   ===================================================================== */
+:root {
+  /* colour, light */
+  --paper: #f3f5f8;          /* page ground, a cool grey with a blue bias */
+  --surface: #ffffff;        /* the few things that are objects: tiles, code */
+  --ink: #142033;            /* text */
+  --ink-2: #48566a;          /* secondary text */
+  --ink-3: #75839a;          /* captions, axis labels */
+  --rule: #dbe1ea;           /* hairlines and the staff */
+  --accent: #2a4fd6;         /* the selected thing, links */
+  --accent-soft: #e3e9fc;    /* fill behind ink text, never behind accent text */
+  --old: #a3adbb;            /* 1.12.2 in the chart */
+  --slow: #b1530b;           /* the one row that got slower */
+  --slow-soft: #fbeadb;
+  --ok: #1d7a4e;
+  --code-bg: #f8f9fb;
+  --code-key: #2a4fd6;
+  --code-str: #1d7a4e;
+  --code-com: #7b8798;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
+
+  /* type */
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+  --step-4: clamp(2.75rem, 7vw, 4.75rem);
+
+  /* space and shape */
+  --col: 76ch;
+  --wide: 1360px;
+  --gap: 1.25rem;
+  --section: clamp(4.5rem, 10vw, 8rem);
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20, 32, 51, .05), 0 6px 24px rgba(20, 32, 51, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+    --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+    --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+    --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+  --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+  --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+  --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+/* ===================== end of design tokens ===================== */
+
+/* public or internal: the one convention of the series */
+:root { --int: #6b7689; --int-soft: #eef1f5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --int: #9aa5b8; --int-soft: #1d2533; } }
+:root[data-theme="dark"] { --int: #9aa5b8; --int-soft: #1d2533; }
+.lvl { display: inline-block; font-family: var(--font-body); font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 4px; vertical-align: .15em; margin-left: .5rem; }
+.lvl.pub { background: var(--accent-soft); color: var(--ink); }
+.lvl.int { background: var(--int-soft); color: var(--int); }
+code.int { color: var(--int); text-decoration: underline dotted; text-underline-offset: .2em; }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 4rem; }
+.wrap { max-width: var(--wide); margin-inline: auto; }
+.prose { max-width: var(--col); }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 400; }
+h1 { font-family: var(--font-display); font-size: var(--step-4); line-height: 1.02; letter-spacing: -0.01em; }
+h2 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.1; }
+h3 { font-family: var(--font-body); font-size: var(--step-1); font-weight: 600; line-height: 1.3; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.eyebrow { font-size: var(--step--1); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: var(--step-1); color: var(--ink-2); line-height: 1.55; }
+.muted { color: var(--ink-2); }
+.small { font-size: var(--step--1); color: var(--ink-3); }
+section { padding-top: var(--section); }
+.section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; }
+
+/* the staff: five faint rules, the one ornament of the series */
+.staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
+
+/* ---------- hero ---------- */
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero h1 em { font-style: italic; color: var(--accent); }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
+.idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
+.idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
+.idea .term b { font-weight: 400; color: var(--accent); }
+.idea pre { margin: .25rem 0 0; }
+@media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- code ---------- */
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
+/* each code line hangs: a wrapped line goes on 2ch past its own indent */
+.ln { display: block; }
+.tk-k { color: var(--code-key); }
+.tk-s { color: var(--code-str); }
+.tk-c { color: var(--code-com); font-style: italic; }
+.tk-d { color: var(--ink-2); }
+
+/* ---------- map ---------- */
+.map { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 2rem; align-items: start; }
+@media (max-width: 960px) { .map { grid-template-columns: minmax(0, 1fr); } }
+.map-board { min-width: 0; display: grid; gap: 1.5rem; }
+.band { display: grid; gap: .6rem; }
+.band-label { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+.band-label .eyebrow { color: var(--ink-2); }
+.layers { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: 0 .75rem; }
+.arrow { grid-row: 1 / span 11; position: relative; }
+.arrow::before { content: ""; position: absolute; left: 50%; top: .4rem; bottom: 1.4rem; width: 2px; transform: translateX(-50%); background: linear-gradient(var(--rule), var(--ink-3)); }
+.arrow::after { content: ""; position: absolute; left: 50%; bottom: .6rem; transform: translateX(-50%); border: 7px solid transparent; border-top: 10px solid var(--ink-3); border-bottom: 0; }
+.arrow span { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); white-space: nowrap; font-size: var(--step--1); color: var(--ink-3); background: var(--paper); padding: 0 .4rem; letter-spacing: .06em; }
+.layer { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .3rem 0; border-top: 1px dashed var(--rule); }
+.layer:nth-child(2) { border-top: 0; }
+.layer .sep { color: var(--ink-3); font-size: var(--step--1); }
+.row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.tile {
+  font: 500 0.875rem/1.2 var(--font-mono); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 8px; padding: .55rem .8rem; cursor: pointer;
+  display: inline-flex; align-items: center; gap: .5rem; transition: background .2s, border-color .2s, opacity .2s, transform .2s;
+}
+.tile::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--pkg); flex: none; }
+.tile:hover { border-color: var(--ink-3); }
+.tile.int { border-style: dashed; border-color: var(--int); }
+.tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.tile.below { border-color: var(--accent); }
+.tile.above { opacity: .42; }
+.tile.wide { padding-block: .7rem; }
+.companions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+@media (max-width: 520px) { .companions { grid-template-columns: minmax(0, 1fr); } }
+.companions .tile { width: 100%; justify-content: flex-start; flex-wrap: wrap; text-align: left; }
+.companions .tile small { flex-basis: 100%; font-family: var(--font-body); color: var(--ink-3); font-size: .75rem; padding-left: 1.05rem; }
+.legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: var(--step--1); color: var(--ink-2); }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; background: var(--pkg); vertical-align: middle; }
+.legend .box { width: 18px; height: 12px; border-radius: 3px; border: 1px solid var(--ink-3); background: none; }
+.legend .box.int { border-style: dashed; border-color: var(--int); }
+.legend .box.below { border-color: var(--accent); background: var(--surface); }
+.levels { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: 2.5rem; font-size: var(--step--1); color: var(--ink-2); }
+.levels p { display: flex; align-items: baseline; gap: .6rem; }
+.levels .lvl, .names-head .lvl, .choice details p > .lvl:first-child { margin-left: 0; }
+
+.panel { position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--bar-h, 0px) + 1rem); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.4rem 1.4rem 1.5rem; display: grid; gap: .9rem; min-width: 0; }
+@media (max-width: 960px) { .panel { position: static; } }
+.panel .name { font-family: var(--font-mono); font-size: 1.125rem; font-weight: 500; word-break: break-word; }
+.panel .where { font-size: var(--step--1); color: var(--ink-3); }
+.panel .job { font-size: 1.0625rem; line-height: 1.5; }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.chip { font-family: var(--font-mono); font-size: .75rem; background: var(--accent-soft); color: var(--ink); padding: .2rem .5rem; border-radius: 5px; }
+.chip.int { background: var(--int-soft); color: var(--int); }
+.names { display: grid; gap: .45rem; }
+.names-head { font-size: .8125rem; color: var(--ink-2); display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.panel .name .lvl { font-size: .6875rem; }
+.pr-tag { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--step--1); font-weight: 600; color: var(--ink); }
+.pr-tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--pkg); }
+.panel dl { margin: 0; display: grid; gap: .55rem; }
+.panel dt { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.panel dd { margin: 0; font-size: .9375rem; color: var(--ink-2); }
+.panel .note { font-size: .875rem; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: .75rem; }
+
+/* ---------- walk-through ---------- */
+.walk { display: grid; gap: 1.5rem; }
+.rail { display: flex; gap: .35rem; overflow-x: auto; padding-bottom: .25rem; scrollbar-width: thin; }
+.rail button { flex: 1 0 auto; min-width: 7.5rem; text-align: left; font: inherit; font-size: .8125rem; color: var(--ink-2); background: none; border: 0; border-top: 2px solid var(--rule); padding: .6rem .25rem 0; cursor: pointer; }
+.rail button b { display: block; font-family: var(--font-mono); font-weight: 500; font-size: .75rem; color: var(--ink-3); }
+.rail button[aria-current="step"] { border-top-color: var(--accent); color: var(--ink); }
+.rail button[aria-current="step"] b { color: var(--accent); }
+.rail button.seen { border-top-color: var(--ink-3); }
+.stage { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.stage-text { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.stage-text h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
+.stage-text .cap { color: var(--ink-2); max-width: 60ch; }
+.out { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-2); }
+.out span { color: var(--ok); }
+.fade { animation: fade .45s ease both; }
+@keyframes fade { from { opacity: .15; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.btn { font: 600 .875rem/1 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .6rem 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: .45rem; }
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+.count { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-3); margin-left: .25rem; }
+.progress { height: 2px; background: var(--rule); border-radius: 2px; overflow: hidden; flex: 1 1 8rem; }
+.progress i { display: block; height: 100%; width: 0; background: var(--accent); }
+
+.diagram { min-width: 0; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; overflow-x: auto; }
+.diagram svg { width: 100%; height: auto; display: block; }
+@media (max-width: 900px) { .diagram svg { min-width: 420px; } }
+.d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
+.d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
+.d-title { font: 600 11px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+.d-node rect { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; transition: fill .35s, stroke .35s; }
+.d-node.on rect { stroke: var(--ink-3); }
+.d-node.done rect { fill: var(--accent-soft); stroke: var(--accent); }
+.d-node.wait rect { fill: var(--slow-soft); stroke: var(--slow); }
+.d-node.ghost { opacity: .35; }
+.d-node, .d-edge, .d-extra { transition: opacity .35s; }
+.d-edge { stroke: var(--ink-3); stroke-width: 1.5; fill: none; }
+.d-edge.live { stroke: var(--accent); stroke-dasharray: 5 5; animation: flow 1s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -10; } }
+.d-pulse { fill: none; stroke: var(--slow); stroke-width: 2; opacity: 0; }
+.wait .d-pulse { animation: pulse 1.8s ease-out infinite; }
+@keyframes pulse { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(1.18); } }
+.d-pulse { transform-box: fill-box; transform-origin: center; }
+.d-badge { font: 600 11px var(--font-mono); }
+.d-badge.okc { fill: var(--ok); }
+.d-badge.askc { fill: var(--slow); }
+.d-doc rect { fill: var(--code-bg); stroke: var(--rule); }
+.hidden-el { opacity: 0; }
+
+/* ---------- choices ---------- */
+.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+@media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
+.choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
+.choice h3 { font-size: 1.125rem; }
+.choice p { color: var(--ink-2); }
+.choice details { font-size: .9375rem; }
+.choice summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .875rem; list-style: none; display: inline-flex; align-items: center; gap: .35rem; }
+.choice summary::-webkit-details-marker { display: none; }
+.choice summary::before { content: "+"; font-family: var(--font-mono); width: 1rem; }
+.choice details[open] summary::before { content: "\2212"; }
+.choice details > div { padding-top: .5rem; display: grid; gap: .5rem; color: var(--ink-2); }
+.cost { font-size: .875rem; color: var(--ink); background: var(--slow-soft); padding: .55rem .75rem; border-radius: 6px; }
+.cost b { font-weight: 600; }
+.choice .sees { color: var(--ink); font-size: .9375rem; }
+
+/* ---------- next ---------- */
+.prs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+@media (max-width: 900px) { .prs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .prs { grid-template-columns: minmax(0, 1fr); } }
+.pkg { display: grid; gap: .4rem; align-content: start; text-decoration: none; color: var(--ink); padding: 1rem 0 0; border-top: 3px solid var(--pkg); min-width: 0; }
+.pkg:hover .pkg-title { text-decoration: underline; text-underline-offset: 3px; }
+.pkg .num { font-family: var(--font-mono); font-size: .875rem; color: var(--ink-3); }
+.pkg-title { font-weight: 600; }
+.pkg .muted { font-size: .875rem; }
+.series { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .5rem 1.5rem; margin-top: 1rem; counter-reset: s 1; }
+.series li { list-style: none; padding: .6rem 0; border-bottom: 1px dashed var(--rule); display: flex; justify-content: space-between; gap: 1rem; font-size: .9375rem; }
+.series li span { color: var(--ink-3); font-size: .8125rem; white-space: nowrap; }
+.series li.here { color: var(--accent); font-weight: 600; }
+.series li a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .2em; }
+.series li a:hover { color: var(--accent); text-decoration-color: currentColor; }
+.series { padding: 0; margin-bottom: 0; }
+footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!-- the series bar: the reading order and back/next, the same on every page of the series -->
+<style id="series-bar-css">
+:root { --bar-h: 44px; }
+html { scroll-padding-top: calc(var(--bar-h) + 12px); }
+body { margin: 0; }
+.sbar { position: sticky; top: 0; z-index: 60; height: var(--bar-h); display: flex; align-items: center; gap: .75rem; padding: 0 max(16px, calc((100vw - var(--wide, 1360px)) / 2)); background: color-mix(in srgb, var(--paper) 88%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(10px); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--rule); font-family: var(--font-body); font-size: .8125rem; color: var(--ink-2); }
+.sbar a { color: inherit; text-decoration: none; }
+.sbar a:hover { color: var(--accent); }
+.sbar-home { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sbar-order { position: relative; flex: 1; min-width: 0; display: flex; justify-content: center; }
+.sbar-btn { font: inherit; color: var(--ink); background: none; border: 0; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; display: inline-flex; gap: .5rem; align-items: baseline; max-width: 100%; }
+.sbar-btn:hover, .sbar-btn[aria-expanded="true"] { background: var(--accent-soft); }
+.sbar-num { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.sbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbar-caret { color: var(--ink-3); font-size: .7rem; }
+.sbar-list { position: absolute; top: calc(var(--bar-h) - 6px); left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 32px)); margin: 0; padding: .4rem; list-style: none; background: var(--surface); border-radius: 10px; box-shadow: 0 8px 32px rgba(20, 32, 51, .18); counter-reset: sb; }
+.sbar-list[hidden] { display: none; }
+.sbar-list li { counter-increment: sb; }
+.sbar-list a { display: flex; gap: .75rem; padding: .45rem .6rem; border-radius: 6px; color: var(--ink); }
+.sbar-list a::before { content: counter(sb); font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); min-width: 1.25rem; text-align: right; }
+.sbar-list a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-list a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.sbar-list small { margin-left: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: .7rem; }
+.sbar-step { display: flex; gap: .25rem; white-space: nowrap; }
+.sbar-step a, .sbar-step span { padding: .35rem .6rem; border-radius: 6px; }
+.sbar-step a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-step span { color: var(--ink-3); opacity: .5; }
+@media (max-width: 640px) { .sbar-home { display: none; } .sbar-order { position: static; } .sbar-title { max-width: 9rem; } .sbar-step .sbar-word { display: none; } }
+@media print { .sbar { display: none; } }
+</style>
+<style id="series-layout">
+/* Columns side by side end level: a row is as tall as its tallest column, and the box at the foot of each
+   shorter column grows to the row's bottom. Rows are the pages' classes for columns side by side; a box is a
+   code block (pre), an output (.out), a figure or a cost (.cost). A diagram or a pre that is a column on its
+   own just stretches with the row. Inside a row, a column's own prose goes above its box; text about the
+   whole row goes below the row. At 900px and below the columns stack, and no height is forced. */
+@media (min-width: 901px) {
+  :is(.idea, .two, .pair, .split, .beside, .stage, .ex-body, .choices, figure.side, .viewer, .sig, .fail-grid, .ctrl-row, .facts, .shape) {
+    /* Every column stretches to the row's height. A text column with no box just stretches. */
+    align-items: stretch;
+    /* A stretched column keeps its parts packed at the top, as they were; the spare height goes below them. */
+    & > * { align-content: start; }
+    /* A column that ends in a box, and a figure that is a column, stack their parts so one can grow. */
+    & > :where(:has(> :is(pre, .out, figure, .cost):last-child), figure),
+    & > * > :where(figure:last-child) { display: flex; flex-direction: column; }
+    /* The box grows only when it ends its column: text or a control under a box would leave a gap above it.
+       A row with a pre as a column on its own (a long JSON beside a short sample) or with a live widget's
+       .controls is left out, so its short box keeps its own height. */
+    &:not(:has(> pre, .controls)) > * > :is(pre, .out, figure, .cost):last-child { flex-grow: 1; }
+    /* A figure hands its spare height to the diagram in it, above its caption. */
+    & > figure > :not(figcaption, p),
+    & > * > figure:last-child > :not(figcaption, p) { flex-grow: 1; }
+    /* Columns of a label, a box and a note (.ex-body, and a row marked .labelled) share the row's three
+       tracks, so the boxes start and end level even when the labels or notes above and under them differ. */
+    &:is(.ex-body, .labelled) > div { display: grid; grid-template-rows: subgrid; grid-row: span 3; }
+  }
+}
+</style>
+</head>
+<body>
+<nav class="sbar" aria-label="Conductor series" data-page="1">
+  <a class="sbar-home" href="overview.html">Conductor</a>
+  <div class="sbar-order">
+    <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
+    <ol class="sbar-list" id="sbar-list" hidden></ol>
+  </div>
+  <div class="sbar-step"></div>
+</nav>
+<script id="series-bar-js">
+(function () {
+  var PAGES = [
+    ["Overview", "overview.html"],
+    ["A node and its types", "nodes-and-types.html"],
+    ["The graph record and compiling", "graph-record-and-compiling.html"],
+    ["Series and tables", "series-and-tables.html"],
+    ["Asking a person", "asking-a-person.html"],
+    ["Subgraphs", "subgraphs.html"],
+    ["Saved runs and reuse", "saved-runs-and-reuse.html"],
+    ["Running and streaming", "running-and-streaming.html"],
+    ["Problems", "problems.html"],
+    ["The standard nodes", "standard-nodes.html"],
+    ["Serving runs", "serving-runs.html"]
+  ];
+  var bar = document.querySelector(".sbar");
+  if (!bar) return;
+  var here = parseInt(bar.getAttribute("data-page"), 10) - 1;
+  var url = function (i) { return PAGES[i][1]; };
+  bar.querySelector(".sbar-num").textContent = (here + 1) + " / " + PAGES.length;
+  bar.querySelector(".sbar-title").textContent = PAGES[here][0];
+  var list = bar.querySelector(".sbar-list");
+  PAGES.forEach(function (p, i) {
+    var li = document.createElement("li"), a = document.createElement("a");
+    a.href = url(i);
+    a.textContent = p[0];
+    if (i === here) a.setAttribute("aria-current", "page");
+    li.appendChild(a); list.appendChild(li);
+  });
+  var step = bar.querySelector(".sbar-step");
+  var link = function (i, label, word, rel) {
+    var html = label.replace("WORD", '<span class="sbar-word">' + word + "</span>");
+    if (i < 0 || i >= PAGES.length) { var s = document.createElement("span"); s.innerHTML = html; s.setAttribute("aria-hidden", "true"); return s; }
+    var a = document.createElement("a"); a.href = url(i); a.rel = rel;
+    a.title = PAGES[i][0]; a.innerHTML = html;
+    return a;
+  };
+  step.appendChild(link(here - 1, "← WORD", "Back", "prev"));
+  step.appendChild(link(here + 1, "WORD →", "Next", "next"));
+  var btn = bar.querySelector(".sbar-btn");
+  var open = function (yes) { list.hidden = !yes; btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+  btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
+  document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<!-- /series-bar -->
+<div class="page">
+<div class="wrap">
+
+<!-- ============================ HERO ============================ -->
+<header class="hero">
+  <p class="eyebrow">Conductor &middot; the overview</p>
+  <h1><em>Conductor</em></h1>
+  <div class="prose" style="display:grid;gap:1rem">
+    <p class="lede">Conductor is a Python library that runs graphs of typed nodes. You write Python functions. Someone else wires them together in an editor, and the graph reaches you as JSON. Conductor checks that graph, tells you what's wrong with it, and runs it.</p>
+    <p class="muted" id="host">It needs only pydantic, polars and typing-extensions. It has no web framework, database or login, and it uses none of a host's words. Those belong to the application that uses it, which conductor calls the host.</p>
+  </div>
+  <div class="idea" aria-label="The one idea">
+    <div>
+      <p class="term">A node is a <b>typed function</b>.</p>
+      <p class="muted">Its parameters are its inputs and its <a href="nodes-and-types.html#outputs">return type</a> is its outputs. Nothing is declared twice.</p>
+      <script type="text/x-python">
+from typing import TypedDict
+
+from conductor import Ask, Graph, NodeRegistry, Run, Series, node, make_graph
+</script>
+      <pre data-lang="py">@node("shout", title="Shout", description="…")
+def shout(line: str) -> str:
+    return line.upper()</pre>
+    </div>
+    <div>
+      <p class="term">A graph is a <b>JSON record</b>.</p>
+      <p class="muted">An editor saves it, and code writes the same record with <a href="graph-record-and-compiling.html#make"><code>make_graph</code></a>. You <a href="graph-record-and-compiling.html#compiling">compile</a> it against a registry.</p>
+      <script type="text/x-python">
+print(make_graph(shout).model_dump_json(indent=2))
+</script>
+      <pre data-lang="json" class="out">{
+  "inputs": {
+    "line": {}
+  },
+  "nodes": {
+    "shout": {
+      "node": "shout",
+      "inputs": {
+        "line": {
+          "graph_input": "line"
+        }
+      }
+    }
+  },
+  "outputs": {
+    "result": {
+      "node": "shout",
+      "output": "result"
+    }
+  }
+}</pre>
+    </div>
+    <div>
+      <p class="term">A run is <b>JSON</b> you save and resume.</p>
+      <p class="muted">It can wait days for a person, then go on in another process. A call that's finished in the <a href="saved-runs-and-reuse.html#saved">saved run</a> isn't made again.</p>
+      <script type="text/x-python">
+@node("check", title="Check", description="Asks a person whether a line may go out.", asks=True)
+def check(line: str) -> bool:
+    raise Ask(f"Send {line!r}?")
+
+
+hero = NodeRegistry()
+hero.add(check)
+graph = Graph.compile(make_graph(check), hero)
+run = graph.run({"line": "hello"})
+</script>
+      <pre data-lang="py">saved = run.to_json()
+# days later, anywhere
+run = Run.from_json(saved, graph)
+run = run.with_answers(run.waiting[0], True).resume()</pre>
+    </div>
+  </div>
+</header>
+
+<div class="levels" aria-label="Public and internal">
+  <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+  <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+</div>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ MAP ============================ -->
+<section id="map" aria-labelledby="map-h">
+  <div class="section-head prose">
+    <p class="eyebrow">The map</p>
+    <h2 id="map-h">The public modules in front of the engine's layers</h2>
+    <p class="muted">A host imports only the public modules on top. The engine behind them is the packages under <code class="int" title="Internal">conductor._internal</code>, in the layers that the import-linter contract in <code>pyproject.toml</code> declares: that contract is the source of this map, and a test checks the code against it. A package imports only from the layers below it, and packages on one line import none of each other. Tap a package to see where it is, where it is described and the package it ships in.</p>
+  </div>
+
+  <div class="map">
+    <div class="map-board" id="board">
+      <div class="band">
+        <div class="band-label"><span class="eyebrow">Public modules</span><span class="lvl pub">Public</span><span class="small">what a host imports</span></div>
+        <div class="row" id="row-public"></div>
+      </div>
+
+      <div class="band">
+        <div class="band-label"><span class="eyebrow">The engine in <code class="int" title="Internal">conductor._internal</code></span><span class="lvl int">Internal</span><span class="small">top layer first</span></div>
+        <div class="layers" id="layers">
+          <div class="arrow" aria-hidden="true"><span>imports go down</span></div>
+        </div>
+      </div>
+
+      <div class="band">
+        <div class="band-label"><span class="eyebrow">Companions</span><span class="lvl pub">Public</span><span class="small">separate packages that import only the public modules</span></div>
+        <div class="companions" id="row-companions"></div>
+      </div>
+
+      <div class="legend" aria-label="Legend">
+        <span><i style="--pkg:var(--pkg-core)"></i>The core, syv-conductor</span>
+        <span><i style="--pkg:var(--pkg-nodes)"></i>syv-conductor-nodes</span>
+        <span><i style="--pkg:var(--pkg-providers)"></i>syv-conductor-providers</span>
+        <span><i class="box below"></i>an accent outline marks what the selected package may import</span>
+      </div>
+      <p class="small">A solid outline is public and a dashed one is internal.</p>
+    </div>
+
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WALK-THROUGH ============================ -->
+<section id="walk" aria-labelledby="walk-h">
+  <div class="section-head prose">
+    <p class="eyebrow">One run from start to finish</p>
+    <h2 id="walk-h">Approving invoices with a pause for a person<span class="lvl pub">Public</span></h2>
+    <p class="muted">This is the README's invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write and what it prints.</p>
+  </div>
+
+  <div class="walk">
+    <nav class="rail" id="rail" aria-label="Steps"></nav>
+    <div class="stage">
+      <div class="stage-text" id="stage-text"></div>
+      <div class="diagram" aria-hidden="true">
+        <svg viewBox="0 0 420 330" id="dia">
+          <text class="d-title" x="14" y="22">registry</text>
+          <g id="reg">
+            <g class="d-node reg-read ghost"><rect x="14" y="32" width="80" height="26" rx="6"/><text class="d-label" x="54" y="49" text-anchor="middle">read</text></g>
+            <g class="d-node reg-approve ghost"><rect x="102" y="32" width="88" height="26" rx="6"/><text class="d-label" x="146" y="49" text-anchor="middle">approve</text></g>
+            <g class="d-node reg-summary ghost"><rect x="198" y="32" width="92" height="26" rx="6"/><text class="d-label" x="244" y="49" text-anchor="middle">summary</text></g>
+          </g>
+          <text class="d-title" x="14" y="96">graph</text>
+          <g id="graph-part">
+            <path class="d-edge e1" d="M110 156 C 140 156, 140 136, 168 136"/>
+            <path class="d-edge e1" d="M110 156 C 140 156, 140 182, 168 182"/>
+            <path class="d-edge e2" d="M276 136 C 300 136, 300 158, 318 158"/>
+            <path class="d-edge e2" d="M276 182 C 300 182, 300 158, 318 158"/>
+            <g class="d-node n-read"><rect x="14" y="136" width="96" height="42" rx="8"/><text class="d-label" x="62" y="155" text-anchor="middle">read</text><text class="d-sub" x="62" y="170" text-anchor="middle">once</text></g>
+            <g class="d-node n-a0"><rect x="168" y="116" width="108" height="40" rx="8"/><text class="d-label" x="222" y="134" text-anchor="middle">approve@0</text><text class="d-sub" x="222" y="149" text-anchor="middle">Ida, 100</text></g>
+            <g class="d-node n-a1"><rect class="d-pulse" x="168" y="162" width="108" height="40" rx="8"/><rect x="168" y="162" width="108" height="40" rx="8"/><text class="d-label" x="222" y="180" text-anchor="middle">approve@1</text><text class="d-sub" x="222" y="195" text-anchor="middle">Bo, 5000</text></g>
+            <g class="d-node n-sum"><rect x="318" y="138" width="90" height="42" rx="8"/><text class="d-label" x="363" y="157" text-anchor="middle">summary</text><text class="d-sub" x="363" y="172" text-anchor="middle">collects</text></g>
+            <text class="d-badge okc b-a0 hidden-el" x="270" y="112" text-anchor="end">True</text>
+            <text class="d-badge askc b-a1 hidden-el" x="270" y="218" text-anchor="end">Ask</text>
+            <text class="d-badge okc b-a1ok hidden-el" x="270" y="218" text-anchor="end">True (answer)</text>
+            <text class="d-badge okc b-sum hidden-el" x="408" y="200" text-anchor="end">'2 of 2 approved'</text>
+          </g>
+          <text class="d-title" x="14" y="258">state</text>
+          <g class="d-doc d-extra" id="doc">
+            <rect x="14" y="268" width="394" height="46" rx="8"/>
+            <text class="d-label" id="doc-line1" x="28" y="288">graph not compiled yet</text>
+            <text class="d-sub" id="doc-line2" x="28" y="304"></text>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
+      <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
+      <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
+      <span class="count" id="count">1 / 8</span>
+      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+    </div>
+  </div>
+  <!-- The walk-through's steps: each step shows the elements with its data-step, in order. They are here, and not in
+       the script, so that the page's sample test runs each step's code and checks what it prints. -->
+  <div class="walk-src" hidden>
+<pre data-lang="py" data-step="0">def approve(name: str, amount: int) -&gt; bool:
+    if amount &lt; 1000:
+        return True
+    raise Ask(f"Approve {name}, {amount} kr.?")</pre>
+<pre data-lang="py" data-step="1">registry = NodeRegistry()
+
+@registry.node("approve", title="Approve",
+               description="Approves an invoice, or asks a person to.",
+               asks=True)
+def approve(name: str, amount: int) -&gt; bool:
+    if amount &lt; 1000:
+        return True
+    raise Ask(f"Approve {name}, {amount} kr.?")
+
+print(approve("Ida", 100))  # calling it is its unit test</pre>
+<pre class="out" data-step="1">True</pre>
+<script type="text/x-python">
+class Invoice(TypedDict):
+    name: str
+    amount: int
+
+
+@registry.node("read", title="Read", description="Reads invoices from a CSV text.")
+def read(csv: str) -> Series[Invoice]:
+    found = [line.split(",") for line in csv.splitlines()[1:]]
+    return [Invoice(name=name, amount=int(amount)) for name, amount in found]
+
+
+@registry.node("summary", title="Summary", description="Tells how many invoices were approved.")
+def summary(approved: Series[bool]) -> str:
+    return f"{sum(approved)} of {len(approved)} approved"
+</script>
+<pre data-lang="py" data-step="2">record = """{
+  "inputs": {"csv": {}},
+  "nodes": {
+    "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
+    "approve": {"node": "approve", "inputs": {
+      "name": {"sources": [{"node": "read", "output": "result", "field": "name"}]},
+      "amount": {"sources": [{"node": "read", "output": "result", "field": "amount"}]}
+    }},
+    "summary": {"node": "summary", "inputs": {"approved": {"sources": [{"node": "approve", "output": "result"}]}}}
+  },
+  "outputs": {"summary": {"node": "summary", "output": "result"}}
+}"""</pre>
+<pre data-lang="py" data-step="3">graph = Graph.compile(record, registry)
+
+print(graph.problems)
+print(list(graph.inputs))
+print(graph.describe().nodes["approve"].per_item_of)</pre>
+<pre class="out" data-step="3">[]
+['csv']
+read.result</pre>
+<pre data-lang="py" data-step="4">csv = "name,amount\nIda,100\nBo,5000\n"
+run = graph.run({"csv": csv})</pre>
+<pre data-lang="py" data-step="5">print(run.status)
+print(run.waiting[0].id)
+print(run.waiting[0].prompt)</pre>
+<pre class="out" data-step="5">waiting
+approve@1~3d112d01
+Approve Bo, 5000 kr.?</pre>
+<pre data-lang="py" data-step="6">saved = run.to_json()</pre>
+<script type="text/x-python">
+import json
+
+
+def dumps(text):
+    """The saved run as the page shows it: a mapping one key a line, a list on one line unless it holds lists."""
+
+    def written(value, indent):
+        pad = " " * (indent + 2)
+        if isinstance(value, dict) and value:
+            keys = [f"{pad}{json.dumps(key)}: {written(item, indent + 2)}" for key, item in value.items()]
+            return "{\n" + ",\n".join(keys) + "\n" + " " * indent + "}"
+        if isinstance(value, list) and any(isinstance(item, list) for item in value):
+            items = [pad + json.dumps(item, separators=(", ", ": ")) for item in value]
+            return "[\n" + ",\n".join(items) + "\n" + " " * indent + "]"
+        return json.dumps(value, separators=(", ", ": "))
+
+    return written(json.loads(text), 0)
+
+
+print(dumps(saved))
+</script>
+<pre data-lang="json" class="out" data-step="6">{
+  "graph": "7073b7e39f4a7eec",
+  "ended_early": null,
+  "max_items": null,
+  "inputs": {
+    "csv": "name,amount\nIda,100\nBo,5000\n"
+  },
+  "outcomes": {
+    "read": {
+      "states": ["done"],
+      "outputs": {
+        "result": [
+          [{"name": "Ida", "amount": 100}, {"name": "Bo", "amount": 5000}]
+        ]
+      },
+      "fingerprints": ["814ba30cd97cd61c1d3389dd"]
+    },
+    "approve": {
+      "states": ["done", null],
+      "outputs": {
+        "result": [true, null]
+      },
+      "fingerprints": ["b577d5d1eb0995656a60fdb9", "8899f4d7480adc0e6377c5fd"],
+      "questions": {
+        "1": {
+          "prompt": "Approve Bo, 5000 kr.?"
+        }
+      }
+    }
+  },
+  "reusable": {},
+  "complete": ["read"]
+}</pre>
+<pre data-lang="py" data-step="7">run = Run.from_json(saved, Graph.compile(record, registry))
+run = run.with_answers(run.waiting[0], True).resume()
+
+print(run.status)
+print(run.outputs)</pre>
+<pre class="out" data-step="7">complete
+{'summary': '2 of 2 approved'}</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<div id="perf"></div>
+
+<!-- ============================ CHOICES ============================ -->
+<section id="choices" aria-labelledby="choices-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="choices-h">The design choices</h2>
+    <p class="muted">The reason for each, and what it costs, is in <a href="../design/">the design guide</a> (<code>docs/design.md</code>). Here each one points to the page that shows it.</p>
+  </div>
+  <div class="choices">
+
+    <article class="choice">
+      <h3>A node is a typed function, and its signature is its interface.<span class="lvl pub">Public</span></h3>
+      <p><a href="nodes-and-types.html">A node and its types</a> shows one.</p>
+    </article>
+
+    <article class="choice">
+      <h3>A graph is data, and there's no <code>@graph</code>.<span class="lvl pub">Public</span></h3>
+      <p><a href="graph-record-and-compiling.html">The graph record and compiling</a> shows the record.</p>
+    </article>
+
+    <article class="choice">
+      <h3>Compiling reports problems instead of raising.<span class="lvl pub">Public</span></h3>
+      <p><a href="problems.html">Problems</a> shows what a problem holds.</p>
+    </article>
+
+    <article class="choice">
+      <h3>The types decide one or many.<span class="lvl pub">Public</span></h3>
+      <p><a href="series-and-tables.html">Series and tables</a> shows a loop.</p>
+    </article>
+
+    <article class="choice">
+      <h3>Behaviour is a value, not a flag.<span class="lvl pub">Public</span></h3>
+      <p><a href="asking-a-person.html">Asking a person</a> shows <code>Ask</code>, and <a href="nodes-and-types.html#outputs">A node and its types</a> <code>SKIPPED</code>.</p>
+    </article>
+
+    <article class="choice">
+      <h3 id="checked-once">A value from outside is checked once, where it comes in.</h3>
+      <p><a href="problems.html">Problems</a> shows a refused value at its door.</p>
+    </article>
+
+    <article class="choice">
+      <h3>One scheduler runs a run, with or without a listener.</h3>
+      <p><a href="running-and-streaming.html">Running and streaming</a> shows <code>resume()</code> and <code>stream()</code>.</p>
+    </article>
+
+    <article class="choice">
+      <h3>Retries belong to the node's <code>Policy</code>.<span class="lvl pub">Public</span></h3>
+      <p><a href="running-and-streaming.html#policy">Running and streaming</a> shows a retry.</p>
+    </article>
+
+    <article class="choice">
+      <h3>A run is one JSON text.<span class="lvl pub">Public</span></h3>
+      <p>The <a href="#walk">walk-through</a> above saves one, and <a href="saved-runs-and-reuse.html">Saved runs and reuse</a> reads it.</p>
+    </article>
+
+    <article class="choice">
+      <h3>Running again reuses by content.<span class="lvl pub">Public</span></h3>
+      <p><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> shows it.</p>
+    </article>
+
+    <article class="choice">
+      <h3>The core stands alone.</h3>
+      <p><a href="serving-runs.html">Serving runs</a> shows the store a host writes.</p>
+    </article>
+
+    <article class="choice">
+      <h3 id="reference">A rule is written once in the reference.<span class="lvl pub">Public</span></h3>
+      <p><code>python -m conductor.about</code> prints it.</p>
+    </article>
+
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ NEXT ============================ -->
+<section id="next" aria-labelledby="next-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Where to go next</p>
+    <h2 id="next-h">The packages</h2>
+    <p class="muted">They ship together, at one version. The companions import only the core's public modules.</p>
+  </div>
+  <div class="prs">
+    <a class="pkg" style="--pkg:var(--pkg-core)" href="nodes-and-types.html"><span class="num">syv-conductor</span><span class="pkg-title">The core</span><span class="muted">The engine under <code>packages/conductor</code>, imported as <code>conductor</code>.</span></a>
+    <a class="pkg" style="--pkg:var(--pkg-nodes)" href="standard-nodes.html"><span class="num">syv-conductor-nodes</span><span class="pkg-title">The standard nodes</span><span class="muted">Nodes that only compute. Each module has its own registry.</span></a>
+    <a class="pkg" style="--pkg:var(--pkg-providers)" href="serving-runs.html"><span class="num">syv-conductor-providers</span><span class="pkg-title">Serving runs</span><span class="muted">The FastAPI router and the worker that serve runs.</span></a>
+  </div>
+
+  <h3 style="margin-top:3.5rem">The rest of this series</h3>
+  <p class="small" style="margin-top:.35rem">One page per part.</p>
+  <ul class="series">
+    <li class="here">The overview <span>this page</span></li>
+    <li><a href="nodes-and-types.html">A node and its types</a> <span>syv-conductor</span></li>
+    <li><a href="graph-record-and-compiling.html">The graph record and compiling</a> <span>syv-conductor</span></li>
+    <li><a href="series-and-tables.html">Series and tables</a> <span>syv-conductor</span></li>
+    <li><a href="asking-a-person.html">Asking a person</a> <span>syv-conductor</span></li>
+    <li><a href="subgraphs.html">Subgraphs</a> <span>syv-conductor</span></li>
+    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>syv-conductor</span></li>
+    <li><a href="running-and-streaming.html">Running and streaming</a> <span>syv-conductor</span></li>
+    <li><a href="problems.html">Problems</a> <span>syv-conductor</span></li>
+    <li><a href="standard-nodes.html">The nodes</a> <span>syv-conductor-nodes</span></li>
+    <li><a href="serving-runs.html">Serving runs</a> <span>syv-conductor-providers</span></li>
+  </ul>
+</section>
+
+
+</div>
+</div>
+
+<script>
+
+(function () {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  /* A string with [text](url) links to other pages of the series: escaped whole, then only those become links. */
+  const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- a small highlighter for Python and JSON ---------- */
+  const PY_KW = /\b(def|return|if|raise|from|import|class|for|in|async|await|True|False|None|lambda)\b/g;
+  function highlight(src, lang) {
+    const out = [];
+    const re = lang === "json"
+      ? /("(?:[^"\\]|\\.)*")(\s*:)?|(\b(?:true|false|null)\b|-?\d+(?:\.\d+)?)/g
+      : /(#[^\n]*)|("""[\s\S]*?"""|f?"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(@[\w.]+)/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      out.push(kw(esc(src.slice(last, m.index)), lang));
+      if (lang === "json") {
+        if (m[1]) out.push(m[2] ? '<span class="tk-k">' + esc(m[1]) + "</span>" + m[2] : '<span class="tk-s">' + esc(m[1]) + "</span>");
+        else out.push('<span class="tk-d">' + esc(m[3]) + "</span>");
+      } else if (m[1]) out.push('<span class="tk-c">' + esc(m[1]) + "</span>");
+      else if (m[2]) out.push('<span class="tk-s">' + esc(m[2]) + "</span>");
+      else out.push('<span class="tk-k">' + esc(m[3]) + "</span>");
+      last = re.lastIndex;
+    }
+    out.push(kw(esc(src.slice(last)), lang));
+    return out.join("");
+  }
+  function kw(html, lang) { return lang === "json" ? html : html.replace(PY_KW, '<span class="tk-k">$1</span>'); }
+  function hang(pre, html) {
+    const lines = html.split("\n");
+    const balanced = lines.every((l) => (l.match(/<span/g) || []).length === (l.match(/<\/span>/g) || []).length);
+    if (!balanced) { pre.innerHTML = html; return; }
+    pre.innerHTML = lines.map((l) => {
+      const n = l.match(/^ */)[0].length;
+      return '<span class="ln" style="padding-left:' + (n + 2) + 'ch;text-indent:-' + (n + 2) + 'ch">' + (l || " ") + "</span>";
+    }).join("");
+  }
+  function paint(pre) { hang(pre, highlight(pre.textContent, pre.dataset.lang)); }
+  /* The walk-through's own pres stay plain text: a step paints the copy it shows. */
+  document.querySelectorAll("pre[data-lang]").forEach((pre) => { if (!pre.closest(".walk-src")) paint(pre); });
+
+  /* ======================= THE MAP ======================= */
+  const DIST = { core: "var(--pkg-core)", nodes: "var(--pkg-nodes)", providers: "var(--pkg-providers)" };
+  const DIST_NAME = { core: "The core, syv-conductor", nodes: "syv-conductor-nodes", providers: "syv-conductor-providers" };
+  /* The panel's "Read it with" is written as HTML: page() links a page of the series. What each package does and
+     which names it has are not copied here; the panel says where they are written. */
+  const PAGES = {
+    "A node and its types": "nodes-and-types.html",
+    "The graph record and compiling": "graph-record-and-compiling.html",
+    "Series and tables": "series-and-tables.html",
+    "Asking a person": "asking-a-person.html",
+    "Subgraphs": "subgraphs.html",
+    "Saved runs and reuse": "saved-runs-and-reuse.html",
+    "Running and streaming": "running-and-streaming.html",
+    "Problems": "problems.html",
+    "The nodes": "standard-nodes.html",
+    "Serving runs": "serving-runs.html",
+  };
+  const page = (t) => '<a href="' + PAGES[t] + '">' + t + "</a>";
+  const about = (slug) => "<code>python -m conductor.about" + (slug ? " " + slug : "") + "</code>";
+  const PUBLIC = [
+    { id: "conductor", dist: "core", where: "conductor/__init__.py", read: "Start here.", told: "Its names, each with its docstring: " + about("conductor") + "." },
+    { id: "conductor.widgets", dist: "core", where: "conductor/widgets.py", read: page("A node and its types") + ".", told: "Its names, each with its docstring: " + about("conductor-widgets") + "." },
+    { id: "conductor.events", dist: "core", where: "conductor/events.py", read: page("Running and streaming") + ".", told: "Its names, each with its docstring: " + about("conductor-events") + "." },
+    { id: "conductor.testing", dist: "core", where: "conductor/testing/", read: page("A node and its types") + ". Its problems are in " + page("Problems") + ".", told: "Its names, each with its docstring: " + about("conductor-testing") + "." },
+    { id: "conductor.about", dist: "core", where: "conductor/about/", read: "Read the reference early. It's the quickest way to see what conductor promises.", told: "It is the reference: " + about() + " prints it, and " + about("sections") + " lists its sections." },
+  ];
+  /* The layers, top first, as the import-linter contract in pyproject.toml declares them; that contract is the
+     source, and tests/test_core/test_layers.py checks the code against it. */
+  const LAYERS = [
+    ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "port", "context"], ["table"],
+    ["types"], ["problem"], ["base"], ["utils"],
+  ];
+  const ENGINE = {
+    make_graph: { read: page("The graph record and compiling") + "." },
+    registry: { read: page("The graph record and compiling") + "." },
+    run: { read: page("Running and streaming") + ", " + page("Saved runs and reuse") + ", " + page("Asking a person") + ", " + page("Series and tables") + " and " + page("Subgraphs") + " each read a part of it." },
+    graph: { read: page("The graph record and compiling") + ", then " + page("Subgraphs") + "." },
+    node: { read: page("A node and its types") + "." },
+    ask: { read: page("Asking a person") + "." },
+    record: { read: page("The graph record and compiling") + "." },
+    series: { read: page("Series and tables") + "." },
+    port: { read: page("A node and its types") + "." },
+    context: { read: page("A node and its types") + "." },
+    table: { read: page("Series and tables") + "." },
+    types: { read: page("A node and its types") + "." },
+    problem: { read: page("Problems") + "." },
+    base: { read: page("A node and its types") + "." },
+    utils: { read: "Read it with problem, whose messages use it most." },
+  };
+  const COMPANIONS = [
+    { id: "conductor-nodes", pkg: "syv-conductor-nodes, import conductor_nodes", dist: "nodes", where: "packages/conductor-nodes/", read: page("The nodes") + ", after the core.", told: "Its nodes, module by module: <code>packages/conductor-nodes/README.md</code>." },
+    { id: "conductor-providers", pkg: "syv-conductor-providers, import conductor_providers", dist: "providers", where: "packages/conductor-providers/", read: page("Serving runs") + ".", told: "How it serves runs: " + about("serving-runs") + ". Its files: <code>AGENTS.md</code>, the Layout section." },
+  ];
+
+  const all = {};
+  const order = []; // engine packages, top to bottom, with their layer index
+  function tile(id, dist, extra) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "tile" + (extra || ""); b.dataset.id = id;
+    b.style.setProperty("--pr", DIST[dist]); b.setAttribute("aria-pressed", "false");
+    b.textContent = id;
+    b.addEventListener("click", () => select(id));
+    return b;
+  }
+  PUBLIC.forEach((p) => { all[p.id] = Object.assign({ kind: "public" }, p); $("#row-public").append(tile(p.id, p.dist)); });
+  const layersEl = $("#layers");
+  LAYERS.forEach((ids, i) => {
+    const row = document.createElement("div"); row.className = "layer"; row.style.gridColumn = "2";
+    ids.forEach((id, j) => {
+      if (j) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "|"; s.setAttribute("aria-hidden", "true"); row.append(s); }
+      all[id] = Object.assign({ kind: "engine", layer: i, dist: "core", where: "_internal/" + id + "/" }, ENGINE[id], { id });
+      row.append(tile(id, "core", " int"));
+    });
+    layersEl.append(row);
+  });
+  COMPANIONS.forEach((c) => {
+    all[c.id] = Object.assign({ kind: "companion" }, c);
+    const t = tile(c.id, c.dist, " wide");
+    const s = document.createElement("small"); s.textContent = c.pkg; t.append(s);
+    $("#row-companions").append(t);
+  });
+
+  const LVL = { pub: '<span class="lvl pub">Public</span>', int: '<span class="lvl int">Internal</span>' };
+  const told = (p) => p.kind === "engine"
+    ? "What it does: <code>AGENTS.md</code>, the Layout section. Its surface is the <code>__all__</code> of its <code>__init__.py</code>."
+    : p.told;
+
+  const panel = $("#panel");
+  function select(id) {
+    const p = all[id];
+    document.querySelectorAll(".tile").forEach((t) => {
+      const q = all[t.dataset.id];
+      t.setAttribute("aria-pressed", String(t.dataset.id === id));
+      t.classList.remove("below", "above");
+      if (p.kind === "engine" && q.kind === "engine" && q.id !== id) {
+        if (q.layer > p.layer) t.classList.add("below");
+        else t.classList.add("above");
+      }
+      if (p.kind === "public" && q.kind === "engine") t.classList.add("below");
+      if (p.kind === "companion" && q.kind === "public") t.classList.add("below");
+    });
+    let imports;
+    if (p.kind === "engine") {
+      const below = Object.values(all).filter((q) => q.kind === "engine" && q.layer > p.layer).map((q) => q.id);
+      imports = below.length ? "May import " + below.join(", ") + "." : "Imports nothing of conductor's. Every other package may use it.";
+      if (id === "graph") imports += " The contract also lets graph/type.py import run (its ignore_imports).";
+    } else if (p.kind === "public") imports = (id === "conductor" || id === "conductor.events")
+      ? "Re-exports names from the engine's packages, each from the package that defines it."
+      : id === "conductor.about" ? "Re-exports none of the engine's names. It serves its own pages."
+      : "Defines its own names.";
+    else imports = "Imports only conductor's public modules.";
+    panel.innerHTML =
+      '<div><p class="name">' + esc(p.id) + (p.kind === "engine" ? LVL.int : LVL.pub) + "</p>" +
+      '<p class="where">' + (p.kind === "engine" ? '<code class="int" title="Internal">' + esc(p.where) + "</code>" : esc(p.where)) + "</p></div>" +
+      '<p class="job">' + told(p) + "</p>" +
+      "<dl>" +
+      '<div><dt>Ships in</dt><dd><span class="pr-tag" style="--pkg:' + DIST[p.dist] + '"><i></i>' + DIST_NAME[p.dist] + "</span></dd></div>" +
+      "<div><dt>Read it with</dt><dd>" + p.read + "</dd></div>" +
+      "<div><dt>Imports</dt><dd>" + esc(imports) + "</dd></div>" +
+      "</dl>";
+  }
+  select("graph");
+
+  /* ======================= THE WALK-THROUGH ======================= */
+  const STEPS = [
+    { short: "a function", title: "Write a Python function",
+      cap: "Its parameters are its inputs and its [return type](nodes-and-types.html#outputs) is its one output, named result. The bool also says that a person's answer is a yes or no.",
+      d: { reg: [], graph: false, doc: ["graph not compiled yet", ""] } },
+    { short: "@node", title: "Declare it into a registry",
+      cap: "[@registry.node](nodes-and-types.html#signature) returns a definition you can still call. [asks=True](asking-a-person.html#walk) says up front that it may stop for a person. read and summary go into the registry the same way.", more: ["A node and its types", "nodes-and-types.html"],
+      d: { reg: ["read", "approve", "summary"], graph: false, doc: ["registry: read, approve, summary", "nothing is compiled or run yet"] } },
+    { short: "the record", title: "The graph is a JSON record",
+      cap: "This is what an editor saves. A [source](graph-record-and-compiling.html#places) with field: 'name' reads the name of each invoice that read returns.", more: ["The graph record and compiling", "graph-record-and-compiling.html"],
+      d: { reg: ["read", "approve", "summary"], graph: "ghost", doc: ["a GraphRecord: 3 nodes, 1 output", "plain data, nothing checked yet"] } },
+    { short: "compile", title: "Compile it against the registry",
+      cap: "[Compiling](graph-record-and-compiling.html#compiling) checks every node, edge and constant, and works out from the types alone that approve [runs once per invoice](series-and-tables.html#loop). A fault would be a [Problem](problems.html) in [graph.problems](graph-record-and-compiling.html#walls), never an exception.",
+      d: { reg: ["read", "approve", "summary"], graph: "on", doc: ["Graph: runnable, takes csv, returns summary", "approve runs once per invoice"] } },
+    { short: "run", title: "Run it",
+      cap: "read returns a [Series](series-and-tables.html#loop) of two invoices, so approve is called once per item. Bo's 5000 kr. raises [Ask](asking-a-person.html#walk).", more: ["Series and tables", "series-and-tables.html"],
+      d: { reg: ["read", "approve", "summary"], graph: "run", doc: ["running: read done, approve@0 done", "approve@1 raised Ask"] } },
+    { short: "Ask waits", title: "One call waits for a person",
+      cap: "Bo's call waits, and so does summary, since it [collects every answer](series-and-tables.html#loop). The part after ~ in the [waiting id](asking-a-person.html#ids) is a fingerprint of the call: its inputs, its item and the [node's code](saved-runs-and-reuse.html#matched-by), version, ports, loops and whether it asks. It stays the same on every run of the same graph and code, and changes when any of those change.", more: ["Asking a person", "asking-a-person.html"],
+      d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["status: waiting", "1 waiting call: approve@1"] } },
+    { short: "to_json", title: "Save the run as JSON",
+      cap: "Only nodes that were called are in it, so summary isn't. Each call keeps its fingerprint, which a later run [reuses its outcome by](saved-runs-and-reuse.html#matched-by). It's shown reformatted here, and [to_json()](saved-runs-and-reuse.html#saved) writes it on one line.", more: ["Saved runs and reuse", "saved-runs-and-reuse.html"],
+      d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["saved: one JSON text", "any store works, Postgres jsonb included"] } },
+    { short: "answer, resume", title: "Load it later, answer and resume",
+      cap: "In another process, [compile](graph-record-and-compiling.html#compiling) the same record and load the run. [resume()](running-and-streaming.html#start) goes on from where it stopped, and no node is called twice for the same invoice.",
+      d: { reg: ["read", "approve", "summary"], graph: "done", doc: ["status: complete", "summary: '2 of 2 approved'"] } },
+  ];
+
+  const rail = $("#rail"), text = $("#stage-text"), dia = $("#dia");
+  STEPS.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.innerHTML = "<b>" + (i + 1) + "</b>" + esc(s.short);
+    b.addEventListener("click", () => { stop(); show(i); });
+    rail.append(b);
+  });
+  const cls = (sel, add, ...c) => dia.querySelectorAll(sel).forEach((e) => c.forEach((k) => e.classList.toggle(k, add)));
+  function setNode(sel, state) {
+    const g = dia.querySelector(sel);
+    ["ghost", "on", "done", "wait"].forEach((k) => g.classList.toggle(k, k === state));
+  }
+  function draw(d) {
+    ["read", "approve", "summary"].forEach((n) => setNode(".reg-" + n, d.reg.includes(n) ? "done" : "ghost"));
+    const g = d.graph;
+    const base = g === false ? "ghost" : g === "ghost" ? "ghost" : "on";
+    $("#graph-part").style.opacity = g === false ? ".25" : "1";
+    ["n-read", "n-a0", "n-a1", "n-sum"].forEach((n) => setNode("." + n, base));
+    cls(".d-edge", false, "live");
+    cls(".b-a0, .b-a1, .b-a1ok, .b-sum", true, "hidden-el");
+    if (g === "run" || g === "wait" || g === "done") {
+      setNode(".n-read", "done"); setNode(".n-a0", "done");
+      setNode(".n-a1", g === "done" ? "done" : "wait");
+      cls(".b-a0", false, "hidden-el");
+      cls(g === "done" ? ".b-a1ok" : ".b-a1", false, "hidden-el");
+      if (g === "run") cls(".e1", true, "live");
+    }
+    if (g === "done") { setNode(".n-sum", "done"); cls(".b-sum", false, "hidden-el"); cls(".e2", true, "live"); }
+    $("#doc-line1").textContent = d.doc[0];
+    $("#doc-line2").textContent = d.doc[1];
+  }
+  let cur = 0, timer = null;
+  function show(i) {
+    cur = (i + STEPS.length) % STEPS.length;
+    const s = STEPS[cur];
+    text.innerHTML =
+      '<p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
+      "<h3>" + esc(s.title) + "</h3>" +
+      '<p class="cap">' + linked(s.cap) + (s.more ? ' See <a href="' + s.more[1] + '">' + esc(s.more[0]) + "</a>." : "") + "</p>" +
+      "";
+    document.querySelectorAll('.walk-src [data-step="' + cur + '"]').forEach((el) => {
+      const shown = el.cloneNode(true);
+      shown.removeAttribute("data-step");
+      text.append(shown);
+      if (shown.dataset.lang) paint(shown);
+    });
+    if (!reduced) { text.classList.remove("fade"); void text.offsetWidth; text.classList.add("fade"); }
+    rail.querySelectorAll("button").forEach((b, j) => {
+      if (j === cur) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+      b.classList.toggle("seen", j < cur);
+    });
+    $("#count").textContent = cur + 1 + " / " + STEPS.length;
+    $("#bar").style.width = ((cur + 1) / STEPS.length) * 100 + "%";
+    draw(s.d);
+  }
+  const PLAY = '<path d="M4 2.5v11L13 8z"/>', PAUSE = '<path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/>';
+  function stop() { clearInterval(timer); timer = null; $("#play-ico").innerHTML = PLAY; $("#play-txt").textContent = "Play"; }
+  function play() {
+    if (cur === STEPS.length - 1) show(0);
+    $("#play-ico").innerHTML = PAUSE; $("#play-txt").textContent = "Pause";
+    timer = setInterval(() => { if (cur === STEPS.length - 1) stop(); else show(cur + 1); }, 5200);
+  }
+  $("#play").addEventListener("click", () => (timer ? stop() : play()));
+  $("#prev").addEventListener("click", () => { stop(); show(cur - 1); });
+  $("#next").addEventListener("click", () => { stop(); show(cur + 1); });
+  show(0);
+
+})();
+</script>
+
+</body>
+</html>
