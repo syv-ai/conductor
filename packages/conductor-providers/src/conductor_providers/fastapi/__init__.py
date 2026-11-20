@@ -15,7 +15,7 @@ worker that shuts down hands its runs back.
 from conductor_providers.fastapi.problems import SERVING_PROBLEMS
 from conductor_providers.fastapi.router import run_router
 from conductor_providers.fastapi.state import RunView
-from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
+from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun, StoreFailedError
 from conductor_providers.fastapi.worker import Worker
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "RunStore",
     "StoredRun",
     "RunChanges",
+    "StoreFailedError",
     "RunView",
     "SERVING_PROBLEMS",
 ]

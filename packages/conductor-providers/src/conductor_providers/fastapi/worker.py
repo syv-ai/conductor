@@ -141,6 +141,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``).
+            StoreFailedError: A method of the host's store raised.
         """
         return self._view(await self._row(run_id, allows))
 
@@ -180,6 +181,7 @@ class Worker(Generic[M, X]):
                 conductor's problems. Else no run has the id ``previous`` (``no_such_run``, at ``loc`` ``("previous",)``). Or the previous run
                 can't be loaded on those nodes, with the problems ``Run.from_json`` gives for its saved run, such as
                 ``saved_run_unreadable``. Start without ``previous`` then.
+            StoreFailedError: A method of the host's store raised.
         """
         metadata = self._checked(metadata)
         run = await self._ready(graph, inputs, metadata, previous, allows)
@@ -212,6 +214,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: As ``create`` refuses the same call.
+            StoreFailedError: A method of the host's store raised.
         """
         metadata = self._checked(metadata)
         run = await self._ready(graph, inputs, metadata, previous, allows)
@@ -251,6 +254,7 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or the graph can't run on ``metadata``'s nodes,
                 or refuses the inputs.
+            StoreFailedError: A method of the host's store raised.
         """
         metadata = self._checked(metadata)
         row = await self._row(run_id, allows)
@@ -283,6 +287,7 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written.
             RuntimeError: The answers would resume the run, and the worker has never served.
+            StoreFailedError: A method of the host's store raised.
         """
         if not answers:
             return await self.read(run_id, allows=allows)
@@ -320,6 +325,7 @@ class Worker(Generic[M, X]):
             InvalidCallError: No run has the id (``no_such_run``), ``reason`` can't be written as JSON
                 (``invalid_decline_reason``), a run that isn't running refuses the decline (``not_waiting``,
                 ``answer_stale``), or it can't be loaded on its metadata's nodes. Nothing is written then.
+            StoreFailedError: A method of the host's store raised.
         """
 
         async def declined(row: RunRow[M]) -> RunRow[M] | None:
@@ -368,6 +374,7 @@ class Worker(Generic[M, X]):
                 (``run_not_resumable``), or, with ``max_items``, the run is running (``run_not_resumable``) or the
                 stored run can't be loaded to raise its ceiling.
             RuntimeError: The run would be resumed, and the worker has never served.
+            StoreFailedError: A method of the host's store raised.
         """
 
         async def resumed(row: RunRow[M]) -> RunRow[M] | None:
@@ -408,6 +415,7 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: No run has the id (``no_such_run``).
             RuntimeError: The run is waiting, so the cancel would resume it, and the worker has never served.
+            StoreFailedError: A method of the host's store raised.
         """
 
         async def cancelled(row: RunRow[M]) -> RunRow[M] | None:
@@ -442,6 +450,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id, or ``allows`` turns it away (``no_such_run``).
+            StoreFailedError: A method of the host's store raised.
         """
         row = await self._row(run_id, allows)
         return self._events_from(row, after)
