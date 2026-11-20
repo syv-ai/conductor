@@ -76,6 +76,8 @@ def question_of(
     item_indexes: ItemIndexes,
     asked: Unanswered,
     outcomes: RunOutcomes,
+    *,
+    record: bool = False,
 ) -> Question:
     """Builds the ``Question`` a person is shown for one call that asked.
 
@@ -84,12 +86,16 @@ def question_of(
         item_indexes: Which call of the node asked.
         asked: What the call's ``Ask`` said.
         outcomes: The run's outcomes, to find what the call was given.
+        record: Keep the choices and defaults exactly as asked, for ``run.asked``, though the output's type refuses
+            some of them now. Without it, the question is a form to answer, with only what the type takes.
     """
     return Question(
         loc=outcome_loc(node, item_indexes),
         prompt=asked.prompt,
         questions=list(
-            as_asked(node.compiled_node.outputs, asked.choices, asked.defaults).values()
+            as_asked(
+                node.compiled_node.outputs, asked.choices, asked.defaults, record=record
+            ).values()
         ),
         inputs=jsonable(_arguments(node, item_indexes, outcomes)),
     )

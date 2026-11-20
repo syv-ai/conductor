@@ -60,7 +60,7 @@ def asked_of(outcomes: RunOutcomes, last_resume: LastResume, codec: type[SavedRu
     """
     records = [
         Asked(
-            question=question_of(node, item_indexes, outcome.asked, outcomes),
+            question=question_of(node, item_indexes, outcome.asked, outcomes, record=True),
             answer=answer_to_json(codec, node, outcome),
             reason=None,
         )
@@ -71,7 +71,9 @@ def asked_of(outcomes: RunOutcomes, last_resume: LastResume, codec: type[SavedRu
         node = outcomes.blueprint.function_nodes[declined.node_path]
         records.append(
             Asked(
-                question=question_of(node, declined.item_indexes, declined.question, outcomes),
+                question=question_of(
+                    node, declined.item_indexes, declined.question, outcomes, record=True
+                ),
                 answer=None,
                 reason=declined.reason,
             )

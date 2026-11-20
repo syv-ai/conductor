@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
+from conductor._internal.base import SKIPPED, NodePath, canonical_json, parse_node_path, place_text
 from conductor._internal.field import Field
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import (
@@ -174,19 +174,24 @@ def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarl
 
 
 def _check_question(outputs: Mapping[str, Field], question: Unanswered) -> None:
-    """Checks that a saved question gives choices and defaults only to outputs the node has.
+    """Checks that a saved question has the shape an ``Ask`` gives: choices and defaults only for outputs the node
+    has, and for each output at least one choice, none given twice.
 
     A saved question is a record of what a person was shown, so its values are kept as they were saved, and never
     read again by the output's type: a deploy may have changed the type, and the person was shown them all the
-    same. Its shape is the codec's to check: a prompt and titles as text, choices and defaults by output name, values
-    as JSON. An output the node doesn't have is what no deploy explains, since outputs are named in the node's
-    code fingerprint and in the graph's record.
+    same. The codec checks the rest of its shape: a prompt and titles as text, choices and defaults by output
+    name, values as JSON. An output the node doesn't have, and a list of choices no ``Ask`` could give, are what no
+    deploy explains.
 
     Raises:
-        ValueError: It names another output. The message names no value.
+        ValueError: Any of that doesn't hold. The message names no value.
     """
     if not {*question.choices, *question.defaults} <= outputs.keys():
         raise ValueError("a question names an output the node does not have")
+    for offered in question.choices.values():
+        ids = [canonical_json(choice.id) for choice in offered]
+        if not ids or len(set(ids)) != len(ids):
+            raise ValueError("a question offers no choice, or one choice twice, for an output")
 
 
 def _lists_disagree(where: str, reason: str) -> Problem:

@@ -33,7 +33,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import BaseModel
+from pydantic import MISSING, BaseModel
 
 
 class Line(TypedDict):
@@ -771,33 +771,40 @@ def test_a_saved_question_naming_an_output_the_node_does_not_have_is_refused(
 
 
 @pytest.mark.parametrize("tightened", [Annotated[str, Param(max_length=3)], Literal["Yes", "No"]])
-def test_a_deploy_that_tightens_an_asking_node_s_type_leaves_its_questions_as_they_were_shown(
+def test_a_deploy_that_tightens_an_asking_node_s_type_offers_only_what_it_takes_and_records_what_was_asked(
     tightened: Any,
 ) -> None:
-    """A saved question is a record of what a person was shown, so it reads back with its choices and default as
-    saved, though today's type refuses some of them, waiting and answered alike. It is shown as asked, its schema
-    listing its choices, and an answer is still read by today's type."""
+    """A run saved before a deploy that tightens an asking node's type reads back byte-equal, waiting. Its waiting
+    call is a form to answer: it offers only the choices the type takes now, narrowed by the type, and drops a
+    default the type refuses, the same for a limit and a ``Literal``. ``run.asked`` is a record: it keeps the
+    question exactly as it was asked. An answer is read by the type now."""
     first = _draft_graph().run({"text": "a\nb"})
     saved = first.with_answers(first.waiting[0], "Yes").to_json()
 
     back = Run.from_json(saved, _draft_graph(tightened=tightened))
 
     assert back.status == "waiting" and back.to_json() == saved
-    shown = [back.waiting[0].questions[0], back.asked[0].question.questions[0]]
-    assert [(q.default, [c.id for c in q.choices or []]) for q in shown] == [
-        ("Re: b", ["Yes", "Re: b"]),
-        ("Re: a", ["Yes", "Re: a"]),
-    ]
-    assert [q.json_schema["enum"] for q in shown] == [["Yes", "Re: b"], ["Yes", "Re: a"]]
-    with pytest.raises(InvalidCallError) as refused:
-        back.with_answers(back.waiting[0], "Re: b")
-    assert [p.type for p in refused.value.problems] == ["invalid_answer"]
+    form, record = back.waiting[0].questions[0], back.asked[0].question.questions[0]
+    assert ([c.id for c in form.choices or []], form.default, form.required) == (
+        ["Yes"],
+        MISSING,
+        True,
+    )
+    assert form.json_schema["enum"] == ["Yes"] and form.json_schema["type"] == "string"
+    assert ([c.id for c in record.choices or []], record.default) == (["Yes", "Re: a"], "Re: a")
+    for refused_answer in ("Re: b", {}):
+        with pytest.raises(InvalidCallError) as refused:
+            back.with_answers(back.waiting[0], refused_answer)
+        assert [p.type for p in refused.value.problems] == ["invalid_answer"]
     assert back.with_answers(back.waiting[0], "Yes").resume().status == "complete"
 
 
-def test_a_saved_question_whose_values_no_type_reads_is_kept_and_shown_as_saved() -> None:
-    """A choice id or a default that no output type of the node takes, as a hand-edited save might hold, is a
-    question's value, not its shape: it is kept and shown, and never crashes ``run.waiting``."""
+def test_a_waiting_call_whose_every_saved_choice_its_type_refuses_is_shown_with_none_and_still_answered() -> (
+    None
+):
+    """A choice id and a default no type of the output takes, as a hand-edited save might hold, are a question's
+    values, not its shape: the save reads back and writes them back as they were, and the waiting call is shown
+    with neither, so it is answered by its type alone."""
     graph = _draft_graph()
     saved = json.loads(graph.run({"text": "a"}).to_json())
     saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {
@@ -805,12 +812,28 @@ def test_a_saved_question_whose_values_no_type_reads_is_kept_and_shown_as_saved(
     }
     saved["outcomes"]["reply"]["questions"]["0"]["defaults"] = {"result": 5}
 
-    (waiting,) = Run.from_json(json.dumps(saved), graph).waiting
+    back = Run.from_json(json.dumps(saved), graph)
 
-    assert (waiting.questions[0].default, [c.id for c in waiting.questions[0].choices or []]) == (
-        5,
-        [1],
-    )
+    (question,) = back.waiting[0].questions
+    assert (question.choices, question.default) == (None, MISSING)
+    assert json.loads(back.to_json()) == saved
+    assert back.with_answers(back.waiting[0], "Sure").resume().status == "complete"
+
+
+@pytest.mark.parametrize(
+    "offered", [[], [{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}]]
+)
+def test_a_saved_question_offering_no_choice_or_one_twice_is_refused(offered: list[Any]) -> None:
+    """No ``Ask`` gives an empty list of choices or one choice twice, so no deploy explains it."""
+    graph = _draft_graph()
+    saved = json.loads(graph.run({"text": "a"}).to_json())
+    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {"result": offered}
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
 
 
 def test_a_record_of_run_asked_has_no_id_to_answer_by_and_a_deploy_leaves_it_as_it_was() -> None:

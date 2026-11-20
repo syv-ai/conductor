@@ -23,6 +23,8 @@ def as_asked(
     outputs: Mapping[str, Field],
     choices: Mapping[str, tuple[Choice, ...]],
     defaults: Mapping[str, JsonValue],
+    *,
+    record: bool = False,
 ) -> dict[str, FieldDescription]:
     """Returns the questions one call asks, one per output of the node, by output name.
 
@@ -40,18 +42,23 @@ def as_asked(
 
     What a host is shown and what the answer is checked against both come from here.
 
+    A question saved before a deploy may offer a choice or propose a default the output's type refuses now. The form
+    a person answers (``run.waiting``) offers only what the type takes, and drops such a default, so an answer is
+    read by the type now. A record of what was asked (``record``, for ``run.asked``) keeps them as they were shown.
+
     Args:
         outputs: The node's outputs, by name.
         choices: The choices the ``Ask`` offered, by output name, each id in its JSON form.
         defaults: The defaults the ``Ask`` proposed, by output name, in their JSON form.
+        record: Keep the choices and defaults as they were asked, for a record, not a form to answer.
 
     Returns:
         Each output's description, with the ``Ask``'s choices and default added, in the order of the outputs.
     """
     questions: dict[str, FieldDescription] = {}
     for name, field in outputs.items():
-        asked = field.description_with(choices.get(name))
-        if name in defaults:
+        asked = field.description_with(choices.get(name), as_asked=record)
+        if name in defaults and (record or field.takes(defaults[name])):
             asked = asked.model_copy(update={"default": defaults[name], "required": False})
         if len(outputs) == 1:
             asked = asked.model_copy(update={"required": True})

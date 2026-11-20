@@ -19,6 +19,7 @@ from conductor._internal.types import (
     Choice,
     Param,
     Type,
+    read_as_output,
     split_hint,
     union_members,
     union_of,
@@ -143,7 +144,9 @@ class Field:
         """
         return self.description_with(None)
 
-    def description_with(self, asked: tuple[Choice, ...] | None) -> FieldDescription:
+    def description_with(
+        self, asked: tuple[Choice, ...] | None, *, as_asked: bool = False
+    ) -> FieldDescription:
         """The field as JSON for an editor, with its values limited to ``asked`` when an ``Ask`` limits them.
 
         ``required`` and ``default`` say what happens when the field is left out. There are four cases:
@@ -161,13 +164,18 @@ class Field:
         ``enum`` lists the same choices as ``choices``.
 
         A question saved before a deploy keeps the choices it offered, and the field's type may refuse some of them
-        now, as when ``-> str`` became ``-> Annotated[str, Param(max_length=3)]``. It is shown as it was asked: its
-        ``choices`` as saved, and a JSON schema that is their ids' ``enum``.
+        now, as when ``-> str`` became ``-> Annotated[str, Param(max_length=3)]``. Only the choices the type takes
+        now limit it, so the form a person answers offers only those, or the type's own choices when it takes none.
+        With ``as_asked``, for a record of what was asked, ``choices`` are all of ``asked``, as they were shown.
 
         Args:
             asked: The choices an ``Ask`` offers for the field, or ``None`` for the type's own.
+            as_asked: Show ``asked`` as they are, though the type refuses some of them now.
         """
-        choices, json_schema = self._choices_and_schema(asked)
+        taken = self.taken(asked)
+        value_type = self.type if taken is None else self.type.narrowed(taken)
+        choices = asked if as_asked and asked is not None else value_type.choices
+        json_schema = value_type.json_schema
         branch = self.is_branch
         default: JsonValue | MISSING
         if self.default is not REQUIRED:
@@ -198,21 +206,32 @@ class Field:
             constant_only=self.param.constant_only is True,
         )
 
-    def _choices_and_schema(
-        self, asked: tuple[Choice, ...] | None
-    ) -> tuple[tuple[Choice, ...] | None, dict[str, Any]]:
-        """Returns the choices and the JSON schema a field is shown with, narrowed to ``asked`` when it is given.
+    def taken(self, asked: tuple[Choice, ...] | None) -> tuple[Choice, ...] | None:
+        """Returns the choices of ``asked`` the field's type takes now, or ``None`` when it takes none of them.
 
-        ``asked`` are what a person was shown, so when the field's type refuses one, as after a deploy that changed
-        the type, they are shown as they are, with the ``enum`` of their ids for a schema.
+        An ``Ask``'s choices fit the type when it asked. A question saved before a deploy that changed the type may
+        offer some the type refuses now, and a person is offered, and may answer, only the others.
         """
         if asked is None:
-            return self.type.choices, self.type.json_schema
+            return None
+        taken = tuple(choice for choice in asked if self.takes(choice.id, item=True))
+        return taken or None
+
+    def takes(self, value: JsonValue, *, item: bool = False) -> bool:
+        """Says whether the field's type takes ``value``, in its JSON form, as a person's answer is read.
+
+        A question saved before a deploy may hold a choice or a default the type refuses now; a form offers only
+        what it takes.
+
+        Args:
+            value: The value, in its JSON form.
+            item: Read it as one item of a ``Series``, as a choice is, rather than as the whole value.
+        """
         try:
-            narrowed = self.type.narrowed(asked)
-            return narrowed.choices, narrowed.json_schema
-        except (ValidationError, NodeDeclarationError):
-            return asked, {"enum": [choice.id for choice in asked]}
+            read_as_output(self.type if item else self.whole, value)
+        except ValidationError:
+            return False
+        return True
 
 
 def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
