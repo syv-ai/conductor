@@ -477,6 +477,14 @@ validator: a graph record, a caller's inputs, a person's answer, what a node ret
 validator returns the value as the engine keeps it, or a problem with its own code (`invalid_input`,
 `invalid_output`, ...). Past that wall the engine trusts what it has.
 
+A run checks only what code can't rule out. A node's return counts as coming from outside, even when its code only
+hands on what a model or a service sent, so it's always checked against its declared type. A mistake in a developer's
+own code is caught before any run instead, so it costs no call in production: at `@node` or `@host_type`, when the
+graph is compiled, or by [`check_registry`](writing-nodes.md#test-the-whole-registry), which calls each node with
+made-up values. That a node never changes a value it's given is checked only there. A fault in code that data decides
+when it happens, such as two branches given a value at once, stays checked on every call, since made-up values can't
+be relied on to reach it, and so does one that would otherwise go silently wrong.
+
 Each validator lives in the package of what it checks, in its `validator.py`, and subclasses `Validator`. One declared
 anywhere else is refused at import. A rule that holds for every type, like "a yes or no isn't a number", is built into
 each type's schema once, so `True` is refused for an `int` input, a list item and a table cell alike.

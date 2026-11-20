@@ -21,12 +21,12 @@ repos:
           - "@conventions/names-and-words.md#one-idea-per-sentence"
 
       - id: touch/validation
-        name: Where outside values are validated
+        name: Where and when values are checked
         files: '^packages/conductor/src/conductor/_internal/([^/]+/validator\.py$|types/read\.py$)'
         stages: [touch]
         context:
           - "@conventions/validation.md#validation-is-the-wall"
-          - "@conventions/validation.md#a-validator-is-a-class-in-its-concepts-validatorpy"
+          - "@conventions/validation.md#a-developers-mistake-is-caught-before-a-run"
 
       - id: touch/places
         name: Where JSON and place text are read

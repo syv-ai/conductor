@@ -1,16 +1,5 @@
 # Types and models
 
-## Trust the declared type
-
-Never re-check at run time what a parameter's annotation already declares (no `isinstance` guard, `_raise_unless_...` or `checked_...`); when a value's type is uncertain, trace it back to where it enters and make it certain there.
-
-Why: a check for a state the types rule out hides the bug that made it, and makes every reader wonder when it happens.
-
-```python
-def add(self, definition: NodeDefinition) -> None:
-    if not isinstance(definition, NodeDefinition): raise NodeDeclarationError(...)   # bad: delete the check
-```
-
 ## Fail loud
 
 Let an unexpected state raise: no `except Exception: return None`, no silent default and no fallback that turns a fault into a skip.
