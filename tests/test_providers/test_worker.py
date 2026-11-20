@@ -65,8 +65,16 @@ def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) ->
     return worker
 
 
-async def _started(worker: Worker[Any, Any], graph: GraphRecord, inputs: Mapping[str, Any]) -> str:
-    return (await worker.begin(graph, inputs, ANNA, allows=EVERY_RUN)).id
+async def _started(
+    worker: Worker[Any, Any],
+    graph: GraphRecord,
+    inputs: Mapping[str, Any],
+    metadata: Any = ANNA,
+    previous: str | None = None,
+) -> str:
+    """Begins a run and resumes it, as ``POST /runs`` does, and returns its id."""
+    begun = await worker.begin(graph, inputs, metadata, previous=previous, allows=EVERY_RUN)
+    return (await worker.resume(begun.id, allows=EVERY_RUN)).id
 
 
 async def _resume_calls(store: MemoryStore, run_id: str) -> int:
@@ -102,8 +110,8 @@ async def test_a_run_begun_from_a_previous_one_of_an_earlier_version_of_its_grap
         assert (await store.ended(first)).status == "complete"
 
         edited = make_graph(split, square, add, constants={"add.amount": 1})
-        second = await worker.begin(edited, {"n": 3}, ANNA, previous=first, allows=EVERY_RUN)
-        ended = await store.ended(second.id)
+        second = await _started(worker, edited, {"n": 3}, previous=first)
+        ended = await store.ended(second)
         assert (ended.status, ended.outputs) == ("complete", {"result": [1, 2, 5]})
         assert calls == ["square 0", "square 1", "square 2", "add 0", "add 1", "add 4"]
 
@@ -156,10 +164,8 @@ async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_caller
             ("unknown_node", "old")
         ]
         assert list(store.rows) == [first]  # nothing is stored
-        begun = await worker.begin(
-            edited, {"n": 2}, ANNA, allows=EVERY_RUN
-        )  # without previous=, it goes through
-        assert (await store.ended(begun.id)).outputs == {"result": [0, 1]}
+        begun = await _started(worker, edited, {"n": 2})  # without previous=, it goes through
+        assert (await store.ended(begun)).outputs == {"result": [0, 1]}
 
 
 async def test_a_graph_begun_from_a_previous_run_is_refused_for_its_own_problems_and_its_inputs_before_the_previous_runs() -> (
@@ -197,11 +203,13 @@ async def test_a_worker_that_never_served_refuses_to_make_a_run_running_and_one_
     store = MemoryStore()
     worker = _worker(store, registry)
 
+    # begin only stores the run, so it needs no serving worker; the resume that would start it does
     with pytest.raises(RuntimeError, match=r"serving\(\)"):
         await _started(worker, graph, inputs)
-    assert store.rows == {}
+    (unserved,) = store.rows
 
     async with worker.serving():
+        assert (await store.ended(unserved)).status == "waiting"  # its first sweep started it
         run_id = await _started(worker, graph, inputs)
         assert (await store.ended(run_id)).status == "waiting"
 
@@ -214,6 +222,100 @@ async def test_a_worker_that_never_served_refuses_to_make_a_run_running_and_one_
     async with _worker(store, registry).serving():
         assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
         assert (await store.ended(begun)).status == "waiting"
+
+
+class _TransactionStore(MemoryStore):
+    """A ``MemoryStore`` whose ``create`` inside ``transaction()`` lands only when the transaction commits, as a
+    host's insert inside a database transaction of its own does. It counts the reads of each run."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads: dict[str, int] = {}
+        self._uncommitted: list[StoredRun] | None = None
+
+    async def create(self, run: StoredRun) -> None:
+        if self._uncommitted is None:
+            await super().create(run)
+        else:
+            self._uncommitted.append(run)
+
+    async def get(self, run_id: str) -> StoredRun | None:
+        self.reads[run_id] = self.reads.get(run_id, 0) + 1
+        return await super().get(run_id)
+
+    async def transaction(self, unit: Callable[[], Awaitable[str]]) -> str:
+        """Runs ``unit`` in a transaction, once more if it raises, as a host retries a serializable transaction."""
+        for attempt in (1, 2):
+            self._uncommitted = []
+            try:
+                created = await unit()
+                if attempt == 1:
+                    raise _SerializationFailure
+            except _SerializationFailure:
+                continue
+            finally:
+                uncommitted, self._uncommitted = self._uncommitted, None
+            for run in uncommitted:
+                await super().create(run)
+            return created
+        raise AssertionError("the retry failed too")
+
+
+class _SerializationFailure(Exception):
+    """What a database raises to make a host retry a serializable transaction."""
+
+
+async def test_a_run_begun_in_a_transaction_that_is_retried_is_started_once_and_only_after_the_commit(
+    caplog: LogCaptureFixture,
+) -> None:
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = _TransactionStore()
+    worker = _worker(store, registry)
+    begun: list[str] = []
+
+    async def unit() -> str:
+        begun.append((await worker.begin(graph, inputs, ANNA, allows=EVERY_RUN)).id)
+        return begun[-1]
+
+    async with worker.serving():
+        committed = await store.transaction(unit)
+        # time enough for a resume call begin had started to write its first event
+        await asyncio.sleep(0.2)
+        assert list(store.rows) == [committed] and store.written[committed] == []
+        await worker.resume(committed, allows=EVERY_RUN)
+        assert (await store.ended(committed)).status == "waiting"
+
+    rolled_back = begun[0]
+    assert rolled_back != committed and rolled_back not in store.reads
+    assert await _resume_calls(store, committed) == 1
+    assert [record.getMessage() for record in caplog.records if record.levelname == "ERROR"] == []
+
+
+async def test_a_run_begun_is_started_by_a_resume_and_by_the_sweep_when_nobody_resumes_it() -> None:
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        begun = await worker.begin(graph, inputs, ANNA, allows=EVERY_RUN)
+        await asyncio.sleep(0.2)
+        row = store.rows[begun.id]
+        assert (begun.status, row.owner, row.lease_until) == ("running", None, 0.0)
+        assert store.written[begun.id] == []
+        resumed = await worker.resume(begun.id, allows=EVERY_RUN)
+        # it's held now, so this one is left as it is
+        again = await worker.resume(begun.id, allows=EVERY_RUN)
+        assert (resumed.status, again.status) == ("running", "running")
+        assert (await store.ended(begun.id)).status == "waiting"
+        assert await _resume_calls(store, begun.id) == 1
+
+    swept = MemoryStore()
+    sweeping = _worker(swept, registry, lease=0.3)
+    async with sweeping.serving():
+        forgotten = await sweeping.begin(graph, inputs, ANNA, allows=EVERY_RUN)
+        assert (await swept.ended(forgotten.id)).status == "waiting"
+        assert await _resume_calls(swept, forgotten.id) == 1
 
 
 # -- how a run's values are read back -------------------------------------------------------------
@@ -410,6 +512,7 @@ async def test_a_resume_with_a_higher_item_limit_of_an_unreadable_saved_run_is_r
 
 @pytest.mark.parametrize("status", ["running", "waiting", "complete"])
 async def test_only_a_run_whose_last_resume_call_ended_early_is_resumed(status: str) -> None:
+    """A running run is left as it is, unless no worker holds it, but a higher item limit is refused for it."""
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -423,7 +526,7 @@ async def test_only_a_run_whose_last_resume_call_ended_early_is_resumed(status: 
             await store.ended(run_id)
 
         with pytest.raises(InvalidCallError) as refused:
-            await worker.resume(run_id, allows=EVERY_RUN)
+            await worker.resume(run_id, 5 if status == "running" else None, allows=EVERY_RUN)
 
         assert [(problem.type, problem.ctx) for problem in refused.value.problems] == [
             ("run_not_resumable", {"status": status})
@@ -2458,6 +2561,7 @@ async def test_a_graph_with_no_node_to_call_begins_running_with_no_outputs_and_s
     worker = _worker(store, NodeRegistry())
     async with worker.serving():
         begun = await worker.begin(GraphRecord(nodes={}, outputs={}), {}, ANNA, allows=EVERY_RUN)
+        await worker.resume(begun.id, allows=EVERY_RUN)
         completed = await store.ended(begun.id)
 
     assert (begun.status, begun.outputs) == ("running", None)
@@ -3266,7 +3370,7 @@ async def test_a_views_metadata_is_the_json_the_row_keeps_not_as_the_type_reads_
     store = MemoryStore()
     worker = Worker(store, nodes_for=lambda metadata: registry, poll=0.01, metadata_type=_Owner)
     async with worker.serving():
-        run_id = (await worker.begin(graph, inputs, _Owner(user="anna"), allows=EVERY_RUN)).id
+        run_id = await _started(worker, graph, inputs, _Owner(user="anna"))
         await store.ended(run_id)
         store.rows[run_id] = dataclasses.replace(
             store.rows[run_id], metadata='{"user": "anna", "legacy": 7}'

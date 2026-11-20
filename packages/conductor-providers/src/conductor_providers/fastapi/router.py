@@ -1,6 +1,7 @@
 """``run_router``: the HTTP routes over a ``Worker``.
 
-Each route reads its request, calls one method of the worker and answers with what it gave back. The worker does
+Each route reads its request, calls one method of the worker and answers with what it gave back. ``POST /runs`` and
+``/again`` call two: they store the run, then resume it. The worker does
 the real work: it keeps runs in the store, resumes them, and takes over the runs of a worker that died.
 """
 
@@ -169,9 +170,11 @@ def run_router(
     ) -> RunView:
         """Start a run of any graph. This is an author's route, so guard it with a dependency of your own."""
         sent = StartRun.read(await request.body())
-        return await worker.begin(
+        begun = await worker.begin(
             sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
+        # the request stored the run, so it may start it, whatever its filter says of the run's metadata
+        return await worker.resume(begun.id, allows=lambda stored: True)
 
     @router.post("/estimate", openapi_extra=start_body, responses=_refusals(no_such_run))
     async def estimate_run(
@@ -246,7 +249,8 @@ def run_router(
         body: Resume = Resume(),
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again, and ``{"max_items": ...}`` raises
-        the item limit of a run that stopped at it. A ``declined`` run has ended for good, and is refused."""
+        the item limit of a run that stopped at it. A running run is left as it is, but one no worker holds yet is
+        started. A ``declined`` run has ended for good, and is refused."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_refusals(no_such_run))
@@ -263,7 +267,9 @@ def run_router(
     ) -> RunView:
         """A new run with these inputs changed, of this request's own and on its own nodes. A call that gets what it
         got before isn't made again."""
-        return await worker.again(run_id, inputs, requester, allows=allows)
+        again = await worker.again(run_id, inputs, requester, allows=allows)
+        # the request stored the run, so it may start it, whatever its filter says of the run's metadata
+        return await worker.resume(again.id, allows=lambda stored: True)
 
     @router.post("/runs/{run_id}/cancel", responses=_refusals(no_such_run))
     async def cancel_run(
