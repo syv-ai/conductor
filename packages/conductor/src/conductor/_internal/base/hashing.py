@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic_core import to_jsonable_python
 
-from .json import JSON_CONFIG, canonical_json
+from .json import JSON_CONFIG, WRITE_BY_NAME, canonical_json
 
 
 def short_hash(data: bytes, size: int) -> str:
@@ -30,7 +30,8 @@ def short_hash(data: bytes, size: int) -> str:
 def json_hash(value: Any, size: int, *, fallback: Callable[[Any], Any] | None = None) -> str:
     """Returns the ``short_hash`` of a value's JSON text.
 
-    The text has the keys of every dict sorted (``canonical_json``). That matters because a database may give a
+    The text has the keys of every dict sorted (``canonical_json``), and each field of a host's model or dataclass
+    under its name (``WRITE_BY_NAME``), so an alias never changes a hash. That matters because a database may give a
     JSON object back with its keys in another order. With the keys sorted, a value read back from a store hashes
     the same as it did before it was saved. So ``json_hash({"b": 1, "a": 2}, 4)`` hashes ``b'{"a":2,"b":1}'``.
 
@@ -42,5 +43,7 @@ def json_hash(value: Any, size: int, *, fallback: Callable[[Any], Any] | None = 
     Raises:
         PydanticSerializationError: A value can't be written as JSON, and ``fallback`` gave nothing to write instead.
     """
-    written = to_jsonable_python(value, fallback=fallback, bytes_mode=JSON_CONFIG["ser_json_bytes"])
+    written = to_jsonable_python(
+        value, fallback=fallback, bytes_mode=JSON_CONFIG["ser_json_bytes"], **WRITE_BY_NAME
+    )
     return short_hash(canonical_json(written).encode(), size)

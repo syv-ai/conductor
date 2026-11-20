@@ -51,7 +51,7 @@ from enum import Enum
 from typing import Annotated, Any, ClassVar, Literal, final
 
 from pydantic import Field as PydanticField
-from pydantic import JsonValue, SerializeAsAny
+from pydantic import JsonValue
 
 from conductor._internal.types import Choice
 
@@ -176,9 +176,7 @@ class Unanswered:
     """
 
     prompt: str
-    choices: Mapping[str, tuple[SerializeAsAny[Choice], ...]] = dataclasses.field(
-        default_factory=dict
-    )
+    choices: Mapping[str, tuple[Choice, ...]] = dataclasses.field(default_factory=dict)
     defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
     # Required when an Unanswered is made. Pydantic's default is only for a question read from a saved run, whose
     # JSON leaves the fingerprint out: read.py puts the one from the node's fingerprints list in its place.
