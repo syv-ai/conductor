@@ -1093,19 +1093,28 @@ def test_a_row_without_a_field_its_input_may_do_without_fits_it(row: Any) -> Non
     assert [problem.type for problem in backwards.problems] == ["type_mismatch"]
 
 
-def test_an_edge_reads_a_field_of_a_generic_pydantic_model_by_its_filled_in_type() -> None:
-    """``Box[int]``'s field ``value: T`` is an ``int`` to an edge, as a generic ``TypedDict``'s is.
+@pytest.mark.parametrize("subclassed", [False, True], ids=["Box[int]", "a subclass of Box[int]"])
+def test_an_edge_reads_a_field_of_a_generic_pydantic_model_by_its_filled_in_type(
+    subclassed: bool,
+) -> None:
+    """``Box[int]``'s field ``value: T`` is an ``int`` to an edge, as pydantic checks it.
 
-    Pydantic makes a class of its own for ``Box[int]``, so its arguments are read from what pydantic keeps of them.
+    So is the field a subclass of ``Box[int]`` inherits, which pydantic checks as an ``int`` too.
     """
 
     @host_type("box-nfr", title="Box")
     class Box[T](BaseModel, frozen=True):
         value: Annotated[T, Param(title="Value")]
 
+    @host_type("box-of-numbers-ngs", title="Box of numbers")
+    class NumberBox(Box[int], frozen=True):
+        pass
+
+    made = NumberBox if subclassed else Box[int]
+
     @node("make", title="Make", description="For a test.")
-    def make() -> Box[int]:
-        return Box[int](value=2)
+    def make() -> made:  # type: ignore[valid-type]
+        return made(value=2)
 
     @node("double", title="Double", description="For a test.")
     def double(n: int) -> int:
