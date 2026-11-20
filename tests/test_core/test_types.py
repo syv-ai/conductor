@@ -911,13 +911,13 @@ def test_a_generic_typed_dict_is_a_row_on_an_input_an_output_a_series_and_a_tabl
             ("in-a-table", in_a_table),
         ]
     }
-    assert described["on-input"].inputs[0].type == "row"
+    assert described["on-input"].inputs[0].type == "{name: str, value: int}"
     assert described["on-input"].inputs[0].json_schema["properties"]["value"] == {
         "title": "Value",
         "type": "integer",
     }
-    assert described["on-output"].outputs[0].type == "row"
-    assert described["in-a-series"].outputs[0].type == "row"
+    assert described["on-output"].outputs[0].type == "{name: str, value: int}"
+    assert described["in-a-series"].outputs[0].type == "{name: str, value: int}"
     assert described["in-a-series"].outputs[0].is_series
     assert described["in-a-table"].outputs[0].type == "Table[name: str, value: int]"
 

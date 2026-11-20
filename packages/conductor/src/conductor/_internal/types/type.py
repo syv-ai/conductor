@@ -493,8 +493,10 @@ class Type:
         This is the name used for a type inside another type, and for the type an edge brings.
         """
         members = union_members(self.bare)
+        # Literal[None] alone is named None already, so only a Literal with other values adds it
         may_be_none = type(None) in members or any(
-            get_origin(member) is Literal and None in get_args(member) for member in members
+            get_origin(member) is Literal and None in get_args(member) and len(get_args(member)) > 1
+            for member in members
         )
         return f"{self.id} | None" if may_be_none and self.options else self.id
 
@@ -529,9 +531,24 @@ class Type:
             origin is Annotated
         ):  # a union's member keeps what checks it, which doesn't change its name
             return Type(one)._named
-        # a TypedDict has no declared name, so every one is "row", a generic one's too
+        # A TypedDict has no declared name, so it is named by its fields, a generic one's with its arguments filled
+        # in: {name: str, age: int | None}. So two rows of different fields never read alike. A row that holds
+        # itself, at any depth, can't be written out, and is named row; so is one with a field of a type that has
+        # no name, such as a class with no @host_type, since the declaration check reports that field.
         if is_typed_dict(one):
-            return "row", "Row", ()
+            fields = type_fields(one)
+            row_class = get_origin(one) or one
+            if any(
+                (get_origin(part) or part) is row_class
+                for hint in fields.values()
+                for part in hint_parts(hint)
+            ):
+                return "row", "Row", ()
+            try:
+                written = ", ".join(f"{name}: {Type(hint).text}" for name, hint in fields.items())
+            except NodeDeclarationError:
+                return "row", "Row", ()
+            return f"{{{written}}}", "Row", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
         _check_is_type(one)
         own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
