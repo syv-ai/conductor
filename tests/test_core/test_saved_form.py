@@ -12,7 +12,7 @@ import math
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -23,6 +23,7 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
+    Param,
     Question,
     Run,
     Series,
@@ -497,10 +498,11 @@ def test_a_saved_run_waiting_on_a_node_still_waits_once_its_code_stops_asking_an
     assert Run.from_json(back.to_json(), _approve_graph(asks=False)).to_json() == back.to_json()
 
 
-def _draft_graph(asks: bool = True) -> Graph[None]:
+def _draft_graph(asks: bool = True, *, tightened: Any = None) -> Graph[None]:
     """Returns ``lines -> reply``, where ``reply`` proposes a draft reply to each line and asks a person to pick.
 
-    Without ``asks``, ``reply`` returns its draft. Both versions compile from one record.
+    Without ``asks``, ``reply`` returns its draft. With ``tightened``, ``reply`` returns that type instead of
+    ``str``, as after a deploy that tightened it, and asks with no choices. Every version compiles from one record.
     """
     registry = NodeRegistry()
 
@@ -508,7 +510,13 @@ def _draft_graph(asks: bool = True) -> Graph[None]:
     def lines(text: str) -> Series[str]:
         return text.splitlines()
 
-    if asks:
+    if tightened is not None:
+
+        @registry.node("reply", title="Reply", description="For a test.", asks=True)
+        def tight(line: str) -> tightened:  # type: ignore[valid-type]
+            raise Ask(f"Send a reply to {line}?")
+
+    elif asks:
 
         @registry.node("reply", title="Reply", description="For a test.", asks=True)
         def reply(line: str) -> str:
@@ -700,10 +708,6 @@ def _declined_at_an_item_index_written_as_text(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["item_indexes"] = ["1"]
 
 
-def _declined_with_a_default_its_output_refuses(saved: dict[str, Any]) -> None:
-    saved["ended_early"]["declined"]["question"]["defaults"] = {"result": 5}
-
-
 def _declined_at_a_call_with_an_outcome(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["item_indexes"] = [0]
 
@@ -722,7 +726,6 @@ def _declined_naming_no_output(saved: dict[str, Any]) -> None:
         _declined_with_a_cause_of_its_own,
         _declined_with_no_call,
         _declined_at_an_item_index_written_as_text,
-        _declined_with_a_default_its_output_refuses,
         _declined_at_a_call_with_an_outcome,
         _declined_naming_no_output,
     ],
@@ -744,9 +747,11 @@ def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any
 
 
 @pytest.mark.parametrize("answered", [False, True])
-def test_a_saved_question_its_node_s_outputs_refuse_is_refused(answered: bool) -> None:
-    """A waiting or an answered call's question is read by its node's outputs, as its ``Ask`` was: a choice or a
-    default for an output the node doesn't have, or one the output's type refuses, never reaches a person."""
+def test_a_saved_question_naming_an_output_the_node_does_not_have_is_refused(
+    answered: bool,
+) -> None:
+    """A waiting or an answered call's question gives choices and defaults only to its node's outputs, a name no
+    deploy explains."""
     graph = _draft_graph()
     run = graph.run({"text": "a"})
     if answered:
@@ -754,8 +759,6 @@ def test_a_saved_question_its_node_s_outputs_refuse_is_refused(answered: bool) -
     for key, wrong in [
         ("defaults", {"nope": "x"}),
         ("choices", {"nope": []}),
-        ("defaults", {"result": 5}),
-        ("choices", {"result": [{"id": 1, "title": "One"}]}),
     ]:
         saved = json.loads(run.to_json())
         saved["outcomes"]["reply"]["questions"]["0"][key] = wrong
@@ -765,6 +768,49 @@ def test_a_saved_question_its_node_s_outputs_refuse_is_refused(answered: bool) -
 
         ((problem,),) = [refused.value.problems]
         assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
+
+
+@pytest.mark.parametrize("tightened", [Annotated[str, Param(max_length=3)], Literal["Yes", "No"]])
+def test_a_deploy_that_tightens_an_asking_node_s_type_leaves_its_questions_as_they_were_shown(
+    tightened: Any,
+) -> None:
+    """A saved question is a record of what a person was shown, so it reads back with its choices and default as
+    saved, though today's type refuses some of them, waiting and answered alike. It is shown as asked, its schema
+    listing its choices, and an answer is still read by today's type."""
+    first = _draft_graph().run({"text": "a\nb"})
+    saved = first.with_answers(first.waiting[0], "Yes").to_json()
+
+    back = Run.from_json(saved, _draft_graph(tightened=tightened))
+
+    assert back.status == "waiting" and back.to_json() == saved
+    shown = [back.waiting[0].questions[0], back.asked[0].question.questions[0]]
+    assert [(q.default, [c.id for c in q.choices or []]) for q in shown] == [
+        ("Re: b", ["Yes", "Re: b"]),
+        ("Re: a", ["Yes", "Re: a"]),
+    ]
+    assert [q.json_schema["enum"] for q in shown] == [["Yes", "Re: b"], ["Yes", "Re: a"]]
+    with pytest.raises(InvalidCallError) as refused:
+        back.with_answers(back.waiting[0], "Re: b")
+    assert [p.type for p in refused.value.problems] == ["invalid_answer"]
+    assert back.with_answers(back.waiting[0], "Yes").resume().status == "complete"
+
+
+def test_a_saved_question_whose_values_no_type_reads_is_kept_and_shown_as_saved() -> None:
+    """A choice id or a default that no output type of the node takes, as a hand-edited save might hold, is a
+    question's value, not its shape: it is kept and shown, and never crashes ``run.waiting``."""
+    graph = _draft_graph()
+    saved = json.loads(graph.run({"text": "a"}).to_json())
+    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {
+        "result": [{"id": 1, "title": "One"}]
+    }
+    saved["outcomes"]["reply"]["questions"]["0"]["defaults"] = {"result": 5}
+
+    (waiting,) = Run.from_json(json.dumps(saved), graph).waiting
+
+    assert (waiting.questions[0].default, [c.id for c in waiting.questions[0].choices or []]) == (
+        5,
+        [1],
+    )
 
 
 def test_a_record_of_run_asked_has_no_id_to_answer_by_and_a_deploy_leaves_it_as_it_was() -> None:

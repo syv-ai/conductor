@@ -10,7 +10,7 @@ import functools
 from dataclasses import dataclass, field
 from typing import Annotated, Any, get_args, get_origin
 
-from pydantic import MISSING, JsonValue
+from pydantic import MISSING, JsonValue, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
@@ -160,11 +160,14 @@ class Field:
         The JSON schema is that of the type, narrowed to ``asked`` (``Type.narrowed``) when it is given. So its
         ``enum`` lists the same choices as ``choices``.
 
+        A question saved before a deploy keeps the choices it offered, and the field's type may refuse some of them
+        now, as when ``-> str`` became ``-> Annotated[str, Param(max_length=3)]``. It is shown as it was asked: its
+        ``choices`` as saved, and a JSON schema that is their ids' ``enum``.
+
         Args:
             asked: The choices an ``Ask`` offers for the field, or ``None`` for the type's own.
         """
-        value_type = self.type if asked is None else self.type.narrowed(asked)
-        choices = value_type.choices
+        choices, json_schema = self._choices_and_schema(asked)
         branch = self.is_branch
         default: JsonValue | MISSING
         if self.default is not REQUIRED:
@@ -187,13 +190,29 @@ class Field:
             is_series=self.is_series,
             type=self.type.id,
             type_variables=[variable.__name__ for variable in self.whole.variables],
-            json_schema=value_type.json_schema,
+            json_schema=json_schema,
             required=default is MISSING and not branch,
             default=default,
             choices=choices,
             widget=None if widget is None else widget.model_dump(mode="json"),
             constant_only=self.param.constant_only is True,
         )
+
+    def _choices_and_schema(
+        self, asked: tuple[Choice, ...] | None
+    ) -> tuple[tuple[Choice, ...] | None, dict[str, Any]]:
+        """Returns the choices and the JSON schema a field is shown with, narrowed to ``asked`` when it is given.
+
+        ``asked`` are what a person was shown, so when the field's type refuses one, as after a deploy that changed
+        the type, they are shown as they are, with the ``enum`` of their ids for a schema.
+        """
+        if asked is None:
+            return self.type.choices, self.type.json_schema
+        try:
+            narrowed = self.type.narrowed(asked)
+            return narrowed.choices, narrowed.json_schema
+        except (ValidationError, NodeDeclarationError):
+            return asked, {"enum": [choice.id for choice in asked]}
 
 
 def _field_parts(hint: Any) -> tuple[Param, Type, Type]:

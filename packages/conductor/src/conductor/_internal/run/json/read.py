@@ -15,8 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._internal.ask import Ask, AskValidator
-from conductor._internal.base import REQUIRED, SKIPPED, NodePath, parse_node_path, place_text
+from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
 from conductor._internal.field import Field
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import (
@@ -147,7 +146,7 @@ def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarl
 
     A run a decline ended keeps the call declined and no ``cause``, since its ``answer_declined`` is made from the
     call. Any other keeps its ``cause`` and no declined call. The declined call is one the graph has, with no
-    outcome of its own any more, and its question is read as the node's ``Ask`` was (``_read_question``). Whether
+    outcome of its own any more, and its question names only outputs of the node (``_check_question``). Whether
     the node asks isn't checked: a deploy may make it stop asking, and a run read back keeps what it did, as it keeps
     an answered call's question.
 
@@ -170,42 +169,24 @@ def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarl
         raise ValueError("the node has no call at the declined call's item indexes")
     if outcomes.of(declined.node_path).get(declined.item_indexes) is not None:
         raise ValueError("the declined call has an outcome")
-    outputs = node.compiled_node.outputs
-    question = _read_question(AskValidator(outputs, asks=True), outputs, declined.question)
-    return ended_early.model_copy(
-        update={"declined": dataclasses.replace(declined, question=question)}
-    )
+    _check_question(node.compiled_node.outputs, declined.question)
+    return ended_early
 
 
-def _read_question(
-    asks: AskValidator, outputs: Mapping[str, Field], question: Unanswered
-) -> Unanswered:
-    """Returns a saved question with its choices and defaults read by the node's outputs, as its ``Ask`` was.
+def _check_question(outputs: Mapping[str, Field], question: Unanswered) -> None:
+    """Checks that a saved question gives choices and defaults only to outputs the node has.
 
-    A saved question is what ``AskValidator`` gave when the node asked, in its JSON form. So it is read by the same
-    validator again: a choice or a default the output's type refuses, or one for an output the node doesn't have,
-    is refused here, where the run is read, and never shown to a person.
+    A saved question is a record of what a person was shown, so its values are kept as they were saved, and never
+    read again by the output's type: a deploy may have changed the type, and the person was shown them all the
+    same. Its shape is the codec's to check: a prompt and titles as text, choices and defaults by output name, values
+    as JSON. An output the node doesn't have is what no deploy explains, since outputs are named in the node's
+    code fingerprint and in the graph's record.
 
     Raises:
-        ValueError: The validator refused it. The message is its reason, which quotes no value.
+        ValueError: It names another output. The message names no value.
     """
-    if len(outputs) == 1:
-        # a node of one output has its choices and default given alone, not by output name
-        (name,) = outputs
-        if not {*question.choices, *question.defaults} <= {name}:
-            raise ValueError("a question names an output the node does not have")
-        choices: Any = list(question.choices[name]) if name in question.choices else None
-        default = question.defaults.get(name, REQUIRED)
-    else:
-        choices = {name: list(given) for name, given in question.choices.items()} or None
-        default = dict(question.defaults) if question.defaults else REQUIRED
-    try:
-        read_choices, read_defaults = asks(Ask(question.prompt, choices=choices, default=default))
-    except InvalidCallError as refused:
-        raise ValueError(
-            f"a question doesn't fit the node: {refused.problems[0].ctx['reason']}"
-        ) from None
-    return dataclasses.replace(question, choices=read_choices, defaults=read_defaults)
+    if not {*question.choices, *question.defaults} <= outputs.keys():
+        raise ValueError("a question names an output the node does not have")
 
 
 def _lists_disagree(where: str, reason: str) -> Problem:
@@ -272,11 +253,9 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
                 outcomes.append(skipped_outcome)
             else:
                 outcomes.append(None)
-        # read by the node's outputs whether it asks now or not: a deploy may have made it stop asking
-        asks = AskValidator(node.outputs, asks=True)
         for call_number, saved_question in saved.questions.items():
-            read_question = _read_question(asks, node.outputs, saved_question)
-            asked = dataclasses.replace(read_question, fingerprint=fingerprints[call_number])
+            _check_question(node.outputs, saved_question)
+            asked = dataclasses.replace(saved_question, fingerprint=fingerprints[call_number])
             match outcomes[call_number]:
                 case Done() as answered:  # a question a person answered
                     outcomes[call_number] = dataclasses.replace(answered, asked=asked)
