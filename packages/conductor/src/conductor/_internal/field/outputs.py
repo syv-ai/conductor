@@ -24,7 +24,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 from pydantic_core import (
     CoreSchema,
-    ErrorDetails,
     InitErrorDetails,
     PydanticCustomError,
     core_schema,
@@ -32,7 +31,7 @@ from pydantic_core import (
 from pydantic_core.core_schema import TypedDictField, ValidatorFunctionWrapHandler
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.problem import conductor_error
+from conductor._internal.problem import conductor_error, raised_again
 from conductor._internal.utils import comma_separated
 
 from .type import Field
@@ -55,10 +54,9 @@ def outputs_schema(
     output's value, and more than one branch given a value (``several_branches_given``, ``_check_branches``). The
     caller that wants only the first takes the first.
 
-    A node that returns one value (``"value"``) or nothing (``"nothing"``) gives no fault of the whole after the split:
-    its one output, ``result``, is always there, and is never ``SKIPPED``, since a node that returns ``SKIPPED`` skips
-    every output and its return isn't split (``ReturnValidator``). So its schema only checks the value, and costs no
-    more than the output's own check.
+    A node that returns one value (``"value"``) or nothing (``"nothing"``) can't give a fault of the whole after the
+    split, so its schema only checks the value. A value node's one output, ``result``, is required and isn't a branch.
+    A node that returns nothing has no outputs. And a whole ``SKIPPED`` is taken before the split (``ReturnValidator``).
 
     Args:
         outputs: The node's outputs, by name.
@@ -93,7 +91,7 @@ def outputs_schema(
             # an output refused for SKIPPED isn't also missing
             skipped = {fault["loc"] for fault in refused}
             errors = [
-                _raised_again(fault)
+                raised_again(fault)
                 for fault in error.errors()
                 if not (fault["type"] == "missing" and fault["loc"] in skipped)
             ]
@@ -262,13 +260,3 @@ def _check_branches(outputs: Mapping[str, Field], given: Container[str]) -> list
         " they are branches of one node",
         {"given": taken},
     )
-
-
-def _raised_again(fault: ErrorDetails) -> InitErrorDetails:
-    """Returns one of pydantic's errors as it can be raised again, beside an error of conductor's own.
-
-    Pydantic raises again only an error whose type it knows, so each is given as the custom error of its own type,
-    message and ``ctx``.
-    """
-    error = PydanticCustomError(fault["type"], fault["msg"], fault.get("ctx"))
-    return {"type": error, "loc": fault["loc"], "input": fault["input"]}

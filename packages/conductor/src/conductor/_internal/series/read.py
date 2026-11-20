@@ -10,11 +10,11 @@ from collections.abc import Callable
 from typing import Any, get_args
 
 import polars as pl
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.problem import set_has_no_order
+from conductor._internal.problem import raised_again, set_has_no_order
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -38,7 +38,20 @@ def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             case pl.Series():
                 value = value.to_list()
         if isinstance(value, list) and any(item is SKIPPED for item in value):
-            kept = iter(read_items([item for item in value if item is not SKIPPED]))
+            indexes = [index for index, item in enumerate(value) if item is not SKIPPED]
+            try:
+                kept = iter(read_items([value[index] for index in indexes]))
+            except ValidationError as error:
+                # each fault is put back at its item's own index, counting the SKIPPED items
+                raise ValidationError.from_exception_data(
+                    error.title,
+                    [
+                        raised_again(fault, (indexes[int(fault["loc"][0])], *fault["loc"][1:]))
+                        if fault["loc"]
+                        else raised_again(fault)
+                        for fault in error.errors()
+                    ],
+                ) from None
             return [SKIPPED if item is SKIPPED else next(kept) for item in value]
         return read_items(value)
 

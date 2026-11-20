@@ -104,6 +104,22 @@ def is_conductor_error(fault: ErrorDetails) -> bool:
     return OWN_MESSAGE.items() <= fault.get("ctx", {}).items()
 
 
+def raised_again(fault: ErrorDetails, loc: tuple[int | str, ...] | None = None) -> InitErrorDetails:
+    """Returns one of pydantic's errors as it can be raised again, beside an error of conductor's own or at another
+    place.
+
+    Pydantic raises again only an error whose type it knows, so each is given as the custom error of its own type,
+    message and ``ctx``.
+
+    Args:
+        fault: The error, as pydantic gave it.
+        loc: Where the error is, when not where pydantic found it. A ``Series`` checked without its ``SKIPPED`` items
+            puts each error back at its item's own index.
+    """
+    error = PydanticCustomError(fault["type"], fault["msg"], fault.get("ctx"))
+    return {"type": error, "loc": fault["loc"] if loc is None else loc, "input": fault["input"]}
+
+
 def no_json_form(reason: str = "the value can't be written as JSON") -> PydanticCustomError:
     """The refusal of a value that can't be written as JSON, such as a ``str`` with a lone surrogate, or an object
     held in memory that pydantic only checks with ``isinstance``.

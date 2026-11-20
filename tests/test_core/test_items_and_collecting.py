@@ -47,7 +47,8 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import MISSING
+from pydantic import MISSING, BaseModel
+from pydantic import Field as PydanticField
 
 from tests.test_core.nodes import input_entry, registry_of
 
@@ -1931,6 +1932,37 @@ def test_skipped_items_of_a_returned_series_are_none_downstream_also_after_json(
     )
     assert run.results["u"]["result"] == ["A", None, "C"]
     assert through_json(run).results == run.results
+
+
+def test_a_refused_item_of_a_returned_series_is_at_its_own_index_counting_skipped_items():
+    @node("patchy", title="Patchy", description="For a test.")
+    def patchy() -> Series[int]:
+        return [1, SKIPPED, "c"]  # type: ignore[list-item]
+
+    run = graph({"id": "p", "node": "patchy"}, registry=registry_of(patchy)).run({})
+
+    assert (run.cause.type, [e["loc"] for e in run.cause.ctx["errors"]]) == (
+        "invalid_output",
+        [[2]],
+    )
+
+
+@host_type("Stock", title="Stock")
+class Stock(BaseModel, frozen=True):
+    count: int = PydanticField(ge=0)
+
+
+def test_a_refused_field_of_a_returned_series_item_is_at_the_item_s_own_index():
+    @node("stocks", title="Stocks", description="For a test.")
+    def stocks() -> Series[Stock]:
+        return [SKIPPED, {"count": -1}]  # type: ignore[list-item]
+
+    run = graph({"id": "s", "node": "stocks"}, registry=registry_of(stocks)).run({})
+
+    assert (run.cause.type, [e["loc"] for e in run.cause.ctx["errors"]]) == (
+        "invalid_output",
+        [[1, "count"]],
+    )
 
 
 def test_a_branch_on_a_whole_series_skips_the_nodes_on_the_skipped_branch():
