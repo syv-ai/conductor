@@ -57,13 +57,7 @@ def read_as_output(value_type: Type, value: Any) -> Any:
 
 def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
     """Reads ``value`` by ``value_type`` strictly, the way ``validator``, one of the type's two checks, reads the
-    same value sent as JSON text.
-
-    The value is written as JSON text (``json_text``) and read back strictly, a host's object written by its own
-    class's schema, as a value of its type is. A number in it must be finite: pydantic's parser reads the text with
-    ``allow_inf_nan=False``, so ``inf`` and ``nan`` are refused at any depth, whatever the type, ``Any`` and a
-    host's model included, with pydantic's own ``finite_number``. Their texts, ``"Infinity"`` and ``"NaN"``, are
-    text, which a ``float`` refuses.
+    same value sent as JSON text (``read_as_json_text``).
 
     A frame given where the type is a table, or a union with one (a type with a ``row``), is read as it is,
     strictly, as a node's return is: the table's own rules make it read as its JSON would, and it keeps only the
@@ -71,18 +65,14 @@ def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
     infinite cell is refused with ``finite_number`` too, at the column. The table type itself takes them, since it
     also reads what a node returns.
 
-    A host's own check may raise something other than pydantic's error, such as ``float(None)``'s ``TypeError``.
-    That is a refusal too, as ``Type.takes_value`` reads it: a ``ValidationError`` with ``value_error``.
-
     Args:
         value_type: The type the value is read by.
         validator: The type's ``argument_validator`` or its ``output_validator``.
         value: The value given.
 
     Raises:
-        ValidationError: The type's check refuses the value, ``finite_number`` for a number in it that isn't finite,
-            ``set_has_no_order`` if the value has a set in it, or ``no_json_form`` if it can't be written as JSON,
-            a frame where the type is no table among them.
+        ValidationError: As ``read_as_json_text`` raises it, with the type's id as its title, or ``finite_number``
+            for a float cell of a frame that isn't finite.
     """
     if isinstance(value, pl.DataFrame) and any(
         Type(option).row is not None for option in value_type.options
@@ -91,25 +81,52 @@ def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
             raise ValidationError.from_exception_data(
                 value_type.id, [{"type": "finite_number", "loc": (column,), "input": value}]
             )
-        return _checked(value_type, value, lambda: validator.validate_python(value, strict=True))
-    text = written_as_json(
-        value_type.id, value, lambda: finite_json_text(value, value_type.id, fallback=_written)
-    )
-    read = _checked(value_type, value, lambda: validator.validate_json(text, strict=True))
+        return _checked(value_type.id, value, lambda: validator.validate_python(value, strict=True))
+    return read_as_json_text(validator, value, title=value_type.id)
+
+
+def read_as_json_text(validator: SchemaValidator, value: Any, *, title: str) -> Any:
+    """Reads ``value`` strictly by ``validator``, the way it reads the same value sent as JSON text.
+
+    The two readers above read a value by a type through it, and a type's choices are read by it too
+    (``declared_choices``), since a choice is given as an answer is.
+
+    The value is written as JSON text (``json_text``) and read back strictly, a host's object written by its own
+    class's schema (``json_by_its_class``), as a value of its type is. A number in it must be finite: pydantic's
+    parser reads the text with ``allow_inf_nan=False``, so ``inf`` and ``nan`` are refused at any depth, whatever
+    the type, ``Any`` and a host's model included, with pydantic's own ``finite_number``. Their texts,
+    ``"Infinity"`` and ``"NaN"``, are text, which a ``float`` refuses. A dict's key is held to it too, once the
+    validator has read it.
+
+    A host's own check may raise something other than pydantic's error, such as ``float(None)``'s ``TypeError``.
+    That is a refusal too, as ``Type.takes_value`` reads it: a ``ValidationError`` with ``value_error``.
+
+    Args:
+        validator: The check the value is read by.
+        value: The value given.
+        title: The title of a refusal, such as the type's id.
+
+    Raises:
+        ValidationError: The validator refuses the value, ``finite_number`` for a number in it that isn't finite,
+            ``set_has_no_order`` if the value has a set in it, or ``no_json_form`` if it can't be written as JSON,
+            a frame among them.
+    """
+    text = written_as_json(title, value, lambda: finite_json_text(value, title, fallback=_written))
+    read = _checked(title, value, lambda: validator.validate_json(text, strict=True))
     # A dict's key is text in the JSON, so the text can't show a key that isn't finite, like dict[float, str]'s
-    # "Infinity", until the type has read it. A saved run is read by its own reader, so it may keep such keys.
+    # "Infinity", until the validator has read it. A saved run is read by its own reader, so it may keep such keys.
     finite_json_text(
-        [key for part in value_parts(read) if isinstance(part, dict) for key in part], value_type.id
+        [key for part in value_parts(read) if isinstance(part, dict) for key in part], title
     )
     return read
 
 
-def _checked(value_type: Type, value: Any, check: Callable[[], Any]) -> Any:
-    """Returns what ``check``, a call of the type's validator on ``value``, gives.
+def _checked(title: str, value: Any, check: Callable[[], Any]) -> Any:
+    """Returns what ``check``, a call of a validator on ``value``, gives.
 
     A host's own check may raise something other than pydantic's error where pydantic would refuse, such as
     ``float(None)``'s ``TypeError``, as ``Type.takes_value`` says. That is a refusal too, so it is raised as a
-    ``ValidationError`` with ``value_error``.
+    ``ValidationError`` with ``value_error``, titled ``title``.
     """
     try:
         return check()
@@ -117,8 +134,7 @@ def _checked(value_type: Type, value: Any, check: Callable[[], Any]) -> Any:
         raise
     except Exception as error:  # noqa: BLE001  a host's own check, which may raise anything
         raise ValidationError.from_exception_data(
-            value_type.id,
-            [{"type": "value_error", "loc": (), "input": value, "ctx": {"error": error}}],
+            title, [{"type": "value_error", "loc": (), "input": value, "ctx": {"error": error}}]
         ) from None
 
 
