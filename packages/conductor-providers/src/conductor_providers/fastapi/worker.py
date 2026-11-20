@@ -329,10 +329,13 @@ class Worker(Generic[M, X]):
                     row, state=state.with_queued(declines={waiting_id: reason})
                 )
             run = await self._settings.load(row, row.metadata)
-            ended, saved, outcome = await asyncio.to_thread(
-                lambda: state.declined(run.with_decline(waiting_id, reason=reason))
-            )
-            return await self._store.update(row, state=ended, run=saved, outcome=outcome)
+
+            def ended() -> tuple[RunState, str | None, RunOutcome]:
+                declined = run.with_decline(waiting_id, reason=reason)
+                return state.ended_with(declined, saved=declined.to_json())
+
+            stopped, saved, outcome = await asyncio.to_thread(ended)
+            return await self._store.update(row, state=stopped, run=saved, outcome=outcome)
 
         row = await self._row(run_id, allows)
         return self._view(await self._store.change(row, declined))
