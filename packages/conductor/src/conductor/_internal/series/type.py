@@ -175,7 +175,8 @@ class SeriesType(Type, of=_Series):
 
         # Both forms are built in one build, so the row and each class in its cells get one schema, which both use.
         # Pydantic names a class's schema by a ref that doesn't say the config it was built under, and refuses one
-        # ref declared twice.
+        # ref declared twice. The build goes through Type, so it is made under conductor's own config as every
+        # type's is; the type is Any because the hook makes the whole schema.
         table = self._table
         return Type(Annotated[Any, GetPydanticSchema(both_forms)]).schema
 
