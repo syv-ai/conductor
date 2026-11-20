@@ -206,8 +206,8 @@ def type_fields(hint: Any) -> dict[str, Any]:
     type arriving on an input: ``type_fields(Contact)`` is ``{"name": str, "email": str | None}``. Conductor reads a
     type's fields the same way. It is provisional.
 
-    A generic type has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
-    ``value: T`` is ``int``. A type variable left open, as in a bare ``Row``, becomes its bound, or ``Any``. Each
+    A parameterised generic type has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s
+    field ``value: T`` is ``int``. A type variable left open, as in a bare ``Row``, becomes its bound, or ``Any``. Each
     type is the one its author wrote, with its ``Annotated`` limits. A field a value may leave out is given as its
     type, without ``NotRequired``.
 
