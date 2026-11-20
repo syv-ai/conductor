@@ -47,10 +47,9 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
 
     The outcomes the saved run could still reuse go through ``ReusableOutcomes.add``, as a run made from a previous
     one does. So they are kept only for a node whose ``Policy`` says ``reuse_when_inputs_match`` now, and a node
-    switched to ``reuse_when_inputs_match=False`` after the save is called again for every item. An outcome that
-    other code made is kept, but no call reuses it, since its fingerprint keeps that code. A waiting question of a
-    node that no longer asks is dropped, from the run's outcomes and from what it may reuse (``outcomes_from_saved``).
-    So the next ``resume`` calls the node's code for it.
+    switched to ``reuse_when_inputs_match=False`` after the save is called again for every item. One that can't be
+    reused, such as a waiting question of a node that no longer asks, is dropped. An outcome that other code made
+    is kept, but no call reuses it, since its fingerprint keeps that code.
 
     Args:
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
@@ -159,9 +158,6 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
     That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``, each
     ``Done`` with its fingerprint.
 
-    No call of a node that never asks waits for a person. So when the node's code asked at the save and no longer
-    does, each waiting call reads as a call not made.
-
     Args:
         node: The node, as compiled.
         saved: The saved lists. Each value has already been checked by its output's type.
@@ -222,9 +218,6 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
     ):
         raise ValueError("a call that is neither done nor waiting has a fingerprint")
     _refuse_null_where_none_is_refused(node, states, values_by_output)
-    if not node.asks:
-        # a question saved while the node's code asked: no call of a node that never asks waits for a person
-        return [None if isinstance(outcome, Unanswered) else outcome for outcome in outcomes]
     return outcomes
 
 

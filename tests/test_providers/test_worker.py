@@ -1658,6 +1658,57 @@ async def test_an_answer_pydantic_cant_write_itself_is_queued_as_its_json_and_ta
     )
 
 
+async def test_a_waiting_run_whose_node_stops_asking_in_a_deploy_takes_an_answer_at_its_current_id_and_completes() -> (
+    None
+):
+    """A deploy that makes a node stop asking leaves a waiting run's questions waiting, so the row shows what can
+    still be answered. The old id is ``answer_stale``, whose ``ctx.current`` the person answers, and the run goes on."""
+
+    def registry_that(asks: bool) -> NodeRegistry[None]:
+        registry = NodeRegistry()
+
+        @registry.node("lines", title="Lines", description="For a test.")
+        def lines(text: str) -> Series[str]:
+            return text.splitlines()
+
+        if asks:
+
+            @registry.node("approve", title="Approve", description="For a test.", asks=True)
+            def approve(line: str) -> bool:
+                raise Ask(f"Approve {line}?")
+
+        else:
+
+            @registry.node("approve", title="Approve", description="For a test.")
+            def approve(line: str) -> bool:  # type: ignore[no-redef]
+                return True
+
+        return registry
+
+    current = {"registry": registry_that(asks=True)}
+    store = MemoryStore()
+    worker: Worker[Any, Any] = Worker(store, nodes_for=lambda metadata: current["registry"])
+    registry = current["registry"]
+    async with worker.serving():
+        waits = await _started(
+            worker, make_graph(registry["lines"], registry["approve"]), {"text": "a\nb"}
+        )
+        first, second = (await store.ended(waits)).waiting
+        current["registry"] = registry_that(asks=False)
+        with pytest.raises(InvalidCallError) as stale:
+            await worker.answer(waits, {first.id: True, second.id: False}, allows=EVERY_RUN)
+        assert (await store.view(waits)).waiting == [first, second]
+
+        now = {
+            problem.ctx["waiting_id"]: problem.ctx["current"] for problem in stale.value.problems
+        }
+        await worker.answer(waits, {now[first.id]: True, now[second.id]: False}, allows=EVERY_RUN)
+        ended = await store.ended(waits)
+
+    assert [problem.type for problem in stale.value.problems] == ["answer_stale", "answer_stale"]
+    assert ended.status == "complete" and ended.outputs == {"result": [True, False]}
+
+
 async def test_a_decline_to_a_complete_run_is_not_waiting_and_to_a_stale_id_answer_stale() -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()

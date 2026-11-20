@@ -770,7 +770,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
   - `not_waiting` is for a call that is not waiting, with `ctx.waiting_id`, `ctx.status`, and `ctx.moved_to` when its question now waits on another call.
   - `answer_stale` is for an id whose place waits with another fingerprint: the call there got other inputs, as when `run.again` moved another item there, or the node's code changed. `ctx.current` is the id waiting there now, and `ctx.moved_to` is there when the old question now waits on another call. An id whose place waits on nothing is `not_waiting`.
 - An id without its `~` part names the call alone, and answers whatever question waits there.
-- A host that keeps a waiting id outside the run, such as in a link in an email, keeps the id without its `~` part, or reads the id from `run.waiting` again when the person comes back. A whole id goes out of date when its call's inputs change, and when its node's code does, as after a deploy, even when the question reads the same. `run.with_answers` then refuses it as `answer_stale`.
+- A host that keeps a waiting id outside the run, such as in a link in an email, keeps the id without its `~` part, or reads the id from `run.waiting` again when the person comes back. A whole id goes out of date when its call's inputs change, and when its node's code does, as after a deploy, even when the question reads the same. `run.with_answers` then refuses it as `answer_stale`. A deploy leaves what a run did and what it waits on as they are, so a question saved while its node asked still waits once the node's code no longer asks, and an answer to the id in `ctx.current` goes on.
 - An empty mapping answers no call, so it changes nothing: a run that was `cancelled` or `timed_out` stays so.
 - A node that asked is not called again for that item.
 
@@ -998,7 +998,6 @@ assert GraphRecord.model_validate_json(text) == record
 - That can happen when the text was changed, when another version of conductor, or of a node or a type in it, wrote it, or when a value doesn't read back from its JSON. The remedy is a new run.
 - Every value is read back by its declared type. A float that isn't finite is written as its text (`"NaN"`, `"Infinity"`, `"-Infinity"`), in a field of a host's own pydantic model too, whatever its `ser_json_inf_nan` says. A `float` reads the float back. `Any`, a `dict` or `float | str` reads the text, the way a date under `Any` comes back as its ISO text.
 - A saved `null` for an output, or for an item of a `Series`, is refused where the type refuses `None` (see "Types"), unless the save lists it as skipped. So a save takes a `None` exactly where a node's return does.
-- A run read back keeps every outcome it saved, even one that a node's code changed since then would not give. One kind is dropped: a waiting call of a node whose code no longer asks (`asks=True` at the save, not now), since no call of a node that never asks waits for a person. The call reads as not made, so its waiting id is `not_waiting`, and the next `resume()` calls the node's code for it. It is provisional.
 
 ### The Palette
 
@@ -1348,6 +1347,7 @@ How the worker gives a run the answers and declines sent to it, through the rout
 
 - This call's answers go to `run.with_answers` on the run as its row has it, whatever its status. Every answer it refuses is a 422, with nothing written; answers JSON can't write are checked first, and when any is refused, only those are listed. The run is then resumed.
 - This call's decline goes to `run.with_decline` on the run as its row has it. The run is written `declined`, `answer_declined`, with its `run_end` in the same write and no resume call, so the call needs no serving worker. A decline the run refuses (`not_waiting`, `answer_stale`) is a 422 with nothing written.
+- A row's `waiting` lists the ids as the run last wrote them. After a deploy that changed a waiting node's code, a node that no longer asks included, an answer or a decline to such an id is conductor's `answer_stale` (a 422), with the id the question waits under now in `ctx.current`, and an id without its `~` part is taken as it is.
 - An answer to a complete or a declined run is conductor's `not_waiting` (a 422). No answers at all change nothing, as `run.with_answers({})` doesn't, so nothing is written.
 
 **Two calls at once.** A reply whose write loses to another call's goes by the run as it is then: it is queued if the run now runs, and refused as `not_waiting` if the other call answered the question and the run finished.

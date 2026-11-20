@@ -105,8 +105,9 @@ class ReusableOutcomes:
         A run's own outcomes, which ``from_previous`` gives, have skipped calls and calls not made for a ``None``
         among them. Only a call that was made has an outcome to reuse, so those are left out. A saved run has none,
         since its codec refuses them. The other two checks only keep the tables' types: a call whose arguments have
-        no JSON form has no fingerprint, and no call reuses an outcome without one (``take``), and a node that
-        never asks has no waiting call, a saved run's neither (``outcomes_from_saved``).
+        no JSON form has no fingerprint, and no call reuses an outcome without one (``take``), and a waiting
+        question given a node that never asks, from a save made while it asked, has a code fingerprint no call of
+        the node has now.
 
         A node that may ask keeps every one of them, since each is reused once. A node that never asks keeps an
         outcome if it is the first with its fingerprint, which any call with that fingerprint reuses, or the first
