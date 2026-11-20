@@ -83,11 +83,15 @@ class _BlueprintNodeBase:
             is the path of the function node that returns the list looped over, and that output's name. In the
             example, ``loud/shout`` has ``((("lines",), "result"),)``. The function node of the loop at index ``n``
             is itself inside the first ``n`` loops.
+        off: Whether the node is switched off, by its own record or by a subgraph node it is inside
+            (``NodeRecord.off``). A run skips each call of a function node switched off, and reads none of its
+            inputs.
     """
 
     parent: BlueprintSubgraphNode | None
     node_path: NodePath
     loops: tuple[tuple[NodePath, str], ...]
+    off: bool
 
 
 @typing.final
@@ -289,15 +293,20 @@ def _add_blueprint_nodes(
     for compiled_node in graph._nodes.values():
         node_path = path_in_outer_graph(graph_path, (compiled_node.id,))
         loops = loops_in_outer_graph(graph_path, outer_loops, compiled_node.loops)
+        off = compiled_node.off or (parent is not None and parent.off)
         node: BlueprintNode
         if isinstance(compiled_node, CompiledSubgraphNode):
             node = BlueprintSubgraphNode(
-                compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops
+                compiled_node=compiled_node,
+                parent=parent,
+                node_path=node_path,
+                loops=loops,
+                off=off,
             )
             node.inner_nodes = _add_blueprint_nodes(compiled_node.inner, node, functions, nodes)
         else:
             node = functions[node_path] = _function_node(
-                compiled_node, parent, node_path, loops, functions
+                compiled_node, parent, node_path, loops, off, functions
             )
         graph_nodes[compiled_node.id] = nodes[node_path] = node
     return graph_nodes
@@ -308,12 +317,16 @@ def _function_node(
     parent: BlueprintSubgraphNode | None,
     node_path: NodePath,
     loops: tuple[tuple[NodePath, str], ...],
+    off: bool,
     functions: Mapping[NodePath, BlueprintFunctionNode],
 ) -> BlueprintFunctionNode:
     """Returns the blueprint node of one function node.
 
     It works out where the node is, what each call of it reads, and which function nodes those values come from.
     Each input that edges lead to is named by full paths here (``in_outer_graph``), once.
+
+    A node switched off reads no input, since no call of it is made. Its graph inputs may be none of the graph's
+    (``GraphRecord.inputs_offered``). It still waits for the list it loops over, which says how many calls it has.
 
     It also records each ``Series`` output that an input reads one item at a time. The output goes into the
     ``looped_outputs`` of the function node that returns it, named by the output the edge is wired to.
@@ -323,6 +336,7 @@ def _function_node(
         parent: The subgraph node it is directly inside. ``None`` for a node of the outer graph.
         node_path: Its full path.
         loops: Every loop it is inside, named by full paths.
+        off: Whether it is switched off, by its own record or by a subgraph node it is inside.
         functions: Every function node made so far, by node path. The nodes upstream of this one are among them.
     """
     upstream: dict[BlueprintFunctionNode, int] = {}
@@ -330,7 +344,7 @@ def _function_node(
     constants: dict[str, Any] = {}
     graph_inputs: list[tuple[str, str]] = []
     edge_inputs: dict[str, EdgeInput | CollectingInput] = {}
-    for name, node_input in compiled_node.inputs.items():
+    for name, node_input in () if off else compiled_node.inputs.items():
         subgraph = parent  # the subgraph node whose graph ``node_input`` was compiled in
         while (
             isinstance(node_input, GraphInput) and subgraph is not None
@@ -398,6 +412,7 @@ def _function_node(
         parent=parent,
         node_path=node_path,
         loops=loops,
+        off=off,
         constants=constants,
         graph_inputs=tuple(graph_inputs),
         edge_inputs=edge_inputs,

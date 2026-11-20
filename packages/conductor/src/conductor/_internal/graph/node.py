@@ -77,6 +77,41 @@ class RequiredBranch(NamedTuple):
         )
 
 
+class Switch(NamedTuple):
+    """A node switched off (``NodeRecord.off``), which must be switched on for a node to be called.
+
+    A run never calls a node switched off, so a node that needs one is never called either. The compiler puts it
+    among a node's needs beside its ``RequiredBranch``es. So every output of a node switched off, and every output
+    that reads only from one, is described as an output that may be skipped, as one that needs a branch is.
+
+    A switch is no branch of its node, so it never makes two edges exclusive: switching a node off changes neither
+    of the compiler's checks on edges.
+
+    Attributes:
+        node: The path of the node switched off, from the graph being compiled, a subgraph node included.
+    """
+
+    node: NodePath
+
+    @property
+    def depth(self) -> int:
+        """Always 0: a node is switched off once for the whole run, outside every loop.
+
+        So a list collected from a node switched off inside a loop needs the switch too, since every item is
+        skipped.
+        """
+        return 0
+
+    def in_outer_graph(
+        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
+    ) -> Switch:
+        """Returns this switch of a subgraph's graph, named from the graph the subgraph node is in.
+
+        Its node is named as ``path_in_outer_graph`` names it. The loops around the subgraph node don't change it.
+        """
+        return Switch(path_in_outer_graph(subgraph_path, self.node))
+
+
 @dataclass(frozen=True, kw_only=True)
 class _CompiledNodeBase:
     """What both kinds of compiled node have. It's never made on its own.
@@ -90,14 +125,18 @@ class _CompiledNodeBase:
             edges carry.
         outputs: Each output, by name, as compiled: as the definition declares it, or as a ``compute_outputs``
             hook returned it.
-        required_branches: The branches that must be taken upstream for the node to be called.
+        required_branches: What the node needs to be called: the branches that must be taken upstream, and a
+            ``Switch`` for each node switched off it needs, itself or one it reads only from.
+        off: Whether the record switches the node off (``NodeRecord.off``). A run then never calls it, or any node
+            inside it, and skips each of its calls.
     """
 
     id: str
     loops: tuple[tuple[NodePath, str], ...]
     inputs: dict[str, Input]
     outputs: dict[str, Field]
-    required_branches: frozenset[RequiredBranch]
+    required_branches: frozenset[RequiredBranch | Switch]
+    off: bool
 
     def edge_reading(self, output: str) -> Edge:
         """Returns the edge that reads the whole of ``output``.
@@ -120,7 +159,7 @@ class _CompiledNodeBase:
             per_item=field.is_series,
         )
 
-    def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
+    def branches_required_for(self, output: str) -> frozenset[RequiredBranch | Switch]:
         """Returns the branches that must be taken for ``output`` to have a value.
 
         These are the branches the node needs to be called at all. If ``output`` is a branch, it's added too, since
@@ -306,7 +345,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         edge = self.inner._edge_reading(output).in_outer_graph((self.id,), self.loops)
         return replace(edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
 
-    def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
+    def branches_required_for(self, output: str) -> frozenset[RequiredBranch | Switch]:
         """Returns the branches that must be taken for ``output`` to have a value.
 
         These are the branches this node needs to be called, and those the output needs inside the subgraph, named

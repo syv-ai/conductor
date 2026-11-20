@@ -90,6 +90,7 @@ from .node import (
     CompiledNode,
     CompiledSubgraphNode,
     RequiredBranch,
+    Switch,
 )
 from .type import Definitions, Graph
 from .validator import ConstantValidator
@@ -103,14 +104,15 @@ class _InputPlans:
         inputs: The compiled input of each input, by name.
         loops: The loops the node is in, outermost first. In the example, ``shout`` is in the loop over
             ``lines.result``.
-        required_branches: The branches that must be taken upstream for the node to be called.
+        required_branches: What the node needs to be called: the branches that must be taken upstream, and a
+            ``Switch`` for each node switched off it reads only from. ``_with_switch`` adds its own.
         bound: The type each type variable (like ``T``) of the node's inputs gets from the edges into the node.
             ``None`` for a node with no type variables, which is nearly every node.
     """
 
     inputs: dict[str, Input]
     loops: tuple[tuple[NodePath, str], ...]
-    required_branches: frozenset[RequiredBranch]
+    required_branches: frozenset[RequiredBranch | Switch]
     bound: Mapping[TypeVar, Any] | None
 
 
@@ -188,8 +190,12 @@ class Compiler:
         once every input that takes it is known. So a type two inputs disagree on is always
         ``graph_input_used_two_ways``, whichever order the nodes are compiled in, and its default is then not read.
         A default the type refuses is ``invalid_value`` at the first input, and the graph input is required.
+
+        A graph input that only nodes switched off take is checked the same way, but isn't returned, since the
+        record doesn't offer it (``GraphRecord.inputs_offered``).
         """
         fields: dict[str, Field] = {}
+        offered = self.record.inputs_offered
         for name, (node_id, field) in self.taken_first.items():
             default, declared = REQUIRED, self.record.inputs[name].default
             if declared is not MISSING and name not in self.used_two_ways:
@@ -197,7 +203,8 @@ class Compiler:
                     default = ConstantValidator(node_id, field)(declared)
                 except InvalidCallError as refused:
                     self.problems += refused.problems
-            fields[name] = Field(name, field.hint, default, is_output=False)
+            if name in offered:
+                fields[name] = Field(name, field.hint, default, is_output=False)
         return fields
 
     def _graph_inputs_not_used(self) -> None:
@@ -218,15 +225,18 @@ class Compiler:
         A graph output that names a node the record doesn't have gets the problem ``graph_output_names_missing_node``,
         and one that names an output its node doesn't have gets ``graph_output_not_found``. Neither is on any node.
         One whose node didn't compile is left out with no problem of its own, since that node already has a problem
-        saying why.
+        saying why. One whose node is switched off is checked the same way, but isn't returned, since the record
+        doesn't offer it (``GraphRecord.outputs_offered``).
         """
         fields: dict[str, Field] = {}
+        offered = self.record.outputs_offered
         for name, source in sorted(self.record.outputs.items()):
             node = self.nodes.get(source.node)
             if node is not None and source.output in node.outputs:
-                fields[name] = Field(
-                    name, node.outputs[source.output].hint, REQUIRED, is_output=True
-                )
+                if name in offered:
+                    fields[name] = Field(
+                        name, node.outputs[source.output].hint, REQUIRED, is_output=True
+                    )
                 continue
             if node is None and source.node in self.record.nodes:
                 continue  # the node didn't compile, and has a problem saying why
@@ -379,7 +389,8 @@ class Compiler:
                 loops=planned.loops,
                 inputs=planned.inputs,
                 outputs=outputs,
-                required_branches=planned.required_branches,
+                required_branches=_with_switch(node_id, node_record, planned.required_branches),
+                off=node_record.off,
                 definition=definition,
             )
 
@@ -435,7 +446,8 @@ class Compiler:
             loops=planned.loops,
             inputs=planned.inputs,
             outputs=inner._outputs,
-            required_branches=planned.required_branches,
+            required_branches=_with_switch(node_id, node_record, planned.required_branches),
+            off=node_record.off,
             definition=definition,
             inner=inner,
         )
@@ -515,7 +527,9 @@ class Compiler:
                 case None if name in refused_defaults:
                     inputs[name] = MissingInput(field)
                 case None if field.default is REQUIRED:
-                    self.problems.append(compile_problems.input_has_no_value(node_id, name))
+                    # a node switched off reads no input, so it needs no value
+                    if not node_record.off:
+                        self.problems.append(compile_problems.input_has_no_value(node_id, name))
                     inputs[name] = MissingInput(field)
                 case None:
                     inputs[name] = ConstantInput(field, field.default)
@@ -911,7 +925,7 @@ class Compiler:
 
     # -- branches ---------------------------------------------------------------
 
-    def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
+    def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch | Switch]:
         """Returns the branches that must be taken for the output ``edge`` reads to have a value."""
         return self.nodes[edge.wired_to.node].branches_required_for(edge.wired_to.output)
 
@@ -973,7 +987,7 @@ class Compiler:
                     refused.update((a, b))
         return refused
 
-    def _required_branches(self, inputs: Mapping[str, Input]) -> frozenset[RequiredBranch]:
+    def _required_branches(self, inputs: Mapping[str, Input]) -> frozenset[RequiredBranch | Switch]:
         """Returns the branches that must be taken for a node with these ``inputs`` to be called.
 
         For each input, those are the branches that every edge into it needs.
@@ -981,7 +995,7 @@ class Compiler:
         A collecting input needs only the branches taken outside the loop it collects. A branch taken per item
         inside the loop just leaves items out of the list. The node is still called.
         """
-        required_branches: set[RequiredBranch] = set()
+        required_branches: set[RequiredBranch | Switch] = set()
         for node_input in inputs.values():
             if not node_input.sources:
                 continue
@@ -1214,17 +1228,36 @@ def _field_type(value_type: Type, name: str) -> Type | None:
     return Type(value_type.fields[name]) if name in value_type.fields else None
 
 
-def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch]:
+def _with_switch(
+    node_id: str, node_record: NodeRecord, required_branches: frozenset[RequiredBranch | Switch]
+) -> frozenset[RequiredBranch | Switch]:
+    """Returns what a node needs to be called: what its inputs need, and its own ``Switch`` if the record switches
+    it off."""
+    if node_record.off:
+        return required_branches | {Switch((node_id,))}
+    return required_branches
+
+
+def _drawn_here(branches: frozenset[RequiredBranch | Switch]) -> frozenset[RequiredBranch | Switch]:
     """Returns the branches of nodes drawn in the graph being compiled, leaving out those inside subgraph nodes."""
     return frozenset(branch for branch in branches if not inside_a_subgraph_node(branch.node))
 
 
-def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
+def _never_together(
+    a: frozenset[RequiredBranch | Switch], b: frozenset[RequiredBranch | Switch]
+) -> bool:
     """Whether two sets of required branches can never both be taken.
 
-    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node.
+    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node. A ``Switch`` is
+    no branch, so only the branches are compared.
     """
-    return any(x.node == y.node and x.output != y.output for x in a for y in b)
+    return any(
+        x.node == y.node and x.output != y.output
+        for x in a
+        if isinstance(x, RequiredBranch)
+        for y in b
+        if isinstance(y, RequiredBranch)
+    )
 
 
 def _reaches(start: str, goal: str, downstream: Mapping[str, list[str]], within: set[str]) -> bool:
