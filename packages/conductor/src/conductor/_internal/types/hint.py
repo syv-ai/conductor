@@ -126,17 +126,20 @@ def is_typed_dict(hint: Any) -> bool:
 
 
 def field_hints(hint: Any) -> dict[str, Any]:
-    """Returns the type hint of each field ``hint`` declares, by name. It is empty for a hint that declares none.
+    """Returns the type hint of each field a pydantic model, a dataclass or a ``TypedDict`` declares, by name.
 
-    A pydantic model, a dataclass and a ``TypedDict`` declare their fields. This is the one place they are read.
-    A generic one has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
+    It is empty for a type that declares no fields, such as ``str`` or ``dict[str, int]``. Conductor reads every
+    type's fields with it, and a ``compute_outputs`` hook calls it to read the fields of a type arriving on an
+    input: ``field_hints(Contact)`` is ``{"name": str, "email": str | None}``. It is provisional.
+
+    A generic type has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
     ``value: T`` is ``int``, and so is a generic pydantic model's, ``Box[int]``. A type variable left open, as in a
     bare ``Row``, becomes its bound, or ``Any``.
 
     Each hint is the one its author wrote, with its ``Annotated`` metadata, so a field's limits and choices stay
     on it. A ``TypedDict``'s ``Required`` and ``ReadOnly`` are taken off. A field a value may leave out, written
     ``NotRequired`` or in a class declared ``total=False``, is always given as ``NotRequired[...]``, so one test
-    finds it (``types_and_left_out``). A ``ClassVar`` is no field.
+    finds it. A ``ClassVar`` is no field.
 
     Raises:
         NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can

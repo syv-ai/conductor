@@ -5,12 +5,22 @@ The nodes are ``series-split``, ``series-stack``, ``series-collect``, ``table-co
 """
 
 import json
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import conductor_nodes
 import polars as pl
 import pytest
-from conductor import Graph, InvalidCallError, NodeRegistry, Run, Series, Table, make_graph, node
+from conductor import (
+    Graph,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Run,
+    Series,
+    Table,
+    make_graph,
+    node,
+)
 from conductor_nodes import series, tables, text
 
 
@@ -437,6 +447,46 @@ def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
         "team",
     ]
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
+
+
+def test_collect_types_its_table_by_a_generic_rows_filled_in_columns_with_their_limits():
+    """A generic row, ``Line[int]``, gives the result its columns with ``T`` filled in, and a column keeps its
+    ``Param`` limits. The hook reads the row with the reader conductor reads every row with, so it sees what the
+    table it was given has."""
+
+    class Line[T](TypedDict):
+        value: T
+        count: Annotated[int, Param(ge=0)]
+
+    @_node("lines")
+    def lines() -> Table[Line[int]]:
+        return pl.DataFrame({"value": [7], "count": [1]})
+
+    registry = NodeRegistry()
+    registry.add_subregistry(REGISTRY)
+    registry.add(lines)
+    graph = Graph.compile(
+        make_graph(
+            lines,
+            sentence,
+            tables.collect,
+            outputs=COLLECTED,
+            edges=[
+                ("lines.result", "table-collect.rows"),
+                ("sentence.result", "table-collect.team"),
+            ],
+            constants={"table-collect.constant_columns": ["team"]},
+        ),
+        registry,
+    )
+
+    assert graph.problems == []
+    columns = columns_of(output(graph, "table-collect"))
+    assert columns == {
+        "value": {"type": "integer"},
+        "count": {"minimum": 0, "type": "integer"},
+        "team": {"type": "string"},
+    }
 
 
 def test_collect_refuses_a_new_column_the_rows_already_have_naming_it():

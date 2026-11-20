@@ -71,7 +71,7 @@ from conductor._internal.run import (
 )
 from conductor._internal.series import Series
 from conductor._internal.table import Table
-from conductor._internal.types import Choice, Param, host_type
+from conductor._internal.types import Choice, Param, field_hints, host_type
 
 # The reference (``python -m conductor.about``) lists the names in this order, so they are grouped by subject.
 __all__ = [
@@ -89,6 +89,7 @@ __all__ = [
     "Series",
     "Table",
     "host_type",
+    "field_hints",
     # Inside a node
     "SKIPPED",
     "Ask",
