@@ -1658,10 +1658,28 @@ def test_a_null_saved_for_a_done_call_whose_output_takes_no_none_is_refused():
     saved["outcomes"]["echo"]["outputs"]["result"][1] = None
 
     problem = _refused(graph, saved)
-    assert (problem.ctx["where"], [e["type"] for e in problem.ctx["errors"]]) == (
-        "outcomes.echo",
-        ["saved_lists_disagree"],
-    )
+
+    reason = "call 1 is done and has null for 'result', whose type takes no None"
+    assert problem.ctx == {
+        "where": "outcomes.echo",
+        "reason": reason,
+        "errors": [{"type": "saved_lists_disagree", "loc": [], "msg": reason}],
+    }
+
+
+def test_an_output_list_shorter_than_states_is_refused_saying_which_lists_disagree():
+    graph, saved = _saved_echoes()
+    saved["outcomes"]["echo"]["outputs"]["result"].pop()
+
+    problem = _refused(graph, saved)
+
+    reason = "the list of an output is not as long as 'states'"
+    assert problem.ctx == {
+        "where": "outcomes.echo",
+        "reason": reason,
+        "errors": [{"type": "saved_lists_disagree", "loc": [], "msg": reason}],
+    }
+    assert problem.msg.endswith(f"{reason}. Start a new run.")
 
 
 @pytest.mark.parametrize(
