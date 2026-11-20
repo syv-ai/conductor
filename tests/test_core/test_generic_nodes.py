@@ -281,6 +281,11 @@ def count_beside[T](value: T | int) -> T:
     return value  # type: ignore[return-value]
 
 
+@node("text_or_short", title="Text or short", description="For a test.")
+def text_or_short[T](value: T | Annotated[str, Param(max_length=1)]) -> T:
+    return value  # type: ignore[return-value]
+
+
 @node("just_a", title="Just a", description="For a test.")
 def just_a() -> Literal["a"]:
     return "a"
@@ -292,10 +297,11 @@ def just_a() -> Literal["a"]:
         (text, text_or_a, "str"),
         (just_a, text_or_a, "Any"),
         (number, count_or_positive, "int"),
+        (text, text_or_short, "str"),
         (number, count_or_number, "int"),
         (number, count_beside, "Any"),
     ],
-    ids=["literal", "literal-held", "param", "float", "int"],
+    ids=["literal", "literal-held", "param", "param-length", "float", "int"],
 )
 def test_a_variable_binds_what_no_other_member_of_its_union_holds_as_it_is(
     given: Any, beside: Any, bound: str
@@ -303,6 +309,35 @@ def test_a_variable_binds_what_no_other_member_of_its_union_holds_as_it_is(
     """A member that only checks or converts a value, like ``Literal["a"]`` for a ``str``, leaves it to ``T``."""
     graph = _compiled(given, beside, edges=[[f"{given.id}.result", f"{beside.id}.value"]])
     assert graph.problems == [] and _types(graph, beside.id)["result"] == (False, bound)
+
+
+@node("text_or_pick", title="Text or pick", description="For a test.")
+def text_or_pick[T](value: T | Annotated[str, Param(choices=["a"])]) -> T:
+    return value  # type: ignore[return-value]
+
+
+@node("just_b", title="Just b", description="For a test.")
+def just_b() -> Literal["b"]:
+    return "b"
+
+
+@pytest.mark.parametrize(
+    ("given", "problems", "bound"),
+    [(just_a, [], "Any"), (text, [], "Any"), (just_b, ["type_mismatch"], None)],
+    ids=["choice", "text", "not-a-choice"],
+)
+def test_choices_on_a_member_of_a_union_are_the_fields_so_text_goes_to_that_member(
+    given: Any, problems: list[str], bound: str | None
+) -> None:
+    """Unlike a limit, ``Param(choices=)`` on a member limits the whole field, so its ``str`` holds any text.
+
+    Binding ``T`` to ``Literal["b"]`` would give ``Literal["b"] | Annotated[str, Param(choices=["a"])]``, a type
+    ``@node`` refuses (``choices_on_a_literal_beside_another_type``), and the field would still take only ``"a"``.
+    """
+    graph = _compiled(given, text_or_pick, edges=[[f"{given.id}.result", "text_or_pick.value"]])
+    assert [problem.type for problem in graph.problems] == problems
+    if bound is not None:
+        assert _types(graph, "text_or_pick")["result"] == (False, bound)
 
 
 @node("name_text", title="Name text", description="For a test.")
