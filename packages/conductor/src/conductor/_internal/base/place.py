@@ -239,13 +239,18 @@ def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
     return place if fingerprint is None else f"{place}{FINGERPRINT_SEPARATOR}{fingerprint}"
 
 
-def parse_waiting_id(text: str) -> tuple[Loc, str | None]:
-    """Splits a waiting id back into the call's loc and its question's fingerprint, as far as it names them.
+def parse_waiting_id(text: str) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
+    """Splits a waiting id back into the call's loc, its node path, its item indexes and its question's fingerprint,
+    as far as it names them.
 
-    ``parse_waiting_id("review@0/approve@1~3fa2c0d1")`` returns ``(("review", 0, "approve", 1), "3fa2c0d1")``. The
-    text before the ``~`` is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``,
-    and ``""`` gives ``()``. With no ``~`` part, or an empty one, the fingerprint is ``None``. To accept only an id
+    ``parse_waiting_id("review@0/approve@1~3fa2c0d1")`` returns the loc ``("review", 0, "approve", 1)``, the node
+    path ``("review", "approve")``, the item indexes ``(0, 1)`` and the fingerprint ``"3fa2c0d1"``. The text before
+    the ``~`` is split by ``parse_loc``, so ``"approve@x"`` and ``"approve@01"`` give ``("approve",)``, and ``""``
+    gives ``()``. With no ``~`` part, or an empty one, the fingerprint is ``None``. To accept only an id
     ``write_waiting_id`` wrote, write it back and compare.
     """
     place, _, fingerprint = text.partition(FINGERPRINT_SEPARATOR)
-    return parse_loc(place), fingerprint or None
+    loc = parse_loc(place)
+    node_path = tuple(part for part in loc if isinstance(part, str))
+    item_indexes = tuple(part for part in loc if isinstance(part, int))
+    return loc, node_path, item_indexes, fingerprint or None

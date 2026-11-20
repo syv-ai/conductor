@@ -158,13 +158,11 @@ class WaitingIdValidator(Validator[str, tuple[Loc, NodePath, ItemIndexes, str | 
         Raises:
             InvalidCallError: See the class.
         """
-        loc, fingerprint = parse_waiting_id(waiting_id)
+        loc, node_path, item_indexes, fingerprint = parse_waiting_id(waiting_id)
         if write_waiting_id(loc, fingerprint) != waiting_id:
             raise InvalidCallError(
                 [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self._status())]
             )
-        node_path = tuple(part for part in loc if isinstance(part, str))
-        item_indexes = tuple(part for part in loc if isinstance(part, int))
         return loc, node_path, item_indexes, fingerprint
 
 

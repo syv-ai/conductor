@@ -588,7 +588,7 @@ literal str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}</pre
   <div class="section-head prose">
     <p class="eyebrow">The return type</p>
     <h2 id="out-h">Four shapes of output <span class="lvl pub">Public</span></h2>
-    <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. Each prints its <code>returns</code>, how the function returns its outputs, <code>describe()</code>'s <code>computes_outputs</code>, and its outputs as <code>describe()</code> lists them.</p>
+    <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. Each prints its <code>return_shape</code>, how the function returns its outputs, <code>describe()</code>'s <code>computes_outputs</code>, and its outputs as <code>describe()</code> lists them.</p>
   </div>
   <div class="tabs" role="tablist" id="shape-tabs" aria-label="Shapes of output"></div>
   <div class="shape" id="shape" role="tabpanel" aria-labelledby="shape-tab-0" data-tab="one value">
@@ -598,7 +598,7 @@ def upper(text: str) -&gt; str:
     return text.upper()
 
 
-print(upper.returns, upper.describe().computes_outputs)
+print(upper.return_shape, upper.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in upper.describe().outputs])</pre>
 <pre class="out">value False
 [('result', 'str', True)]</pre>
@@ -620,7 +620,7 @@ def route(amount: int) -&gt; Routed:
     return Routed(small=amount)
 
 
-print(route.returns.__name__, route.describe().computes_outputs)
+print(route.return_shape.__name__, route.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in route.describe().outputs])
 print(route(5))</pre>
 <pre class="out">Routed False
@@ -640,7 +640,7 @@ def cells(line: str, names: list[str]) -&gt; dict[str, str]:
     return dict(zip(names, line.split(",")))
 
 
-print(cells.returns, cells.describe().computes_outputs)
+print(cells.return_shape, cells.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in cells.describe().outputs])</pre>
 <pre class="out">mapping True
 []</pre>
@@ -654,7 +654,7 @@ def log(line: str) -&gt; None:
     return None
 
 
-print(log.returns, log.describe().computes_outputs)
+print(log.return_shape, log.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in log.describe().outputs])</pre>
 <pre class="out">nothing False
 []</pre>
