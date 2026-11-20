@@ -988,7 +988,7 @@ def test_an_edge_between_two_identical_checked_types_is_not_checked_again_on_its
         (
             Series[_MaybeTally],
             Series[_Tally],
-            "'give.result' gives Series[row], but 'take.value' takes Series[row] whose field 'n' takes no None.",
+            "'give.result' gives Series[{n: int | None}], but 'take.value' takes Series[{n: int}].",
         ),
         (
             list[Literal[1, None]],
@@ -998,7 +998,7 @@ def test_an_edge_between_two_identical_checked_types_is_not_checked_again_on_its
     ],
     ids=["row-field", "literal-item"],
 )
-def test_a_mismatch_over_a_none_inside_a_value_says_where_the_none_is(
+def test_a_mismatch_over_a_none_inside_a_value_names_both_types_with_their_none(
     gives: Any, takes: Any, message: str
 ) -> None:
     (problem,) = _wiring(gives, takes).problems
@@ -2996,7 +2996,7 @@ def test_a_typed_dict_output_is_a_record_and_an_edge_may_name_one_of_its_fields(
         return {"name": "Bo"}
 
     described = contact.describe().outputs[0]
-    assert (described.type, list(described.json_schema["properties"])) == ("row", ["name"])
+    assert (described.type, list(described.json_schema["properties"])) == ("{name: str}", ["name"])
     graph = Graph.compile(
         make_graph(contact, upper, edges=[("contact.result.name", "upper.text")]),
         registry_of(contact, upper),

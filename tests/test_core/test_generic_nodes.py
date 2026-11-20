@@ -7,7 +7,7 @@ a type variable. Once the graph is compiled, the node's inputs and outputs have 
 
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -199,9 +199,10 @@ def test_a_series_wired_to_a_type_variable_is_looped_over_and_binds_the_item_typ
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
     from_table = _compiled(rows, split, edges=[["rows.result", "split.value"]])
-    assert _types(from_table, "split")["result"] == (True, "row") and from_table.run().outputs[
-        "result"
-    ] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
+    assert _types(from_table, "split")["result"] == (
+        True,
+        "{name: str, age: int}",
+    ) and from_table.run().outputs["result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
     from_list = _compiled(
         keep, split, edges=[["keep.result", "split.value"]], constants={"keep": {"value": [1, 2]}}
     )
@@ -258,6 +259,67 @@ def test_inside_a_value_the_none_of_a_union_takes_a_none_so_the_variable_binds_w
     )
     assert graph.problems == []
     assert graph.run().outputs == {"result": 3}
+
+
+@node("text_or_a", title="Text or a", description="For a test.")
+def text_or_a[T](value: T | Literal["a"]) -> T:
+    return value  # type: ignore[return-value]
+
+
+@node("count_or_positive", title="Count or positive", description="For a test.")
+def count_or_positive[T](value: T | Annotated[int, Param(ge=0)]) -> T:
+    return value  # type: ignore[return-value]
+
+
+@node("count_or_number", title="Count or number", description="For a test.")
+def count_or_number[T](value: T | float) -> T:
+    return value  # type: ignore[return-value]
+
+
+@node("count_beside", title="Count beside", description="For a test.")
+def count_beside[T](value: T | int) -> T:
+    return value  # type: ignore[return-value]
+
+
+@pytest.mark.parametrize(
+    ("given", "beside", "bound"),
+    [
+        (text, text_or_a, "str"),
+        (number, count_or_positive, "int"),
+        (number, count_or_number, "int"),
+        (number, count_beside, "Any"),
+    ],
+    ids=["literal", "param", "float", "int"],
+)
+def test_a_variable_binds_what_no_other_member_of_its_union_holds_as_it_is(
+    given: Any, beside: Any, bound: str
+) -> None:
+    """A member that only checks or converts a value, like ``Literal["a"]`` for a ``str``, leaves it to ``T``."""
+    graph = _compiled(given, beside, edges=[[f"{given.id}.result", f"{beside.id}.value"]])
+    assert graph.problems == [] and _types(graph, beside.id)["result"] == (False, bound)
+
+
+@node("name_text", title="Name text", description="For a test.")
+def name_text() -> str:
+    return "zed"
+
+
+@node("text_or_a_and_one", title="Text or a, and one", description="For a test.")
+def text_or_a_and_one[T](x: T | Literal["a"], y: T) -> str:
+    return f"{x}{y}"
+
+
+def test_a_variable_beside_a_literal_binds_what_arrives_at_both_of_its_places() -> None:
+    graph = _compiled(
+        name_text,
+        number,
+        text_or_a_and_one,
+        edges=[
+            ["name_text.result", "text_or_a_and_one.x"],
+            ["number.result", "text_or_a_and_one.y"],
+        ],
+    )
+    assert graph.problems == [] and graph.run().outputs == {"result": "zed3"}
 
 
 def test_a_bare_variable_binds_without_none_so_a_none_is_a_none_input() -> None:
