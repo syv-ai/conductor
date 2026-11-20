@@ -758,7 +758,7 @@ async def test_a_worker_hears_a_cancel_sent_to_another_at_its_first_lease_renewa
             self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
         ) -> bool:
             written = await super().update(run_id, rev, changes, event)
-            if changes.keys() == {"lease_until"} and self.cancelled:
+            if changes.keys() == {"owner", "lease_until"} and self.cancelled:
                 self.renewals.append(written)
             if written and "state" in changes and json.loads(changes["state"])["cancel_asked"]:
                 self.cancelled = True
@@ -2967,7 +2967,7 @@ async def test_one_renewal_the_store_never_answers_is_followed_at_once_by_the_ne
         async def update(
             self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
         ) -> bool:
-            if changes.keys() == {"lease_until"} and not self.hung:
+            if changes.keys() == {"owner", "lease_until"} and not self.hung:
                 self.hung = True
                 await AsyncioEvent().wait()
             return await super().update(run_id, rev, changes, event)
@@ -3001,7 +3001,7 @@ async def test_a_worker_whose_renewal_never_returns_stops_once_another_took_the_
         async def update(
             self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
         ) -> bool:
-            if changes.keys() == {"lease_until"} and self.rows[run_id].owner == self.of:
+            if changes.keys() == {"owner", "lease_until"} and self.rows[run_id].owner == self.of:
                 await AsyncioEvent().wait()
             return await super().update(run_id, rev, changes, event)
 
@@ -3214,11 +3214,11 @@ async def test_a_renewal_that_raises_is_logged_and_the_next_one_renews_the_lease
         async def update(
             self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
         ) -> bool:
-            if changes.keys() == {"lease_until"} and not self.raised:
+            if changes.keys() == {"owner", "lease_until"} and not self.raised:
                 self.raised = True
                 raise ConnectionError("the store is down for one statement")
             written = await super().update(run_id, rev, changes, event)
-            if written and changes.keys() == {"lease_until"}:
+            if written and changes.keys() == {"owner", "lease_until"}:
                 self.renewals.append((self.rows[run_id].owner, changes["lease_until"]))
                 renewed.set()
             return written

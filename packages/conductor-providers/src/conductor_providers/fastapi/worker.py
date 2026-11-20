@@ -26,7 +26,7 @@ from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
-from conductor_providers.fastapi.held_run import UNCLAIMED, HeldRun, ResumeSettings
+from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
 from conductor_providers.fastapi.problems import (
     RESUMABLE,
     no_such_run,
@@ -104,12 +104,10 @@ class Worker(Generic[M, X]):
             poll: The seconds between a follower's reads of new events.
         """
         self._metadata = TypeAdapter(metadata_type)
-        self._store = GuardedStore(store, self._metadata)
+        self._store = GuardedStore(store, self._metadata, worker_id=uuid.uuid4().hex, lease=lease)
         self._settings = ResumeSettings(
-            worker_id=uuid.uuid4().hex,
             nodes_for=nodes_for,
             context=context,
-            lease=lease,
             checkpoint_every=checkpoint_every,
             resume_timeout=resume_timeout,
             handing_back=AsyncioEvent(),
@@ -513,7 +511,7 @@ class Worker(Generic[M, X]):
                     log.exception(
                         "the sweep for runs whose lease ran out failed; the next one tries again"
                     )
-                await asyncio.sleep(self._settings.lease / 3)
+                await asyncio.sleep(self._store.lease / 3)
 
         self._settings.handing_back.clear()
         self._served = True
@@ -637,13 +635,7 @@ class Worker(Generic[M, X]):
             lambda: (run.to_json(), RunOutcome.of(run, state.status))
         )
         row = await self._store.create(
-            uuid.uuid4().hex,
-            graph,
-            metadata,
-            UNCLAIMED,
-            state=state,
-            run=saved,
-            outcome=outcome,
+            uuid.uuid4().hex, graph, metadata, state=state, run=saved, outcome=outcome
         )
         return self._view(row)
 
@@ -666,7 +658,7 @@ class Worker(Generic[M, X]):
             RuntimeError: The worker has never served.
         """
         self._check_served()
-        claimed = await self._store.update(row, self._settings.holder(), state=state, run=changed)
+        claimed = await self._store.update(row, holds=True, state=state, run=changed)
         if claimed is not None:
             self._resume_in_background(claimed)
         return claimed

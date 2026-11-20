@@ -262,20 +262,20 @@ async def test_a_held_run_whose_store_fails_gives_the_run_up_and_leaves_it_runni
     # the row as the worker reads it, from a store that is up
     readable = MemoryStore()
     readable.rows[row.id] = row
-    held = await GuardedStore(readable, metadata).get(row.id)
+    held = await GuardedStore(readable, metadata, worker_id="me", lease=30.0).get(row.id)
     assert held is not None
     settings = ResumeSettings(
-        worker_id="me",
         nodes_for=lambda metadata: registry,
         context=None,
-        lease=30.0,
         checkpoint_every=5.0,
         resume_timeout=None,
         handing_back=AsyncioEvent(),
     )
 
     async with asyncio.timeout(10):
-        await HeldRun(GuardedStore(store, metadata), held, settings).run()
+        await HeldRun(
+            GuardedStore(store, metadata, worker_id="me", lease=30.0), held, settings
+        ).run()
 
     assert store.rows[row.id] == row and row.status == "running"
     assert any(
