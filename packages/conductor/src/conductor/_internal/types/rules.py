@@ -28,6 +28,7 @@ from conductor._internal.base import (
     HOSTS_OWN_CLASSES,
     JSON_CORE_CONFIG,
     canonical_json,
+    looked_up,
     plain_json,
     under_definitions,
     validate_as_json,
@@ -81,24 +82,28 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
     kind = schema["type"]
     if kind in HOSTS_OWN_CLASSES or _walked_already(schema):
         return schema
-    # Walk each declared schema once, here. A declared number is kept as it is: each reference to it is wrapped.
+    # Walk each declared schema once, here. A declared number is kept as it is: each reference to it is wrapped. A
+    # declared host's class is kept as it is too, as anywhere else.
     if kind == "definitions":
         inner, declared_here = under_definitions(schema)
         declared = {**definitions, **declared_here}
         # a declared enum is checked here, since a number isn't walked into
         for definition in declared_here.values():
             _check_named_values(definition)
+        # the wrapper is copied rather than built again with with_definitions, which would drop its other keys,
+        # like its metadata
         return {
             **schema,
             "schema": _walked(inner, declared),
             "definitions": [
-                definition if _a_number_schema(definition) else _walked_inside(definition, declared)
+                definition
+                if _a_number_schema(definition) or definition["type"] in HOSTS_OWN_CLASSES
+                else _walked_inside(definition, declared)
                 for definition in declared_here.values()
             ],
         }
     if kind == "definition-ref":
-        referred = definitions[schema["schema_ref"]]
-        return _guarded(schema) if _a_number_schema(referred) else schema
+        return _guarded(schema) if _a_number_schema(looked_up(schema, definitions)) else schema
     _check_named_values(schema)
     if _a_number_schema(schema):
         return _guarded(schema)

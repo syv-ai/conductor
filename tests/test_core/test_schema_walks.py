@@ -25,7 +25,8 @@ from conductor import (
     make_graph,
     node,
 )
-from pydantic import BaseModel, ConfigDict, Discriminator, WrapValidator
+from pydantic import BaseModel, ConfigDict, Discriminator, GetPydanticSchema, WrapValidator
+from pydantic_core import core_schema
 
 
 @host_type("walks-reading", title="Reading")
@@ -65,6 +66,18 @@ def _wrapped(value: Any, handler: Callable[[Any], Any]) -> Any:
     return handler(value)
 
 
+def _chained(leaf: Any) -> Any:
+    """``leaf`` checked as the last step of a ``chain`` schema, after a step that takes any value."""
+    return Annotated[
+        leaf,
+        GetPydanticSchema(
+            lambda source, handler: core_schema.chain_schema(
+                [core_schema.any_schema(), handler(source)]
+            )
+        ),
+    ]
+
+
 #: Each place a schema keeps a schema, as the hint that puts ``leaf`` there and the value that puts a leaf's value
 #: there.
 SHAPES: dict[str, tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
@@ -75,6 +88,7 @@ SHAPES: dict[str, tuple[Callable[[Any], Any], Callable[[Any], Any]]] = {
     "nullable": (lambda leaf: leaf | None, lambda v: v),
     "union": (lambda leaf: Union[leaf, str], lambda v: v),  # noqa: UP007
     "function-wrap": (lambda leaf: Annotated[leaf, WrapValidator(_wrapped)], lambda v: v),
+    "chain": (_chained, lambda v: v),
     "typed-dict": (lambda leaf: TypedDict("Box", {"leaf": leaf}), lambda v: {"leaf": v}),  # type: ignore[misc]
     "tagged-union": (_tagged, lambda v: {"kind": "a", "leaf": v}),
     "definitions": (

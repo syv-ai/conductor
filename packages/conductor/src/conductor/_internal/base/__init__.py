@@ -16,6 +16,7 @@ so this one imports nothing from conductor except ``utils``.
 
 from .core_schema import (
     HOSTS_OWN_CLASSES,
+    looked_up,
     schemas_in,
     under_definitions,
     with_definitions,
@@ -75,6 +76,7 @@ __all__ = [
     "json_hash",
     "json_text",
     "json_typed_dict_schema",
+    "looked_up",
     "parse_loc",
     "parse_node_path",
     "parse_waiting_id",

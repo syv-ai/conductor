@@ -27,7 +27,7 @@ from pydantic_core import (
 )
 from pydantic_core.core_schema import TypedDictField, TypedDictSchema
 
-from .core_schema import under_definitions
+from .core_schema import looked_up, under_definitions
 
 
 class _ReadOnlyConfig(dict[str, Any]):
@@ -101,11 +101,8 @@ def _own_core_config(cls: type) -> CoreConfig:
     Pydantic turns the class's ``with_config`` mapping into the ``config`` of its typed dict schema itself, so nothing
     is copied here. A class that refers to itself is built as ``definitions`` around a reference to its schema.
     """
-    schema: Any
     schema, definitions = under_definitions(TypeAdapter(cls).core_schema)
-    if schema["type"] == "definition-ref":
-        schema = definitions[schema["schema_ref"]]
-    config: CoreConfig = schema["config"]
+    config: CoreConfig = looked_up(schema, definitions)["config"]
     return config
 
 

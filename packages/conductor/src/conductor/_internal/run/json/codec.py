@@ -92,13 +92,11 @@ def _holds_a_model(schema: CoreSchema) -> bool:
     A value is written by its ``serialization`` schema where it has one, so a model there counts too, as in a
     ``PlainSerializer`` whose ``return_type`` is a model.
     """
-    inner, definitions = under_definitions(schema)
-    parts = [inner, *definitions.values()]
-    return any(
-        part["type"] in HOSTS_OWN_CLASSES
-        or any(_holds_a_model(one) for one, _ in schemas_in(part))
-        or ("serialization" in part and _holds_a_model(part["serialization"]))
-        for part in parts
+    return (
+        schema["type"] in HOSTS_OWN_CLASSES
+        or any(_holds_a_model(one) for one, _ in schemas_in(schema))
+        or any(map(_holds_a_model, under_definitions(schema)[1].values()))
+        or ("serialization" in schema and _holds_a_model(schema["serialization"]))
     )
 
 

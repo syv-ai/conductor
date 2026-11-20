@@ -9,7 +9,8 @@ this module which parts of a schema are schemas, so that rule is written once.
 
 Pydantic writes a type that refers to itself, like a tree, as a ``definitions`` schema: the type's schema, with the
 schemas it refers to beside it, each by its ``ref``. A ``definition-ref`` schema then names one of them by its
-``schema_ref``. ``under_definitions`` and ``with_definitions`` take that wrapper off and put it back.
+``schema_ref``. ``under_definitions`` and ``with_definitions`` take that wrapper off and put it back, and
+``looked_up`` finds the schema a reference names.
 """
 
 from __future__ import annotations
@@ -41,9 +42,18 @@ def schemas_in(schema: Mapping[str, Any]) -> Iterator[tuple[dict[str, Any], str 
     ``TypedDict`` with the field ``name: str``, it yields the field's ``typed-dict-field`` schema with ``"name"``. A
     model's and a dataclass's fields are named the same way. Each schema is yielded as it is: a
     ``definition-ref`` is not looked up, and the schemas a ``definitions`` schema declares are not yielded.
+
+    It gives the field's name, not the key, because a walk that reads a schema names the place it found a fault by
+    the field a person wrote (``Tags.tags``). ``with_schemas_in`` gives the key instead, because a walk that copies
+    a schema decides by the key what to leave alone, like a dict's ``keys_schema``.
     """
     for key, value in schema.items():
-        if _holds_schemas(key):
+        if not _holds_schemas(key):
+            continue
+        # most keys hold one schema, which is yielded here, without a generator for it
+        if type(value) is dict and type(value.get("type")) is str:
+            yield value, None
+        else:
             yield from _found(value, is_fields=key == "fields")
 
 
@@ -84,6 +94,9 @@ def with_schemas_in(
     The schemas are the ones ``schemas_in`` yields, in the same places. Every other key is kept as it is, and
     ``schema`` itself is left unchanged.
 
+    It gives ``replace`` the key, not the field's name as ``schemas_in`` does, because a walk that copies a
+    schema leaves some keys' schemas as they are, like a dict's ``keys_schema``, and never names a field.
+
     Args:
         schema: The core schema to copy.
         replace: Called with each schema inside ``schema`` and the key it is under, like ``"items_schema"``. It
@@ -117,7 +130,18 @@ def under_definitions(
     """
     if schema["type"] == "definitions":
         return schema["schema"], {one["ref"]: one for one in schema["definitions"]}
-    return dict(schema), {}
+    whole: dict[str, Any] = schema  # type: ignore[assignment]  # a core schema is a dict
+    return whole, {}
+
+
+def looked_up(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
+    """Returns the schema a ``definition-ref`` names, from ``definitions``, or any other schema as it is.
+
+    It is ``None`` for a reference to a schema ``definitions`` doesn't declare.
+    """
+    if schema["type"] == "definition-ref":
+        return definitions.get(schema["schema_ref"])
+    return schema
 
 
 def with_definitions(schema: CoreSchema, definitions: Mapping[str, Any]) -> CoreSchema:

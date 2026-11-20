@@ -296,7 +296,7 @@ class Attachment(BaseModel):
 - A type alias (`type X = ...`, or pydantic's JsonValue) is read as what it stands for. Text, a number, a yes or no, or a list or dict of them lands on a JsonValue; a model or a date does not. An alias takes `None` when what it stands for does.
 - Whether a type takes `None` is what its own check says, wherever conductor asks: `str | None`, `Any`, `object` and `Literal["a", None]` take it; a `str | None` annotated with a pydantic validator that refuses `None` does not. That decides a `None` argument, a collected `Series` keeping its `None` items, an output's default `null` in a description, and a saved `null`.
 
-**A yes or no is not a number.** A `bool` never lands on an `int` or `float` input. It doesn't land on a union that has a number and no `bool` (`int | float`, `int | str`) either, or on a host's subclass of a number, whatever its `accepts` says. Nor does it land as an item of a list, dict or `Series` of numbers.
+**A yes or no is not a number.** A `bool` never lands on an `int` or `float` input. It doesn't land on a union that has a number and no `bool` (`int | float`, `int | str`) either, or on a host's subclass of a number, whatever its `accepts` says. Nor does it land as an item of a list, dict or `Series` of numbers. A host's model's or dataclass's own fields follow the host's model, so `True` can reach an `int` field there, where pydantic's lax rule takes it as `1`.
 
 - It is refused by an edge (`type_mismatch`), as a constant (`invalid_value`), and from a caller (`invalid_input`).
 - It is refused in a table's `int` or `float` column: returned (`invalid_output`), brought by an edge (`invalid_edge_value`) or given (`invalid_input`).

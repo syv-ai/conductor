@@ -63,6 +63,7 @@ from conductor._internal.base import (
     JSON_CONFIG,
     JSON_CORE_CONFIG,
     canonical_json,
+    looked_up,
     plain_json,
     schemas_in,
     under_definitions,
@@ -1017,9 +1018,10 @@ def _check_built(schema: CoreSchema) -> None:
         NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text`` or
             ``choices_invalid``.
     """
-    # the schemas pydantic declared beside the type, by their ref, and the refs walked already, so each is walked once
+    # the schemas pydantic declared beside the type, by their ref, and the ids of those walked already, so each is
+    # walked once
     definitions: dict[str, Any] = {}
-    walked: set[str] = set()
+    walked: set[int] = set()
 
     def walk(part: Any, held: tuple[str, str] | None, as_text: tuple[str, str] | None) -> None:
         """Walks one schema and every schema inside it.
@@ -1045,9 +1047,11 @@ def _check_built(schema: CoreSchema) -> None:
                 )
             )
         if kind == "definition-ref":
-            if (ref := part["schema_ref"]) not in walked and ref in definitions:
-                walked.add(ref)
-                walk(definitions[ref], held, as_text)
+            if (referred := looked_up(part, definitions)) is not None and id(
+                referred
+            ) not in walked:
+                walked.add(id(referred))
+                walk(referred, held, as_text)
             return
         if kind == "definitions":
             definitions.update(under_definitions(part)[1])
