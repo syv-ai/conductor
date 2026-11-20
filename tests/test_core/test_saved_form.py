@@ -474,6 +474,28 @@ def test_a_saved_run_with_reusable_outcomes_of_a_node_reads_back_once_the_node_s
     assert back.status == "complete" and back.results["approve"]["result"] == [True]
 
 
+def test_a_saved_run_waiting_on_a_node_still_waits_once_its_code_stops_asking_and_an_answer_goes_on() -> (
+    None
+):
+    """A deploy leaves what a run has done and what it waits on as it is. A question saved while the node asked
+    still waits once its code no longer asks. The id goes out of date with the code, so ``answer_stale`` names the
+    id it waits under now, and an answer to that id goes on. An answer given before the save stays."""
+    first = _approve_graph(asks=True).run({"text": "a\nb"})
+    answered, still_waiting = first.waiting
+    saved = first.with_answers(answered, False).to_json()
+
+    back = Run.from_json(saved, _approve_graph(asks=False))
+
+    assert back.status == "waiting" and [w.loc for w in back.waiting] == [still_waiting.loc]
+    with pytest.raises(InvalidCallError) as stale:
+        back.with_answers(still_waiting, True)
+    ((problem,),) = [stale.value.problems]
+    assert problem.type == "answer_stale" and problem.ctx["current"] == back.waiting[0].id
+    done = back.with_answers(problem.ctx["current"], True).resume()
+    assert done.status == "complete" and done.results["approve"]["result"] == [False, True]
+    assert Run.from_json(back.to_json(), _approve_graph(asks=False)).to_json() == back.to_json()
+
+
 def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_and_reuses_them_read_back() -> (
     None
 ):
