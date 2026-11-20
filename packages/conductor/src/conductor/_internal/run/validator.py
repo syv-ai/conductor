@@ -17,8 +17,8 @@ needs one has no edge validator at all.
 
 A ``Table[R]`` input that collects rows is the one input always read by the edge validator, since the rows are made
 into a table there. Its rows are checked against ``R`` only where an output wired to it declares less than ``R``,
-as an item is for a ``Series`` input. Rows from ``-> Series[R]`` aren't checked again; the table's own checks still
-hold: its limits, and that a saved run keeps each cell (``ROWS_CHECKED``).
+as an item is for a ``Series`` input. Rows from ``-> Series[R]`` aren't checked again, as a list or as the frame the
+node returned; the table's own checks still hold: its limits, and that a saved run keeps each cell (``ROWS_CHECKED``).
 
 Compiling checks that each edge's types fit. Which inputs still need a check at run time is worked out once, when
 the run blueprint is built, by ``EdgeValidator.of``. The validator is built then, and called before each call of the
@@ -91,7 +91,7 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
         The validator checks each input whose type asks for more than the outputs wired to it promise. A table
         input that collects rows is read too, since its rows are made into a table there. Where its row type names
         columns and every output wired to it declares that row type, it is read with ``ROWS_CHECKED``, so the cells
-        aren't checked again. A bare table's rows are read as they come, since their keys must be text. If no input
+        aren't checked again, in a list of rows or in a frame. A bare table's rows are read as they come, since their keys must be text. If no input
         needs any of this, this returns ``None``.
 
         Args:
@@ -137,9 +137,7 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
             if value is SKIPPED or type(value) in exact:
                 continue
             try:
-                # ROWS_CHECKED speaks of a list of rows; a frame is read as any frame is, so no host's check sees it
-                rows_context = context if isinstance(value, list) else None
-                read[name] = validate(value, strict=False, context=rows_context)
+                read[name] = validate(value, strict=False, context=context)
             except ValidationError as error:
                 raise InvalidCallError(
                     [run_problems.invalid_edge_value(input=name, **whole.refusal(error))]

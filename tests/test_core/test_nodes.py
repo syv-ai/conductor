@@ -18,7 +18,7 @@ from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
 from fractions import Fraction
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, NotRequired, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -836,6 +836,89 @@ def test_a_table_row_that_names_no_columns_is_refused_where_the_node_is_declared
 
     run = compiled_graph(keep_point).run({"points": [{"x": 1.0}], "anything": [{"y": 1}]})
     assert run.outputs["result"].columns == ["x"]
+
+
+class _Part(TypedDict):
+    a: int
+    b: NotRequired[int]
+
+
+@host_type("keyed-wallet", title="Keyed wallet")
+@dataclass(frozen=True)
+class _KeyedWallet:
+    amounts: dict[str, int]
+
+
+@host_type("part-box", title="Part box")
+@dataclass(frozen=True)
+class _PartBox:
+    part: _Part
+
+
+type _Counts = dict[str, int]
+
+
+@pytest.mark.parametrize(
+    ("cell", "named"),
+    [
+        (dict[str, int], "dict[str, int]"),
+        (dict, "dict"),
+        (list[dict[str, int]] | None, "dict[str, int]"),
+        (_Counts, "dict[str, int]"),
+        (_Part, "_Part.b"),
+        (list[_Part], "_Part.b"),
+        (_KeyedWallet, "dict[str, int]"),
+        (_PartBox, "_Part.b"),
+    ],
+    ids=[
+        "a dict",
+        "a bare dict",
+        "a dict in a list",
+        "a dict through an alias",
+        "a NotRequired field",
+        "a NotRequired field in a list",
+        "a dict in a dataclass",
+        "a NotRequired field in a dataclass",
+    ],
+)
+def test_a_table_cell_whose_keys_may_vary_is_refused_where_the_node_is_declared(
+    cell: Any, named: str
+) -> None:
+    """A table keeps a cell with keys as a struct, which gives every row every key. So a cell whose value may leave
+    a key out would read back changed, and is refused. A Series of the same rows is a list, and is taken."""
+    row: Any = TypedDict("Row", {"name": str, "cell": cell})  # type: ignore[operator]
+
+    def table_of_rows(text: str) -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame()
+
+    def series_of_rows(text: str) -> Series[row]:  # type: ignore[valid-type]
+        return []
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(table_of_rows)
+
+    assert [(one.type, one.ctx["cell"]) for one in raised.value.problems] == [
+        ("table_cell_keys_vary", named)
+    ]
+    declared(series_of_rows)
+
+
+class _Branch(TypedDict):
+    name: str
+    branches: list["_Branch"]
+
+
+class _Tree(TypedDict):
+    root: _Branch
+
+
+def test_a_table_cell_that_holds_itself_with_fixed_keys_is_declared() -> None:
+    """A cell's type may hold itself, as a tree of branches does. Its keys are fixed, so the table is taken."""
+
+    def trees(text: str) -> Table[_Tree]:
+        return pl.DataFrame()
+
+    declared(trees)
 
 
 def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in():

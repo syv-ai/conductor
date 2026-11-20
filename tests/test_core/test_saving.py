@@ -760,24 +760,6 @@ def test_a_json_column_of_a_table_given_as_json_takes_a_type_that_fits_every_cel
     assert run.results["rows"]["result"]["a"].to_list() == read
 
 
-def test_rows_given_for_a_table_keep_every_key_of_a_mapping_column():
-    class Counts(TypedDict):
-        m: dict[str, int]
-
-    @node("rows", title="Rows", description="For a test.")
-    def rows(table: Table[Counts]) -> int:
-        return sum(
-            len({key for key, count in (cell or {}).items() if count is not None})
-            for cell in table["m"].to_list()
-        )
-
-    run = Graph.compile(make_graph(rows), registry_of(rows)).run(
-        {"table": [{"m": {"x": 1}}, {"m": {"y": 2}}]}
-    )
-
-    assert run.results["rows"]["result"] == 2
-
-
 @pytest.mark.parametrize(
     ("answer", "fault"),
     [

@@ -1157,6 +1157,39 @@ def table_row_not_a_typed_dict(*, row: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
+def table_cell_keys_vary(*, row: str, column: str, cell: str) -> str:
+    """A column of a ``Table``'s row type holds a value whose keys may differ from row to row.
+
+    That is a dict with open keys, like ``dict[str, int]``, or a ``TypedDict`` with a ``NotRequired`` field, at any
+    depth of the cell: in a list, or in a field of a model, a dataclass or a ``TypedDict``. A table keeps such a cell
+    as a struct, and a struct gives every row every key, with ``None`` for a key the row's value leaves out. So the
+    value would come back from a saved run changed, or not at all. A ``Series`` of the same rows is a list, and keeps
+    each value as it is.
+
+    To fix it, give the cell fixed keys: a ``TypedDict`` or model whose every field is required, with ``X | None``
+    for one a value may have no value for.
+
+    Args:
+        row: The row type's name.
+        column: The column whose cell's keys may vary.
+        cell: What in the cell's type lets a key be left out, such as ``dict[str, int]`` or ``Inner.b``.
+
+    Example:
+        class Scores(TypedDict):
+            name: str
+            points: dict[str, int]
+
+
+        def scores(text: str) -> Table[Scores]:
+            return pl.DataFrame({"name": ["Ann"], "points": [{"math": 3}]})
+
+
+        declaration_refused(lambda: node("scores", title="Scores", description="Reads the scores in a text.")(scores))
+    """
+    return f"column '{column}' of the row type {row} holds {cell}, whose keys may differ from row to row, and a table gives every row every key. Give the cell fixed keys: a TypedDict or model whose every field is required."
+
+
+@DECLARATION_PROBLEMS.problem
 def row_field_optional(*, row: str, field: str) -> str:
     """The row type of a ``Table``, or of a ``Series`` of rows, lets a field be left out.
 

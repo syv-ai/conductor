@@ -802,6 +802,10 @@ class PairRow(TypedDict):
     pair: tuple[Money, Money]
 
 
+class ColourPairRow(TypedDict):
+    colours: tuple[Colour, Colour]
+
+
 class Paint(TypedDict):
     colour: Colour
 
@@ -825,6 +829,7 @@ _HOSTS_CLASS_CELLS = [
         {"pair": [{"amount": 1.0}, {"amount": 2.0}]},
     ),
     (PaintRow, {"paint": {"colour": Colour.RED}}, {"paint": {"colour": "red"}}),
+    (ColourPairRow, {"colours": (Colour.RED, Colour.RED)}, {"colours": ["red", "red"]}),
 ]
 _CELL_IDS = [
     "model",
@@ -835,6 +840,7 @@ _CELL_IDS = [
     "dict of models",
     "tuple of models",
     "enum in a row",
+    "tuple of enums",
 ]
 
 
@@ -868,7 +874,11 @@ def test_a_series_of_rows_gives_a_hosts_class_in_a_cell_whether_the_node_returne
     assert Run.from_json(run.to_json(), graph).results == run.results
 
 
-@pytest.mark.parametrize(("row", "value", "kept"), _HOSTS_CLASS_CELLS, ids=_CELL_IDS)
+@pytest.mark.parametrize(
+    ("row", "value", "kept"),
+    [cells for cells in _HOSTS_CLASS_CELLS if cells[0] is not PurseRow],
+    ids=[name for name in _CELL_IDS if name != "dict of models"],
+)
 @pytest.mark.parametrize("returned", ["list", "frame"])
 def test_a_table_keeps_a_hosts_class_in_a_cell_as_its_fields_or_its_value(
     row: Any, value: dict[str, Any], kept: dict[str, Any], returned: str
@@ -889,9 +899,9 @@ def test_a_table_keeps_a_hosts_class_in_a_cell_as_its_fields_or_its_value(
     assert Run.from_json(run.to_json(), graph).outputs["result"].to_dicts() == [kept]
 
 
-def test_a_frames_column_of_python_objects_is_checked_as_they_are() -> None:
-    """A frame may hold a host's models as Python objects. They are checked as they are, so a model is taken and
-    kept as its fields, and any other object is refused as not one."""
+def test_a_frames_column_of_python_objects_is_read_by_each_objects_class() -> None:
+    """A frame may hold a host's models as Python objects. Each is read by its own class's schema, so a model is
+    taken and kept as its fields, and an object with no JSON form is refused as a column a saved run can't keep."""
 
     def returns(cells: list[Any]) -> Any:
         @node("table", title="Table", description="For a test.")
@@ -907,10 +917,7 @@ def test_a_frames_column_of_python_objects_is_checked_as_they_are() -> None:
     assert returns([Money(amount=1)]).outputs["result"].to_dicts() == [{"money": {"amount": 1.0}}]
     assert refused.cause is not None
     assert refused.cause.type == "invalid_output"
-    assert (
-        refused.cause.ctx["reason"]
-        == "column 'money': Input should be a valid dictionary or instance of Money"
-    )
+    assert refused.cause.ctx["reason"] == "column 'money' is Object, which can't be written as JSON"
 
 
 @host_type("trimmed-name", title="Trimmed name")
@@ -965,9 +972,10 @@ def test_a_cell_a_model_changes_is_the_changed_value_in_the_table_the_series_and
     assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
 
 
-def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once() -> None:
+@pytest.mark.parametrize("taken", ["Series", "Table"])
+def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once(taken: str) -> None:
     """A frame's cell of a host's model is read by the model's check once, when the node returns it. A node wired to
-    the Series gets the models that check gave."""
+    the Series, as a Series or as a table of the same rows, gets what that check gave."""
     calls: list[str] = []
 
     @host_type("counted-name", title="Counted name")
@@ -987,10 +995,12 @@ def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once() -> None:
     def rows() -> Series[CountedRow]:
         return pl.DataFrame({"name": [{"text": "a"}] * 10})  # type: ignore[return-value]
 
-    @node("counts", title="Counts", description="For a test.")
-    def counts(rows: Series[CountedRow]) -> int:
+    taker: Any = Series if taken == "Series" else Table
+
+    def takes(rows: taker[CountedRow]) -> int:  # type: ignore[valid-type]
         return len(rows)
 
+    counts = node("counts", title="Counts", description="For a test.")(takes)
     registry = NodeRegistry()
     registry.add(rows, counts)
     graph = Graph.compile(
@@ -999,6 +1009,72 @@ def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once() -> None:
 
     assert graph.run({}).outputs == {"result": 10}
     assert len(calls) == 10
+
+
+class MaybeMoneyRow(TypedDict):
+    money: Money | None
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [[Money(amount=1), None], [None, Money(amount=1)]],
+    ids=["none later", "none first"],
+)
+@pytest.mark.parametrize(
+    ("declared", "returned", "taken"),
+    [
+        ("Table", "list", None),
+        ("Table", "frame", None),
+        ("Series", "frame", None),
+        ("Series", "list", "Table"),
+        ("Series", "frame", "Table"),
+    ],
+    ids=[
+        "table rows",
+        "table frame",
+        "series frame",
+        "series list into a table",
+        "series frame into a table",
+    ],
+)
+def test_a_model_or_none_cell_holding_none_runs_and_reads_back(
+    cells: list[Any], declared: str, returned: str, taken: str | None
+) -> None:
+    """A cell of ``Money | None`` may be ``None``, first or later in its column, whatever form the rows take."""
+    output: Any = Series if declared == "Series" else Table
+    got: list[Any] = []
+
+    def returns() -> output[MaybeMoneyRow]:  # type: ignore[valid-type]
+        if returned == "frame":
+            return pl.DataFrame(  # type: ignore[return-value]
+                {"money": [None if cell is None else {"amount": 1.0} for cell in cells]}
+            )
+        return [{"money": cell} for cell in cells]  # type: ignore[return-value]
+
+    def takes(rows: Table[MaybeMoneyRow]) -> int:
+        got.extend(rows.to_dicts())
+        return rows.height
+
+    rows = node("rows", title="Rows", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(rows)
+    nodes, edges = [rows], []
+    if taken:
+        counts = node("counts", title="Counts", description="For a test.")(takes)
+        registry.add(counts)
+        nodes, edges = [rows, counts], [("rows.result", "counts.rows")]
+    graph = Graph.compile(make_graph(*nodes, edges=edges), registry)
+    run = graph.run({})
+    result = run.results["rows"]["result"]
+    kept = [{"money": None if cell is None else {"amount": 1.0}} for cell in cells]
+
+    assert run.status == "complete"
+    if declared == "Series":
+        assert result == [{"money": cell} for cell in cells]
+    else:
+        assert result.to_dicts() == kept
+    assert got == (kept if taken else [])
+    assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
 
 
 @dataclasses.dataclass

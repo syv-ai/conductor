@@ -17,7 +17,6 @@ model, wherever the row came from.
 
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import functools
 from collections.abc import Callable, Iterable, Mapping
@@ -28,14 +27,13 @@ from typing import Any, NotRequired, TypeVar, get_args, get_origin
 import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import (
-    BaseModel,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
     ValidationInfo,
     ValidatorFunctionWrapHandler,
 )
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema, PydanticCustomError, core_schema
+from pydantic_core import CoreSchema, PydanticCustomError, PydanticSerializationError, core_schema
 from typing_extensions import sentinel
 
 from conductor._internal.base import json_text, json_typed_dict_schema
@@ -45,7 +43,16 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
 )
-from conductor._internal.types import SIZED, Type, field_hints, is_typed_dict
+from conductor._internal.types import (
+    SIZED,
+    Type,
+    declares_fields,
+    field_hints,
+    is_alias,
+    is_typed_dict,
+    json_by_its_class,
+    type_fields,
+)
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
@@ -368,9 +375,9 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 #: The context a table is checked with when each of its rows is already a value of the table's row type, as a run
-#: knows when the rows come from outputs that declare it. The rows are made into a frame without their cells being
-#: checked again. The table's own checks still hold: its limits, such as ``Param(min_length=1)``, and ``as_saved``.
-#: It is given only with a list of rows, the one form it changes, so a host's validator never sees it.
+#: knows when the rows come from outputs that declare it. A list of rows is made into a frame, and a frame kept,
+#: without their cells being read again. The table's own checks still hold: its limits, such as
+#: ``Param(min_length=1)``, and ``as_saved``. No cell's check is called with it, so a host's validator never sees it.
 ROWS_CHECKED = sentinel("ROWS_CHECKED")
 
 
@@ -394,6 +401,35 @@ def is_bare_table_row(hint: Any) -> bool:
     return hint is Any or hint is dict or hint == dict[str, Any]
 
 
+def _keys_left_out(hint: Any, walked: frozenset[int] = frozenset()) -> str | None:
+    """Returns what, in the type of a table's cell, lets a value leave out a key, or ``None`` if nothing does.
+
+    A table keeps a cell that has keys as a struct, and a struct gives every row every key, a ``None`` for a key the
+    row's value leaves out. So such a value would read back changed. That is a dict with open keys, like
+    ``dict[str, int]`` (named as written), and a ``NotRequired`` field of a ``TypedDict`` (named ``Inner.b``), at any
+    depth: in a list, a union, or a model's, dataclass's or ``TypedDict``'s field. ``Any`` says nothing, so it lets
+    nothing.
+    """
+    if is_alias(hint):
+        return None if id(hint) in walked else _keys_left_out(hint.__value__, walked | {id(hint)})
+    origin = get_origin(hint) or hint
+    if isinstance(origin, type) and issubclass(origin, Mapping) and not is_typed_dict(hint):
+        return origin.__name__ if hint is origin else str(hint).replace("typing.", "")
+    if declares_fields(origin):
+        if id(origin) in walked:
+            return None
+        for name, field in field_hints(hint).items():
+            if get_origin(field) is NotRequired:
+                return f"{origin.__qualname__}.{name}"
+            if (found := _keys_left_out(field, walked | {id(origin)})) is not None:
+                return found
+        return None
+    return next(
+        (found for part in get_args(hint) if (found := _keys_left_out(part, walked)) is not None),
+        None,
+    )
+
+
 def check_table_row(row: Any) -> None:
     """Refuses ``row``, the row type ``R`` of a ``Table[R]`` a node declares, if it names no columns.
 
@@ -403,10 +439,21 @@ def check_table_row(row: Any) -> None:
     it is let through. A graph that fills in ``T`` in ``Table[T] | list[T]`` with ``str`` is no declaration, so its
     ``Table[str]`` is read as a bare table.
 
+    A column whose cell may leave out a key is refused too (``_keys_left_out``).
+
     Raises:
-        NodeDeclarationError: ``table_row_not_a_typed_dict``.
+        NodeDeclarationError: ``table_row_not_a_typed_dict``, or ``table_cell_keys_vary``.
     """
-    if isinstance(row, TypeVar) or is_bare_table_row(row) or is_typed_dict(row):
+    if isinstance(row, TypeVar) or is_bare_table_row(row):
+        return
+    if is_typed_dict(row):
+        for name, hint in type_fields(row).items():
+            if (keys := _keys_left_out(hint)) is not None:
+                raise NodeDeclarationError(
+                    declaration_problems.table_cell_keys_vary(
+                        row=(get_origin(row) or row).__qualname__, column=name, cell=keys
+                    )
+                )
         return
     raise NodeDeclarationError(
         declaration_problems.table_row_not_a_typed_dict(
@@ -415,54 +462,65 @@ def check_table_row(row: Any) -> None:
     )
 
 
-def _reading(column: Type, dtype: Any) -> str | None:
-    """Says how a frame's column of ``dtype`` is read, to give values of ``column``, its declared type.
+def _read_from_json(column: Type, dtype: Any) -> bool:
+    """Says whether a frame's column of ``dtype`` must be read from its JSON to give values of ``column``, its
+    declared type.
 
     Polars gives each cell as a plain Python value: a ``String`` column's cell is a ``str``, and a ``Struct``
-    column's a ``dict``. There are three answers:
-
-    - ``None``: the column isn't read, since polars' value already is a value of the type. A ``str`` is a value of a
-      ``str`` column, and most of a table is like that.
-    - ``"python"``: each cell is checked as it is. Polars' value is of the type's class, but may break a limit or a
-      choice, as an ``int`` for ``Annotated[int, Param(ge=0)]`` or a ``str`` for ``Literal["a", "b"]``. A column of
-      Python objects (``Object``) is checked so too, since its cells are what the node put there.
-    - ``"json"``: each cell is read from its JSON, the way a saved table is read. A struct is read as the host's
-      model or dataclass, a text as the enum's member or a date, and a list of structs as a list of models.
+    column's a ``dict``. Where that already is a value of the type, as a ``str`` is of a ``str`` column, the column
+    isn't read, and most of a table is like that. Any other column is read from its JSON, the way a saved table is
+    read: a struct as the host's model or dataclass, a text as the enum's member or a date, an ``int`` against a
+    limit like ``Param(ge=0)``, and a column of Python objects (``Object``) by each object's own class.
     """
-    if dtype == pl.Object:
-        return "python"
-    given = Type(dtype.to_python())
-    if column.holds(given):
-        return None
-    return "python" if given.bare in CELLS and column.fits(given) is not None else "json"
+    return dtype == pl.Object or not column.holds(Type(dtype.to_python()))
 
 
-def _kept_column(name: str, cells: list[Any], dtype: Any) -> pl.Series:
+def _columns_as_json(frame: pl.DataFrame, names: list[str]) -> str:
+    """Writes the columns ``names`` of ``frame`` as the JSON text of a dict of lists, each object by its own class.
+
+    Raises:
+        PydanticCustomError: ``column_not_saved`` for a column of Python objects with no JSON form.
+    """
+    try:
+        return json_text(
+            {name: frame[name].to_list() for name in names}, fallback=json_by_its_class
+        )
+    except PydanticSerializationError:
+        failed = next(name for name in names if not _has_json_form(frame[name].to_list()))
+        raise conductor_error(
+            "column_not_saved",
+            "column '{column}' is {type}, which can't be written as JSON",
+            {"column": failed, "type": str(frame.schema[failed])},
+        ) from None
+
+
+def _has_json_form(cells: list[Any]) -> bool:
+    """Whether the cells of one column can be written as JSON, each object by its own class's schema."""
+    try:
+        json_text(cells, fallback=json_by_its_class)
+    except PydanticSerializationError:
+        return False
+    return True
+
+
+def _kept_column(name: str, cells: list[Any], write: Callable[[list[Any]], Any]) -> pl.Series:
     """Returns the cells of one column of a table as polars keeps them.
 
-    ``dtype`` is the polars type the column's declared type names, such as ``Int64`` for ``int``. With ``None``, as
-    for a host's model, an enum or a list, polars picks the type. Polars makes a column of models or of enum members
-    plain by itself, and that is tried first, since it is fast. Only a column it keeps as Python objects, such as
-    one of lists of models, is made plain here, cell by cell (``_as_polars_keeps``).
+    ``write`` is the column type's own serializer, which writes each host's model or dataclass as the dict of its
+    fields, wherever it is, and keeps a ``None``: ``[Money(amount=1.0), None]`` becomes the struct column
+    ``[{"amount": 1.0}, None]``. Polars keeps a value it has no type for, like an enum member, as a Python object,
+    which a saved run can't write, so a column polars keeps so is made plain cell by cell (``_as_polars_keeps``).
     """
-    if dtype is not None:
-        return pl.Series(name, cells, dtype=dtype, strict=False)
-    column = pl.Series(name, cells, strict=False)
+    written = write(cells)
+    column = pl.Series(name, written, strict=False)
     if column.dtype == pl.Object:
-        return pl.Series(name, [_as_polars_keeps(cell) for cell in cells], strict=False)
+        return pl.Series(name, [_as_polars_keeps(cell) for cell in written], strict=False)
     return column
 
 
 def _as_polars_keeps(cell: Any) -> Any:
-    """Returns ``cell`` as a frame keeps it: a value polars has a type for as it is, and a host's model, dataclass or
-    enum member as its fields or its value.
-
-    Polars has no type for a host's model, dataclass or enum member. It turns one into a struct or a text by itself,
-    but keeps one inside a list or a dict as a Python object, which a saved run can't write. So each is made plain
-    here, wherever it is: ``Money(amount=1.0)`` becomes the dict of its fields ``{"amount": 1.0}``, ``Colour.RED``
-    its value ``"red"``, and a list of models a list of such dicts. This is what polars makes of a model outside a
-    list too, so a frame keeps one the same way whether a node gave it in a list of rows or in a frame. Reading the
-    frame by its row type gives the model back.
+    """Returns ``cell``, as a column type's serializer wrote it, as polars can keep it: an enum member as its value,
+    wherever it is, and a tuple as a list. ``{"colour": Colour.RED}`` becomes ``{"colour": "red"}``.
     """
     kind = type(cell)
     if cell is None or kind in CELLS:
@@ -473,19 +531,8 @@ def _as_polars_keeps(cell: Any) -> Any:
         return {key: _as_polars_keeps(value) for key, value in cell.items()}
     if isinstance(cell, Enum):
         return _as_polars_keeps(cell.value)
-    if isinstance(cell, BaseModel) or dataclasses.is_dataclass(cell):
-        return _as_polars_keeps(Type(kind).serializer.to_python(cell))
     # any other object stays one, and a saved run refuses its column (``as_saved``)
     return cell
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class _ReadByValue:
-    """A frame halfway through its check: the columns checked as they are, and the columns still to read from JSON."""
-
-    frame: pl.DataFrame
-    cells: dict[str, list[Any]]
-    from_json: tuple[str, ...]
 
 
 def table_and_cells_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -552,6 +599,12 @@ def _table_schemas(
     columns = {name: Type(hint) for name, hint in hints.items()}
     fields = handler.resolve_ref_schema(handler.generate_schema(row))["fields"] if declared else {}
     cells = {name: fields[name]["schema"] for name in columns}
+    # how each column's values are written as plain data, by its type's own serializer
+    writers = {
+        # the column's type is known only here
+        name: Type(list[column.hint]).serializer.to_python  # type: ignore[name-defined]
+        for name, column in columns.items()
+    }
     dtypes = {
         name: CELLS[column.options[0]][0]
         if column.options[0] in CELLS and len(column.options) == 1
@@ -565,7 +618,7 @@ def _table_schemas(
             (
                 (
                     name,
-                    _kept_column(name, [one.get(name) for one in rows], None)
+                    _kept_column(name, [one.get(name) for one in rows], writers[name])
                     if declared and dtypes[name] is None
                     else [one.get(name) for one in rows],
                     dtypes.get(name),
@@ -581,20 +634,18 @@ def _table_schemas(
     ) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
         return from_rows(rows if info.context is ROWS_CHECKED else read_rows(rows))
 
-    def read_by_value(frame: pl.DataFrame, check: ValidatorFunctionWrapHandler) -> _ReadByValue:
+    def from_frame(
+        frame: pl.DataFrame, read_columns: ValidatorFunctionWrapHandler, info: ValidationInfo
+    ) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
         # a table with no rows still has every column, empty and of its declared type
         if not frame.height:
             kept = {name for name, dtype in frame.schema.items() if dtype != pl.Null}
-            return _ReadByValue(
-                pl.DataFrame(
-                    [
-                        frame[name] if name in kept else pl.Series(name, [], dtype=dtypes[name])
-                        for name in columns
-                    ]
-                ),
-                {},
-                (),
-            )
+            return pl.DataFrame(
+                [
+                    frame[name] if name in kept else pl.Series(name, [], dtype=dtypes[name])
+                    for name in columns
+                ]
+            ), {}
         for name, column in columns.items():
             if name not in frame.columns:
                 raise column_missing(name)
@@ -604,34 +655,19 @@ def _table_schemas(
                     "column '{column}' has a blank cell, and its type doesn't allow blanks",
                     {"column": name},
                 )
-        readings = {name: _reading(column, frame.schema[name]) for name, column in columns.items()}
-        by_value = {
-            name: frame[name].to_list() for name, how in readings.items() if how == "python"
-        }
-        return _ReadByValue(
-            frame,
-            check(by_value) if by_value else {},
-            tuple(name for name, how in readings.items() if how == "json"),
-        )
-
-    def read_from_json(
-        read: _ReadByValue, check: ValidatorFunctionWrapHandler
-    ) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
-        frame, read_cells = read.frame, read.cells
-        if read.from_json:
-            read_cells = read_cells | check(
-                json_text({name: frame[name].to_list() for name in read.from_json})
-            )
+        read = [
+            name
+            for name, column in columns.items()
+            if info.context is not ROWS_CHECKED and _read_from_json(column, frame.schema[name])
+        ]
+        cells: dict[str, list[Any]] = read_columns(_columns_as_json(frame, read)) if read else {}
         # the frame keeps each cell as it was read, so a value its type changes, like a text a model strips, is
         # the same in the table, in a Series of its rows and in a saved run
-        if read_cells:
+        if cells:
             frame = frame.with_columns(
-                _kept_column(name, values, dtypes[name]) for name, values in read_cells.items()
+                _kept_column(name, values, writers[name]) for name, values in cells.items()
             )
-        return (
-            frame if frame.columns == list(columns) else frame.select(list(columns)),
-            read_cells,
-        )
+        return frame if frame.columns == list(columns) else frame.select(list(columns)), cells
 
     def json_schema(_: CoreSchema, write: GetJsonSchemaHandler) -> JsonSchemaValue:
         # pydantic's generator writes a cell as it writes any schema, with what a Param adds to it, like the enum
@@ -676,13 +712,8 @@ def _table_schemas(
         cls=row_class,
     )
     as_frame = (
-        core_schema.chain_schema(
-            [
-                core_schema.no_info_wrap_validator_function(read_by_value, by_column),
-                core_schema.no_info_wrap_validator_function(
-                    read_from_json, core_schema.json_schema(by_column)
-                ),
-            ]
+        core_schema.with_info_wrap_validator_function(
+            from_frame, core_schema.json_schema(by_column)
         )
         if declared
         else core_schema.no_info_after_validator_function(
