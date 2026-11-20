@@ -296,7 +296,8 @@ def invalid_answer(
     reported at once: one problem per question that is wrong, and one for the answer as a whole, such as no mapping
     where there are several questions, or two branches answered. ``ctx.errors`` has each fault with pydantic's code,
     such as ``bool_type``, ``missing`` for a question left out, ``extra_forbidden`` for a name that isn't a question,
-    ``not_a_choice`` or ``several_branches_given``, and a ``loc`` inside the question's value.
+    ``not_a_choice``, ``skipped_not_a_branch`` for ``SKIPPED`` on an output that isn't a branch, or
+    ``several_branches_given``, and a ``loc`` inside the question's value.
 
     To fix it, answer with a value of the question's type.
 

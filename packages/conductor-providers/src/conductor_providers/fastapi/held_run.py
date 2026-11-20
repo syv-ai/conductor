@@ -52,19 +52,37 @@ class ResumeSettings:
     resume_timeout: float | None
     handing_back: AsyncioEvent
 
-    async def load(self, row: RunRow[Any], metadata: Any) -> Run[Any]:
+    async def graph(self, row: RunRow[Any], metadata: Any) -> Graph[Any]:
+        """The graph ``row`` keeps, compiled on a thread on the registry for ``metadata``.
+
+        An answer or a decline queued for a running run is read by it (``Run.queued_as_json``), and ``load`` reads
+        the row's run on it.
+
+        Raises:
+            InvalidCallError: The row's graph isn't a graph record.
+        """
+        nodes = self.nodes_for(metadata)
+        return await asyncio.to_thread(Graph.compile, row.stored.graph, nodes)
+
+    async def load(
+        self, row: RunRow[Any], metadata: Any, graph: Graph[Any] | None = None
+    ) -> Run[Any]:
         """The run ``row`` keeps, loaded on a thread on the registry for ``metadata``.
 
         A resume call, an answer and a decline load a row on its own metadata. ``again`` and ``create`` with
         ``previous`` load it on the metadata of the run they start.
 
+        Args:
+            row: The row.
+            metadata: The metadata whose registry the row's graph is compiled on.
+            graph: The row's graph, when the caller has compiled it already (``graph``), so it isn't compiled twice.
+
         Raises:
             InvalidCallError: The row's graph doesn't compile on that registry, or its saved run can't be read.
         """
-        nodes = self.nodes_for(metadata)
-        return await asyncio.to_thread(
-            lambda: Run.from_json(row.stored.run, Graph.compile(row.stored.graph, nodes))
-        )
+        if graph is None:
+            graph = await self.graph(row, metadata)
+        return await asyncio.to_thread(Run.from_json, row.stored.run, graph)
 
     def context_for(self, metadata: Any, stop: Event) -> Any:
         """The context of a resume call: ``context(metadata, stop)``, or ``None`` when the worker has none."""
