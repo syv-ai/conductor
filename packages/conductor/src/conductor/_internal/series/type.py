@@ -11,10 +11,9 @@ import functools
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 import polars as pl
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, GetPydanticSchema
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.base import under_all_definitions, with_definitions
 from conductor._internal.table import Table, is_bare_table_row
 from conductor._internal.types import (
     Param,
@@ -161,24 +160,24 @@ class SeriesType(Type, of=_Series):
         def form_of(value: Any) -> str:
             return SeriesRows.__name__ if isinstance(value, pl.DataFrame) else SeriesItems.__name__
 
-        # both forms hold the row's cells, so a model in a cell is declared once, around the union
-        forms, definitions = under_all_definitions(
-            {SeriesItems.__name__: self.schema, SeriesRows.__name__: self._table.schema}
-        )
-        return with_definitions(
-            core_schema.tagged_union_schema(
+        def both_forms(_: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+            return core_schema.tagged_union_schema(
                 {
                     SeriesItems.__name__: core_schema.no_info_after_validator_function(
-                        as_items, forms[SeriesItems.__name__]
+                        as_items, handler.generate_schema(self.carried)
                     ),
                     SeriesRows.__name__: core_schema.no_info_after_validator_function(
-                        SeriesRows, forms[SeriesRows.__name__]
+                        SeriesRows, handler.generate_schema(table.carried)
                     ),
                 },
                 discriminator=form_of,
-            ),
-            definitions,
-        )
+            )
+
+        # Both forms are built in one build, so the row and each class in its cells get one schema, which both use.
+        # Pydantic names a class's schema by a ref that doesn't say the config it was built under, and refuses one
+        # ref declared twice.
+        table = self._table
+        return Type(Annotated[Any, GetPydanticSchema(both_forms)]).schema
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of a pydantic error's ``loc``, as ``Type._walked`` does.
