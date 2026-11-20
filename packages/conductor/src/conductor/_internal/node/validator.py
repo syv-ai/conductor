@@ -1,0 +1,559 @@
+"""Checking what a node's developer gives: the arguments of ``@node``, and what the node's own code returns, its function
+on each call, its hooks when a graph is compiled, and its upgrades.
+
+``DeclarationValidator`` checks the arguments of ``@node``, ``subgraph`` and ``NodeRegistry`` when the node or the
+registry is declared. ``tags="abc"`` is refused, since ``tags`` is a list or tuple of text, and so is a date in
+``extra``, which is JSON a host is shown.
+
+``ReturnValidator`` checks what a node's function returns, and turns it into the node's outputs by name. Say
+``shout(line: str) -> str`` returns ``"B!"``. The validator gives ``{"result": "B!"}``. If it returns ``3``
+instead, the call fails with an ``invalid_output`` problem on the output ``result``.
+
+Values are checked strictly. A value that already has the right class is kept as it is, a dict becomes a model,
+but ``"12"`` is never an ``int``. A node with several outputs returns a dataclass with no ``@host_type``, or
+a mapping when a ``compute_outputs`` hook gave its outputs. Its whole return is checked in one go, by the rules a
+person's answer to the node is checked by too (``outputs_schema``), and only the first fault is reported: a fault in
+the shape before a fault in a value. ``SKIPPED`` is a branch's whole value, or an item of a ``Series``. Inside any
+other value it has no JSON form, and the return isn't walked for it: the run is refused when it is saved
+(``run_unwritable``).
+
+``HookValidator`` checks what a ``compute_added_inputs`` or ``compute_outputs`` hook returns, and turns it into
+fields. Say a node's ``compute_outputs`` hook, given ``names="a,b"``, returns ``{"a": str, "b": (int, 0)}``. The
+node gets two outputs, ``a: str``, and ``b: int`` with the default 0. Each field is held to the same rules as one
+``@node`` declares. A hook that returns ``{"a.b": str}`` fails, since ``a.b`` isn't a valid name.
+
+``RewriteValidator`` checks what the ``rewrite`` of a node's ``Upgrade`` returns, when ``registry.upgrade`` moves a
+graph record to a newer version of the node. It must be a dict of input name to value, and each value is written as
+JSON.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
+from typing import Annotated, Any, TypedDict
+
+from annotated_types import Ge
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    InstanceOf,
+    JsonValue,
+    PlainValidator,
+    StrictStr,
+    TypeAdapter,
+    ValidationError,
+    with_config,
+)
+from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
+
+from conductor._internal.base import REQUIRED, SKIPPED, Name, Validator, finite_json_text
+from conductor._internal.field import (
+    DeclaredInputValidator,
+    DeclaredOutputValidator,
+    Field,
+    outputs_schema,
+)
+from conductor._internal.problem import (
+    InvalidCallError,
+    NodeDeclarationError,
+    argument_errors,
+    arguments_reason,
+    call_problems,
+    compile_problems,
+    conductor_error,
+    declaration_problems,
+    run_problems,
+    shape_error,
+)
+from conductor._internal.record import WrittenValuesValidator
+from conductor._internal.types import NotBlank
+from conductor._internal.utils import comma_separated
+
+from .policy import Deprecation, Policy
+from .type import (
+    FunctionDefinition,
+    HookName,
+    NodeDefinition,
+    SubgraphDefinition,
+    Upgrade,
+    version_number,
+)
+
+
+class ReturnValidator(Validator[Any, dict[str, Any]]):
+    """A validator for what a node's function returns.
+
+    It checks the returned value against the node's outputs, and returns the outputs by name. A node that returns
+    ``SKIPPED`` gets ``SKIPPED`` on every output.
+
+    One is built for each node of a compiled graph, on the node's first call.
+
+    Raises (when called):
+        InvalidCallError: One ``invalid_output`` problem. It names the output when there is one to name, and never
+            quotes the value.
+    """
+
+    def __init__(
+        self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]
+    ) -> None:
+        """Builds the validator for one node.
+
+        A function returns its outputs in one of four shapes. It returns a dataclass if it declares one with
+        no ``@host_type``, a mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none.
+        Otherwise it returns one value, the output ``result``.
+
+        Args:
+            outputs_dataclass: The dataclass the function returns its outputs in, or ``None``.
+            computes_outputs: Whether the node's ``compute_outputs`` hook gave its outputs.
+            outputs: The node's outputs, by name.
+        """
+        self._outputs = outputs
+        by_name: Callable[[Any], dict[str, Any]]
+        if outputs_dataclass is not None:
+            by_name = _dataclass_fields(outputs_dataclass, outputs)
+        elif computes_outputs:
+            by_name = _mapping_items(outputs)
+        elif not outputs:
+            by_name = _no_outputs
+        else:
+            by_name = _one_output
+        # an output a node can't return SKIPPED on must be returned; a branch may be left out of a mapping
+        fields = {
+            name: core_schema.typed_dict_field(
+                field.whole.output_schema, required=not field.is_branch
+            )
+            for name, field in outputs.items()
+        }
+        self._validate = SchemaValidator(outputs_schema(outputs, fields, by_name)).validate_python
+
+    def __call__(self, returned: Any) -> dict[str, Any]:
+        """Checks what the function returned, and returns the node's outputs by name.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        if returned is SKIPPED:
+            return dict.fromkeys(self._outputs, SKIPPED)
+        try:
+            read: dict[str, Any] = self._validate(returned, strict=True)
+        except ValidationError as error:
+            raise _first_fault(self._outputs, error, returned) from None
+        return read
+
+
+def _one_output(returned: Any) -> dict[str, Any]:
+    """Splits the return of a node with one output, ``result``: the value it returns is that output's."""
+    return {"result": returned}
+
+
+def _no_outputs(returned: Any) -> dict[str, Any]:
+    """Splits the return of a node declared ``-> None``, which must be ``None``, into no outputs."""
+    if returned is not None:
+        raise conductor_error(
+            "none_required",
+            "the node declares no outputs, but returned a {got}",
+            {"got": type(returned).__name__},
+        )
+    return {}
+
+
+def _dataclass_fields(cls: type, outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
+    """Builds the function that splits a returned dataclass into its outputs, by name."""
+
+    def by_name(returned: Any) -> dict[str, Any]:
+        if not isinstance(returned, cls):
+            raise conductor_error(
+                "not_the_class",
+                "the node must return a {cls}, not a {got}",
+                {"cls": cls.__name__, "got": type(returned).__name__},
+            )
+        return _given(outputs, {name: getattr(returned, name) for name in outputs})
+
+    return by_name
+
+
+def _mapping_items(outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
+    """Builds the function that splits a returned mapping of outputs, from a node whose ``compute_outputs`` hook gave
+    its outputs."""
+    listed = comma_separated(outputs, empty="nothing")
+
+    def by_name(returned: Any) -> dict[str, Any]:
+        if not isinstance(returned, Mapping):
+            raise conductor_error(
+                "not_a_mapping",
+                "the node must return a mapping with one key per output ({names}), not a {got}",
+                {"names": listed, "got": type(returned).__name__},
+            )
+        return _given(outputs, returned)
+
+    return by_name
+
+
+def _given(outputs: Mapping[str, Field], returned: Mapping[Any, Any]) -> dict[str, Any]:
+    """Returns the outputs a return gives a value, by name, leaving out each branch that is ``SKIPPED``.
+
+    Only a branch may be ``SKIPPED``. A name that isn't an output is kept, for the schema to refuse.
+
+    Raises:
+        PydanticCustomError: ``skipped_not_a_branch`` for the first output that is ``SKIPPED`` but isn't a branch.
+    """
+    given: dict[str, Any] = {}
+    for name, value in returned.items():
+        field = outputs.get(name)
+        if value is not SKIPPED or field is None:
+            given[name] = value
+        elif not field.is_branch:
+            raise conductor_error(
+                "skipped_not_a_branch",
+                "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
+                {"name": name},
+            )
+    return given
+
+
+def _refused_shape(
+    fault: ErrorDetails | PydanticCustomError, output: str | None = None
+) -> InvalidCallError:
+    """Turns a fault in the shape of what a node returned into an ``invalid_output`` error.
+
+    Args:
+        fault: The fault, as pydantic gave it, or as the error conductor raises for it.
+        output: The output the fault is about, when there is one to name.
+    """
+    error = shape_error(fault)
+    return InvalidCallError(
+        [run_problems.invalid_output(reason=error["msg"], output=output, errors=[error])]
+    )
+
+
+def _first_fault(
+    outputs: Mapping[str, Field], error: ValidationError, returned: Any
+) -> InvalidCallError:
+    """Turns the first fault in what a node returned into an ``invalid_output`` error.
+
+    A fault in the return's shape comes first: not the dataclass, not a mapping, an output that isn't a branch is
+    ``SKIPPED``, then an output missing from a returned mapping, a key that isn't an output, and two branches with a
+    value. A fault in an output's value comes after them. An output missing is pydantic's own ``missing``, at the
+    output's name, as an answer to the node gives it, while the reason says it of a return. A key that isn't an
+    output is pydantic's ``extra_forbidden``, or ``invalid_key`` for one that isn't text, at ``"[key]"``: such a key
+    may be built from data, so it is never quoted, and ``ctx.output`` is left out. A value that an output's type
+    refuses is described as the type describes it, with every error pydantic found in that output.
+    """
+
+    def about_a_name(fault: ErrorDetails) -> str | None:
+        """The reason for a fault about an output's name rather than its value, or ``None``."""
+        if len(fault["loc"]) != 1:
+            return None
+        name = fault["loc"][0]
+        if name not in outputs:
+            return "a key of the mapping the node returned isn't one of its outputs"
+        if fault["type"] == "missing" and isinstance(returned, Mapping) and name not in returned:
+            return f"'{name}' is missing from the outputs the node returned"
+        return None
+
+    faults = error.errors()
+    first = next((fault for fault in faults if not fault["loc"] or about_a_name(fault)), faults[0])
+    if not first["loc"]:
+        ctx = first.get("ctx", {})
+        return _refused_shape(
+            first, ctx["given"][1] if first["type"] == "several_branches_given" else ctx.get("name")
+        )
+    name = str(first["loc"][0])
+    if reason := about_a_name(first):
+        # a key that is no output may be built from data, so it is named only as a key, as a key that isn't text is
+        output = name if name in outputs else None
+        loc = [name] if output else ["[key]"]
+        return InvalidCallError(
+            [
+                run_problems.invalid_output(
+                    reason=reason, output=output, errors=[shape_error(first, loc=loc)]
+                )
+            ]
+        )
+    return InvalidCallError(
+        [
+            run_problems.invalid_output(
+                output=name, **outputs[name].whole.refusal(error, under=(name,))
+            )
+        ]
+    )
+
+
+#: Checks what a hook returns: a mapping of valid names, each to a type or to ``(type, default)``.
+_HOOK_FIELDS = TypeAdapter(dict[Name, Any])
+
+
+class HookValidator(Validator[Any, dict[str, Field]]):
+    """A validator for what one hook of a node returns.
+
+    A hook returns its fields as a mapping of name to type, or to ``(type, default)``. The validator turns each into
+    a ``Field``, held to the same rules ``@node`` holds a declared field to. Fields from ``compute_added_inputs`` are
+    checked like inputs, with ``DeclaredInputValidator``. Fields from ``compute_outputs`` are checked like outputs,
+    with ``DeclaredOutputValidator``.
+
+    Raises (when called):
+        InvalidCallError: ``compute_hook_returned_invalid`` problems, each with one error in ``ctx.errors``. There is
+            one at each name that isn't a valid name (``not_a_name``). If the hook returned no mapping, there is one
+            at the node (``dict_type``). If ``@node`` would refuse a field, its error's ``type`` is the declaration's
+            code, like ``default_invalid``, and its message names the field but quotes none of the declaration's
+            text, which can quote the default. If the hook gives a name the node declares itself, there is one at
+            the node (``added_input_exists``).
+    """
+
+    def __init__(self, node_id: str, hook: HookName, taken: frozenset[str]) -> None:
+        """Builds the validator for one hook of one node.
+
+        Args:
+            node_id: The node's id. The problems name it.
+            hook: Which hook it is.
+            taken: The names the hook can't give, since the node declares them itself.
+        """
+        self._node_id = node_id
+        self._hook = hook
+        self._taken = taken
+        self._read_field: type[DeclaredInputValidator | DeclaredOutputValidator] = (
+            DeclaredInputValidator if hook == "compute_added_inputs" else DeclaredOutputValidator
+        )
+
+    def __call__(self, returned: Any) -> dict[str, Field]:
+        """Checks what the hook returned, and returns its fields by name.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        try:
+            hints = _HOOK_FIELDS.validate_python(returned)
+        except ValidationError as invalid:
+            if not invalid.errors()[0]["loc"]:  # no location: not a mapping
+                reason = (
+                    f"its {self._hook} hook returned a {type(returned).__name__}, not a mapping of each field's name"
+                    " to its type"
+                )
+                raise InvalidCallError(
+                    [
+                        compile_problems.compute_hook_returned_invalid(
+                            self._node_id, reason=reason, errors=[shape_error(invalid.errors()[0])]
+                        )
+                    ]
+                ) from None
+            raise InvalidCallError(
+                compile_problems.compute_hook_returned_invalid(
+                    self._node_id,
+                    str(fault["loc"][0]),
+                    reason=f"its {self._hook} hook returned a name a field can't have ({fault['msg']})",
+                    errors=[shape_error(fault)],
+                )
+                for fault in invalid.errors()
+            ) from None
+        fields: dict[str, Field] = {}
+        for name, given in hints.items():
+            hint, default = _hint_and_default(given)
+            try:
+                fields[name] = self._read_field(name, hint)(default)
+            # @node would refuse the field, so the hook failed. The declaration's message can quote the default the
+            # hook gave, so the problem keeps only its code.
+            except NodeDeclarationError as error:
+                refused = shape_error(
+                    conductor_error(
+                        error.problems[0].type,
+                        "its {hook} hook gave '{name}' a type or a default that @node refuses",
+                        {"hook": self._hook, "name": name},
+                    )
+                )
+                raise InvalidCallError(
+                    [
+                        compile_problems.compute_hook_returned_invalid(
+                            self._node_id, reason=refused["msg"], errors=[refused]
+                        )
+                    ]
+                ) from None
+        taken = sorted(fields.keys() & self._taken)
+        if taken:
+            exists = shape_error(
+                conductor_error(
+                    "added_input_exists",
+                    "it adds '{name}', which the node already declares",
+                    {"name": taken[0]},
+                )
+            )
+            raise InvalidCallError(
+                [
+                    compile_problems.compute_hook_returned_invalid(
+                        self._node_id, reason=exists["msg"], errors=[exists]
+                    )
+                ]
+            )
+        return fields
+
+
+def _hint_and_default(given: Any) -> tuple[Any, Any]:
+    """Splits what a hook returns for one field into its type and its default.
+
+    A hook gives ``(type, default)``, or a type alone. A type alone has no default, so it gets ``REQUIRED``.
+    """
+    if isinstance(given, tuple) and len(given) == 2:
+        return given[0], given[1]
+    return given, REQUIRED
+
+
+class RewriteValidator(Validator[Any, dict[str, JsonValue]]):
+    """A validator for what the ``rewrite`` of an ``Upgrade`` returns, for one step of ``registry.upgrade``.
+
+    A rewrite returns the node's constants as a dict of input name to value. The validator
+    checks that it is such a dict, and writes each value as the JSON a graph record stores. Say a rewrite returns
+    ``{"day": date(2026, 1, 2)}``. The validator gives ``{"day": "2026-01-02"}``.
+
+    Raises (when called):
+        InvalidCallError: ``cannot_move_to_version_rewrite_returned_invalid`` at the node, with pydantic's error in
+            ``ctx.errors``, if the rewrite returned no dict, or one with a key that isn't text. ``invalid_value`` at the
+            node and input for a value that can't be written as JSON.
+    """
+
+    def __init__(self, node_id: str, node: str, version: int, target: int) -> None:
+        """Builds the validator for one step of one node.
+
+        Args:
+            node_id: The node's id in the graph. The problems name it.
+            node: The id of its node definition.
+            version: The version the step moves from.
+            target: The version the step moves to.
+        """
+        self._node_id = node_id
+        self._node = node
+        self._version = version
+        self._target = target
+
+    def __call__(self, returned: Any) -> dict[str, JsonValue]:
+        """Checks what the rewrite returned, and returns it as JSON, by input name.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        try:
+            values = _REWRITTEN_VALUES.validate_python(returned)
+        except ValidationError as invalid:
+            first = invalid.errors()[0]
+            raise InvalidCallError(
+                [
+                    call_problems.cannot_move_to_version_rewrite_returned_invalid(
+                        self._node_id,
+                        node=self._node,
+                        version=self._version,
+                        target=self._target,
+                        reason=f"a {type(returned).__name__}"
+                        if not first["loc"]
+                        else "a dict with a key that isn't text",
+                        errors=[shape_error(first)],
+                    )
+                ]
+            ) from None
+        return WrittenValuesValidator(self._node_id)(values)
+
+
+#: Checks what an ``Upgrade``'s rewrite returns: a dict whose keys are text.
+_REWRITTEN_VALUES = TypeAdapter(dict[str, Any])
+
+
+def _a_definition(given: Any) -> NodeDefinition:
+    """Takes a node definition, as ``replaces=`` names the version it replaces.
+
+    Raises:
+        PydanticCustomError: ``not_a_node``, for anything else.
+    """
+    if isinstance(given, (FunctionDefinition, SubgraphDefinition)):
+        return given
+    raise conductor_error(
+        "not_a_node", "replaces= names the earlier version, a node made by @node or subgraph()"
+    )
+
+
+def _finite(extra: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]:
+    """Returns ``extra`` if every number in it is finite, by the one rule for a number that enters (``finite_json_text``).
+
+    Raises:
+        ValidationError: Pydantic's ``finite_number``, at ``extra``.
+    """
+    finite_json_text(extra, "extra")
+    return extra
+
+
+@with_config(ConfigDict(strict=True))
+class DeclarationArguments(TypedDict, total=False):
+    """The arguments ``@node``, ``subgraph`` and ``NodeRegistry`` take, by name, as their signatures declare them.
+
+    Each caller gives only the arguments it has: ``subgraph`` has no ``policy``, hooks or ``asks``, and a registry only
+    ``category``, ``tags`` and ``extra``. Each argument's default is in its caller's signature. The id is a name, as a
+    node's id in a graph record is, and the title and description are text a person reads, so they aren't blank.
+    """
+
+    id: Name
+    title: NotBlank
+    description: NotBlank
+    version: Annotated[int, Ge(1)] | None
+    category: StrictStr
+    tags: Sequence[StrictStr]
+    extra: Annotated[Mapping[StrictStr, JsonValue], AfterValidator(_finite)]
+    docs: StrictStr | None
+    policy: InstanceOf[Policy]
+    deprecation: InstanceOf[Deprecation] | None
+    compute_added_inputs: Callable[..., Any] | None
+    compute_outputs: Callable[..., Any] | None
+    replaces: Annotated[NodeDefinition, PlainValidator(_a_definition)] | None
+    upgrade: InstanceOf[Upgrade] | None
+    asks: bool
+
+
+_DECLARATION_ARGUMENTS = TypeAdapter(DeclarationArguments)
+
+
+class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
+    """The validator for the arguments a node's developer gives ``@node``, ``subgraph`` or ``NodeRegistry``.
+
+    Each argument is held to its annotation, strictly, so ``tags="abc"``, ``version=True``, ``policy={}`` and
+    ``extra={"when": date.today()}`` are refused where the node is declared, never later. ``extra`` is JSON a host is
+    shown: its values are JSON values, and a number in it is finite. The id is refused if it isn't a name
+    (``not_a_name``), and a title or description that is empty or only whitespace (``blank_text``). What the
+    arguments say together, such as whether ``replaces=`` names the same node, is checked after it, by the caller.
+
+    Raises (when called):
+        NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors`` and in its
+            ``reason``. Its ``loc`` is the node's id, or ``()`` when the id itself is refused or there is no id, as
+            for a registry. Its text names the node's version, unless the version itself is unknown.
+    """
+
+    def __init__(self, declared_with: str) -> None:
+        """Builds the validator for one way of declaring.
+
+        Args:
+            declared_with: ``"@node"``, ``"subgraph"`` or ``"NodeRegistry"``. The message starts with it.
+        """
+        self._declared_with = declared_with
+
+    def __call__(self, arguments: Mapping[str, Any]) -> DeclarationArguments:
+        """Checks ``arguments`` and returns them.
+
+        Raises:
+            NodeDeclarationError: See the class.
+        """
+        try:
+            return _DECLARATION_ARGUMENTS.validate_python(dict(arguments))
+        except ValidationError as error:
+            faults = [
+                {**fault, "loc": [argument, *fault["loc"]]}
+                for argument, inside in argument_errors(error, arguments).items()
+                for fault in inside
+            ]
+        # an id that is refused can't place the fault, and a refused version can't name it
+        refused = {fault["loc"][0] for fault in faults}
+        place = (arguments["id"],) if "id" in arguments and "id" not in refused else ()
+        version = arguments.get("version")
+        unknown = "version" in refused or (version is None and "replaces" in refused)
+        raise NodeDeclarationError(
+            declaration_problems.invalid_declaration_argument(
+                declared_with=self._declared_with,
+                reason=arguments_reason(faults),
+                errors=faults,
+            ),
+            *place,
+            version=None if unknown else version_number(version, arguments.get("replaces")),
+        )

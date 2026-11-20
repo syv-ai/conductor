@@ -1,7 +1,7 @@
 [project]
 name = "conductor-workspace"
 version = "0.1.0"
-description = "Reusable graph execution engine for DAG-based workflows"
+description = "Run graphs of typed Python functions"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
@@ -17,21 +17,53 @@ syv-conductor-providers = { workspace = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["examples/*.ipynb", "node.ipynb"]
+# A stub in a syntax 3.13 has; only a type checker reads it.
+extend-exclude = ["examples/*.ipynb", "node.ipynb", "**/table_as_a_type_checker_reads_it.pyi"]
+# Excluded paths stay excluded when pre-commit names them.
+force-exclude = true
+
+[tool.ruff.format]
+# The docs' and conventions' examples are laid out by hand: a bad and a good line side by side.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
 # Conservative baseline: pyflakes + pycodestyle + isort. Expand later if desired.
-select = ["E", "F", "I", "W"]
+# TID251, PLC2701 and SLF001 hold tests to public names: a test reaches conductor only through its public modules,
+# never conductor._internal (TID251), a name with a leading underscore it imports (PLC2701) or an attribute it reads
+# or patches (SLF001), so it pins what a host sees and not how conductor is built.
+select = ["E", "F", "I", "W", "TID252", "TID251", "PLC2701", "SLF001"]
 # E501 (line-too-long) is noisy for prose-ish docstrings and long strings.
 ignore = ["E501"]
+# PLC2701 is a preview rule; only the preview rules selected by their full code are on.
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.per-file-ignores]
+# A package's __init__.py re-exports; its imports are its public surface.
+"__init__.py" = ["F401"]
+# run/json/ is the one package inside a package: its files import run/'s modules as ..outcome
+"packages/conductor/src/conductor/_internal/run/json/*.py" = ["TID252"]
+# Only tests are held to public names; the packages import their own internals by design.
+"!tests/**" = ["TID251", "PLC2701", "SLF001"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# a module imports a module of its own package as .outcome; another package by its absolute name, through its
+# __init__ (the pre-commit hook "a package is imported only through its __init__" refuses the rest)
+ban-relative-imports = "parents"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"conductor._internal".msg = "a test reaches conductor only through its public modules; test through public names (graph.run, run.results, run.to_json(), describe(), PROBLEMS, ...)"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.25",
-    # fastapi + httpx back the TestClient used by the FastAPI provider tests.
-    "fastapi>=0.115",
+    # fastapi + httpx run the recipe in docs/serving-runs.md under test.
+    "fastapi>=0.135",
     "httpx>=0.27",
+    # two uvicorn workers run the FastAPI provider under test
+    "uvicorn>=0.30",
+    "types-regex",
     "syv-conductor",
     "syv-conductor-nodes",
     "syv-conductor-providers",
@@ -39,9 +71,41 @@ dev = [
     "nbconvert>=7.17.1",
     "jupyter>=1.1.1",
     "pre-commit>=4.5.1",
+    "mypy>=2.3.1",
+    "pyright>=1.1.414",
+    "pytest-timeout>=2.4.0",
+    "pandas>=2.2",
+    "import-linter>=2.1",
 ]
-demo = ["fastapi>=0.115", "uvicorn[standard]>=0.34", "syv-conductor"]
 docs = [
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",
 ]
+
+# The packages of conductor._internal, top to bottom: a package imports only packages below it. Packages on one
+# line with " | " between them import none of each other.
+[tool.importlinter]
+root_packages = ["conductor"]
+
+[[tool.importlinter.contracts]]
+name = "conductor._internal is in layers"
+type = "layers"
+containers = ["conductor._internal"]
+layers = [
+    "make_graph",
+    "registry | run",
+    "graph",
+    "node",
+    "ask | record",
+    "series | field | context",
+    "table",
+    "types",
+    "problem",
+    "base",
+    "utils",
+]
+# The one import up a layer: a graph starts runs, and a run reads the graph's nodes. graph/type.py may import from
+# run/; it does so inside three methods, never when it loads: Graph.with_inputs (make_run), Graph._blueprint
+# (RunBlueprint) and Graph._codec (codec_of); and under TYPE_CHECKING, for its annotations, Run, RunBlueprint and
+# SavedRun.
+ignore_imports = ["conductor._internal.graph.type -> conductor._internal.run"]
