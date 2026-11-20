@@ -2311,6 +2311,30 @@ def ok_word(word: str) -> bool:
             ),
         ),  # not one item indexes per outcome
         (
+            "reusable.ok.fingerprints.0",
+            lambda s: s["reusable"].__setitem__(
+                "ok",
+                {
+                    "states": ["done"],
+                    "outputs": {"result": [True]},
+                    "fingerprints": [None],
+                    "item_indexes": [[0]],
+                },
+            ),
+        ),  # a reusable outcome with no fingerprint
+        (
+            "reusable.ok.fingerprints.0",
+            lambda s: s["reusable"].__setitem__(
+                "ok",
+                {
+                    "states": ["skipped"],
+                    "outputs": {"result": [None]},
+                    "fingerprints": [None],
+                    "item_indexes": [[0]],
+                },
+            ),
+        ),  # a skipped call, which has no outcome to reuse
+        (
             "reusable.ok.item_indexes",
             lambda s: s["reusable"].__setitem__(
                 "ok",
