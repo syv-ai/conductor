@@ -21,7 +21,7 @@ def test_json_config_is_a_public_name():
 
 def test_a_host_model_built_from_json_config_is_taken_and_reads_bytes_as_base64():
     @host_type("attachment", title="Attachment")
-    class Attachment(BaseModel):
+    class Attachment(BaseModel, frozen=True):
         model_config = ConfigDict(**JSON_CONFIG)
         data: bytes
 
