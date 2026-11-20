@@ -477,18 +477,19 @@ def _columns_as_json(frame: pl.DataFrame, names: list[str]) -> str:
     """Writes the columns ``names`` of ``frame`` as the JSON text of a dict of lists, each object by its own class.
 
     A cell is written as the Python value polars gives for it, and Python's ``time``, ``datetime`` and ``timedelta``
-    stop at microseconds. So a column with a time finer than that, itself or inside a list or struct, is refused
-    rather than cut.
+    stop at microseconds and hold no time too far out to count in them. So a column with a time finer than that, or
+    a millisecond time too far out, itself or inside a list or struct, is refused rather than cut or overflowed.
 
     Raises:
         PydanticCustomError: ``column_not_saved`` for a column of Python objects with no JSON form, or with a time
-            finer than a microsecond.
+            finer than a microsecond or too far out to count in microseconds.
     """
     for name in names:
-        if (fault := _finer_than_a_microsecond(frame[name])) is not None:
-            raise conductor_error(
-                "column_not_saved", "column '{column}' " + fault, {"column": name}
-            )
+        for check in (_finer_than_a_microsecond, _out_of_microseconds):
+            if (fault := check(frame[name])) is not None:
+                raise conductor_error(
+                    "column_not_saved", "column '{column}' " + fault, {"column": name}
+                )
     try:
         return json_text(
             {name: frame[name].to_list() for name in names}, fallback=json_by_its_class
@@ -698,7 +699,9 @@ def _table_schemas(
         else core_schema.dict_schema(core_schema.str_schema())
     )
     # some of a frame's columns, each a list of cells by name, checked by the row's own schema of each field, and
-    # read by the row's config as a row is, so bytes inside a list read from the base64 they are written as
+    # read by the row's config as a row is, so bytes inside a list read from the base64 they are written as. They
+    # are read strictly, as any saved value is: a saved table's "Yes" is never a bool, after a deploy that made the
+    # column one
     by_column = json_typed_dict_schema(
         {
             name: core_schema.typed_dict_field(core_schema.list_schema(cell), required=False)
@@ -706,6 +709,7 @@ def _table_schemas(
         },
         cls=row_class,
     )
+    by_column["config"] = {**by_column.get("config", {}), "strict": True}
     as_frame = (
         core_schema.no_info_wrap_validator_function(from_frame, core_schema.json_schema(by_column))
         if declared

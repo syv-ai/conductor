@@ -281,7 +281,7 @@ def cell_not_kept(column: str, cell: str, reason: str) -> PydanticCustomError:
     """
     return conductor_error(
         "table_cell_not_kept",
-        "column '{column}' holds {cell}, which a table doesn't keep as it is: {reason}",
+        "column '{column}' holds {cell}, which a table doesn't keep as it is: {reason}. Give the column a type a table keeps, or pass the rows as a Series, a list that keeps each value as it is",
         {"column": column, "cell": cell, "reason": reason},
     )
 
@@ -353,8 +353,7 @@ def _same(given: Any, kept: Any) -> bool:
         return given.keys() == kept.keys() and all(
             _same(one, kept[key]) for key, one in given.items()
         )
-    # a nan is no float equal to itself
-    return bool(given == kept) or given != given
+    return bool(given == kept)
 
 
 def _field_of(cell: Any, field: str, typed_dict: bool) -> Any:

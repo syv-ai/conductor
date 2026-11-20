@@ -36,6 +36,7 @@ from pydantic import (
     BaseModel,
     ByteSize,
     ConfigDict,
+    Discriminator,
     Field,
     FtpUrl,
     HttpUrl,
@@ -1295,6 +1296,7 @@ def test_an_any_cell_polars_would_change_fails_the_run_naming_the_column(cells: 
     assert [(e["type"], e["ctx"]["column"], e["ctx"]["cell"]) for e in run.cause.ctx["errors"]] == [
         ("table_cell_not_kept", "cell", "Any")
     ]
+    assert "Give the column a type a table keeps, or pass the rows as a Series" in run.cause.msg
 
 
 class _Part(TypedDict):
@@ -1339,16 +1341,18 @@ def test_a_series_of_rows_whose_cell_leaves_out_a_not_required_key_reads_back(
 
 @host_type("meowing", title="Meowing")
 class Meowing(BaseModel, frozen=True):
+    kind: Literal["meowing"] = "meowing"
     meow: str | None = None
 
 
 @host_type("barking", title="Barking")
 class Barking(BaseModel, frozen=True):
+    kind: Literal["barking"] = "barking"
     bark: int
 
 
 class PetRow(TypedDict):
-    pet: Meowing | Barking
+    pet: Annotated[Meowing | Barking, Discriminator("kind")]
 
 
 class ScoresRow(TypedDict):
@@ -1374,7 +1378,7 @@ def _as_plain_data(value: Any) -> Any:
         (ScoresRow, [{"points": {"x": 1}}, {"points": {"y": 2}}], "dict[str, int]"),
         (MoneyColourRow, [{"pair": (Money(amount=1), Colour.RED)}], "tuple[money, colour]"),
     ],
-    ids=["a union of models whose fields differ", "a dict", "a tuple of different items"],
+    ids=["a discriminated union of models", "a dict", "a tuple of different items"],
 )
 @pytest.mark.parametrize("returned", ["list", "frame"])
 def test_a_series_of_rows_of_a_cell_a_table_does_not_keep_is_taken_as_a_list_and_refused_as_a_frame(

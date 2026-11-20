@@ -1014,7 +1014,7 @@ def _check_built(schema: CoreSchema) -> None:
       ``"!"`` before the choices are compared. Every value would fail at run time. ``Param`` reads its choices by
       the type it is on; this reads them again by the part of the schema it built, on the port, a list's item, a
       dict's value or a model's field.
-    - A union of two models or dataclasses that JSON can't tell apart (``_check_union``).
+    - A union with two members JSON can't tell apart by their class (``_check_union``).
 
     Say ``class Tags(BaseModel)`` has the field ``tags: set[str]``. Then the schema of ``list[Tags]`` is refused,
     naming ``Tags.tags``.
@@ -1115,13 +1115,19 @@ def _set_written(schema: dict[str, Any]) -> str:
 def _check_union(
     union: CoreSchema, held: tuple[str, str] | None, definitions: dict[str, Any]
 ) -> None:
-    """Refuses a union of two models or dataclasses whose values JSON can't tell apart.
+    """Refuses a union with two members whose values JSON can't tell apart by their class.
 
-    A run keeps a value as JSON, and a model's JSON is its fields, not its class. Pydantic reads it back as the member
-    that takes the most of its fields, and where two take as many, as the one the union names first. So two members
-    read back alike when one has every field the other has and a default for each of its others: in
-    ``Heron | Egret``, where both declare only ``name``, an ``Egret`` comes back as a ``Heron``. A union pydantic
-    tells apart by a ``Discriminator`` is a schema of another kind, and isn't walked here.
+    A run keeps a value as JSON, which says nothing of its class, and pydantic reads a union back as the member that
+    takes it best, the first where two take it as well. So a union is refused when two of its members are written
+    alike:
+
+    - two whose JSON is an object: a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``, generic or not;
+    - an enum beside another enum, a ``Literal`` or ``str`` that shares a value with it.
+
+    That refuses some unions pydantic could tell apart, such as two models with different required fields, since
+    which it can is not one rule a reader can see. ``X | None`` and members whose JSON is of different kinds, like
+    ``int | str``, are kept. A union pydantic tells apart by a ``Discriminator`` is a schema of another kind, and
+    isn't walked here.
 
     Args:
         union: The union's schema.
@@ -1131,83 +1137,79 @@ def _check_union(
     Raises:
         NodeDeclarationError: ``union_members_alike``.
     """
-    classes = [
-        cls
+    members = [
+        _written_as(choice[0] if isinstance(choice, tuple) else choice, definitions)
         for choice in union["choices"]
-        if (
-            cls := _class_checked_by(
-                choice[0] if isinstance(choice, tuple) else choice, definitions
-            )
-        )
-        is not None
     ]
-    for member in classes:
-        for alike in classes:
-            if member is not alike and _reads_as(member, alike):
+    for at, (name, values) in enumerate(members):
+        for other, other_values in members[at + 1 :]:
+            if values is not None and other_values is not None and _alike(values, other_values):
                 raise NodeDeclarationError(
                     declaration_problems.union_members_alike(
-                        type=_field_or(held, " | ".join(cls.__name__ for cls in classes)),
-                        member=member.__name__,
-                        alike=alike.__name__,
+                        type=_field_or(held, " | ".join(member for member, _ in members)),
+                        member=name,
+                        alike=other,
                     )
                 )
 
 
-def _class_checked_by(schema: Any, definitions: dict[str, Any]) -> type | None:
-    """Returns the model or dataclass ``schema`` checks a value as, through a reference and a validator around it,
-    or ``None`` for a schema of any other kind."""
-    while schema is not None:
-        kind = schema["type"]
-        if kind in HOSTS_OWN_CLASSES:
-            cls: type = schema["cls"]
-            return cls
-        if kind == "definition-ref":
-            schema = looked_up(schema, definitions)
-        elif kind.startswith("function-") and "schema" in schema:
-            schema = schema["schema"]
-        else:
-            return None
-    return None
+#: The JSON values of a member written as an object, which any other such member's may be.
+_AN_OBJECT = "object"
+
+#: The JSON values of ``str``: any text.
+_ANY_TEXT = "text"
 
 
-def _reads_as(member: type, alike: type) -> bool:
-    """Says whether a value of ``member``, written as JSON, can be read as ``alike`` as readily.
+def _written_as(schema: Any, definitions: dict[str, Any]) -> tuple[str, Any]:
+    """Returns a union member's name, and what its JSON may be, as ``_alike`` compares it.
 
-    It can when ``alike`` declares every field ``member`` does, needs no other (each of its others has a default),
-    and no field they share is a ``Literal`` in both with no value in common, which would tell them apart.
+    What its JSON may be is ``_AN_OBJECT`` for a model, a dataclass, a ``TypedDict`` or a dict, the values of an enum
+    or a ``Literal`` as a ``frozenset`` with the enum's class, ``_ANY_TEXT`` for ``str``, and ``None`` for any other
+    member, which no other is taken for here. A reference and a validator around the member are looked through.
     """
-    fields, alike_fields = field_hints(member), field_hints(alike)
-    return (
-        fields.keys() <= alike_fields.keys()
-        and alike_fields.keys() - fields.keys() <= _with_default(alike)
-        and not any(_told_apart(hint, alike_fields[name]) for name, hint in fields.items())
-    )
+    while schema is not None and schema["type"] in (
+        "definition-ref",
+        "function-before",
+        "function-after",
+        "function-wrap",
+    ):
+        schema = (
+            looked_up(schema, definitions)
+            if schema["type"] == "definition-ref"
+            else schema["schema"]
+        )
+    if schema is None:
+        return "Any", None
+    kind = schema["type"]
+    if kind in _DECLARES_FIELDS:
+        return str(schema["cls"].__name__), _AN_OBJECT
+    if kind == "dict":
+        return "dict", _AN_OBJECT
+    if kind == "enum":
+        return str(schema["cls"].__name__), (
+            schema["cls"],
+            frozenset(member.value for member in schema["members"]),
+        )
+    if kind == "literal":
+        return f"Literal{list(schema['expected'])}", (None, frozenset(schema["expected"]))
+    if kind == "str":
+        return "str", _ANY_TEXT
+    return kind, None
 
 
-def _told_apart(hint: Any, other: Any) -> bool:
-    """Says whether two hints are each a ``Literal``, ``Annotated`` taken off, with no value in common."""
-    values = []
-    for one in (hint, other):
-        while get_origin(one) is Annotated:
-            one = get_args(one)[0]
-        if get_origin(one) is not Literal:
-            return False
-        values.append(set(get_args(one)))
-    return not values[0] & values[1]
-
-
-def _with_default(cls: type) -> frozenset[str]:
-    """Returns the fields of a model or dataclass that have a default, so a value read from JSON may leave them
-    out."""
-    infos: dict[str, FieldInfo] | None = getattr(cls, "__pydantic_fields__", None)
-    if infos is not None:
-        return frozenset(name for name, info in infos.items() if not info.is_required())
-    return frozenset(
-        field.name
-        for field in dataclasses.fields(cls)
-        if field.default is not dataclasses.MISSING
-        or field.default_factory is not dataclasses.MISSING
-    )
+def _alike(one: Any, other: Any) -> bool:
+    """Says whether two union members, by what their JSON may be (``_written_as``), may be written alike: both
+    objects, or an enum and another enum, a ``Literal`` or ``str`` with a value in common."""
+    if one == _AN_OBJECT or other == _AN_OBJECT:
+        return one == other
+    enums = [
+        values for values in (one, other) if isinstance(values, tuple) and values[0] is not None
+    ]
+    if not enums:
+        return False
+    if _ANY_TEXT in (one, other):
+        return any(isinstance(value, str) for value in enums[0][1])
+    return bool(one[1] & other[1])
 
 
 def _check_choices(

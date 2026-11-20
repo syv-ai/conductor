@@ -1291,23 +1291,25 @@ def type_not_supported_set(*, type: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def union_members_alike(*, type: str, member: str, alike: str) -> str:
-    """An input's or output's type is or holds a union of two models or dataclasses that JSON can't tell apart, like
-    ``Heron | Egret`` where both declare only ``name``.
+    """An input's or output's type is or holds a union with two members JSON can't tell apart by their class, like
+    ``Heron | Egret``, two models.
 
-    A run keeps every value as JSON, and a model's JSON is its fields, not its class. Pydantic reads a union back as
-    the member that takes the most of the value's fields. Here ``alike`` has every field ``member`` has, and needs
-    no other: each of its others has a default. So a ``member`` and an ``alike`` with the same fields read back alike, as
-    whichever of the two the union names first: an ``Egret`` a node returned would come back as a ``Heron`` from a
-    saved run, or across an edge that reads it again.
+    A run keeps every value as JSON, which says nothing of a value's class, and pydantic reads a union back as the
+    member that takes the value best, the first where two take it as well. So an ``Egret`` a node returned could come
+    back as a ``Heron`` from a saved run, or across an edge that reads it again. Two members are written alike when
+    both are written as an object (a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``), or when one is an
+    enum and the other an enum, a ``Literal`` or ``str`` that shares a value with it. Such a union is refused even
+    where pydantic might tell its members apart, by their fields or their types. ``X | None``, and members of
+    different JSON kinds, like ``int | str``, are taken.
 
     To fix it, give each member a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
-    ``Annotated[Heron | Egret, Discriminator("kind")]``. Or give each a required field the other lacks.
+    ``Annotated[Heron | Egret, Discriminator("kind")]``. For an enum, give it values the other member doesn't take.
 
     Args:
         type: Where the union is: the field of a model, dataclass or ``TypedDict`` that holds it, as
             ``Sighting.bird``, or else the union, as ``Heron | Egret``.
-        member: The class whose fields ``alike`` has too.
-        alike: The class that has every field of ``member``.
+        member: One of the two members, such as ``Heron``.
+        alike: The other, such as ``Egret``.
 
     Example:
         from pydantic import BaseModel
@@ -1329,7 +1331,7 @@ def union_members_alike(*, type: str, member: str, alike: str) -> str:
 
         declaration_refused(lambda: node("spot-bird", title="Spot bird", description="Names the bird in a text.")(spot_bird))
     """
-    return f'{member} and {alike} in {type} read back alike from JSON: {alike} has every field {member} has and needs no other, so a saved value may come back as the other class. Give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator("kind")], or give each a required field the other lacks.'
+    return f"{member} and {alike} in {type} are written alike as JSON, so a saved value may read back as the other one; such a union is refused even where pydantic might tell them apart. Give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator('kind')], or, for an enum, give it values the other member doesn't take."
 
 
 @DECLARATION_PROBLEMS.problem

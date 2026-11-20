@@ -1615,6 +1615,75 @@ def test_a_time_finer_than_a_microsecond_inside_a_declared_tables_list_is_refuse
     assert "column 'clocks' has a time finer than a microsecond" in run.cause.msg
 
 
+class _Spans(TypedDict):
+    spans: list[dt.timedelta]
+
+
+@host_type("span-holder", title="Span holder")
+class _SpanHolder(BaseModel, frozen=True):
+    span: dt.timedelta
+
+
+class _HeldSpan(TypedDict):
+    held: _SpanHolder
+
+
+@pytest.mark.parametrize(
+    ("row", "column"),
+    [
+        (_Spans, pl.Series("spans", [[2**62]], dtype=pl.List(pl.Duration("ms")))),
+        (
+            _HeldSpan,
+            pl.Series("held", [{"span": 2**62}], dtype=pl.Struct({"span": pl.Duration("ms")})),
+        ),
+    ],
+    ids=["in a list", "in a struct"],
+)
+def test_a_millisecond_time_too_far_out_inside_a_declared_tables_list_or_struct_is_refused(
+    row: Any, column: pl.Series
+):
+    """A saved run counts in microseconds, and Python's ``timedelta`` can't hold one this far out."""
+
+    @node("far", title="Far", description="For a test.")
+    def far(text: str) -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame([column])
+
+    run = Graph.compile(make_graph(far), registry_of(far)).run({"text": "x"})
+
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("far",))
+    assert (
+        f"column '{column.name}' has a time too far out to be held in microseconds" in run.cause.msg
+    )
+
+
+class _Answered(TypedDict):
+    answer: str
+
+
+class _Agreed(TypedDict):
+    answer: bool
+
+
+@pytest.mark.parametrize("returns", [Table, Series])
+def test_a_saved_tables_text_is_no_bool_after_a_deploy_that_makes_its_column_one(returns: Any):
+    """A saved table is read strictly, as any saved value is, so ``"Yes"`` saved for a text column doesn't read
+    back as ``true`` once the column is a ``bool``."""
+    graphs = []
+    for row in (_Answered, _Agreed):
+
+        def answers(text: str) -> returns[row]:  # type: ignore[valid-type]
+            return pl.DataFrame({"answer": ["Yes"]})  # type: ignore[return-value]
+
+        definition = node("answers", title="Answers", description="For a test.")(answers)
+        graphs.append(Graph.compile(make_graph(definition), registry_of(definition)))
+    before, after = graphs
+    saved = before.run({"text": "x"}).to_json().replace(before.fingerprint, after.fingerprint)
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(saved, after)
+    assert [problem.type for problem in refused.value.problems] == ["saved_run_unreadable"]
+
+
 # -- a saved run that does not fit its graph is refused ---------------------------------------
 
 
