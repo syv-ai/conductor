@@ -523,7 +523,7 @@ It never raises for a fault in the graph. Each fault is a `Problem` (`type`, `lo
 - an entry of no kind or of two (`one_of_constant_graph_input_sources`), and a key an entry doesn't have, such as a `default` beside `graph_input` (`extra_forbidden`);
 - a field on a graph output (`output_has_field`).
 
-The `loc` goes down to the fault. An entry of no kind or of two ends at its input, `("record", "nodes", "b", "inputs", "text")`. A fault inside an entry goes on, as `("record", "nodes", "b", "inputs", "text", "sources")` for a source listed twice. A node id or input that is not a name ends in `"[key]"`. A record that `make_graph` or an `Upgrade` wrote says so in `ctx.written_by`. Its message ends "Fix make_graph's arguments." or "Fix the Upgrade of 'split' to version 2.".
+The `loc` goes down to the fault. An entry of no kind or of two ends at its input, `("record", "nodes", "b", "inputs", "text")`. A fault inside an entry goes on with the key that says its kind, then the place in it, as `("record", "nodes", "b", "inputs", "text", "sources", "sources")` for a source listed twice and `("record", "nodes", "b", "inputs", "text", "graph_input", "default")` for a `default` beside a `graph_input`. A node id or input that is not a name ends in `"[key]"`. A record that `make_graph` or an `Upgrade` wrote says so in `ctx.written_by`. Its message ends "Fix make_graph's arguments." or "Fix the Upgrade of 'split' to version 2.".
 
 `read_json(text)` reads JSON text as data, with every object's keys seen. For a key written twice, or text that is not JSON, it raises `InvalidCallError` of `invalid_record`, with `repeated_key` or pydantic's `json_invalid` in `ctx.errors`.
 
