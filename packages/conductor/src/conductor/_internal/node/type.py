@@ -23,7 +23,7 @@ from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter
-from conductor._internal.field import Field, FieldDescription
+from conductor._internal.field import Field, FieldDescription, ReturnShape
 from conductor._internal.record import GraphRecord
 from conductor._internal.utils import qualified_name
 
@@ -187,9 +187,9 @@ class FunctionDefinition[**P, R](_Version):
             ``context``. An input a hook adds isn't here either. It exists only on the node in a compiled graph.
         outputs: Each output by name: ``result`` for one value, or one per field of a returned dataclass
             with no ``@host_type``.
-        outputs_dataclass: The dataclass the function returns its outputs in. ``None`` when it returns one
-            value (a dataclass declared with ``@host_type`` is one), a mapping from its ``compute_outputs`` hook,
-            or nothing.
+        returns: How the function returns its outputs: the dataclass of outputs it declares, ``"mapping"`` when
+            its ``compute_outputs`` hook gives them, ``"nothing"`` for ``-> None``, and ``"value"`` for one value,
+            the output ``result`` (a dataclass declared with ``@host_type`` is one value).
         policy: How the engine calls the node: how many calls at once, retries, a time limit, and whether it
             reuses earlier results.
         compute_added_inputs: The hook that adds inputs from the node's constants, when a graph is compiled, or
@@ -216,7 +216,7 @@ class FunctionDefinition[**P, R](_Version):
     function: NodeFunction[P, R]
     inputs: Mapping[str, Field]
     outputs: Mapping[str, Field]
-    outputs_dataclass: type | None
+    returns: ReturnShape
     code_text: str
     policy: Policy = Policy()
     compute_added_inputs: Hook | None = None

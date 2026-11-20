@@ -588,7 +588,7 @@ literal str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}</pre
   <div class="section-head prose">
     <p class="eyebrow">The return type</p>
     <h2 id="out-h">Four shapes of output <span class="lvl pub">Public</span></h2>
-    <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. Each prints its <code>outputs_dataclass</code>, <code>describe()</code>'s <code>computes_outputs</code>, and its outputs as <code>describe()</code> lists them.</p>
+    <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. Each prints its <code>returns</code>, how the function returns its outputs, <code>describe()</code>'s <code>computes_outputs</code>, and its outputs as <code>describe()</code> lists them.</p>
   </div>
   <div class="tabs" role="tablist" id="shape-tabs" aria-label="Shapes of output"></div>
   <div class="shape" id="shape" role="tabpanel" aria-labelledby="shape-tab-0" data-tab="one value">
@@ -598,9 +598,9 @@ def upper(text: str) -&gt; str:
     return text.upper()
 
 
-print(upper.outputs_dataclass, upper.describe().computes_outputs)
+print(upper.returns, upper.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in upper.describe().outputs])</pre>
-<pre class="out">None False
+<pre class="out">value False
 [('result', 'str', True)]</pre>
     </div>
     <div><dl class="facts"><div><dt>each call returns</dt><dd>One value of the type, as the type's own check gives it. Only a value of exactly one of Python's own classes, like a str for str, is kept as it is without a check. The check is strict, so "12" is never an int.</dd></div></dl></div>
@@ -620,7 +620,7 @@ def route(amount: int) -&gt; Routed:
     return Routed(small=amount)
 
 
-print(route.outputs_dataclass.__name__, route.describe().computes_outputs)
+print(route.returns.__name__, route.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in route.describe().outputs])
 print(route(5))</pre>
 <pre class="out">Routed False
@@ -640,9 +640,9 @@ def cells(line: str, names: list[str]) -&gt; dict[str, str]:
     return dict(zip(names, line.split(",")))
 
 
-print(cells.outputs_dataclass, cells.describe().computes_outputs)
+print(cells.returns, cells.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in cells.describe().outputs])</pre>
-<pre class="out">None True
+<pre class="out">mapping True
 []</pre>
     </div>
     <div><dl class="facts"><div><dt>each call returns</dt><dd>A mapping by output name, with every output the hook gave and no others. The definition declares no outputs. Each compiled node gets them from its hook.</dd></div></dl></div>
@@ -654,9 +654,9 @@ def log(line: str) -&gt; None:
     return None
 
 
-print(log.outputs_dataclass, log.describe().computes_outputs)
+print(log.returns, log.describe().computes_outputs)
 print([(f.name, f.type, f.required) for f in log.describe().outputs])</pre>
-<pre class="out">None False
+<pre class="out">nothing False
 []</pre>
     </div>
     <div><dl class="facts"><div><dt>each call returns</dt><dd>None, or SKIPPED. Any other value fails the call as invalid_output.</dd></div></dl></div>
