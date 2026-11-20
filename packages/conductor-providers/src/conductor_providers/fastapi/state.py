@@ -21,7 +21,6 @@ from typing import Annotated, Any, Literal
 
 from conductor import (
     PROBLEMS,
-    Graph,
     InvalidCallError,
     Problem,
     Run,
@@ -161,31 +160,24 @@ class RunState(BaseModel):
 
     def with_queued(
         self,
-        graph: Graph[Any],
         answers: Mapping[str, Any] = MappingProxyType({}),
         /,
         *,
-        declines: Mapping[str, Any] = MappingProxyType({}),
+        declines: Mapping[str, str | None] = MappingProxyType({}),
     ) -> RunState:
         """This state with more replies queued after what was queued before: one per answer, then one per decline.
 
-        What is queued is the JSON data ``Run.queued_as_json`` makes of the answers and the reasons, which the run
-        will be given. That also refuses what JSON can't write, and ``SKIPPED`` on an output that isn't a branch, as
-        the run would.
+        What is queued is the JSON data the run will be given, which the worker makes first: the answers by
+        ``graph.answers_as_json``, and the reasons by ``Run.declines_as_json``. Each refuses what the run would
+        refuse without its question, such as a value JSON can't write.
 
         Args:
-            graph: The run's graph, which says the outputs of the node each waiting id names.
-            answers: Answers by waiting id, as ``run.with_answers`` takes them.
-            declines: Reasons by waiting id, as ``run.with_decline`` takes them.
-
-        Raises:
-            InvalidCallError: An answer can't be written as JSON (``invalid_answer``), or a reason can't
-                (``invalid_decline_reason``).
+            answers: Answers by waiting id, as ``graph.answers_as_json`` returns them.
+            declines: Reasons by waiting id, as ``Run.declines_as_json`` returns them.
         """
-        answered, reasons = Run.queued_as_json(graph, answers, declines=declines)
         added = [
-            *(QueuedAnswer(waiting_id=key, answer=value) for key, value in answered.items()),
-            *(QueuedDecline(waiting_id=key, reason=reason) for key, reason in reasons.items()),
+            *(QueuedAnswer(waiting_id=key, answer=value) for key, value in answers.items()),
+            *(QueuedDecline(waiting_id=key, reason=reason) for key, reason in declines.items()),
         ]
         return self.model_copy(update={"queued": [*self.queued, *added]})
 

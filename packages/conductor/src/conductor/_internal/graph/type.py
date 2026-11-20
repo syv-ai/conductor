@@ -33,7 +33,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import MISSING
 
-from conductor._internal.base import Loc, json_hash, place_text
+from conductor._internal.ask import AnswerAsJsonValidator
+from conductor._internal.base import Loc, json_hash, parse_waiting_id, place_text
 from conductor._internal.context import ContextValidator
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
@@ -339,6 +340,54 @@ class Graph[C]:
         return codec_of(self)
 
     # -- what a host calls to run it ---------------------------------------------
+
+    def answers_as_json(self, answers: Mapping[str, Any]) -> dict[str, Any]:
+        """Turns the answers a host queues for a run of this graph into the JSON data the run will be given.
+
+        A server can't give a running run an answer, so it queues it as JSON until the run stops. Each answer
+        becomes the JSON data ``run.with_answers`` reads it from: a ``date`` its ISO text, a dataclass or a model a
+        mapping of its fields, and a ``polars.DataFrame`` its columns. The node a waiting id names is looked up in
+        the graph, whether its call waits yet or not, and ``SKIPPED`` is read as the run reads it: a branch not
+        chosen is left out, and ``SKIPPED`` on an output that isn't a branch is refused at its question. So a
+        queued answer reads back as the answer itself. What JSON can't write is refused as a whole, since the
+        call's question isn't read here (``run.with_answers`` refuses the same value at its question). What depends
+        on the question, such as an answer of the wrong type, is checked when the run is given the data.
+
+        It is provisional: the name and shape may change before 2.0.
+
+        Args:
+            answers: Answers by waiting id, as ``run.with_answers`` takes them.
+
+        Returns:
+            The answers by waiting id, as the run is to be given them. For example ``{"approve~3fa2c0d1":
+            "2026-11-15"}`` for an answer of ``date(2026, 11, 15)``.
+
+        Raises:
+            InvalidCallError: The graph's own problems, if it has any, before any answer is read. Else every
+                refusal at once, each an ``invalid_answer`` at the call its waiting id names: for ``SKIPPED`` on an
+                output that isn't a branch, and for an answer JSON can't write, such as a ``str`` with a lone
+                surrogate. An id that names no node of the graph has its answer written as JSON as it is, and the
+                run refuses it as ``not_waiting``.
+        """
+        if self.problems:
+            raise InvalidCallError(self.problems)
+        problems: list[Problem] = []
+        queued: dict[str, Any] = {}
+        for waiting_id, answer in answers.items():
+            loc, node_path, _, _ = parse_waiting_id(waiting_id)
+            # None when the id names a subgraph, a node the graph doesn't have, or no node at all
+            node = self._blueprint.function_nodes.get(node_path)
+            try:
+                queued[waiting_id] = AnswerAsJsonValidator(
+                    node.compiled_node.outputs if node is not None else None,
+                    loc=loc,
+                    waiting_id=waiting_id,
+                )(answer)
+            except InvalidCallError as refused:
+                problems.extend(refused.problems)
+        if problems:
+            raise InvalidCallError(problems)
+        return queued
 
     def with_inputs(
         self,

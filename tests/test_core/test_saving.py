@@ -1036,7 +1036,7 @@ def test_a_person_answers_a_binary_question_with_base64_text_and_a_queued_answer
     (waiting,) = run.waiting
 
     assert waiting.inputs == {"data": "AAH_vgQ="}
-    assert Run.queued_as_json(run.graph, {waiting.id: _BINARY})[0] == {waiting.id: _BINARY_TEXT}
+    assert run.graph.answers_as_json({waiting.id: _BINARY}) == {waiting.id: _BINARY_TEXT}
     for answer in (_BINARY, _BINARY_TEXT):
         answered = run.with_answers(waiting, answer).resume()
         assert answered.results["approve-file"]["result"] == _BINARY, answer
@@ -1162,7 +1162,7 @@ def test_a_table_with_a_bytes_field_is_given_as_base64_by_a_caller_and_a_person(
 
     asked = Graph.compile(make_graph(pick_blobs), registry_of(pick_blobs)).run({"text": "x"})
     (waiting,) = asked.waiting
-    assert Run.queued_as_json(asked.graph, {waiting.id: pl.DataFrame(_BLOBS)})[0] == {
+    assert asked.graph.answers_as_json({waiting.id: pl.DataFrame(_BLOBS)}) == {
         waiting.id: {"columns": _BLOBS_WRITTEN}
     }
     for answer in (rows, pl.DataFrame(_BLOBS)):

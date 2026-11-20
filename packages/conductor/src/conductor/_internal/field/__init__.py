@@ -16,7 +16,7 @@ The package has four parts:
 """
 
 from .describe import FieldDescription
-from .outputs import ReturnShape, answer_by_output, outputs_schema, read_skipped
+from .outputs import ReturnShape, answer_by_output, outputs_schema, without_skipped
 from .type import Field
 from .validator import BoundDefaultValidator, DeclaredInputValidator, DeclaredOutputValidator
 
@@ -29,5 +29,5 @@ __all__ = [
     "ReturnShape",
     "answer_by_output",
     "outputs_schema",
-    "read_skipped",
+    "without_skipped",
 ]

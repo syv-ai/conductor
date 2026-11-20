@@ -26,7 +26,7 @@ from threading import Event as ThreadEvent
 from types import MappingProxyType
 from typing import Any, assert_never, overload
 
-from conductor._internal.ask import AnswerAsJsonValidator, AnswerValidator, DeclineValidator
+from conductor._internal.ask import AnswerValidator, DeclineValidator
 from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
@@ -466,60 +466,27 @@ class Run[C]:
         )
 
     @staticmethod
-    def queued_as_json(
-        graph: Graph[Any],
-        answers: Mapping[str, Any] = MappingProxyType({}),
-        /,
-        *,
-        declines: Mapping[str, Any] = MappingProxyType({}),
-    ) -> tuple[dict[str, Any], dict[str, str | None]]:
-        """Turns the answers and declines a host queues for a run into the JSON data the run will be given.
+    def declines_as_json(declines: Mapping[str, Any]) -> dict[str, str | None]:
+        """Turns the declines a host queues for a run into the reasons the run will be given.
 
-        A server can't give a running run an answer or a decline, so it queues them as JSON until the run stops.
-        Each answer becomes the JSON data ``run.with_answers`` reads it from, and each reason the text
-        ``run.with_decline`` keeps. The node a waiting id names is looked up in the graph, whether its call waits
-        yet or not, so ``SKIPPED`` in an answer is read as the run reads it: a branch not chosen is left out, and
-        ``SKIPPED`` on an output that isn't a branch is refused at its question. What JSON can't write is refused
-        now too: a reason with the very problem ``run.with_decline`` gives it, and an answer as a whole, since its
-        question isn't read here (``run.with_answers`` refuses the same value at its question). What depends on
-        the call's question, such as an answer of the wrong type, is checked when the run is given the data.
+        A server can't give a running run a decline, so it queues it as JSON until the run stops, as it queues an
+        answer (``graph.answers_as_json``). Each reason becomes the text ``run.with_decline`` keeps, and one it
+        refuses is refused now, with the very problem ``run.with_decline`` gives it.
 
         It is provisional: the name and shape may change before 2.0.
 
         Args:
-            graph: The graph of the run the answers are for.
-            answers: Answers by waiting id, as ``run.with_answers`` takes them.
             declines: Reasons by waiting id, as ``run.with_decline`` takes them.
 
         Returns:
-            The answers and the reasons by waiting id, as the run is to be given them. For example
-            ``{"approve~3fa2c0d1": "2026-11-15"}`` for an answer of ``date(2026, 11, 15)``.
+            The reasons by waiting id, as the run is to be given them.
 
         Raises:
-            InvalidCallError: The graph's own problems, if it has any, before anything else is read. Else every
-                refusal at once, each at the call its waiting id names. ``invalid_answer`` for ``SKIPPED`` on an output that isn't a branch, and for an answer JSON can't write, such as a ``str``
-                with a lone surrogate. ``invalid_decline_reason`` for a reason that isn't a ``str`` JSON can write,
-                or ``None``.
+            InvalidCallError: Every refusal at once, each at the call its waiting id names: ``invalid_decline_reason``
+                for a reason that isn't a ``str`` JSON can write, or ``None``.
         """
-        if graph.problems:
-            raise InvalidCallError(graph.problems)
         problems: list[Problem] = []
-        queued: dict[str, Any] = {}
         reasons: dict[str, str | None] = {}
-        for waiting_id, answer in answers.items():
-            loc = parse_waiting_id(waiting_id)[0]
-            # None when the id names a subgraph, a node the graph doesn't have, or no node at all
-            node = graph._blueprint.function_nodes.get(
-                tuple(part for part in loc if isinstance(part, str))
-            )
-            try:
-                queued[waiting_id] = AnswerAsJsonValidator(
-                    node.compiled_node.outputs if node is not None else None,
-                    loc=loc,
-                    waiting_id=waiting_id,
-                )(answer)
-            except InvalidCallError as refused:
-                problems.extend(refused.problems)
         for waiting_id, reason in declines.items():
             try:
                 reasons[waiting_id] = DeclineValidator(
@@ -529,7 +496,7 @@ class Run[C]:
                 problems.extend(refused.problems)
         if problems:
             raise InvalidCallError(problems)
-        return queued, reasons
+        return reasons
 
     def _waiting_call(
         self, waiting_id: str, status: Callable[[], RunStatus]

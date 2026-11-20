@@ -55,8 +55,7 @@ class ResumeSettings:
     async def graph(self, row: RunRow[Any], metadata: Any) -> Graph[Any]:
         """The graph ``row`` keeps, compiled on a thread on the registry for ``metadata``.
 
-        An answer or a decline queued for a running run is read by it (``Run.queued_as_json``), and ``load`` reads
-        the row's run on it.
+        An answer to a run is read by it (``graph.answers_as_json``), and ``load`` reads the row's run on it.
 
         Raises:
             InvalidCallError: The row's graph isn't a graph record.
