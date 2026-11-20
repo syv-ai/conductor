@@ -261,7 +261,7 @@ def _faults(
         ({"extra": {"cap": [1, {"x": math.nan}]}}, [("finite_number", ["extra"])]),
         ({"version": 0}, [("greater_than_equal", ["version"])]),
         ({"version": -3}, [("greater_than_equal", ["version"])]),
-        ({"version": True}, [("int_type", ["version"])]),
+        ({"version": True}, [("bool_is_not_a_number", ["version"])]),
         ({"version": "2"}, [("int_type", ["version"])]),
         ({"version": 1.5}, [("int_type", ["version"])]),
         ({"title": 5}, [("string_type", ["title"])]),
