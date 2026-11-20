@@ -44,7 +44,7 @@ from conductor._internal.base import (
 from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.problem import InvalidCallError, call_problems, run_problems
-from conductor._internal.table import ROWS_CHECKED
+from conductor._internal.table import ROWS_CHECKED, is_bare_table_row
 
 
 def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
@@ -89,24 +89,31 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
         """Returns the edge validator for a node, or ``None`` if it needs none.
 
         The validator checks each input whose type asks for more than the outputs wired to it promise. A table
-        input that collects rows whose outputs all declare its row type is read too, with ``ROWS_CHECKED``: its rows
-        are made into a table without their cells being checked again. If nothing needs either, this returns
-        ``None``.
+        input that collects rows is read too, since its rows are made into a table there. Where its row type names
+        columns and every output wired to it declares that row type, it is read with ``ROWS_CHECKED``, so the cells
+        aren't checked again. A bare table's rows are read as they come, since their keys must be text. If no input
+        needs any of this, this returns ``None``.
 
         Args:
             inputs: The node's inputs that get their values through edges, by name.
         """
-        read: dict[str, tuple[Field, object]] = {}
+        read: dict[str, tuple[Field, ROWS_CHECKED | None]] = {}
         for name, node_input in inputs.items():
             if _demands_more(node_input):
                 read[name] = (node_input.field, None)
-            elif isinstance(node_input, CollectingInput) and node_input.field.whole.row is not None:
-                read[name] = (node_input.field, ROWS_CHECKED)
+            elif (
+                isinstance(node_input, CollectingInput)
+                and (row := node_input.field.whole.row) is not None
+            ):
+                read[name] = (
+                    node_input.field,
+                    None if is_bare_table_row(row.hint) else ROWS_CHECKED,
+                )
         return cls(read) if read else None
 
-    def __init__(self, inputs: Mapping[str, tuple[Field, object]]) -> None:
-        """Builds the validator for ``inputs``: by name, each input to check and the pydantic context it is checked
-        with, ``None`` or ``ROWS_CHECKED``."""
+    def __init__(self, inputs: Mapping[str, tuple[Field, ROWS_CHECKED | None]]) -> None:
+        """Builds the validator for ``inputs``: by name, each input to check and the pydantic context its rows are
+        checked with."""
         self._inputs = tuple(
             (
                 name,
@@ -130,7 +137,9 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
             if value is SKIPPED or type(value) in exact:
                 continue
             try:
-                read[name] = validate(value, strict=False, context=context)
+                # ROWS_CHECKED speaks of a list of rows; a frame is read as any frame is, so no host's check sees it
+                rows_context = context if isinstance(value, list) else None
+                read[name] = validate(value, strict=False, context=rows_context)
             except ValidationError as error:
                 raise InvalidCallError(
                     [run_problems.invalid_edge_value(input=name, **whole.refusal(error))]

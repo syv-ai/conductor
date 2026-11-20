@@ -355,6 +355,7 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
 #: The context a table is checked with when each of its rows is already a value of the table's row type, as a run
 #: knows when the rows come from outputs that declare it. The rows are made into a frame without their cells being
 #: checked again. The table's own checks still hold: its limits, such as ``Param(min_length=1)``, and ``as_saved``.
+#: It is given only with a list of rows, the one form it changes, so a host's validator never sees it.
 ROWS_CHECKED = sentinel("ROWS_CHECKED")
 
 

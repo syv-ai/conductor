@@ -22,11 +22,12 @@ from conductor import (
     Series,
     Source,
     Table,
+    host_type,
     make_graph,
     node,
     subgraph,
 )
-from pydantic import AfterValidator
+from pydantic import AfterValidator, BaseModel, ConfigDict, ValidationInfo, field_validator
 
 from tests.test_core.nodes import input_entry, registry_of
 
@@ -722,3 +723,69 @@ def test_rows_whose_field_may_be_none_are_not_collected_into_a_table_whose_field
     assert [(problem.type, problem.loc) for problem in graph.problems] == [
         ("type_mismatch", ("amount-height", "table"))
     ]
+
+
+CONTEXTS: list[Any] = []
+
+
+@host_type("noted-cents", title="Noted cents")
+class NotedCents(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    cents: int
+
+    @field_validator("cents")
+    @classmethod
+    def _note(cls, cents: int, info: ValidationInfo) -> int:
+        CONTEXTS.append(info.context)
+        return cents
+
+
+class NotedPrice(TypedDict):
+    price: NotedCents
+
+
+@node("noted-frame", title="Noted frame", description="For a test.")
+def noted_frame(k: int) -> Series[NotedPrice]:
+    return pl.DataFrame({"price": [{"cents": i} for i in range(k)]})
+
+
+@node("noted-height", title="Noted height", description="For a test.")
+def noted_height(table: Table[NotedPrice]) -> int:
+    return table.height
+
+
+def test_a_hosts_validator_in_a_frame_of_rows_collected_into_a_table_is_called_with_no_context() -> (
+    None
+):
+    graph = Graph.compile(
+        make_graph(noted_frame, noted_height), registry_of(noted_frame, noted_height)
+    )
+    CONTEXTS.clear()
+    run = graph.run({"k": 2})
+
+    assert (run.status, run.outputs["result"]) == ("complete", 2)
+    assert CONTEXTS and all(context is None for context in CONTEXTS)
+
+
+@node("number-keys", title="Number keys", description="For a test.")
+def number_keys(k: int) -> Series[dict[int, str]]:
+    return [{i: "x"} for i in range(k)]
+
+
+@node("bare-height", title="Bare height", description="For a test.")
+def bare_height(table: Table) -> int:
+    return table.height
+
+
+def test_rows_collected_into_a_bare_table_are_read_as_rows_whose_keys_are_text() -> None:
+    graph = Graph.compile(
+        make_graph(number_keys, bare_height), registry_of(number_keys, bare_height)
+    )
+    run = graph.run({"k": 1})
+
+    cause = run.cause
+    assert (run.status, cause.type, [one["type"] for one in cause.ctx["errors"]]) == (
+        "failed",
+        "invalid_edge_value",
+        ["string_type"],
+    )
