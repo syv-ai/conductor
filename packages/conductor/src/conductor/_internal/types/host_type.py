@@ -151,7 +151,7 @@ NAMES: Mapping[Any, tuple[str, str]] = {
 
 #: The ids a host can't declare, because conductor uses them. ``Type`` adds ``Series`` and ``Table`` here when
 #: their packages are imported.
-OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()} | {"row"}
+OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()}
 
 #: The attribute ``@host_type`` stores a class's ``TypeDeclaration`` in, read only by ``_own_declaration``.
 _DECLARATION = "__conductor_type__"
@@ -395,7 +395,7 @@ def _suggested_declaration(cls: type) -> tuple[str, str]:
     ``type_not_named`` suggests them, so the developer can paste a declaration that works. The id is the name's
     words in lower case with ``-`` between them, and the title is the words as a phrase. ``InvoiceLine`` gets
     ``"invoice-line"`` and "Invoice line", and ``IPAddress`` gets ``"ip-address"`` and "IP address". An id that is
-    one of conductor's own gets ``-type`` after it, so a class ``Row`` gets ``"row-type"``.
+    one of conductor's own gets ``-type`` after it, so a class ``Date`` gets ``"date-type"``.
     """
     words = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+", cls.__name__) or [cls.__name__]
     suggested_id = "-".join(word.lower() for word in words)

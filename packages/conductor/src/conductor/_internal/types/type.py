@@ -82,12 +82,14 @@ from .fit import fit
 from .hint import (
     READ_AS,
     declares_fields,
+    field_hints,
     hint_parts,
     is_alias,
     is_typed_dict,
     literal_classes,
     substituted,
     type_fields,
+    types_and_left_out,
     union_members,
     union_of,
 )
@@ -531,24 +533,9 @@ class Type:
             origin is Annotated
         ):  # a union's member keeps what checks it, which doesn't change its name
             return Type(one)._named
-        # A TypedDict has no declared name, so it is named by its fields, a generic one's with its arguments filled
-        # in: {name: str, age: int | None}. So two rows of different fields never read alike. A row that holds
-        # itself, at any depth, can't be written out, and is named row; so is one with a field of a type that has
-        # no name, such as a class with no @host_type, since the declaration check reports that field.
+        # a TypedDict has no declared name, so it is named by its fields (_row_name)
         if is_typed_dict(one):
-            fields = type_fields(one)
-            row_class = get_origin(one) or one
-            if any(
-                (get_origin(part) or part) is row_class
-                for hint in fields.values()
-                for part in hint_parts(hint)
-            ):
-                return "row", "Row", ()
-            try:
-                written = ", ".join(f"{name}: {Type(hint).text}" for name, hint in fields.items())
-            except NodeDeclarationError:
-                return "row", "Row", ()
-            return f"{{{written}}}", "Row", ()
+            return _row_name(one, ()), "Row", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
         _check_is_type(one)
         own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
@@ -1173,6 +1160,47 @@ def _check_is_type(hint: Any) -> None:
     """
     if not isinstance(get_origin(hint) or hint, type):
         raise NodeDeclarationError(declaration_problems.type_not_supported(type=repr(hint)))
+
+
+def _row_name(row: Any, enclosing: tuple[Any, ...]) -> str:
+    """Names a ``TypedDict`` by its fields, a generic one's with its arguments filled in.
+
+    ``{name: str, email: str | None}``, and ``{name: str, note?: str}`` for a field a value may leave out
+    (``NotRequired``). So two rows of different fields never read alike. A row inside itself, at any depth, is
+    ``{...}``: ``class Tree(TypedDict)`` with ``name: str`` and ``children: list[Tree]`` is
+    ``{name: str, children: list[{...}]}``.
+
+    Args:
+        row: The ``TypedDict``.
+        enclosing: The rows being named around this one, outermost first, each by its class.
+    """
+    inside = (*enclosing, get_origin(row) or row)
+
+    def written(hint: Any) -> str:
+        if (get_origin(hint) or hint) in inside:
+            return "{...}"
+        if is_alias(hint) or not any(
+            (get_origin(part) or part) in inside for part in hint_parts(hint)
+        ):
+            return Type(hint).text
+        if is_typed_dict(hint):
+            return _row_name(hint, inside)
+        if get_origin(hint) is Annotated:
+            return written(get_args(hint)[0])
+        if len(members := union_members(hint)) > 1:
+            return " | ".join(written(member) for member in members)
+        arguments = ", ".join("..." if arg is Ellipsis else written(arg) for arg in get_args(hint))
+        return f"{Type(get_origin(hint)).id}[{arguments}]"
+
+    fields = types_and_left_out(field_hints(row))
+    return (
+        "{"
+        + ", ".join(
+            f"{name}{'?' if left_out else ''}: {written(hint)}"
+            for name, (hint, left_out) in fields.items()
+        )
+        + "}"
+    )
 
 
 def _host_name(cls: type) -> tuple[str, str]:
