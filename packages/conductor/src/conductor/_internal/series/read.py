@@ -10,11 +10,15 @@ from collections.abc import Callable
 from typing import Any, get_args
 
 import polars as pl
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, ValidationError
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
 from conductor._internal.problem import set_has_no_order
+
+#: The item schemas that refuse ``SKIPPED`` before any code of their own runs: pydantic's own checks of one text, number
+#: or yes or no. A list of such items is checked whole first, and searched for ``SKIPPED`` only when it is refused.
+_SCHEMAS_THAT_REFUSE_SKIPPED = frozenset({"str", "int", "float", "bool"})
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -27,7 +31,9 @@ def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         source: The hint, such as ``Series[int]``.
         handler: Pydantic's handler, which builds the schema of the item type.
     """
-    items = core_schema.list_schema(handler.generate_schema((get_args(source) or (Any,))[0]))
+    item = handler.generate_schema((get_args(source) or (Any,))[0])
+    items = core_schema.list_schema(item)
+    refuses_skipped = item["type"] in _SCHEMAS_THAT_REFUSE_SKIPPED
 
     def read(value: Any, read_items: Callable[[Any], list[Any]]) -> list[Any]:
         match value:
@@ -37,10 +43,19 @@ def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
                 value = list(value)
             case pl.Series():
                 value = value.to_list()
-        if isinstance(value, list) and any(item is SKIPPED for item in value):
-            kept = iter(read_items([item for item in value if item is not SKIPPED]))
-            return [SKIPPED if item is SKIPPED else next(kept) for item in value]
-        return read_items(value)
+        if not isinstance(value, list):
+            return read_items(value)
+        if refuses_skipped:
+            # a list the items' check takes has no SKIPPED in it, so only a refused one is searched
+            try:
+                return read_items(value)
+            except ValidationError:
+                if not any(item is SKIPPED for item in value):
+                    raise
+        elif not any(item is SKIPPED for item in value):
+            return read_items(value)
+        kept = iter(read_items([item for item in value if item is not SKIPPED]))
+        return [SKIPPED if item is SKIPPED else next(kept) for item in value]
 
     return core_schema.json_or_python_schema(
         json_schema=items, python_schema=core_schema.no_info_wrap_validator_function(read, items)

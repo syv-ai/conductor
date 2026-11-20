@@ -1933,6 +1933,21 @@ def test_skipped_items_of_a_returned_series_are_none_downstream_also_after_json(
     assert through_json(run).results == run.results
 
 
+def test_a_returned_series_with_a_skipped_item_still_refuses_an_item_of_another_type():
+    @node("patchy", title="Patchy", description="For a test.")
+    def patchy() -> Series[int]:
+        return [1, SKIPPED, "c"]  # type: ignore[list-item]
+
+    run = graph({"id": "p", "node": "patchy"}, registry=registry_of(patchy)).run({})
+
+    # the SKIPPED item isn't checked, so "c" is the one fault
+    assert (run.status, run.cause.type, [e["type"] for e in run.cause.ctx["errors"]]) == (
+        "failed",
+        "invalid_output",
+        ["int_type"],
+    )
+
+
 def test_a_branch_on_a_whole_series_skips_the_nodes_on_the_skipped_branch():
     @dataclass(frozen=True)
     class Decided:
