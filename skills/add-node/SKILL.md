@@ -70,7 +70,7 @@ assert registry["greet"] is greet
 | Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
 | A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
-| Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values` |
+| Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values`. A parameter annotated `type` gets the arriving type; `field_hints(t)` gives its fields |
 | An email, a web address, a path, an IP address | pydantic's own types and the standard library's need no declaration: `EmailStr`, `HttpUrl`, `AwareDatetime`, `pathlib.Path`, `ipaddress.IPv4Address` |
 | A text or number class of your own | `@host_type("invoice-number", title="Invoice number")` above `class InvoiceNumber(str)` |
 | A model or dataclass of your own | `@host_type("address", title="Address")` above a frozen class: `model_config = ConfigDict(frozen=True)` or `@dataclass(frozen=True)`, or it is refused (`type_not_frozen`). A node never changes a value it is given; it makes a new one with `dataclasses.replace` or `model_copy(update=...)` |
