@@ -606,13 +606,13 @@ def duplicate_type_id(*, id: str, first: str, second: str) -> str:
 
     Example:
         @host_type("money", title="Amount")
-        @dataclass
+        @dataclass(frozen=True)
         class Amount:
             kroner: int
 
 
         @host_type("money", title="Price")
-        @dataclass
+        @dataclass(frozen=True)
         class Price:
             kroner: float
 
@@ -750,7 +750,7 @@ def invalid_declaration_argument(
     *, declared_with: str, reason: str, errors: list[dict[str, Any]]
 ) -> str:
     """``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type`` is given an argument it can't take, such as
-    ``tags="text"``, ``version=True``, an id with a ``.`` or a blank title.
+    ``tags="text"``, ``version=True``, an id with a ``.``, a blank title or a dataclass that isn't frozen.
 
     Each argument is held to its annotation, strictly: text is a ``str``, ``version`` a whole number of 1 or more and
     never ``True``, ``tags`` a list or tuple of text and never one text, ``asks`` a ``bool``, and ``policy``,
@@ -766,7 +766,11 @@ def invalid_declaration_argument(
     of one of conductor's own types, such as ``str`` (``conductors_own_type_id``). A title or description is what a
     person reads in a palette, so it isn't empty or only whitespace (``blank_text``). ``@host_type`` put above a class
     conductor names itself, such as ``HttpUrl``, is refused too (``conductors_own_type``, at ``loc`` ``["cls"]``, the
-    class): declare a subclass of it to give it an id of your own.
+    class): declare a subclass of it to give it an id of your own. So is ``@host_type`` put above a dataclass that
+    isn't ``frozen=True``, or a pydantic model whose config isn't (``type_not_frozen``, at ``loc`` ``["cls"]``), since
+    a node never changes a value it is given: declare it with ``@dataclass(frozen=True)`` or
+    ``model_config = ConfigDict(frozen=True)``, and make a changed value with ``dataclasses.replace`` or
+    ``model_copy(update=...)``.
 
     ``ctx.errors`` has every fault of the arguments, and ``ctx.reason``, which the message quotes, names each after
     its argument, so one run finds them all. Each fault has pydantic's code, one of the codes above, or ``not_a_node``
@@ -785,7 +789,12 @@ def invalid_declaration_argument(
         errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:
-        declaration_refused(lambda: node("tag.ged", title="Tagged", description="Has one tag.", tags="text"))  # type: ignore[arg-type]
+        @dataclass
+        class Parcel:
+            weight: float
+
+
+        declaration_refused(lambda: host_type("parcel", title="Parcel")(Parcel))
     """
     return (
         f"{declared_with} can't take its arguments: {reason}. Fix each argument as its fault says."
@@ -1332,7 +1341,7 @@ def type_not_supported_bytes_as_text(*, cls: str, field: str) -> str:
 
 
         @host_type("attachment", title="Attachment")
-        class Attachment(BaseModel):
+        class Attachment(BaseModel, frozen=True):
             name: str
             data: bytes
 
@@ -1353,8 +1362,8 @@ def type_not_supported_bytes_as_text(*, cls: str, field: str) -> str:
 def host_type_not_supported(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 
-    To fix it, make the class a pydantic model or a dataclass, with ``@host_type`` above ``@dataclass``. Or give the
-    class its own ``__get_pydantic_core_schema__``.
+    To fix it, make the class a frozen pydantic model or a frozen dataclass, with ``@host_type`` above
+    ``@dataclass(frozen=True)``. Or give the class its own ``__get_pydantic_core_schema__``.
 
     Args:
         id: The id given.
@@ -1369,8 +1378,8 @@ def host_type_not_supported(*, id: str, cls: str) -> str:
         declaration_refused(lambda: host_type("plain", title="Plain")(Plain))
     """
     return (
-        f"@host_type({id!r}) can't declare {cls}, since pydantic can't check it or write it as JSON. Make it a pydantic model or a "
-        "dataclass, with @host_type above @dataclass, or give it its own __get_pydantic_core_schema__."
+        f"@host_type({id!r}) can't declare {cls}, since pydantic can't check it or write it as JSON. Make it a frozen pydantic model or a "
+        "frozen dataclass, with @host_type above @dataclass(frozen=True), or give it its own __get_pydantic_core_schema__."
     )
 
 

@@ -204,13 +204,14 @@ The widget is sent to the editor as JSON, so each of its fields needs a type pyd
 An input or an output can have any type pydantic can check and write as JSON: `str`, `int`, `float`, `bool`, `date`, `bytes`, a pydantic model, a dataclass. JSON has no bytes, so `bytes` cross JSON as URL-safe base64 text: a caller sends a file's contents as `"__4="`, and a saved run keeps them that way. Decode it with `base64.urlsafe_b64decode` in Python or `Buffer.from(text, "base64url")` in Node, since `base64.b64decode` silently drops `-` and `_` and `atob` throws on them. Conductor reads standard and URL-safe base64, with or without padding. A pydantic model with a `bytes` field builds its `model_config` from `conductor.JSON_CONFIG`, as `ConfigDict(**JSON_CONFIG, ...)`. A pydantic model is the usual way to pass a value with fields of your own. Declare it with `@host_type`, which gives it an id that editors know it by and a title that a person reads:
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from conductor import host_type
 
 
 @host_type("address", title="Address")
 class Address(BaseModel):
+    model_config = ConfigDict(frozen=True)
     street: str
     city: str
 
@@ -224,7 +225,7 @@ print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 print(city.describe().inputs[0].type)                       # address
 ```
 
-Conductor checks the declaration as soon as the class is defined, so a mistake fails at import. If you forget `@host_type`, the node that uses the class fails where it is declared, with `type_not_named`, and the message gives a line to paste, such as `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`. A class inside a list or a dict needs the declaration too, and so does a subclass. Put `@host_type` above `@dataclass` when there is one. For a library's class that you can't decorate, call it: `host_type("http-status", title="HTTP status")(http.HTTPStatus)`.
+Conductor checks the declaration as soon as the class is defined, so a mistake fails at import. If you forget `@host_type`, the node that uses the class fails where it is declared, with `type_not_named`, and the message gives a line to paste, such as `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`. A class inside a list or a dict needs the declaration too, and so does a subclass. Put `@host_type` above `@dataclass` when there is one. A model or dataclass is declared frozen, `model_config = ConfigDict(frozen=True)` or `@dataclass(frozen=True)`, since a node never changes a value it is given (the rule is in `python -m conductor.about types`); one that isn't is refused ([`invalid_declaration_argument`](problems.md#invalid_declaration_argument), with `type_not_frozen`). A node that needs a changed value makes one with `dataclasses.replace` or `model_copy(update=...)`. For a library's class that you can't decorate, call it: `host_type("http-status", title="HTTP status")(http.HTTPStatus)`.
 
 Conductor's own types already have titles: `str` is "Text" and `int` is "Whole number". Pydantic's own types and the standard library's classes pydantic checks, such as `HttpUrl`, `EmailStr`, `AwareDatetime`, `pathlib.Path` and `ipaddress.IPv4Address`, are conductor's own too, and need no declaration; a library's class, such as one from pydantic-extra-types, does. To give one of them an id of your own, declare a subclass of it, such as `@host_type("web", title="Web")` above `class Web(HttpUrl)`; `@host_type` on conductor's own class is refused. More on types, and why `@host_type` is a decorator and not a base class, is in `python -m conductor.about types`.
 
@@ -302,12 +303,13 @@ from pydantic import ConfigDict
 
 @host_type("celsius", title="Celsius")
 class Celsius(BaseModel):
+    model_config = ConfigDict(frozen=True)
     degrees: float
 
 
 @host_type("temperature", title="Temperature", accepts=[Celsius])
 class Temperature(BaseModel):
-    model_config = ConfigDict(from_attributes=True)  # lets it read a Celsius by its attributes
+    model_config = ConfigDict(frozen=True, from_attributes=True)  # from_attributes reads a Celsius by its attributes
     degrees: float
 
 

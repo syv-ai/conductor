@@ -1180,7 +1180,7 @@ def test_a_bool_and_a_date_reach_the_next_node_as_their_own_type():
 
 def test_a_pydantic_model_travels_on_an_edge_and_through_json():
     @host_type("Visit", title="Visit")
-    class Visit(BaseModel):
+    class Visit(BaseModel, frozen=True):
         who: str
         when: datetime.date
 
@@ -1234,7 +1234,7 @@ def test_each_key_a_field_description_writes_is_its_python_name():
 
 def test_describe_writes_each_default_as_its_type_writes_it_as_json():
     @host_type("point", title="Point")
-    @dataclass
+    @dataclass(frozen=True)
     class Point:
         x: int
 
@@ -2962,7 +2962,7 @@ def test_a_secret_an_import_string_or_a_decoding_type_is_refused_at_node(
 
 
 @host_type("tag-holder", title="Tag holder")
-class _TagHolder(BaseModel):
+class _TagHolder(BaseModel, frozen=True):
     tags: set[str]
 
 

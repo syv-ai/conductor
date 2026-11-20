@@ -2071,7 +2071,7 @@ def test_a_waiting_call_shows_a_float_that_is_not_finite_in_a_host_model_as_its_
     from pydantic import BaseModel
 
     @host_type("reading", title="Reading")
-    class Reading(BaseModel):
+    class Reading(BaseModel, frozen=True):
         level: float | None
 
     @node("measure", title="Measure", description="For a test.")

@@ -39,6 +39,7 @@ from pydantic import (
     PastDate,
     PostgresDsn,
 )
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic_core import core_schema
 
 from tests.test_core.test_nodes import declared
@@ -53,12 +54,12 @@ class Text(str):
 
 
 @host_type("money", title="Money")
-class Money(BaseModel):
+class Money(BaseModel, frozen=True):
     amount: float
 
 
 @host_type("point", title="Point")
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Point:
     x: float
     y: float
@@ -83,12 +84,12 @@ class Upload:
 
 
 @host_type("celsius", title="Celsius")
-class Celsius(BaseModel):
+class Celsius(BaseModel, frozen=True):
     degrees: float
 
 
 @host_type("temperature", title="Temperature", accepts=[Celsius])
-class Temperature(BaseModel):
+class Temperature(BaseModel, frozen=True):
     degrees: float
 
 
@@ -98,7 +99,7 @@ T = TypeVar("T")
 
 
 @host_type("box", title="Box")
-class Box(BaseModel, Generic[T]):
+class Box(BaseModel, Generic[T], frozen=True):
     inside: T
 
 
@@ -208,7 +209,7 @@ def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_refused_by_its_own
 ) -> None:
     def build() -> None:
         @host_type(wrong_id, title="Thing")
-        class Thing(BaseModel):
+        class Thing(BaseModel, frozen=True):
             pass
 
     assert _faults(build) == [(code, ["id"])]
@@ -245,7 +246,7 @@ def test_an_argument_it_cant_take_is_an_invalid_declaration_argument_as_on_a_nod
 def test_accepts_given_something_other_than_classes_fails_at_the_class_statement() -> None:
     def build() -> None:
         @host_type("thing", title="Thing", accepts=["celsius"])  # type: ignore[list-item]
-        class Thing(BaseModel):
+        class Thing(BaseModel, frozen=True):
             pass
 
     (problem,) = _refused(build).problems
@@ -270,7 +271,7 @@ def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says
     None
 ):
     def build() -> None:
-        @dataclasses.dataclass
+        @dataclasses.dataclass(frozen=True)
         @host_type("pair", title="Pair")
         class Pair:
             x: float
@@ -321,7 +322,7 @@ def test_the_line_a_class_that_is_not_declared_is_told_to_write_declares_it(
 
     ``Row`` would give ``"row"``, which is one of conductor's own ids, so it gets ``-type`` after it.
     """
-    undeclared = dataclasses.make_dataclass(name, [("x", float)])
+    undeclared = dataclasses.make_dataclass(name, [("x", float)], frozen=True)
 
     def f(value: undeclared) -> str:  # type: ignore[valid-type]
         return ""
@@ -372,7 +373,7 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
 def test_accepts_that_is_no_list_of_classes_fails_at_the_class_statement(accepts: Any) -> None:
     def build() -> None:
         @host_type("thing", title="Thing", accepts=accepts)
-        class Thing(BaseModel):
+        class Thing(BaseModel, frozen=True):
             pass
 
     assert _refused(build).problems[0].type == "invalid_declaration_argument"
@@ -499,6 +500,82 @@ def test_host_type_on_a_class_conductor_names_is_refused_and_says_to_declare_a_s
     assert "the type the signature says" not in str(refused)
 
 
+class _OpenModel(BaseModel):
+    x: int
+
+
+class _ThawedModel(BaseModel, frozen=False):
+    x: int
+
+
+@dataclasses.dataclass
+class _OpenDataclass:
+    x: int
+
+
+@pydantic_dataclass
+class _OpenPydanticDataclass:
+    x: int
+
+
+@pytest.mark.parametrize(
+    "open_class", [_OpenModel, _ThawedModel, _OpenDataclass, _OpenPydanticDataclass]
+)
+def test_host_type_on_a_dataclass_or_model_that_isnt_frozen_is_refused_and_says_how_to_freeze_it(
+    open_class: type,
+) -> None:
+    """Every node that reads a value gets the same object, so a node never changes a value it is given, and a class
+    that lets a node set its fields is refused where it is declared."""
+    refused = _refused(lambda: host_type("open", title="Open")(open_class))
+
+    assert refused.problems[0].type == "invalid_declaration_argument"
+    assert [(e["type"], e["loc"]) for e in refused.problems[0].ctx["errors"]] == [
+        ("type_not_frozen", ["cls"])
+    ]
+    assert f"cls: {open_class.__qualname__} isn't frozen" in str(refused)
+    assert "@dataclass(frozen=True)" in str(refused)
+    assert "ConfigDict(frozen=True)" in str(refused)
+    assert "model_copy(update=...)" in str(refused)
+
+
+class _FrozenModel(BaseModel, frozen=True):
+    x: int
+
+
+class _FrozenModelsChild(_FrozenModel):
+    y: int
+
+
+@dataclasses.dataclass(frozen=True)
+class _FrozenDataclass:
+    x: int
+
+
+class _FrozenDataclassesChild(_FrozenDataclass):
+    pass
+
+
+@pydantic_dataclass(frozen=True)
+class _FrozenPydanticDataclass:
+    x: int
+
+
+@pytest.mark.parametrize(
+    "frozen_class",
+    [
+        _FrozenModel,
+        _FrozenModelsChild,
+        _FrozenDataclass,
+        _FrozenDataclassesChild,
+        _FrozenPydanticDataclass,
+    ],
+)
+def test_host_type_takes_a_frozen_dataclass_or_model_and_a_subclass_that_inherits_it(
+    frozen_class: type,
+) -> None:
+    assert host_type("frozen", title="Frozen")(frozen_class) is frozen_class
+
+
 def test_a_hosts_subclass_of_a_class_conductor_names_is_its_own_type() -> None:
     """A subclass of a named class, or of a marker class, is the host's own type under the host's id, so it is not
     read as the marker's value class, and an edge from ``str`` lands on it only through ``accepts``. A saved run reads
@@ -595,7 +672,7 @@ def test_an_undeclared_subclass_of_a_declared_dataclass_is_refused_on_a_return_a
     parents is a type, not a dataclass of outputs, so returning one is ``type_not_named`` with the parent named, as
     taking one is."""
 
-    @dataclasses.dataclass
+    @dataclasses.dataclass(frozen=True)
     class Point3(Point):
         z: float = 0.0
 
