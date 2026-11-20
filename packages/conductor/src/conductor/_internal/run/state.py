@@ -28,6 +28,7 @@ from typing import Literal
 from conductor._internal.base import ConductorModel
 from conductor._internal.problem import Problem, run_problems
 
+from .outcome import Unanswered
 from .outcomes import RunOutcomes
 from .progress import call_count, is_complete
 
@@ -53,15 +54,22 @@ class EndedEarly(ConductorModel):
     A ``resume()`` ends a run early as ``failed``, ``stopped``, ``cancelled`` or ``timed_out``, and the next
     ``resume()`` goes on from where it stopped. ``run.with_decline`` ends it as ``declined``, and that is final.
 
+    A decline also keeps the question the person said no to, in ``declined``. The call it was asked by is
+    ``cause.loc``, and the reason they gave is ``cause.ctx["reason"]``. The call itself has no outcome any more, so
+    it waits on nothing, and ``again`` calls it afresh.
+
     Attributes:
         status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
             ``cancelled`` when the stream's ``cancel`` was set, ``timed_out`` when the ``timeout`` passed, and
             ``declined`` when a person declined to answer a question.
         cause: The problem that ended the run, with its ``loc`` and code.
+        declined: For a ``declined`` run, the question declined, as its call's ``Unanswered`` said it, without a
+            fingerprint, since nothing reuses it. ``None`` for any other status.
     """
 
     status: Literal["failed", "stopped", "cancelled", "timed_out", "declined"]
     cause: Problem
+    declined: Unanswered | None = None
 
 
 #: How the last ``resume()`` left a run. ``"running"`` for a copy made while it was still going, such as a

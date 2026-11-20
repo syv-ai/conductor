@@ -1045,7 +1045,7 @@ POST answers, wrong type 422 [('invalid_answer', {'waiting_id': 'approve~60a01e2
 POST declines, stale id 422 [('answer_stale', {'waiting_id': 'approve~00000000', 'current': 'approve~60a01e27'})]
 POST declines 202 declined
 POST resume (declined run) 409 [('run_not_resumable', {'status': 'declined'})]
-GET after the decline declined answer_declined {'reason': 'Over budget', 'asked': {'prompt': 'Approve 5000 kr.?'}} waiting: []
+GET after the decline declined answer_declined {'reason': 'Over budget'} waiting: []
 event types: ['run_start', 'node_start', 'node_waiting', 'run_end', 'run_end']
 responses of /runs/{run_id} ['200', '404', '422']
 responses of /runs/{run_id}/resume ['202', '404', '409', '422']

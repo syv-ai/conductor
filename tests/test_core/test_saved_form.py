@@ -591,24 +591,131 @@ def test_an_answer_reused_by_a_later_run_keeps_the_question_it_was_given_for() -
     assert json.loads(edited.resume().to_json())["outcomes"]["reply"] == outcomes
 
 
-def test_a_declined_call_keeps_what_its_ask_showed_in_its_problem_and_reads_back_byte_equal() -> (
+def _replies(asked: Any) -> list[tuple[Any, str, Any, Any, Any]]:
+    """Returns what ``run.asked`` says of each call: its loc, its prompt, its questions' defaults and choices, and the
+    reply."""
+    return [
+        (
+            one.question.loc,
+            one.question.prompt,
+            [(q.default, [c.id for c in q.choices or []]) for q in one.question.questions],
+            one.answer,
+            one.reason,
+        )
+        for one in asked
+    ]
+
+
+def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_shown_in_memory_and_read_back() -> (
     None
 ):
-    """A decline drops every waiting question, and its ``answer_declined`` keeps the one declined in ``ctx.asked``,
-    choices and the proposed default included, as ``questions`` writes it. An answer given before keeps its own."""
+    """``run.asked`` is a host's record: the question as ``run.waiting`` showed it, the proposed default included,
+    and the answer or the decline's reason. A decline keeps its question where the run says how it ended, not in its
+    problem, so ``cause.ctx`` holds only the reason. It reads the same from a run read back, whose save writes the
+    same text again."""
     graph = _draft_graph()
-    first = graph.run({"text": "a\nb"})
-    one, two = first.waiting
-    declined = first.with_answers(one, "Yes").with_decline(two, reason="Not now")
+    first = graph.run({"text": "a\nb\nc"})
+    one, two, three = first.waiting
+    declined = first.with_answers({one.id: "Yes", two.id: "Re: b"}).with_decline(
+        three, reason="Not now"
+    )
 
     saved = declined.to_json()
-
-    assert declined.cause.ctx == {"reason": "Not now", "asked": _question("b")}
-    assert json.loads(saved)["ended_early"]["cause"] == declined.cause.model_dump(mode="json")
-    assert json.loads(saved)["outcomes"]["reply"]["questions"] == {"0": _question("a")}
     back = Run.from_json(saved, graph)
-    assert (back.status, back.cause) == ("declined", declined.cause)
+
+    assert declined.cause.ctx == {"reason": "Not now"}
+    assert _replies(declined.asked) == [
+        (
+            ("reply", 0),
+            "Send a reply to a?",
+            [("Re: a", ["Yes", "Re: a"])],
+            {"result": "Yes"},
+            None,
+        ),
+        (
+            ("reply", 1),
+            "Send a reply to b?",
+            [("Re: b", ["Yes", "Re: b"])],
+            {"result": "Re: b"},
+            None,
+        ),
+        (("reply", 2), "Send a reply to c?", [("Re: c", ["Yes", "Re: c"])], None, "Not now"),
+    ]
+    assert [a.question.id for a in declined.asked] == [one.id, two.id, "reply@2"]
+    assert [a.question.inputs for a in declined.asked] == [
+        {"line": "a"},
+        {"line": "b"},
+        {"line": "c"},
+    ]
+    assert back.asked == declined.asked
     assert back.to_json() == saved
+    assert json.loads(saved)["ended_early"]["declined"] == _question("c")
+    assert (back.status, back.waiting, back.cause) == ("declined", [], declined.cause)
+
+
+def test_a_declined_question_waits_on_nothing_and_again_calls_its_node_afresh() -> None:
+    """The declined call has no outcome: it isn't waiting, isn't counted as waiting, can't be answered, and a new
+    run asks it again, by calling the node."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a"})
+    declined = Run.from_json(first.with_decline(first.waiting[0]).to_json(), graph)
+
+    assert (declined.waiting, declined.progress.nodes["reply"].waiting) == ([], 0)
+    with pytest.raises(InvalidCallError) as refused:
+        declined.with_answers(first.waiting[0], "Yes")
+    assert [p.type for p in refused.value.problems] == ["not_waiting"]
+    asked_again = declined.again()
+    assert [w.prompt for w in asked_again.waiting] == ["Send a reply to a?"]
+    assert asked_again.asked == []
+
+
+def test_run_asked_lists_a_reused_answer_with_the_question_it_was_given_for() -> None:
+    """An answer a later run reuses is in that run's record, with the question the person was shown back then."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    first = first.with_answers({w.id: "Yes" for w in first.waiting})
+    edited = first.with_inputs({"text": "b\nnew"}).resume()
+
+    in_memory = _replies(edited.asked)
+    read_back = _replies(Run.from_json(edited.to_json(), graph).asked)
+
+    assert (
+        in_memory
+        == read_back
+        == [
+            (
+                ("reply", 0),
+                "Send a reply to b?",
+                [("Re: b", ["Yes", "Re: b"])],
+                {"result": "Yes"},
+                None,
+            )
+        ]
+    )
+    assert [w.loc for w in edited.waiting] == [("reply", 1)]
+
+
+def test_run_asked_writes_an_answer_of_several_outputs_by_name_and_leaves_out_a_branch_not_chosen() -> (
+    None
+):
+    @dataclass(frozen=True)
+    class Route:
+        keep: str = SKIPPED  # type: ignore[assignment]
+        drop: str = SKIPPED  # type: ignore[assignment]
+        when: datetime.date = datetime.date(2026, 1, 1)
+
+    registry = NodeRegistry()
+
+    @registry.node("route_it", title="Route it", description="For a test.", asks=True)
+    def route_it(text: str) -> Route:
+        raise Ask(f"Keep {text}?")
+
+    graph = Graph.compile(make_graph(registry["route_it"]), registry)
+    waiting = graph.run({"text": "x"})
+    answered = waiting.with_answers(waiting.waiting[0], {"keep": "yes"})
+
+    assert [a.answer for a in answered.asked] == [{"keep": "yes", "when": "2026-01-01"}]
+    assert Run.from_json(answered.to_json(), graph).asked == answered.asked
 
 
 def test_a_saved_answer_with_no_question_reads_back_as_done() -> None:

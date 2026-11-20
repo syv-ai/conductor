@@ -937,7 +937,7 @@ print(declined.waiting, declined.resume().status)
 print([w.id for w in declined.again().waiting])</pre>
       <pre class="out">declined answer_declined ('approve', 1)
 A person declined to answer, so the run ended here. The calls made before keep their results. Call run.again() to start a new run that asks again.
-{'reason': 'Too long to judge', 'asked': {'prompt': "Approve 'this is long'?"}}
+{'reason': 'Too long to judge'}
 [] declined
 ['approve@1~23c82614']</pre>
       <pre data-lang="py">refused(lambda: run.with_decline(run.waiting[0], reason=123))
@@ -1035,7 +1035,7 @@ refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre cla
   <div class="section-head prose">
     <p class="eyebrow">Saved and resumed</p>
     <h2 id="s-h">A waiting call is a few bytes of JSON</h2>
-    <p class="muted">A call that asked is saved with its prompt, the choices and defaults the <code>Ask</code> set, and the call's fingerprint, taken when the call was made. It has no outputs yet. Once a person answers, the question stays, and a decline keeps it in its problem's <code>ctx.asked</code>.</p>
+    <p class="muted">A call that asked is saved with its prompt, the choices and defaults the <code>Ask</code> set, and the call's fingerprint, taken when the call was made. It has no outputs yet. Once a person answers or declines, the run keeps the question for <code>run.asked</code>.</p>
   </div>
   <div class="two labelled">
     <div>
@@ -1065,11 +1065,11 @@ refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre cla
 print([w.id for w in loaded.waiting])
 answered = loaded.with_answers(loaded.waiting[0].id, False)
 print(answered.resume().outputs)
-print(json.loads(answered.to_json())["outcomes"]["approve"]["questions"])</pre>
+print([(a.question.prompt, a.answer) for a in answered.asked])</pre>
       <pre class="out">['approve@1~23c82614']
 {'result': '2 of 3 approved'}
-{'1': {'prompt': "Approve 'this is long'?"}}</pre>
-      <p class="muted">An answered call keeps its question under <code>questions</code>, beside the answer under <code>outputs</code>, so the saved run says what the person was shown when they answered. The call's arguments aren't saved with it, only their fingerprint. <code>run.waiting</code> works the arguments out again from the <a href="running-and-streaming.html#outcomes">outcomes</a> upstream that the call read, and those don't change while it waits. The id is hashed from the saved fingerprint and the node's code fingerprint now. So the question a loaded run shows is the one first asked, id included, while the node's code is the same.</p>
+[("Approve 'this is long'?", {'result': False})]</pre>
+      <p class="muted"><code>run.asked</code> lists every call a person answered or declined: the question as they were shown it, and their reply. A host that keeps runs as a record reads it, from a run read back too. The call's arguments aren't saved with it, only their fingerprint. <code>run.waiting</code> works the arguments out again from the <a href="running-and-streaming.html#outcomes">outcomes</a> upstream that the call read, and those don't change while it waits. The id is hashed from the saved fingerprint and the node's code fingerprint now. So the question a loaded run shows is the one first asked, id included, while the node's code is the same.</p>
     </div>
   </div>
 

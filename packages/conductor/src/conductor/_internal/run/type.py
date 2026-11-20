@@ -38,6 +38,7 @@ from conductor._internal.base import (
 from conductor._internal.graph import Graph, LimitsValidator
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, run_problems
 
+from .asked import Asked, asked_of
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .events import (
     Event,
@@ -47,7 +48,7 @@ from .events import (
     RunStart,
     with_run,
 )
-from .json import outputs_to_json, question_to_json, run_from_json, run_to_json
+from .json import outputs_to_json, run_from_json, run_to_json
 from .node_events import NodeEvents
 from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from .outcomes import RunOutcomes
@@ -436,8 +437,7 @@ class Run[C]:
         as on a complete run. To try again, start a new run with ``again`` or ``with_inputs``, which reuses what this
         one ran and asks again. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
         ``run.with_decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``declined``, and its
-        ``cause.ctx["reason"]`` is ``"Over budget"``. ``cause.ctx["asked"]`` keeps what the person was shown, the
-        question as a saved run writes it, such as ``{"prompt": "Approve INV-1?"}``.
+        ``cause.ctx["reason"]`` is ``"Over budget"``.
 
         Args:
             waiting: The call to decline, as ``run.waiting`` lists it or by its id.
@@ -457,13 +457,19 @@ class Run[C]:
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
         _, _, loc, declined = self._waiting_call(waiting_id, cache(lambda: self.status))
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
-        cause = run_problems.answer_declined(*loc, reason=reason, asked=question_to_json(declined))
-        # Nothing waits on a run that has ended: the declined question and every other one lose their outcome.
+        cause = run_problems.answer_declined(*loc, reason=reason)
+        # Nothing waits on a run that has ended: the declined question and every other one lose their outcome. The
+        # declined one is kept where the run says how it ended, for run.asked; with no outcome, nothing reads it as
+        # waiting, and again() calls its node afresh.
         asked = [(node, item_indexes) for node, item_indexes, _ in self._outcomes.calls(Unanswered)]
         return dataclasses.replace(
             self,
             _outcomes=self._outcomes.replacing(removing=asked),
-            _last_resume=EndedEarly(status="declined", cause=cause),
+            _last_resume=EndedEarly(
+                status="declined",
+                cause=cause,
+                declined=dataclasses.replace(declined, fingerprint=None),
+            ),
         )
 
     @staticmethod
@@ -634,6 +640,19 @@ class Run[C]:
             waiting_of(node, item_indexes, outcome, self._outcomes)
             for node, item_indexes, outcome in self._outcomes.calls(Unanswered)
         ]
+
+    @property
+    def asked(self) -> list[Asked]:
+        """Every call a person answered or declined: what they were shown, and what they replied.
+
+        A host that keeps runs as a record reads it, whether the run is in memory or read back with
+        ``Run.from_json``. An answer this run reused from a previous one is listed with the question it was given
+        for. The answered calls come in node order and then item order, and a declined one last, since it ended the
+        run. A call the function returned for isn't listed, nor one still waiting (``run.waiting`` lists those).
+
+        It is provisional: the name and shape may change before 2.0.
+        """
+        return asked_of(self._outcomes, self._last_resume, self.graph._codec)
 
     @property
     def progress(self) -> RunProgress:

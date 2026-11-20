@@ -773,16 +773,34 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - A host that keeps a waiting id outside the run, such as in a link in an email, keeps the id without its `~` part, or reads the id from `run.waiting` again when the person comes back. A whole id goes out of date when its call's inputs change, and when its node's code does, as after a deploy, even when the question reads the same. `run.with_answers` then refuses it as `answer_stale`. A deploy leaves what a run did and what it waits on as they are, so a question saved while its node asked still waits once the node's code no longer asks, and an answer to the id in `ctx.current` goes on.
 - An empty mapping answers no call, so it changes nothing: a run that was `cancelled` or `timed_out` stays so.
 - A node that asked is not called again for that item.
-- The run keeps the question with the answer, so a saved run says what the person was shown when they answered ("Saving a run").
 
 **Declining.** `run.with_decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.with_answers` does, an entry of `run.waiting` or its id, and returns a new run. A decline is not an answer: a person said no, so it ends the run for good. To reject one item and let the run go on, answer it.
 
 - The run is `declined`, with `answer_declined` as its `cause`, even when a `resume()` had already ended it `failed` or `stopped`. Every call made before keeps its outcome, so `run.results` shows what ran.
 - Nothing waits any more: the declined question and every other one are dropped. So `run.with_answers` and `run.with_decline` refuse every id as `not_waiting`, with `ctx.status` `declined`, as on a `complete` run. `resume()` and `stream()` call no node, and the run stays `declined`. A saved run reads back the same.
 - To ask again, start a new run: `run.again()` or `run.with_inputs()` reuses what this run ran, and calls the declined node again, so it asks again, under the same id while its inputs and code are the same.
-- `ctx.asked` holds what the person was shown, the declined question as a saved run writes one ("Saving a run"): `{"prompt": ..., "choices": ..., "defaults": ...}`, with `choices` and `defaults` left out where the `Ask` set none. The message doesn't quote it. It is provisional.
 - `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it. The `reason` is checked as its JSON text would be: text, or `None`. So `bytes` are taken as their base64 text and a `str` enum member as its text, and `1.5`, `3` and a `str` with a lone surrogate are refused as `invalid_decline_reason`, with `ctx.errors` saying why without the reason (`string_type`, `no_json_form`). The run is left as it was.
 - An id is read by the rules `run.with_answers` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
+
+**What a person was shown, and what they replied.** `run.asked` lists every call a person answered or declined, as a host keeps it for its records, such as an audit of who decided what on which proposal. Each entry is an `Asked`:
+
+- `question`: the call as `run.waiting` listed it while it waited, a `Waiting` with the `Ask`'s prompt, its choices and default (a proposal, such as an LLM's draft) in `questions`, and the call's `inputs`. Its `id` is the one it waited under for the node's code now. A declined call's is the call alone, such as `approve@1`, since it waits on nothing.
+- `answer`: the outputs the answer gave, by output name, as JSON, the way a saved run writes them: `{"result": true}` for a node of one output. A branch the answer left out isn't named. `None` for a decline.
+- `reason`: a decline's reason, else `None`.
+
+```python
+waiting = approving.run()
+answered = waiting.with_answers(waiting.waiting[0], True)
+replies = Run.from_json(answered.to_json(), approving).asked      # reads the same from a run read back
+assert [(one.question.prompt, one.answer) for one in replies] == [("Approve INV-1?", {"result": True})]
+```
+
+- Answered calls come in node order, then item order, and a declined call last, since it ended the run. A call its function returned for isn't listed, nor one still waiting.
+- Every way an answer comes counts the same: `run.with_answers`, a default taken, a queued answer, the providers' worker.
+- An answer a later run reuses is listed in that run with the question it was given for.
+- A run read back lists the same. The saved run keeps each question, so a long loop of answered calls saves one per call.
+- A decline's question isn't in its problem: `cause.ctx` has only the reason, since a problem never quotes a value a graph carries.
+- It is provisional.
 
 **Queuing answers for later.** A host that queues answers or declines to give a run later, such as a server whose run is still running, keeps them as JSON. `graph.answers_as_json(answers)`, on the run's graph, returns each answer as the JSON data `run.with_answers` reads it from: a `date` as its ISO text, a dataclass as a mapping of its fields, a `polars.DataFrame` as its columns, so a column a saved run can't keep is refused there, even one the question's table doesn't name. The node a waiting id names is looked up in the graph, whether its call waits yet or not, so `SKIPPED` is read as the run reads it: a branch not chosen is left out, and `SKIPPED` on an output that isn't a branch is `invalid_answer` at its question, as `run.with_answers` refuses it. So a queued answer reads back as the answer itself. An id that names no node of the graph keeps its answer as it is written as JSON, and the run refuses it as `not_waiting`. A graph with problems raises them. `Run.declines_as_json(declines)` returns each reason as the text `run.with_decline` keeps, and needs no graph. What JSON can't write is refused: `invalid_answer` for an answer, as a whole, since its question isn't read yet (`run.with_answers` refuses the same value at its question), and `invalid_decline_reason` for a reason, as `run.with_decline` refuses it, each with its `loc` the call the waiting id names. What depends on the question is checked when the run is given the data. It is provisional.
 
@@ -976,13 +994,12 @@ assert GraphRecord.model_validate_json(text) == record
 
 ### Saving a run
 
-`run.to_json()` is the whole run as one JSON text, a saved run. A host stores it, and never edits it. A host that keeps runs as a record reads in it what each person was shown when they answered or declined (below).
+`run.to_json()` is the whole run as one JSON text, a saved run. A host stores it, and never reads or edits it.
 
 **What it holds.**
 
 - The run's inputs.
-- The outcome of each call of each node: its outputs, waiting (with what its `Ask` said), a `None` input, or skipped. Each output is written by the output's type, the same whether the function returned it or a person answered.
-- What a person was shown, for each call they answered: under `outcomes.<node>.questions`, by the call's number (its place in the node's lists), the `Ask`'s `prompt`, and its `choices` and `defaults` by output name where it set any, such as an LLM's draft proposed as the default. A waiting call has the same entry, with `null` for its state; an answered one is `"done"`, its answer under `outputs`. So `{"states": ["done"], "outputs": {"result": ["Yes"]}, "questions": {"0": {"prompt": "Send a reply?", "defaults": {"result": "Re: a"}}}}` says the person was proposed `"Re: a"` and answered `"Yes"`. It is the same for every way an answer comes, `run.with_answers` or the providers' worker, a default taken too, and a call reused by a later run keeps the question it was answered for, in `reusable` and in `outcomes`. A call the function returned has none. A declined question is in `ended_early.cause.ctx.asked` ("Declining"). Each answered call of a long loop keeps its own. It is provisional.
+- The outcome of each call of each node: its outputs, waiting (with what its `Ask` said), a `None` input, or skipped. Each output is written by the output's type, the same whether the function returned it or a person answered. A call a person answered keeps what its `Ask` said beside the answer, and a declined run the question declined, for `run.asked` ("Asking a person").
 - Each call's fingerprint, taken when the call was made, which a later run reuses its outcome by.
 - The reusable outcomes from a previous run, in the same lists, with the item indexes each call had. Each is a done or a waiting call with its fingerprint. Every node's are written the same way, whether it may ask or not, though a node that may ask reuses an outcome by its fingerprint alone, so its item indexes are read only to be written back.
 - How the last `resume()` ended.

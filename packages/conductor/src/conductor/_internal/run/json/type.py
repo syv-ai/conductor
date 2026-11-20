@@ -149,7 +149,8 @@ class SavedRun(BaseModel):
         graph: The fingerprint of the run's graph. A saved run of another graph is refused by it.
         ended_early: How the last ``resume()`` ended the run early: its status and the problem that ended it.
             ``null`` when it didn't. A resume still going is never saved: a copy made during one is saved with
-            ``null`` here, and when read back its status comes from its outcomes.
+            ``null`` here, and when read back its status comes from its outcomes. A declined run keeps the question
+            declined here too, under ``declined``.
         max_items: The run's item limit.
         inputs: The graph inputs the caller gave, by name.
         outcomes: By node, the outcomes of each node that has any.
