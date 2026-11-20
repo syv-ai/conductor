@@ -210,26 +210,35 @@ def subgraph_broken(*place: str | int, reason: str, problem: str, loc: list[str 
 def changed_its_inputs(*loc: str | int, input: str) -> str:
     """A node changed a value it was given, in place.
 
-    The same value can be given to several calls of a run. So a change made in one call is seen by the others.
+    A node never changes a value it is given. Every node that reads an output gets the object its node returned, and
+    the run keeps that same object as its result, so a change made in one call is seen by every other node that
+    reads it, and by the run's result. ``check_registry`` copies each value it gives a node's example and compares
+    the two after the call. It is the one place the rule is checked, since a run doesn't copy what it passes on.
 
-    To fix it, copy the value before changing it, such as ``sorted(texts)`` in place of ``texts.sort()``.
+    To fix it, make a new value instead of changing the one given: ``[*items, item]`` in place of
+    ``items.append(item)``, ``dataclasses.replace(order, total=2)``, ``order.model_copy(update={"total": 2})``, or
+    ``frame.with_columns(...)``.
 
     Args:
         loc: The node and its version.
         input: The input whose value was changed.
 
     Example:
-        @node("sort_in_place", title="Sort", description="Sorts a list of texts.")
-        def sort_in_place(texts: list[str]) -> list[str]:
-            texts.sort()
-            return texts
+        @node("add_tag", title="Add tag", description="Adds a tag to a list of tags.")
+        def add_tag(items: list[str]) -> list[str]:
+            items.append("new")
+            return items
 
 
         checked = NodeRegistry()
-        checked.add(sort_in_place)
-        check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})
+        checked.add(add_tag)
+        check_registry(checked, examples={"add_tag": [{"items": ["old"]}]})
     """
-    return f"The node changed its input {input!r} in place. Several calls of a run can be given the same value, so copy it before you change it."
+    return (
+        f"The node changed the value of its input {input!r} in place, which every other node that reads it sees. "
+        "Make a new value instead, such as [*items, item], dataclasses.replace(...), model_copy(update=...) or "
+        "frame.with_columns(...)."
+    )
 
 
 @REGISTRY_CHECK_PROBLEMS.problem

@@ -37,7 +37,6 @@ them when a test fails, and a host never meets them. Each one, with an example, 
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import datetime
 import typing
@@ -46,7 +45,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 import polars as pl
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from typing_extensions import sentinel
 
 from conductor._internal.field import Field
@@ -68,6 +67,7 @@ from conductor._internal.record import (
     WrittenValuesValidator,
 )
 from conductor._internal.registry import NodeRegistry
+from conductor._internal.table import own_copy
 from conductor._internal.types import Param
 
 from . import problems
@@ -342,8 +342,9 @@ def _watched(
 ) -> tuple[FunctionDefinition[..., Any], list[str]]:
     """Wraps a node's function to notice when a call changes an input in place.
 
-    The wrapped node is called just as before, but it is never retried. The run's context, which a node that takes
-    it gets first, is passed on and isn't watched.
+    Before each call, each argument is copied as a run copies its constants (``own_copy``), and after it the
+    argument is compared with its copy (``_same``). The wrapped node is called just as before, but it is never
+    retried. The run's context, which a node that takes it gets first, is passed on and isn't watched.
 
     Returns:
         The wrapped node, and the list it adds the name of each changed input to.
@@ -355,7 +356,7 @@ def _watched(
         before: dict[str, object] = {}
         for name, value in kwargs.items():
             try:
-                kept = copy.deepcopy(value)
+                kept = own_copy(value)
             except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be checked
                 continue
             if _same(
@@ -445,19 +446,28 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
 
 
 def _same(one: Any, other: Any) -> bool:
-    """Whether two values are equal, comparing dicts and lists item by item, and frames cell by cell.
+    """Whether two values are equal, comparing dicts, lists, tuples and the fields of a dataclass or a pydantic model
+    one by one, and frames cell by cell.
 
     A frame is the same only as another frame with equal cells. A list of dicts with the frame's rows is not the
     same: a node that swaps one for the other has changed what the next call of the run gets. ``==`` can't be used
-    on a frame, since it returns a frame of results, or raises when the other side is not a frame. For any other
-    value where ``==`` raises, the two are equal only when they are the same object.
+    on a frame, since it returns a frame of results, or raises when the other side is not a frame. So a model or a
+    dataclass, whose ``==`` compares its fields with ``==``, is compared field by field here, and a frame in one of
+    its fields is compared cell by cell. For any other value where ``==`` raises, the two are equal only when they
+    are the same object.
     """
     if one is other:
         return True
     if isinstance(one, Mapping) and isinstance(other, Mapping):
         return one.keys() == other.keys() and all(_same(one[key], other[key]) for key in one)
-    if isinstance(one, list) and isinstance(other, list):
-        return len(one) == len(other) and all(_same(a, b) for a, b in zip(one, other, strict=True))
+    if isinstance(one, (list, tuple)) and isinstance(other, (list, tuple)):
+        return (
+            type(one) is type(other)
+            and len(one) == len(other)
+            and all(_same(a, b) for a, b in zip(one, other, strict=True))
+        )
+    if (fields := _fields(one)) is not None:
+        return type(one) is type(other) and _same(fields, _fields(other))
     if isinstance(one, pl.DataFrame) or isinstance(other, pl.DataFrame):
         return (
             isinstance(one, pl.DataFrame) and isinstance(other, pl.DataFrame) and one.equals(other)
@@ -466,6 +476,15 @@ def _same(one: Any, other: Any) -> bool:
         return bool(one == other)
     except (ValueError, TypeError):
         return one is other
+
+
+def _fields(value: Any) -> dict[str, Any] | None:
+    """Returns the fields of a dataclass or a pydantic model by name, or ``None`` for any other value."""
+    if isinstance(value, BaseModel):
+        return dict(value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
+    return None
 
 
 __all__ = ["check_registry", "REGISTRY_CHECK_PROBLEMS"]
