@@ -106,7 +106,8 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
             (``CompiledFunctionNode.code_fingerprint``), with the loops around the subgraph the node is in. An
             earlier call is reused, and a waiting id still matches, only while it stays the same.
         constants: Every input by name, in the order declared. An input that is a constant has its value, and
-            every other input has ``None``. A call's arguments start as a copy of this.
+            every other input has ``None``. Each run copies the values once, when it is made
+            (``RunOutcomes.constants``), and a call's arguments start as a copy of the run's dict.
         graph_inputs: The inputs whose value the caller gives: each input's name, and the name of its graph input
             (``"text"``).
         edge_inputs: The inputs that edges lead to, by name, in the order declared: an ``EdgeInput`` for one value

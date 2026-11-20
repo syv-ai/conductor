@@ -12,11 +12,12 @@ another order.
 
 from __future__ import annotations
 
+import copy
 import datetime
 import weakref
 from collections.abc import Mapping
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 from pydantic_core import CoreSchema, core_schema
@@ -114,6 +115,30 @@ def table_digest(frame: pl.DataFrame) -> str:
     if kept is not None and kept[0]() is frame:
         return kept[1]
     digest = json_hash(written_table(frame), 16)
+    _keep_digest(frame, digest)
+    return digest
+
+
+def own_copy[V](value: V) -> V:
+    """Returns a copy of ``value`` that shares nothing a node can change with it.
+
+    A run gets its own copy of its graph's constants and of the defaults of its graph inputs, once, when it is made.
+    So a node that changes a value it was given, which it must not do, can't change a later run of the same graph.
+
+    A frame is copied with ``clone()``. The clone shares the frame's memory until one of them is changed, so it costs
+    almost nothing, and it gets the frame's digest, so ``table_digest`` doesn't hash the table again for every run.
+    Any other value is copied with ``copy.deepcopy``, which keeps its exact class and costs a few microseconds for a
+    small value. A frame inside another value is cloned too, but its digest is worked out again.
+    """
+    if not isinstance(value, pl.DataFrame):
+        return copy.deepcopy(value)
+    digest = table_digest(value)
+    clone = value.clone()
+    _keep_digest(clone, digest)
+    return cast("V", clone)
+
+
+def _keep_digest(frame: pl.DataFrame, digest: str) -> None:
+    """Stores ``digest`` as the digest of ``frame``, until the frame is freed."""
     key = id(frame)
     _DIGESTS[key] = (weakref.ref(frame, lambda _: _DIGESTS.pop(key, None)), digest)
-    return digest
