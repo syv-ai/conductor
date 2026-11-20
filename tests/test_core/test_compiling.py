@@ -10,7 +10,7 @@ checks them all at once.
 import json
 from dataclasses import InitVar, dataclass, field
 from io import StringIO
-from typing import Annotated, Any, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -966,6 +966,43 @@ def test_a_none_that_is_the_whole_value_fits_an_input_that_takes_no_none_and_the
     assert graph.problems == []
     run = graph.run()
     assert (run.status, run.results["take"]) == ("complete", {"result": None})
+
+
+def test_an_edge_between_two_identical_checked_types_is_not_checked_again_on_its_call():
+    """The output's check already took the value, so an input of the very same type doesn't check it again."""
+    checked: list[int] = []
+
+    def count(value: int) -> int:
+        checked.append(value)
+        return value
+
+    counted = Annotated[int, AfterValidator(count), Param(ge=0)]
+    graph = _wiring(counted, counted, returned=3)
+    assert graph.problems == []
+    assert graph.run().status == "complete" and checked == [3]
+
+
+@pytest.mark.parametrize(
+    ("gives", "takes", "message"),
+    [
+        (
+            Series[_MaybeTally],
+            Series[_Tally],
+            "'give.result' gives Series[row], but 'take.value' takes Series[row] whose field 'n' takes no None.",
+        ),
+        (
+            list[Literal[1, None]],
+            list[Literal[1]],
+            "'give.result' gives list[int | None], but 'take.value' takes list[int].",
+        ),
+    ],
+    ids=["row-field", "literal-item"],
+)
+def test_a_mismatch_over_a_none_inside_a_value_says_where_the_none_is(
+    gives: Any, takes: Any, message: str
+) -> None:
+    (problem,) = _wiring(gives, takes).problems
+    assert problem.msg.startswith(message)
 
 
 def test_a_series_of_any_an_output_hook_declares_compiles_into_a_str_input_and_a_table_input():

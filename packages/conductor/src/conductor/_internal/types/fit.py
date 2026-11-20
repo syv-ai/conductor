@@ -51,6 +51,8 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         exact: Ask a stricter question instead: is every ``source`` value already a ``target`` value as it is, so
             that it needs no checking or converting?
     """
+    if target == source:
+        return True
     whole, may_be_none = _split_off_none(source)
     return _fit(target, whole, bound, exact, may_be_none=may_be_none)
 
@@ -132,6 +134,9 @@ def _fit(
         return not exact
     targets, sources = union_members(target), union_members(source)
     if len(targets) > 1 or len(sources) > 1:
+        # the member shaped like the arriving one takes it, and a bare type variable only what no other member
+        # takes: fed int | None, T | None and None | T both bind T to int
+        targets = tuple(sorted(targets, key=lambda option: isinstance(option, TypeVar)))
         for one in sources:
             for option in targets:
                 if _fit(option, one, trial := dict(bound), exact):
