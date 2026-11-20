@@ -4,11 +4,12 @@ Each test checks one thing its docstring promises, through the public name.
 """
 
 from dataclasses import InitVar, dataclass, field
-from typing import Annotated, ClassVar, NotRequired, TypedDict
+from typing import Annotated, ClassVar, Literal, NotRequired, TypedDict
 
+import pytest
 from annotated_types import Ge, Le
-from conductor import Param, type_fields
-from pydantic import BaseModel, Field, PrivateAttr
+from conductor import NodeDeclarationError, Param, type_fields
+from pydantic import BaseModel, Discriminator, Field, PrivateAttr
 
 Count = Annotated[int, Param(ge=0)]
 
@@ -42,6 +43,28 @@ def test_a_models_field_written_as_text_is_the_class_pydantic_finds_for_it():
         inner: "Inner"
 
     assert type_fields(Outer) == {"inner": Inner}
+
+
+def test_a_models_field_written_as_text_is_not_found_among_conductors_own_names():
+    class Odd(BaseModel):
+        x: "origin"  # noqa: F821
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        type_fields(Odd)
+    assert raised.value.problems[0].type == "type_not_supported"
+
+
+def test_a_models_discriminator_stays_on_its_field():
+    class Cat(BaseModel):
+        kind: Literal["cat"]
+
+    class Dog(BaseModel):
+        kind: Literal["dog"]
+
+    class Owner(BaseModel):
+        pet: Cat | Dog = Field(discriminator="kind")
+
+    assert type_fields(Owner) == {"pet": Annotated[Cat | Dog, Discriminator("kind")]}
 
 
 def test_a_models_field_is_given_with_the_check_its_pydantic_field_sets():
