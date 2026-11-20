@@ -257,11 +257,7 @@ class FunctionDefinition[**P, R](_Version):
     @property
     def required_constants(self) -> tuple[str, ...]:
         """The names of the inputs a graph must give a constant: each one with no default that is ``constant_only``."""
-        return tuple(
-            name
-            for name, field in self.inputs.items()
-            if field.default is REQUIRED and field.param.constant_only
-        )
+        return tuple(name for name, field in self.inputs.items() if field.needs_a_constant)
 
     def input_default(self, name: str) -> JsonValue | MISSING:
         """Returns the default the signature gives the input ``name``, as JSON, or ``MISSING`` when it has none.

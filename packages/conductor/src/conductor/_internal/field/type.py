@@ -103,6 +103,14 @@ class Field:
         """
         return self.type is not self.whole
 
+    @property
+    def needs_a_constant(self) -> bool:
+        """Whether a graph record must give it a constant: an input that takes only a constant and has no default.
+
+        Such an input never takes an edge or a graph input, so nothing else can give it a value.
+        """
+        return self.default is REQUIRED and self.param.constant_only is True
+
     @functools.cached_property
     def default_json(self) -> JsonValue | MISSING:
         """The default as JSON.

@@ -10,7 +10,7 @@ from pydantic import MISSING, AfterValidator, JsonValue
 from conductor._internal.base import ConductorModel, Name, Source
 from conductor._internal.problem import conductor_error
 
-from .node import CARRIED, JSON_ONLY, NodeRecord
+from .node import CARRIED, JSON_ONLY, GraphInputEntry, NodeRecord
 
 
 def _whole_output(source: Source) -> Source:
@@ -68,3 +68,16 @@ class GraphRecord(ConductorModel):
     inputs: Mapping[Name, GraphInputRecord] = {}
     nodes: Mapping[Name, NodeRecord] = {}
     outputs: Mapping[Name, Annotated[Source, AfterValidator(_whole_output)]] = {}
+
+    @property
+    def graph_inputs_taken(self) -> frozenset[str]:
+        """The names of the graph inputs that some node's input takes, as in ``GraphInputEntry(graph_input="text")``.
+
+        A graph input the record declares and no input takes isn't in it.
+        """
+        return frozenset(
+            entry.graph_input
+            for node_record in self.nodes.values()
+            for entry in node_record.inputs.values()
+            if isinstance(entry, GraphInputEntry)
+        )

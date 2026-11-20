@@ -16,7 +16,7 @@ Each step works on the record's JSON, as ``make_graph`` writes a record, and ``R
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from functools import partial
 from typing import Any
 
@@ -92,7 +92,6 @@ def upgraded(
     for step, older in reversed(steps):
         upgrade = step.upgrade
         written = graph.model_dump(mode="json")
-        taken_before = _graph_inputs_taken(written)
         node = written["nodes"][node_id]
         renamed = {
             upgrade.renamed_inputs.get(name, name): entry
@@ -114,13 +113,20 @@ def upgraded(
             name: _renamed_source(source, node_id, upgrade.renamed_outputs)
             for name, source in written["outputs"].items()
         }
-        dropped = taken_before - _graph_inputs_taken(written)
-        written["inputs"] = {
-            name: declared for name, declared in written["inputs"].items() if name not in dropped
-        }
-        graph = RecordValidator(
+        upgraded = RecordValidator(
             written_by=f"the Upgrade of '{node_record.node}' to version {step.version}"
         )(written)
+        # a graph input that only the inputs this step dropped took goes with them
+        dropped = graph.graph_inputs_taken - upgraded.graph_inputs_taken
+        graph = upgraded.model_copy(
+            update={
+                "inputs": {
+                    name: declared
+                    for name, declared in upgraded.inputs.items()
+                    if name not in dropped
+                }
+            }
+        )
     return graph
 
 
@@ -199,14 +205,3 @@ def _renamed_source(
     if source["node"] == node_id and source["output"] in renames:
         return {**source, "output": renames[source["output"]]}
     return source
-
-
-def _graph_inputs_taken(written: Mapping[str, Any]) -> set[str]:
-    """Returns the names of the graph inputs that some entry of the record ``written``, as JSON, takes."""
-    nodes: Iterable[Mapping[str, Any]] = written["nodes"].values()
-    return {
-        entry["graph_input"]
-        for node in nodes
-        for entry in node.get("inputs", {}).values()
-        if "graph_input" in entry
-    }

@@ -48,7 +48,6 @@ from types import MappingProxyType
 from typing import Any, Literal, TypeVar
 
 from pydantic import MISSING
-from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
 from conductor._internal.field import (
@@ -71,7 +70,6 @@ from conductor._internal.record import (
     ConstantEntry,
     GraphInputEntry,
     GraphRecord,
-    InputEntry,
     NodeRecord,
     RecordValidator,
     SourcesEntry,
@@ -95,11 +93,6 @@ from .node import (
 )
 from .type import Definitions, Graph
 from .validator import ConstantValidator
-
-#: Stands in, while a node is compiled, for a value its input's type refused. That's a constant or default from the
-#: graph record, or a default the node declares that the type bound by its edges refuses. The input gets a
-#: ``MissingInput``, and the ``invalid_value`` problem says why.
-_INVALID: Any = sentinel("_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,13 +210,7 @@ class Compiler:
         Its type is that of the inputs it feeds, so a graph input that feeds none has no type a caller could give a
         value of. An entry of a node that didn't compile still names its graph input.
         """
-        named = {
-            entry.graph_input
-            for node_record in self.record.nodes.values()
-            for entry in node_record.inputs.values()
-            if isinstance(entry, GraphInputEntry)
-        }
-        for name in sorted(self.record.inputs.keys() - named):
+        for name in sorted(self.record.inputs.keys() - self.record.graph_inputs_taken):
             self.problems.append(compile_problems.graph_input_not_used(graph_input=name))
 
     def _graph_outputs(self) -> dict[str, Field]:
@@ -365,7 +352,7 @@ class Compiler:
         ):
             self.problems.append(unfit)
         fields = dict(definition.inputs)
-        constants = self._constants_of(node_id, node_record, fields)
+        constants = self._constant_inputs(node_id, node_record, fields)
         added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
             made = self._hook(node_id, definition.compute_added_inputs, fields, constants)
@@ -373,7 +360,7 @@ class Compiler:
                 return
             added = made
             fields.update(added)
-            constants.update(self._constants_of(node_id, node_record, added))
+            constants.update(self._constant_inputs(node_id, node_record, added))
         planned = self._plan_inputs(node_id, node_record, fields, constants, edges)
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs)
@@ -441,7 +428,7 @@ class Compiler:
             return
         fields = inner._inputs
         planned = self._plan_inputs(
-            node_id, node_record, fields, self._constants_of(node_id, node_record, fields), edges
+            node_id, node_record, fields, self._constant_inputs(node_id, node_record, fields), edges
         )
         self.nodes[node_id] = CompiledSubgraphNode(
             id=node_id,
@@ -458,7 +445,7 @@ class Compiler:
         node_id: str,
         node_record: NodeRecord,
         fields: Mapping[str, Field],
-        constants: Mapping[str, Any],
+        constants: Mapping[str, ConstantInput | MissingInput],
         edges: Mapping[str, tuple[Source, ...]],
     ) -> _InputPlans:
         """Makes the compiled input of every input of a node, and works out which loops the node is in.
@@ -469,7 +456,8 @@ class Compiler:
 
         It goes in four steps:
 
-        1. Each input gets its compiled input from what the record gives it (``_plan_input``).
+        1. Each input gets its compiled input. That's the one ``_constant_inputs`` made, or else its default, its
+           graph input (``_graph_input``) or its edges (``_edge_input``).
         2. Inputs whose edges can't be used together are refused (``_inputs_with_conflicting_edges``).
         3. The node's loops are worked out from the inputs. A ``Series`` or ``Table`` input that an edge gives one
            value per call is refused (``_inputs_given_one_value``).
@@ -484,17 +472,17 @@ class Compiler:
             node_id: The node's id.
             node_record: The node in the graph record.
             fields: The node's inputs, by name.
-            constants: The constant the record gives each input, by name, already converted by the input's type.
-                ``_INVALID`` where the type refused it.
+            constants: The compiled input that ``_constant_inputs`` made for each input it decides, by name.
             edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
         """
         for name in sorted(node_record.inputs.keys() - fields.keys()):
             self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(fields)))
+        # an input that takes only a constant is in constants, refused where edges lead to it, so it binds no type
         sources = {
             name: self._sources(node_id, name, edges[name])
-            for name, field in fields.items()
-            if name in edges and not field.param.constant_only
-        }  # _constants_of refuses an edge into an input that takes only a constant, so it binds no type
+            for name in fields
+            if name in edges and name not in constants
+        }
         bound = None
         refused_defaults: Mapping[str, list[Problem]] = {}
         if any(
@@ -510,16 +498,27 @@ class Compiler:
             self.problems += [
                 problem for problems in refused_defaults.values() for problem in problems
             ]
+            constants = {
+                name: replace(made, field=fields[name]) for name, made in constants.items()
+            }
         inputs: dict[str, Input] = {}
         for name, field in fields.items():
-            entry = node_record.inputs.get(name)
-            if name in refused_defaults:
-                value = _INVALID
-            elif entry is None:
-                value = constants.get(name, field.default)
-            else:
-                value = constants.get(name, REQUIRED)
-            inputs[name] = self._plan_input(node_id, field, entry, sources.get(name), value)
+            if name in constants:
+                inputs[name] = constants[name]
+                continue
+            # constants has every input the record gives a constant, so these are the kinds left
+            match node_record.inputs.get(name):
+                case None if name in refused_defaults:
+                    inputs[name] = MissingInput(field)
+                case None if field.default is REQUIRED:
+                    self.problems.append(compile_problems.input_has_no_value(node_id, name))
+                    inputs[name] = MissingInput(field)
+                case None:
+                    inputs[name] = ConstantInput(field, field.default)
+                case GraphInputEntry(graph_input=graph_input):
+                    inputs[name] = self._graph_input(node_id, field, graph_input)
+                case SourcesEntry():
+                    inputs[name] = self._edge_input(node_id, field, sources[name])
         for name in self._inputs_with_conflicting_edges(node_id, inputs):
             inputs[name] = MissingInput(inputs[name].field)
         loops = max(
@@ -530,15 +529,8 @@ class Compiler:
             inputs[name] = MissingInput(inputs[name].field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
 
-    def _plan_input(
-        self,
-        node_id: str,
-        field: Field,
-        entry: InputEntry | None,
-        sources: list[Edge] | None,
-        value: Any,
-    ) -> Input:
-        """Returns the compiled input of ``field``, from what the record gives it.
+    def _edge_input(self, node_id: str, field: Field, sources: list[Edge] | None) -> Input:
+        """Returns the compiled input of ``field``, which the record wires edges to.
 
         This runs before the node's loops are known. A ``Series`` or ``Table`` input that turns out to get one value
         per call is refused later, by ``_inputs_given_one_value``.
@@ -546,35 +538,19 @@ class Compiler:
         Args:
             node_id: The node.
             field: The input.
-            entry: What the record gives the input. ``None`` when it gives nothing, and the input takes the default
-                its node declares.
-            sources: What the edges into the input carry, when the record wires edges to it. ``None`` when one of
-                them can't be used (the graph has the problem), and for every other input.
-            value: The input's constant, converted by its type: the record's, or, when the record gives the input
-                nothing, the default its node declares. ``REQUIRED`` when there's none, and ``_INVALID`` when the
-                type refused it.
+            sources: What the edges into the input carry. ``None`` when one of them can't be used, and the graph has
+                the problem.
         """
-        if field.param.constant_only:  # _constants_of refused an edge or graph input into it
-            return _constant_input(field, value)
-        match entry:
-            case None if value is REQUIRED:
-                self.problems.append(compile_problems.input_has_no_value(node_id, field.name))
-                return MissingInput(field)
-            case None | ConstantEntry():
-                return _constant_input(field, value)
-            case GraphInputEntry(graph_input=name):
-                return self._graph_input(node_id, field, name)
-            case SourcesEntry():
-                if sources is None:
-                    return MissingInput(field)
-                collects, expected = _collects_and_expected_type(field, sources)
-                if not self._edges_fit(node_id, field, expected, sources):
-                    return MissingInput(field)
-                loops = sources[0].loops_of_value  # a kept input's edges are all in the same loops
-                if collects and loops:
-                    return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
-                # one that collects gets one value per call, and is refused (_inputs_given_one_value)
-                return EdgeInput(field, tuple(sources), loops)
+        if sources is None:
+            return MissingInput(field)
+        collects, expected = _collects_and_expected_type(field, sources)
+        if not self._edges_fit(node_id, field, expected, sources):
+            return MissingInput(field)
+        loops = sources[0].loops_of_value  # a kept input's edges are all in the same loops
+        if collects and loops:
+            return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
+        # one that collects gets one value per call, and is refused (_inputs_given_one_value)
+        return EdgeInput(field, tuple(sources), loops)
 
     def _inputs_given_one_value(
         self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]
@@ -705,27 +681,30 @@ class Compiler:
             return MissingInput(field)
         return GraphInput(field, name)
 
-    def _constants_of(
+    def _constant_inputs(
         self, node_id: str, node_record: NodeRecord, fields: Mapping[str, Field]
-    ) -> dict[str, Any]:
-        """Returns the constant that the record gives each of ``fields``, by name.
+    ) -> dict[str, ConstantInput | MissingInput]:
+        """Returns the compiled input of each of ``fields`` that the record gives a constant, or that can't get one.
 
-        Each value is converted by the input's type. An input the record gives no constant is left out. Where the
-        type refuses a value, the graph gets ``invalid_value`` and the input gets ``_INVALID``.
+        A constant is converted by the input's type. Where the type refuses it, the graph gets ``invalid_value`` and
+        the input gets a ``MissingInput``.
 
         This is also the one place that checks ``constant_only``, on an input that takes only a constant. If the
         record gives such an input an edge or a graph input, it gets ``input_takes_only_a_constant``. If it has no
-        constant and no default, it gets ``input_has_no_value_constant_only``. Both get ``_INVALID``,
-        so a hook that needs the input isn't called, and the input has no value.
+        constant and no default, it gets ``input_has_no_value_constant_only``. Both get a ``MissingInput``, so a hook
+        that reads the input isn't called.
+
+        Every other input is left out. ``_plan_inputs`` gives it its default, its graph input or its edges, once the
+        edges have bound its type variables.
         """
-        constants: dict[str, Any] = {}
+        constants: dict[str, ConstantInput | MissingInput] = {}
         for name, field in fields.items():
             match node_record.inputs.get(name):
-                case None if field.param.constant_only and field.default is REQUIRED:
+                case None if field.needs_a_constant:
                     self.problems.append(
                         compile_problems.input_has_no_value_constant_only(node_id, name)
                     )
-                    constants[name] = _INVALID
+                    constants[name] = MissingInput(field)
                 case SourcesEntry() | GraphInputEntry() as entry if field.param.constant_only:
                     given: Literal["sources", "graph_input"] = (
                         "sources" if isinstance(entry, SourcesEntry) else "graph_input"
@@ -733,13 +712,15 @@ class Compiler:
                     self.problems.append(
                         compile_problems.input_takes_only_a_constant(node_id, name, given=given)
                     )
-                    constants[name] = _INVALID
+                    constants[name] = MissingInput(field)
                 case ConstantEntry(constant=value):
                     try:
-                        constants[name] = ConstantValidator(node_id, field)(value)
+                        constants[name] = ConstantInput(
+                            field, ConstantValidator(node_id, field)(value)
+                        )
                     except InvalidCallError as refused:
                         self.problems += refused.problems
-                        constants[name] = _INVALID
+                        constants[name] = MissingInput(field)
                 case _:
                     pass
         return constants
@@ -749,7 +730,7 @@ class Compiler:
         node_id: str,
         hook: Hook,
         fields: Mapping[str, Field],
-        constants: Mapping[str, Any],
+        constants: Mapping[str, ConstantInput | MissingInput],
         arriving: Mapping[str, Any] = MappingProxyType({}),
         added: tuple[str, ...] = (),
     ) -> dict[str, Field] | None:
@@ -757,20 +738,25 @@ class Compiler:
 
         Each input the hook reads gets its constant, else its default. Returns ``None``, and adds a problem, when the
         hook fails or returns something that isn't fields. Returns ``None`` without calling it when an input it reads
-        has no value, since a problem of ``_constants_of`` already says why.
+        has no value, since a problem of ``_constant_inputs`` already says why.
 
         Args:
             node_id: The node's id.
             hook: The hook.
             fields: The node's inputs, by name.
-            constants: The constant or default the record gives each input, by name, converted by the input's
-                type.
+            constants: The compiled input that ``_constant_inputs`` made for each input it decides, by name.
             arriving: The type the edges into each input carry, by input name.
             added: The inputs ``compute_added_inputs`` added.
         """
-        values = {name: constants.get(name, fields[name].default) for name in hook.values_of}
-        if any(value is _INVALID for value in values.values()):
-            return None
+        values: dict[str, Any] = {}
+        for name in hook.values_of:
+            match constants.get(name):
+                case MissingInput():
+                    return None
+                case ConstantInput(value=value):
+                    values[name] = value
+                case None:
+                    values[name] = fields[name].default
         try:
             return hook.call(node_id, values, arriving, added)
         except InvalidCallError as failed:
@@ -1172,15 +1158,6 @@ def _type_in_message(value_type: Type, text: str) -> str:
     except NodeDeclarationError:
         return text
     return text if choices is None else choices_in_message(choices)
-
-
-def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:
-    """Returns the compiled input of an input that gets ``value`` on every call.
-
-    The value is the record's constant, or the default the node declares. The result is a ``ConstantInput``, or a
-    ``MissingInput`` when the input's type refused the value (``_INVALID``).
-    """
-    return MissingInput(field) if value is _INVALID else ConstantInput(field, value)
 
 
 def _field_type(value_type: Type, name: str) -> Type | None:

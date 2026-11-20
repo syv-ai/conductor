@@ -49,7 +49,6 @@ import polars as pl
 from pydantic import ValidationError
 from typing_extensions import sentinel
 
-from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
@@ -388,9 +387,7 @@ def _made_up_values(fields: Mapping[str, Field]) -> dict[str, Any] | list[str]:
         name: made for name, field in fields.items() if (made := _made_up(field)) is not _CANNOT
     }
     missing = sorted(
-        name
-        for name, field in fields.items()
-        if name not in values and field.param.constant_only and field.default is REQUIRED
+        name for name, field in fields.items() if name not in values and field.needs_a_constant
     )
     if missing:
         return missing
