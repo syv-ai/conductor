@@ -1077,7 +1077,7 @@ def _check_built(schema: CoreSchema) -> None:
         if kind in _DECLARES_FIELDS and isinstance(cls := part.get("cls"), type):
             held = (cls.__name__, "")
             # a class with no config of its own, and a schema with no config written on it, read by the config they
-            # sit in; a table's row schema is written with conductor's
+            # sit in; a table's row is read by its class's own config when it has one (json_typed_dict_schema)
             if _has_own_config(cls) and "config" in part:
                 config = part["config"]
                 reads_text = (

@@ -1166,6 +1166,44 @@ def test_a_table_with_a_bytes_field_is_given_as_base64_by_a_caller_and_a_person(
         )
 
 
+@with_config(ConfigDict(**JSON_CONFIG, str_strip_whitespace=True))
+class _TrimmedBlob(TypedDict):
+    name: str
+    data: bytes
+
+
+def test_a_table_row_is_read_by_its_own_config_as_the_same_typed_dict_alone_is():
+    """A row type's ``with_config`` holds for each row, so its text is trimmed and its bytes still read base64."""
+
+    @node("trimmed", title="Trimmed", description="For a test.")
+    def trimmed(table: Table[_TrimmedBlob], alone: _TrimmedBlob) -> list[_TrimmedBlob]:
+        return [*table.to_dicts(), alone]
+
+    graph = Graph.compile(make_graph(trimmed), registry_of(trimmed))
+    row = {"name": "  a ", "data": _BINARY_TEXT}
+    run = graph.run({"table": [row], "alone": row})
+
+    assert run.results["trimmed"]["result"] == [{"name": "a", "data": _BINARY}] * 2
+
+
+def test_a_blank_cell_of_an_optional_bytes_field_reads_back_blank():
+    class MaybeBlob(TypedDict):
+        data: bytes | None
+
+    @node("maybe-blobs", title="Maybe blobs", description="For a test.")
+    def maybe_blobs(text: str) -> Table[MaybeBlob]:
+        return pl.DataFrame({"data": [_BINARY, None]})
+
+    run = Graph.compile(make_graph(maybe_blobs), registry_of(maybe_blobs)).run({"text": "x"})
+
+    (column,) = json.loads(run.to_json())["outcomes"]["maybe-blobs"]["outputs"]["result"][0][
+        "columns"
+    ]
+    assert column == {"name": "data", "type": "bytes", "values": [_BINARY_TEXT, None]}
+    read_back = _round_trip(run).results["maybe-blobs"]["result"]
+    assert (read_back.schema["data"], read_back["data"].to_list()) == (pl.Binary, [_BINARY, None])
+
+
 def test_a_table_with_a_bytes_field_is_described_as_base64url_cells():
     (described,) = blob_sizes.describe().inputs
     assert described.type == "Table[name: str, data: bytes]"
@@ -1284,6 +1322,7 @@ class _StrictAttachmentRecord:
     [
         (_StrictAttachmentRow, "_StrictAttachmentRow"),
         (list[_StrictAttachmentRow], "_StrictAttachmentRow"),
+        (Table[_StrictAttachmentRow], "_StrictAttachmentRow"),
         (_StrictAttachmentRecord, "_StrictAttachmentRecord"),
         (list[_StrictAttachmentRecord], "_StrictAttachmentRecord"),
         (_TextAttachment, "_TextAttachment"),

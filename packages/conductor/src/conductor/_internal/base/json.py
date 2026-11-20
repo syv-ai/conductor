@@ -14,15 +14,18 @@ from collections.abc import Callable, Iterator
 from typing import Any, Final, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic._internal._config import ConfigWrapper
 from pydantic_core import (
     CoreConfig,
     PydanticCustomError,
     PydanticSerializationError,
     SchemaValidator,
+    core_schema,
     from_json,
     to_json,
     to_jsonable_python,
 )
+from pydantic_core.core_schema import TypedDictField, TypedDictSchema
 
 
 class _ReadOnlyConfig(dict[str, Any]):
@@ -62,6 +65,35 @@ JSON_CORE_CONFIG: Final = CoreConfig(
     ser_json_bytes=JSON_CONFIG["ser_json_bytes"],
     val_json_bytes=JSON_CONFIG["val_json_bytes"],
 )
+
+
+def json_typed_dict_schema(
+    fields: dict[str, TypedDictField],
+    *,
+    cls: type | None = None,
+    extra_behavior: core_schema.ExtraBehavior | None = None,
+) -> TypedDictSchema:
+    """Builds a ``typed_dict_schema`` that reads and writes its fields by conductor's JSON rules (``JSON_CORE_CONFIG``).
+
+    A typed dict reads its fields by its own config, not by the one it sits in. So a typed dict built from a core
+    schema with no config reads ``bytes`` as UTF-8 text, not base64. A ``cls`` that pydantic's ``with_config`` gave a
+    config of its own, such as a table's row type, is read by that config instead, as the same ``TypedDict`` is
+    anywhere else.
+
+    Args:
+        fields: The typed dict's fields, by name.
+        cls: The ``TypedDict`` the schema checks, which pydantic names in an error.
+        extra_behavior: What to do with a key that isn't a field, as ``typed_dict_schema`` takes it.
+    """
+    own = getattr(cls, "__pydantic_config__", None)
+    config = (
+        JSON_CORE_CONFIG
+        if cls is None or own is None
+        else ConfigWrapper(own).core_config(cls.__name__)
+    )
+    return core_schema.typed_dict_schema(
+        fields, cls=cls, extra_behavior=extra_behavior, config=config
+    )
 
 
 def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> JsonValue:

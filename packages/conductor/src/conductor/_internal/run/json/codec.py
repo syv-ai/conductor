@@ -21,7 +21,7 @@ from pydantic import BaseModel, GetCoreSchemaHandler, NonNegativeInt, create_mod
 from pydantic import Field as PydanticField
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.base import JSON_CORE_CONFIG, place_text
+from conductor._internal.base import json_typed_dict_schema, place_text
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.types import Type, union_of
@@ -128,10 +128,7 @@ class _ExactKeys:
             (name, core_schema.typed_dict_field(schemas[id(hint)], required=False))
             for name, hint in self.optional.items()
         )
-        # a typed dict reads its fields by its own config, so it is given conductor's
-        return core_schema.typed_dict_schema(
-            fields, extra_behavior="forbid", config=JSON_CORE_CONFIG
-        )
+        return json_typed_dict_schema(fields, extra_behavior="forbid")
 
 
 def run_codec(
