@@ -17,7 +17,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from collections.abc import Mapping, Set
+from collections.abc import Mapping
 from enum import Enum
 from types import FunctionType, MethodType, UnionType
 from typing import (
@@ -58,6 +58,7 @@ from pydantic_core import (
     SchemaError,
     SchemaSerializer,
     SchemaValidator,
+    core_schema,
 )
 
 from conductor._internal.base import (
@@ -87,7 +88,7 @@ from .hint import (
     union_of,
 )
 from .host_type import NAMES, OWN_IDS, PYTHON_NAMES, declaration_of
-from .param import LIMITS, Param, as_written, not_taken, split_hint
+from .param import CHOICES, LIMITS, Param, as_written, not_taken, split_hint
 from .rules import with_rules
 
 #: Generic classes whose arguments are each read as a ``Type`` too, so conductor's rules reach their items.
@@ -329,10 +330,11 @@ class Type:
 
         A rule about the hint as its author wrote it, such as pydantic's ``Field(...)`` written where ``Param`` goes,
         walks every hint inside it (``hint_parts``): a list's item, a ``TypedDict``'s field and a table's row, but not
-        a field of a host's own model. The rule for bytes reads the schema pydantic built, which knows the config each
-        class really reads its fields by, so it reaches inside a host's model too. The rules a type's own schema
-        holds, its ``Param`` among them, reach as far as conductor builds that schema: a list's item is built as a
-        ``Type`` of its own, but a ``TypedDict``'s field is read by pydantic itself. So
+        a field of a host's own model. The rules for a set, for bytes and for choices inside the type read the schema
+        pydantic built (``_check_built``), which is what really checks and writes a value, so they reach inside a
+        host's model too. The rules a type's own schema holds, its ``Param`` among them, reach as far as conductor
+        builds that schema: a list's item is built as a ``Type`` of its own, but a ``TypedDict``'s field is read by
+        pydantic itself. So
         ``Annotated[Series[int], Param(ge=0)]`` limits each item on a field and in a list, and is refused as a
         ``TypedDict``'s field (``param_limit_not_supported``).
 
@@ -340,30 +342,27 @@ class Type:
             NodeDeclarationError: Pydantic's ``Field(...)`` in the hint (``pydantic_field_in_hint``, or
                 ``pydantic_discriminator_in_hint`` with a discriminator), a ``Timezone`` (``timezone_in_hint``), a
                 ``Unit`` (``unit_in_hint``), a named predicate written as metadata (``predicate_alias_in_hint``),
-                a set (``type_not_supported_set``), a secret (``type_not_supported_secret``), an ``ImportString``
-                (``type_not_supported_import_string``), a type that decodes its value
+                a set anywhere (``type_not_supported_set``), a secret (``type_not_supported_secret``), an
+                ``ImportString`` (``type_not_supported_import_string``), a type that decodes its value
                 (``type_not_supported_decoding``), a ``Table`` whose row names no columns
                 (``table_row_not_a_typed_dict``), a type pydantic has no schema for (``type_not_supported``), a
                 class with no ``@host_type`` (``type_not_named``), named values that don't read back
-                (``named_value_invalid``), choices that can't be read (``choices_invalid``), a ``Param`` that
-                doesn't fit, or a class with a config of its own that reads a ``bytes`` field as text
+                (``named_value_invalid``), choices that can't be read, at any depth (``choices_invalid``), a
+                ``Param`` that doesn't fit, or a class with a config of its own that reads a ``bytes`` field as text
                 (``type_not_supported_bytes_as_text``).
         """
         for part in hint_parts(self.hint):
             _check_written(part)
             if get_origin(part) in _KINDS:
                 Type(part)._check_own_arguments()
-        # each of these raises for a fault in what it builds: the schema, a Series of rows stored as a table, the
-        # id of a class with no @host_type, named values that don't read back, and choices that can't be read
+        # each of these raises for a fault in what it builds: the schema, a Series of rows stored as a table, a
+        # part of the schema a node may not declare, the id of a class with no @host_type, named values that don't
+        # read back, and choices that can't be read
         self.returned_schema  # noqa: B018
+        _check_built(self.schema, as_written(self.bare))
         self.id  # noqa: B018
         self.argument_schema  # noqa: B018
         self.choices  # noqa: B018
-        if (as_text := _bytes_read_as_text(self.schema)) is not None:
-            cls, field = as_text
-            raise NodeDeclarationError(
-                declaration_problems.type_not_supported_bytes_as_text(cls=cls, field=field)
-            )
 
     def _check_own_arguments(self) -> None:
         """Refuses the arguments of a ``Series`` or ``Table`` hint that a node may not declare.
@@ -923,9 +922,9 @@ def _check_written(part: Any) -> None:
     ``check_declared`` calls it for every hint ``hint_parts`` finds, and an ``Annotated``'s metadata is found as a
     part of its own. Pydantic would build ``Timezone`` and ``Unit``, and a named predicate such as ``LowerCase``
     written as metadata, and check nothing. Its ``Field(...)`` belongs on a model's field, and a ``Param`` goes in
-    a node's hint. A set has no order, so it has no JSON form a value could be written in and read back by. A secret
-    writes a mask as its JSON, an ``ImportString`` runs the code its value names, and a type that decodes its value,
-    such as ``Json[int]`` or ``Base64Bytes``, refuses the decoded value the next time it is checked.
+    a node's hint. A secret writes a mask as its JSON, an ``ImportString`` runs the code its value names, and a type
+    that decodes its value, such as ``Json[int]`` or ``Base64Bytes``, refuses the decoded value the next time it is
+    checked.
 
     Raises:
         NodeDeclarationError: The kinds ``check_declared`` lists for each of these.
@@ -949,11 +948,6 @@ def _check_written(part: Any) -> None:
                 raise NodeDeclarationError(
                     declaration_problems.predicate_alias_in_hint(predicate=repr(predicates[0]))
                 )
-    origin = get_origin(part) or part
-    if isinstance(origin, type) and issubclass(origin, Set):
-        raise NodeDeclarationError(
-            declaration_problems.type_not_supported_set(type=as_written(part))
-        )
     if _marked(part, (Secret, SecretStr, SecretBytes)):
         raise NodeDeclarationError(
             declaration_problems.type_not_supported_secret(type=as_written(part))
@@ -983,75 +977,131 @@ def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
     )
 
 
-#: The core schema types of a class that reads its fields by a pydantic config: a model, a pydantic or plain
-#: dataclass, and a ``TypedDict``. Pydantic writes on each the config it really reads that class's fields by.
-_CONFIGURED = frozenset({"model", "dataclass", "typed-dict"})
+#: The core schema types of a class that declares its fields: a model, a pydantic or plain dataclass, and a
+#: ``TypedDict``. Pydantic writes on each its class and the config it really reads that class's fields by.
+_DECLARES_FIELDS = frozenset({"model", "dataclass", "typed-dict"})
 
 
-def _bytes_read_as_text(
-    schema: Any,
-    definitions: dict[str, Any] | None = None,
-    owner: tuple[str, str] | None = None,
-) -> tuple[str, str] | None:
-    """Finds a ``bytes`` field, in a type's core schema, that its class reads and writes as text.
+def _check_built(schema: CoreSchema, declared: str) -> None:
+    """Refuses a type, by the schema pydantic built for it, if a node may not declare something inside it.
 
-    Conductor writes and reads bytes as base64 text (``JSON_CONFIG``). A class with a config of its own, such as a
-    pydantic model, or a ``TypedDict`` or plain dataclass given one with pydantic's ``with_config``, reads its fields
-    by that config, and a config that doesn't set the bytes to base64 takes them as text, which a saved run can't read
-    back. Pydantic writes on the schema of each model, dataclass and ``TypedDict`` the config it reads that class's
-    fields by. A ``TypedDict`` or plain dataclass with no config of its own takes the config it sits in, so the class
-    at fault is the one around it that has the config, and the field named is that class's.
+    The schema is what pydantic really checks and writes a value by, so this walk reaches every part of the type, the
+    fields of a host's own model or dataclass included. It walks the schema once and refuses three things:
 
-    Say ``class Attachment(BaseModel)`` has the field ``data: bytes`` and the default config. Then the schema of
-    ``list[Attachment]`` gives ``("Attachment", "data")``. With ``ser_json_bytes="base64"`` and
-    ``val_json_bytes="base64"`` in its config, it gives ``None``.
+    - A set or a frozenset. A set has no order, so its JSON form is a list whose order may differ from one process to
+      the next. Its value would then hash differently each time, and a call of it would never be reused.
+    - A ``bytes`` field that its class reads and writes as text. Conductor writes and reads bytes as base64 text
+      (``JSON_CONFIG``). A class with a config of its own, such as a pydantic model, or a ``TypedDict`` or plain
+      dataclass given one with pydantic's ``with_config``, reads its fields by that config. A config that doesn't set
+      the bytes to base64 takes them as text, which a saved run can't read back. A ``TypedDict`` or plain dataclass
+      with no config of its own takes the config it sits in, so the class at fault is the one around it that has the
+      config, and the field named is that class's.
+    - A ``Param``'s choices that another check on the same hint moves off them, like an ``AfterValidator`` that adds
+      ``"!"`` before the choices are compared. Every value would fail at run time. ``Type.choices`` reads a field's
+      own choices by its whole check. This reads the choices inside it the same way (``declared_choices``), on a
+      list's item, a dict's value or a model's field, by the part of the schema their ``Param`` built.
+
+    Say ``class Tags(BaseModel)`` has the field ``tags: set[str]``. Then the schema of ``list[Tags]`` is refused,
+    naming ``Tags`` and its field ``tags``.
 
     Args:
-        schema: A core schema, or a part of one.
-        definitions: The schemas pydantic declared beside it, by their ``ref``. Each is taken out as it is walked,
-            so it is walked once.
-        owner: The class with a config of its own that ``schema`` is inside, when that class reads bytes as text,
-            and its field, or ``""`` until the walk reaches one of its fields.
+        schema: The type's core schema.
+        declared: The type as a person reads it, like ``list[set[str]]``, which names a set that no class holds.
 
-    Returns:
-        The class's name and its field, or ``None`` when no bytes in ``schema`` are read as text.
+    Raises:
+        NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text`` or
+            ``choices_invalid``.
     """
-    definitions = {} if definitions is None else definitions
-    parts: list[tuple[Any, tuple[str, str] | None]] = []
-    if isinstance(schema, (list, tuple)):
-        parts = [(part, owner) for part in schema]
-    elif isinstance(schema, dict):
-        kind = schema.get("type")
-        if kind == "bytes":
-            return owner
+    # the schemas pydantic declared beside the type, by their ref, and the refs walked already, so each is walked once
+    definitions: dict[str, Any] = {}
+    walked: set[str] = set()
+
+    def walk(part: Any, held: tuple[str, str] | None, as_text: tuple[str, str] | None) -> None:
+        """Walks one part of the schema, and every part inside it.
+
+        Args:
+            part: A core schema, or a part of one.
+            held: The nearest class around ``part`` that declares fields, by name, and its field ``part`` is in, or
+                ``""`` until the walk reaches one of its fields.
+            as_text: The nearest class around ``part`` with a config of its own, when that config reads bytes as
+                text, and its field, as for ``held``.
+        """
+        if isinstance(part, (list, tuple)):
+            for one in part:
+                walk(one, held, as_text)
+            return
+        if not isinstance(part, dict):
+            return
+        kind = part.get("type")
         if not isinstance(kind, str):
-            # not a schema but fields by name; a field of the class with the config names the field
-            parts = [(part, _in_field(owner, name)) for name, part in schema.items()]
-        elif kind == "definition-ref":
-            parts = [(definitions.pop(schema["schema_ref"], None), owner)]
-        else:
-            if kind == "definitions":
-                definitions.update({one["ref"]: one for one in schema["definitions"]})
-            # a class with no config of its own, and a schema conductor builds itself, like a table's, which has no
-            # class, read by the config they sit in
-            if kind in _CONFIGURED and _has_own_config(schema.get("cls")):
-                config = schema.get("config", {})
-                as_text = (
+            # not a schema but fields by name, and one may be named "type"
+            for name, one in part.items():
+                walk(one, _in_field(held, name), _in_field(as_text, name))
+            return
+        if kind in ("set", "frozenset"):
+            # named by the field that holds it, as Python names one: Tags.tags
+            where = declared if held is None else ".".join(name for name in held if name)
+            raise NodeDeclarationError(declaration_problems.type_not_supported_set(type=where))
+        if kind == "bytes" and as_text is not None:
+            raise NodeDeclarationError(
+                declaration_problems.type_not_supported_bytes_as_text(
+                    cls=as_text[0], field=as_text[1]
+                )
+            )
+        if kind == "definition-ref":
+            if (ref := part["schema_ref"]) not in walked:
+                walked.add(ref)
+                walk(definitions.get(ref), held, as_text)
+            return
+        if kind == "definitions":
+            definitions.update({one["ref"]: one for one in part["definitions"]})
+        if (choices := part.get("metadata", {}).get(CHOICES)) is not None:
+            _check_choices(part, choices, definitions)
+        # a schema conductor builds itself, like a table's, has no class, and is read by the config it sits in
+        if kind in _DECLARES_FIELDS and isinstance(cls := part.get("cls"), type):
+            held = (cls.__name__, "")
+            if _has_own_config(cls):
+                config = part.get("config", {})
+                reads_text = (
                     config.get("ser_json_bytes") != "base64"
                     or config.get("val_json_bytes") != "base64"
                 )
-                owner = (schema["cls"].__name__, "") if as_text else None
-            if kind == "dataclass-field":
-                owner = _in_field(owner, schema["name"])
-            parts = [
-                (part, owner)
-                for key, part in schema.items()
-                if key not in ("serialization", "metadata", "config", "definitions")
-            ]
-    for part, inside in parts:
-        if (found := _bytes_read_as_text(part, definitions, inside)) is not None:
-            return found
-    return None
+                as_text = (cls.__name__, "") if reads_text else None
+        if kind == "dataclass-field":
+            held, as_text = _in_field(held, part["name"]), _in_field(as_text, part["name"])
+        for key, one in part.items():
+            if key not in ("serialization", "metadata", "config", "definitions"):
+                walk(one, held, as_text)
+
+    walk(schema, None, None)
+
+
+def _check_choices(
+    checked: CoreSchema, choices: tuple[Choice, ...], definitions: dict[str, Any]
+) -> None:
+    """Refuses a ``Param``'s choices that the part of a schema it built refuses.
+
+    ``checked`` checks one value: the type under the ``Param``, with every other check on the same hint, and then
+    whether the value is one of the choices. Conductor hands a ``Param`` to pydantic after the hint's other
+    metadata, wherever it is written. Each choice is read by it as ``Type.choices`` reads a field's own
+    (``declared_choices``), so the fault is the same ``choices_invalid`` at any depth.
+
+    Args:
+        checked: The schema ``Param`` built, with its choices in its metadata (``CHOICES``).
+        choices: Those choices.
+        definitions: The schemas pydantic declared beside the type, which ``checked`` may refer to.
+    """
+    whole = (
+        core_schema.definitions_schema(checked, list(definitions.values()))
+        if definitions
+        else checked
+    )
+    serializer = SchemaSerializer(whole, config=JSON_CORE_CONFIG)
+    declared_choices(
+        choices,
+        SchemaValidator(whole, config=JSON_CORE_CONFIG),
+        lambda value: plain_json(serializer.to_python(value, mode="json")),
+    )
 
 
 def _has_own_config(cls: Any) -> bool:

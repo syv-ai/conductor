@@ -56,6 +56,11 @@ _KEYWORDS = {kind: keyword for keyword, kind in LIMITS.items()}
 #: ``max_length``, which count them with ``len()``: a table's schema sets it, and a table's length is its rows.
 SIZED = "conductor_sized"
 
+#: The key of a core schema's metadata that keeps the choices a ``Param`` checks its values against, as
+#: ``declared_choices`` read them. ``Type.check_declared`` reads them back at every depth of a type's schema, to check
+#: them by every check written on the same hint.
+CHOICES = "conductor_choices"
+
 #: What a bound like ``ge`` may be: a number, a date, a time or a duration.
 _Bound = float | Decimal | datetime.date | datetime.time | datetime.timedelta
 
@@ -225,8 +230,9 @@ class Param:
         enum = [choice.id for choice in read]
         if value_type.optional and None not in enum:
             enum.append(None)
-        # kept for __get_pydantic_json_schema__, which pydantic calls with this schema
-        return {**checked, "metadata": {**checked.get("metadata", {}), _SCHEMA_ENUM: enum}}  # type: ignore[typeddict-unknown-key]
+        # the enum is kept for __get_pydantic_json_schema__, which pydantic calls with this schema
+        metadata = {**checked.get("metadata", {}), _SCHEMA_ENUM: enum, CHOICES: read}
+        return {**checked, "metadata": metadata}  # type: ignore[typeddict-unknown-key]
 
     def __get_pydantic_json_schema__(
         self, schema: CoreSchema, handler: GetJsonSchemaHandler
