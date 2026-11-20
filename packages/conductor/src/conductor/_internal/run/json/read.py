@@ -251,16 +251,20 @@ def _refuse_null_where_none_is_refused(
     """
     for name, values in values_by_output.items():
         field = node.outputs[name]
-        for call_number, (state, value) in enumerate(zip(states, values, strict=True)):
-            if state != SAVED_DONE:
-                continue
-            if value is None and not field.whole.optional:
+        takes_none, items_take_none = field.whole.optional, field.type.optional
+        # an output whose value and items may be None has nothing to refuse
+        if takes_none and items_take_none:
+            continue
+        # most values are not None, so a call's state is looked up only for a value that may be refused
+        for call_number, value in enumerate(values):
+            if value is None and not takes_none and states[call_number] == SAVED_DONE:
                 raise ValueError(
                     f"call {call_number} is done and has null for '{name}', whose type takes no None"
                 )
             if (
-                type(value) is SeriesItems
-                and not field.type.optional
+                not items_take_none
+                and type(value) is SeriesItems
+                and states[call_number] == SAVED_DONE
                 and any(item is None for item in value)
             ):
                 raise ValueError(
