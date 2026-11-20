@@ -103,7 +103,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes a record too.
 
 **Edges.**
-- With no `edges=`, the nodes form a chain. Each node's one required input that has no constant is wired to the one output of the node before it.
+- With no `edges=`, the nodes form a chain. Each node's one required input that `constants=`, `defaults=` and `inputs=` don't name is wired to the one output of the node before it.
 - With `edges=[...]`, those are all the edges. Nothing is matched by name.
 
 **Node ids.** Each node gets its definition's id. A node used twice gets `-1` and `-2` on the end, such as `text-split-1` and `text-split-2`.
@@ -116,6 +116,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 
 **What it raises.**
 - Two graph inputs that would share a name raise `graph_inputs_share_a_name`. Two outputs raise `graph_outputs_share_a_name`.
+- One input given two of a constant, a graph input and edges, such as `edges=` and `inputs=` both naming `shout.text`, raises `input_given_two_ways`.
 - A text that isn't `"node.name"`, or whose id or name has a `/`, `@` or `~` in it, raises `invalid_place`. Its message lists the characters a name can't have.
 
 ## Quick reference

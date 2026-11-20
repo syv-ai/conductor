@@ -1109,7 +1109,8 @@ def test_make_graph_without_edges_refuses_nodes_it_cannot_chain_and_says_to_pass
         "outputs": ["result"],
     }
     assert refused.value.problems[0].msg == (
-        "make_graph can't wire 'hello' after 'count' by itself. That needs exactly one required input on 'hello' (it has none) "
+        "make_graph can't wire 'hello' after 'count' by itself. That needs exactly one required input on 'hello' "
+        "that constants=, defaults= and inputs= don't name (it has none) "
         "and one output on 'count' (it has result). Pass edges= to make_graph."
     )
 
@@ -1450,35 +1451,109 @@ def test_make_graph_feeds_several_inputs_from_one_graph_input_given_a_list():
     }
 
 
-def test_make_graph_refuses_a_constant_together_with_a_graph_input_or_an_edge():
-    one_of = "one_of_constant_graph_input_sources"
+_EDGE = [("hello.result", "shout.text")]
 
-    with pytest.raises(InvalidCallError) as with_input:
-        make_graph(_hello, constants={"hello.name": "a"}, inputs={"name": "hello.name"})
-    with pytest.raises(InvalidCallError) as with_edge:
-        make_graph(
-            _hello,
-            _shout,
-            edges=[("hello.result", "shout.text")],
-            constants={"hello.name": "a", "shout.text": "x"},
-        )
-    with pytest.raises(InvalidCallError) as edge_and_input:
-        make_graph(
-            _hello,
-            _shout,
-            edges=[("hello.result", "shout.text")],
-            inputs={"name": "hello.name", "text": "shout.text"},
-        )
 
-    assert [(p.loc, p.ctx["errors"][0]["type"]) for p in with_input.value.problems] == [
-        (("record", "nodes", "hello", "inputs", "name"), one_of)
-    ]
-    assert [(p.loc, p.ctx["errors"][0]["type"]) for p in with_edge.value.problems] == [
-        (("record", "nodes", "shout", "inputs", "text"), one_of)
-    ]
-    assert [(p.loc, p.ctx["errors"][0]["type"]) for p in edge_and_input.value.problems] == [
-        (("record", "nodes", "shout", "inputs", "text"), one_of)
-    ]
+@pytest.mark.parametrize(
+    ("arguments", "loc", "ways"),
+    [
+        (
+            {"constants": {"hello.name": "a"}, "inputs": {"name": "hello.name"}},
+            ("hello", "name"),
+            ["constants", "inputs"],
+        ),
+        (
+            {"constants": {"hello.name": "a"}, "defaults": {"hello.name": "b"}},
+            ("hello", "name"),
+            ["constants", "defaults"],
+        ),
+        (
+            {"edges": _EDGE, "constants": {"hello.name": "a", "shout.text": "x"}},
+            ("shout", "text"),
+            ["constants", "edges"],
+        ),
+        (
+            {"edges": _EDGE, "inputs": {"name": "hello.name", "text": "shout.text"}},
+            ("shout", "text"),
+            ["inputs", "edges"],
+        ),
+        (
+            {"edges": _EDGE, "defaults": {"hello.name": "a", "shout.text": "x"}},
+            ("shout", "text"),
+            ["defaults", "edges"],
+        ),
+        (
+            {
+                "edges": _EDGE,
+                "constants": {"hello.name": "a", "shout.text": "x"},
+                "inputs": {"text": "shout.text"},
+            },
+            ("shout", "text"),
+            ["constants", "inputs", "edges"],
+        ),
+    ],
+    ids=[
+        "constant-and-inputs",
+        "constant-and-default",
+        "constant-and-edge",
+        "edge-and-inputs",
+        "edge-and-default",
+        "constant-inputs-and-edge",
+    ],
+)
+def test_make_graph_refuses_one_input_given_two_ways_and_names_the_arguments(arguments, loc, ways):
+    """An input gets one of a constant, a graph input or edges. Given two, ``make_graph`` names the arguments that
+    gave them, so the author knows which one to take the input out of."""
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, _shout, **arguments)
+
+    [problem] = refused.value.problems
+    place = ".".join(loc)
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "input_given_two_ways",
+        loc,
+        {"input": place, "ways": ways},
+    )
+    assert problem.msg == (
+        f"More than one of make_graph's arguments gives the input '{place}' a value: {', '.join(ways)}. "
+        "An input takes one of a constant, a graph input or edges, so name it in only one of them."
+    )
+
+
+def test_make_graph_takes_inputs_and_defaults_on_one_input_as_one_graph_input():
+    record = make_graph(_hello, defaults={"hello.name": "ida"}, inputs={"who": "hello.name"})
+
+    assert Graph.compile(record, registry_of(_hello)).run().outputs == {"result": "hello ida"}
+
+
+def test_make_graph_does_not_chain_into_an_input_that_inputs_names():
+    """A chain skips an input ``inputs=`` names, as it skips one with a constant or a default. So naming one of two
+    required inputs leaves the other for the chain."""
+
+    @node("pair", title="Pair", description="For a test.")
+    def pair(text: str, mark: str) -> str:
+        return text + mark
+
+    record = make_graph(_hello, pair, inputs={"m": "pair.mark"})
+
+    assert record.nodes["pair"].inputs == {
+        "text": input_entry({"sources": [{"node": "hello", "output": "result"}]}),
+        "mark": input_entry({"graph_input": "m"}),
+    }
+    assert Graph.compile(record, registry_of(_hello, pair)).run(
+        {"name": "ida", "m": "!"}
+    ).outputs == {"result": "hello ida!"}
+
+
+def test_make_graph_with_no_edges_and_the_one_input_named_in_inputs_is_not_a_chain():
+    """The chain skips the input ``inputs=`` names. With no other required input left, the nodes can't be chained,
+    and the message says why."""
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, _shout, inputs={"t": "shout.text"})
+
+    [problem] = refused.value.problems
+    assert (problem.type, problem.loc, problem.ctx["inputs"]) == ("not_a_chain", ("shout",), [])
+    assert "that constants=, defaults= and inputs= don't name (it has none)" in problem.msg
 
 
 def test_make_graph_refuses_an_edge_written_twice():
@@ -2381,23 +2456,6 @@ def test_a_graphs_fingerprint_is_the_one_its_saved_runs_name():
     assert Graph.compile(record, PLAIN).fingerprint == "60e731ed46c14905"
 
 
-def test_make_graph_refuses_a_constant_and_a_default_for_one_input():
-    """``make_graph`` refuses a constant and a default for the same input.
-
-    A default makes the input a graph input, and an input gets exactly one of a constant or a graph input.
-    """
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, constants={"hello.name": "a"}, defaults={"hello.name": "b"})
-
-    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
-        (
-            "invalid_record",
-            ("record", "nodes", "hello", "inputs", "name"),
-            "one_of_constant_graph_input_sources",
-        ),
-    ]
-
-
 def test_a_constant_given_from_python_is_written_as_json_so_the_record_equals_itself_read_back():
     import datetime
     from enum import Enum
@@ -2781,8 +2839,8 @@ def test_a_record_validator_refusal_of_what_make_graph_wrote_says_to_fix_make_gr
         make_graph(
             _hello,
             _shout,
-            edges=[("hello.result", "shout.text")],
-            constants={"hello.name": "a", "shout.text": "x"},
+            edges=[("hello.result", "shout.text"), ("hello.result", "shout.text")],
+            constants={"hello.name": "a"},
         )
 
     [problem] = refused.value.problems
@@ -2793,8 +2851,8 @@ def test_a_record_validator_refusal_of_what_make_graph_wrote_says_to_fix_make_gr
         problem.ctx["written_by"],
     ) == (
         "invalid_record",
-        ("record", "nodes", "shout", "inputs", "text"),
-        "one_of_constant_graph_input_sources",
+        ("record", "nodes", "shout", "inputs", "text", "sources"),
+        "repeated_source",
         "make_graph's arguments",
     )
     assert problem.msg.endswith("Fix make_graph's arguments.")

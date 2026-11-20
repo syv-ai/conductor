@@ -562,7 +562,8 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     """``make_graph`` is given no edges, and it can't wire one of its nodes to the node before it.
 
     Without ``edges=``, ``make_graph`` wires the nodes in a chain. It takes the one output of the node before, and wires
-    it to the node's one required input that has no constant and that an edge can feed. A subgraph's inputs and outputs
+    it to the node's one required input that an edge can feed and that ``constants=``, ``defaults=`` and ``inputs=``
+    don't name. A subgraph's inputs and outputs
     are the graph inputs and outputs its record declares. When a node doesn't have exactly one such input, or the node
     before it doesn't have exactly one output, it can't.
 
@@ -571,7 +572,7 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     Args:
         node_id: The node that can't be wired.
         before: The node before it.
-        inputs: The required inputs of ``node_id`` that have no constant and that an edge can feed.
+        inputs: The required inputs of ``node_id`` that an edge can feed and that no other argument names.
         outputs: The outputs of ``before``.
 
     Example:
@@ -579,7 +580,8 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     """
     return (
         f"make_graph can't wire '{node_id}' after '{before}' by itself. That needs exactly one required input on '{node_id}' "
-        f"(it has {comma_separated(inputs)}) and one output on '{before}' (it has {comma_separated(outputs)}). Pass edges= to make_graph."
+        f"that constants=, defaults= and inputs= don't name (it has {comma_separated(inputs)}) and one output on '{before}' "
+        f"(it has {comma_separated(outputs)}). Pass edges= to make_graph."
     )
 
 
@@ -650,6 +652,31 @@ def graph_input_given_two_defaults(*loc: str | int, name: str, inputs: list[str]
         ))
     """
     return f"The inputs {comma_separated(inputs)} both take the graph input '{name}', and defaults= gives them different defaults. Give the graph input one default."
+
+
+@CALL_PROBLEMS.problem
+def input_given_two_ways(*loc: str | int, input: str, ways: list[str]) -> str:
+    """``make_graph`` is given one input in two ways, such as an edge in ``edges=`` and a graph input in ``inputs=``.
+
+    An input in a graph record gets one thing: a constant, a graph input, or the edges into it. ``constants=`` gives
+    it a constant, ``inputs=`` and ``defaults=`` make it a graph input, and ``edges=`` gives it edges. So an input can
+    be named by only one of those three, though ``inputs=`` and ``defaults=`` may both name it.
+
+    To fix it, keep the input in the one argument that gives it what you mean, and take it out of the others.
+    ``ctx.ways`` lists the arguments that name it.
+
+    Args:
+        loc: The node and the input.
+        input: The input, as ``node.input``.
+        ways: The arguments that name it, in this order: ``constants``, ``defaults``, ``inputs`` and ``edges``.
+
+    Example:
+        refused(lambda: make_graph(upper, constants={"upper.text": "a"}, inputs={"text": "upper.text"}))
+    """
+    return (
+        f"More than one of make_graph's arguments gives the input '{input}' a value: {comma_separated(ways)}. "
+        "An input takes one of a constant, a graph input or edges, so name it in only one of them."
+    )
 
 
 @CALL_PROBLEMS.problem

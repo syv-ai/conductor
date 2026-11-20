@@ -68,8 +68,8 @@ def make_graph(
 
     Edges. An edge is ``(output, input)``, each written ``"node.name"``. The output may be followed by one field of
     the value it returns. With no ``edges``, the nodes form a chain. Each node's one required input that an edge
-    can feed, and that no constant or default fills, gets an edge from the one output of the node before it. With
-    ``edges``, those are all the edges. Nothing is ever matched by name.
+    can feed, and that ``constants``, ``defaults`` and ``inputs`` don't name, gets an edge from the one output of the
+    node before it. With ``edges``, those are all the edges. Nothing is ever matched by name.
 
     Constants and defaults. Both are keyed by ``"node.input"``. A constant is the input's value on every call. A
     default makes the input a graph input, with that value when the caller gives none. Each value is written into
@@ -107,8 +107,10 @@ def make_graph(
             name.
             ``graph_input_given_two_defaults``: ``defaults=`` gives two inputs of one graph input different
             defaults, and a graph input has one.
-            ``invalid_record``: the record itself is refused. For example, an input is given both a value and an
-            edge, an edge is written twice, one id is given to two nodes, or a name isn't a valid name.
+            ``input_given_two_ways``: one input is given two of a constant, a graph input and edges, such as an
+            edge in ``edges`` and a graph input in ``inputs``.
+            ``invalid_record``: the record itself is refused. For example, an edge is written twice, one id is
+            given to two nodes, or a name isn't a valid name.
             ``not_a_chain``: there are no ``edges``, and the nodes can't be chained. The automatic graph
             inputs, and the outputs of every node but the last, aren't made then, since they would follow from the
             gap, so a clash among them isn't listed; ``inputs``, ``outputs`` and ``defaults`` are still checked.
@@ -131,6 +133,7 @@ def make_graph(
     definitions = _by_id(arguments["nodes"], problems)
     constant_of = _values_by_place("constants", arguments["constants"], definitions, problems)
     default_of = _values_by_place("defaults", arguments["defaults"], definitions, problems)
+    named_of = _named_inputs(arguments["inputs"], definitions, problems)
     # A chain with a gap, or an edge that can't be written, leaves inputs unwired and outputs unread. The automatic
     # graph inputs and outputs made from those would clash for that alone. So no automatic inputs are made then,
     # and automatic outputs only for the last node of a chain; inputs=, outputs= and defaults= are still checked.
@@ -138,7 +141,9 @@ def make_graph(
     chained, gap = drawn is None, False
     if drawn is None:
         found_before_the_chain = len(problems)
-        drawn = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
+        drawn = _chain_edges(
+            definitions, constant_of.keys() | default_of.keys() | named_of.keys(), problems
+        )
         gap = len(problems) > found_before_the_chain
     sources_of: dict[tuple[str, str], list[Source]] = {}
     for i, (source_text, target_text) in enumerate(drawn):
@@ -152,7 +157,7 @@ def make_graph(
             gap = True
     graph_input_of = _graph_inputs(
         definitions,
-        arguments["inputs"],
+        named_of,
         constant_of.keys() | sources_of.keys(),
         default_of.keys(),
         gap,
@@ -170,16 +175,30 @@ def make_graph(
     # in the order they are gathered here: constants, defaults, edges, then graph inputs
     for place in sorted(given, key=lambda place: declared_at.get(place, len(declared_at))):
         node_id, name = place
-        # An input given two kinds, such as a constant and an edge, gets both keys, and the record validator below
-        # refuses the entry.
-        entry: dict[str, Any] = {}
-        if place in constant_of:
-            entry["constant"] = constant_of[place]
-        if place in graph_input_of:
-            entry["graph_input"] = graph_input_of[place]
-        if place in sources_of:
-            entry["sources"] = sources_of[place]
-        entries[node_id][name] = entry
+        # an input gets one thing: a constant, a graph input or the edges into it
+        kinds = [kind for kind in (constant_of, graph_input_of, sources_of) if place in kind]
+        if len(kinds) > 1:
+            ways = [
+                way
+                for way, given in (
+                    ("constants", constant_of),
+                    ("defaults", default_of),
+                    ("inputs", named_of),
+                    ("edges", sources_of),
+                )
+                if place in given
+            ]
+            problems.append(
+                call_problems.input_given_two_ways(
+                    node_id, name, input=place_text((node_id,), name), ways=ways
+                )
+            )
+        elif place in constant_of:
+            entries[node_id][name] = {"constant": constant_of[place]}
+        elif place in graph_input_of:
+            entries[node_id][name] = {"graph_input": graph_input_of[place]}
+        else:
+            entries[node_id][name] = {"sources": sources_of[place]}
     led_out = {source.node for found in sources_of.values() for source in found}
     # A chain leads out of every node but its last, so only the last one's outputs are the graph's. An edge that
     # can't be written may have led out of any node, so then no node's are.
@@ -199,7 +218,7 @@ def make_graph(
     }
     try:
         record = RecordValidator(written_by="make_graph's arguments")(written)
-    # such as an input given both a value and an edge, an edge given twice, or a name that isn't valid
+    # such as an edge given twice, or a name that isn't valid
     except InvalidCallError as refused:
         problems += refused.problems
     if problems:
@@ -282,9 +301,28 @@ def _values_by_place(
     return written
 
 
+def _named_inputs(
+    named: Mapping[str, Sequence[str]],
+    definitions: Mapping[str, NodeDefinition],
+    problems: list[Problem],
+) -> dict[tuple[str, str], str]:
+    """Returns the graph input that ``make_graph``'s ``inputs`` gives each input, keyed by place.
+
+    ``inputs={"line": ["strip.line", "shout.line"]}`` gives ``{("strip", "line"): "line", ("shout", "line"):
+    "line"}``. A place that ``_place`` refuses is left out, and its problem goes to ``problems``.
+    """
+    named_of: dict[tuple[str, str], str] = {}
+    for name, texts in named.items():
+        for text in texts:
+            place = _place(text, ("inputs", name), definitions, problems)
+            if place is not None:
+                named_of[(place[0], place[1])] = name
+    return named_of
+
+
 def _graph_inputs(
     definitions: Mapping[str, NodeDefinition],
-    named: Mapping[str, Sequence[str]],
+    named_of: Mapping[tuple[str, str], str],
     filled: Set[tuple[str, str]],
     defaulted: Set[tuple[str, str]],
     gap: bool,
@@ -292,19 +330,16 @@ def _graph_inputs(
 ) -> dict[tuple[str, str], str]:
     """Returns the graph input each input becomes, keyed by place.
 
-    First come the ones ``named`` gives. Then, under the input's own name, every key of ``defaults``
-    (``defaulted``), and every required input that gets nothing else (isn't in ``filled``), unless there is a
-    ``gap``: a chain that can't be drawn or an edge that can't be written, which leaves such inputs unwired.
+    First come the ones ``inputs`` gives (``named_of``). Then, under the input's own name, every key of
+    ``defaults`` (``defaulted``), and every required input that gets nothing else (isn't in ``filled``), unless
+    there is a ``gap``: a chain that can't be drawn or an edge that can't be written, which leaves such inputs
+    unwired.
 
-    If two of those automatic graph inputs share a name, or one shares a name with a graph input in ``named``,
-    ``graph_inputs_share_a_name`` goes to ``problems``.
+    If two of those automatic graph inputs share a name, or one shares a name with a graph input that ``inputs``
+    gives, ``graph_inputs_share_a_name`` goes to ``problems``.
     """
-    graph_input_of: dict[tuple[str, str], str] = {}
-    for name, texts in named.items():
-        for text in texts:
-            place = _place(text, ("inputs", name), definitions, problems)
-            if place is not None:
-                graph_input_of[(place[0], place[1])] = name
+    graph_input_of = dict(named_of)
+    named = set(named_of.values())
     open_inputs = [
         (node_id, name)
         for node_id, definition in definitions.items()
@@ -480,7 +515,7 @@ def _chain_edges(
 ) -> list[tuple[str, str]]:
     """Returns the edges that chain the nodes, one from each node into the next.
 
-    ``filled`` is the inputs that already get a constant or a default. Between two nodes, the edge goes from the
+    ``filled`` is the inputs that ``constants``, ``defaults`` or ``inputs`` already give. Between two nodes, the edge goes from the
     first node's one output into the second node's one required input that's left. A subgraph is chained the same
     way, by the graph inputs and outputs its record declares. If two nodes can't be joined
     that way, ``not_a_chain`` goes to ``problems``. ``not_a_chain_constant_only`` is used when the only required

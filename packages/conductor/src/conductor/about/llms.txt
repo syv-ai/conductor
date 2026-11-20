@@ -476,7 +476,7 @@ print(record.model_dump(mode="json")["nodes"]["upper"]["inputs"])  # {'text': {'
 
 **Node ids.** Each node is written at its version, under its own id. That is the id given with it, as in `make_graph(("a", upper), ("b", upper))`, or else its definition's. A definition used twice gets `upper-1` and `upper-2`.
 
-**A chain.** With no `edges`, the nodes form a chain. Each node gets an edge from the one output of the node before it, into its one required input that has no constant or default and that the edge can feed.
+**A chain.** With no `edges`, the nodes form a chain. Each node gets an edge from the one output of the node before it, into its one required input that the edge can feed and that `constants=`, `defaults=` and `inputs=` don't name.
 
 - When that can't be drawn, it is `not_a_chain`. When the only required inputs left take only a constant, it is `not_a_chain_constant_only`, with `ctx.inputs`.
 - By itself, `make_graph` never wires an input that takes only a constant, or makes it a graph input. Compiled without a constant, such an input is `input_has_no_value_constant_only`.
@@ -503,7 +503,8 @@ print(record.model_dump(mode="json")["nodes"]["upper"]["inputs"])  # {'text': {'
 - a value with no JSON form, or with a set in it (`invalid_value`);
 - a place that isn't `"node.name"`, or whose id or name isn't a valid name, such as `"greet.result~"` (`invalid_place`). Its `loc` is the argument and where in it: `("edges", 1, 0)` or `("constants", key)`;
 - two graph inputs or two graph outputs of one name, and two defaults for one graph input (`graph_input_given_two_defaults`);
-- what the record refuses (`invalid_record`, with `ctx.written_by` `make_graph's arguments`): an input given a constant and an edge, an edge written twice, one id given to two nodes, a field on a graph output;
+- one input given two of a constant (`constants=`), a graph input (`inputs=` or `defaults=`, which may both name it) and edges (`edges=`), at `(node, input)`, with the arguments that name it in `ctx.ways` (`input_given_two_ways`). It is provisional;
+- what the record refuses (`invalid_record`, with `ctx.written_by` `make_graph's arguments`): an edge written twice, one id given to two nodes, a field on a graph output;
 - a chain it can't draw (`not_a_chain`). The automatic graph inputs, and the automatic outputs of every node but the last, aren't made then, so a clash that would only follow from the gap isn't listed; what `inputs=`, `outputs=` and `defaults=` name is still checked. An edge it can't write, such as one that names a node it wasn't given, leaves out every automatic graph input and output the same way, so `make_graph(shout, count, edges=[("shuot.result", "count.text")])` raises `node_not_in_graph` alone;
 - a node with a `compute_outputs` hook whose outputs no edge reads and `outputs=` doesn't name (`hook_outputs_not_named`).
 
