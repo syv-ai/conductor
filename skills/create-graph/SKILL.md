@@ -132,7 +132,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 | To save | `record.model_dump_json()`. A run: `run.to_json()`, and `Run.from_json(saved, graph)` to read it back |
 | What an editor draws from | `graph.describe()`, and `registry.describe()` for the palette |
 | A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*definitions)` |
-| HTTP routes | `worker = Worker(store, nodes_for=)`, then `app.include_router(run_router(worker, metadata=, run_filter=))`, both from `conductor_providers.fastapi`. See `docs/serving-runs.md` |
+| HTTP routes | `worker = Worker(store, nodes_for=)`, then `app.include_router(run_router(worker, metadata=, run_filter=))`, both from `conductor_providers.fastapi`; routes of your own that call the worker go on `APIRouter(route_class=RefusalRoute)`, so they refuse as the router does. See `docs/serving-runs.md` |
 | HTTP routes of your own | the same `Worker`, called from your routes and entered with `worker.serving()` in the lifespan. See `docs/serving-runs.md#without-the-router` |
 
 ## Common mistakes

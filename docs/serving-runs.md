@@ -316,12 +316,12 @@ The router is a thin layer over the `Worker`, and you can call the worker from r
 ```python
 from typing import Any
 
-from conductor import GraphRecord, InvalidCallError
-from conductor_providers.fastapi import RunView
+from conductor import GraphRecord
+from conductor_providers.fastapi import RefusalRoute, RunView
 from fastapi import APIRouter, Body, HTTPException
 
 saved_graphs: dict[str, GraphRecord] = {}  # yours: the graphs you offer
-own_routes = APIRouter(prefix="/saved")
+own_routes = APIRouter(prefix="/saved", route_class=RefusalRoute)
 
 
 @own_routes.post("/{name}/runs", status_code=202)
@@ -333,11 +333,8 @@ async def start_saved_graph(
 ) -> RunView:
     if name not in saved_graphs:
         raise HTTPException(404, "There is no saved graph by that name.")
-    try:
-        created = await worker.create(saved_graphs[name], inputs, metadata, allows=allows)
-        return await worker.resume(created.id, allows=allows)
-    except InvalidCallError as refused:
-        raise HTTPException(422, [problem.model_dump(mode="json") for problem in refused.problems]) from None
+    created = await worker.create(saved_graphs[name], inputs, metadata, allows=allows)
+    return await worker.resume(created.id, allows=allows)
 
 
 app.include_router(own_routes)
@@ -345,7 +342,7 @@ app.include_router(own_routes)
 
 Starting a run takes two calls. `worker.create` only stores the run, and `worker.resume` starts it. `POST /runs` makes both. The split is there for a route that stores the run inside a database transaction of its own, with other rows of yours: call `create` inside the transaction and `resume` after it commits. That works only when your store's `create` writes through that same transaction, for example with the session your request keeps in a context variable; a store that opens its own connection commits the row at once. If the transaction is rolled back and tried again, the first try leaves nothing behind and starts nothing. A run you store and never resume still starts: the next sweep of any serving worker picks it up, within a third of the `lease` (10 seconds by default). `worker.again` stores a run the same way, for `resume` to start. Both routes resume with your run filter, so if your filter turns away the run the request has just stored, the request answers 404 `no_such_run`, and the run is stored and started by the sweep all the same.
 
-The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. An `InvalidCallError` is also pydantic's `ValidationError`, so a route that catches pydantic's errors too catches `InvalidCallError` first. The run this route starts is read, answered and followed through the router's routes.
+The worker refuses a call with conductor's `InvalidCallError`. `RefusalRoute`, the route class the router's own routes use, answers it on your routes too, as [When a call is refused](#when-a-call-is-refused) says: a 404 for `no_such_run`, a 409 for `run_not_resumable` and a 422 for the rest, with a request FastAPI refuses answered without the value it refused. So the route above has no `try`. An `InvalidCallError` is also pydantic's `ValidationError`, so a route that catches pydantic's errors itself catches `InvalidCallError` first. The run this route starts is read, answered and followed through the router's routes.
 
 Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Each of them takes your run filter as `allows=`, as the router passes it, and turns away a run the request may not see. So do `create` and `estimate`, which test it on a `previous` run, if you give one. With no logins, pass `allows=lambda metadata: True`. Following a run's events takes two steps: awaiting `worker.events(...)` checks the run, so a run that isn't there is refused before you start, and then you iterate what it gives:
 

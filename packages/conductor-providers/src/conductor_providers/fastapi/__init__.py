@@ -7,19 +7,20 @@ as who started it, and ``run_filter`` says which runs a request may see::
     app = FastAPI()
     app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs))
 
-Or call the ``Worker`` from routes of your own. Any number of workers can serve
-runs against one store: each takes over the runs of a worker that died, and a
-worker that shuts down hands its runs back.
+Or call the ``Worker`` from routes of your own, on ``APIRouter(route_class=RefusalRoute)``, so that they refuse a
+call as the router's routes do. Any number of workers can serve runs against one store: each takes over the runs of a
+worker that died, and a worker that shuts down hands its runs back.
 """
 
 from conductor_providers.fastapi.problems import SERVING_PROBLEMS
-from conductor_providers.fastapi.router import run_router
+from conductor_providers.fastapi.router import RefusalRoute, run_router
 from conductor_providers.fastapi.state import RunView
 from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
 from conductor_providers.fastapi.worker import Worker
 
 __all__ = [
     "run_router",
+    "RefusalRoute",
     "Worker",
     "RunStore",
     "StoredRun",
