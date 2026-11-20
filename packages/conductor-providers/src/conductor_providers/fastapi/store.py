@@ -226,9 +226,11 @@ class RunStore(Protocol):
 
 
 class StoreFailedError(Exception):
-    """A method of the host's store raised.
+    """A method of the host's store raised, which the worker reads as an outage and never as the run's fault.
 
-    The worker reads this as an outage: it gives the run up and lets its lease run out, and never fails the run.
+    A ``Worker`` method that reads or writes the store raises it, so a host's own route can answer it, such as with
+    a 503. A run the worker is resuming when the store fails is given up and its lease left to run out, so another
+    worker takes it; the run doesn't fail.
 
     Attributes:
         method: The method that raised, such as ``"update"``.

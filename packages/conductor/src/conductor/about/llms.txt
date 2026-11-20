@@ -1308,6 +1308,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - A lease, renewed while a run is running, lets another worker resume a dead worker's run from its last `run_checkpoint`.
 - A deploy hands its runs back (`run.stream(hand_back=)`), each stored as it is, still `running`.
 - A raise from the store fails no run. The worker gives the run up, and once the lease runs out another worker goes on with it.
+- A `conductor_providers.fastapi.Worker` method whose store call raises raises `conductor_providers.fastapi.StoreFailedError`, which names the store method (`method`) and what it raised (`error`); a route of a host's own can answer it, and `run_router` lets it out as a 500.
 
 **Refusals.**
 
