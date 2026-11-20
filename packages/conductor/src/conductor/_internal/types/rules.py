@@ -24,7 +24,15 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import CoreSchema, PydanticSerializationError, SchemaValidator, core_schema
 
-from conductor._internal.base import JSON_CORE_CONFIG, canonical_json, plain_json, validate_as_json
+from conductor._internal.base import (
+    HOSTS_OWN_CLASSES,
+    JSON_CORE_CONFIG,
+    canonical_json,
+    plain_json,
+    under_definitions,
+    validate_as_json,
+    with_schemas_in,
+)
 from conductor._internal.problem import NodeDeclarationError, conductor_error, declaration_problems
 
 from .hint import a_number
@@ -38,16 +46,6 @@ def _not_a_bool(value: Any) -> Any:
     if value is True or value is False:
         raise conductor_error("bool_is_not_a_number", "a yes or no is not a number")
     return value
-
-
-#: The keys of a core schema whose values the walk leaves alone: ``serialization`` and ``metadata`` are not schemas
-#: that check a value, and ``keys_schema`` checks a dict's key, which is text in JSON and so never a yes or no.
-#: Pydantic reads a key like ``"1"`` from its text only when the key's schema is its own, so a guard around it
-#: would refuse every key of ``dict[int, str]`` given as JSON.
-_NOT_VALIDATORS = frozenset({"serialization", "metadata", "keys_schema"})
-
-#: The core schema types of a host's own model or dataclass. Pydantic checks their fields by the host's own rules.
-_HOSTS_OWN = frozenset({"model", "dataclass"})
 
 
 def with_rules(schema: CoreSchema) -> CoreSchema:
@@ -66,47 +64,36 @@ def with_rules(schema: CoreSchema) -> CoreSchema:
     return walked
 
 
-def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
-    """Returns ``schema``, or a part of one, with every number in it set to refuse a ``bool``.
+def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
+    """Returns a core schema with every number in it set to refuse a ``bool``.
 
     It walks down through the schema, wraps each number schema it finds with ``_guarded``, and checks each ``literal``
     and ``enum`` schema's named values (``_check_named_values``).
 
     Args:
-        schema: A core schema, or a list, tuple or other value found inside one.
+        schema: A core schema.
         definitions: The schemas pydantic declared beside the schema, such as a ``TypedDict``'s or an enum's, by
             their ``ref``. The walk looks a reference up here to see what it points to.
 
     Raises:
         NodeDeclarationError: ``named_value_invalid``, from ``_check_named_values``.
     """
-    if isinstance(schema, list):
-        return [_walked(part, definitions) for part in schema]
-    if isinstance(schema, tuple):
-        return tuple(_walked(part, definitions) for part in schema)
-    if not isinstance(schema, dict):
-        return schema
-    kind = schema.get("type")
-    if not isinstance(kind, str):  # not a schema but fields by name, and one may be named "type"
-        return {key: _walked(part, definitions) for key, part in schema.items()}
-    if kind in _HOSTS_OWN or _walked_already(schema):
+    kind = schema["type"]
+    if kind in HOSTS_OWN_CLASSES or _walked_already(schema):
         return schema
     # Walk each declared schema once, here. A declared number is kept as it is: each reference to it is wrapped.
     if kind == "definitions":
-        declared = {
-            **definitions,
-            **{definition["ref"]: definition for definition in schema["definitions"]},
-        }
-        for definition in schema[
-            "definitions"
-        ]:  # a declared enum is checked here, since a number isn't walked into
+        inner, declared_here = under_definitions(schema)
+        declared = {**definitions, **declared_here}
+        # a declared enum is checked here, since a number isn't walked into
+        for definition in declared_here.values():
             _check_named_values(definition)
         return {
             **schema,
-            "schema": _walked(schema["schema"], declared),
+            "schema": _walked(inner, declared),
             "definitions": [
                 definition if _a_number_schema(definition) else _walked_inside(definition, declared)
-                for definition in schema["definitions"]
+                for definition in declared_here.values()
             ],
         }
     if kind == "definition-ref":
@@ -118,7 +105,7 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
     return _walked_inside(schema, definitions)
 
 
-def _check_named_values(schema: dict[str, Any]) -> None:
+def _check_named_values(schema: Mapping[str, Any]) -> None:
     """Refuses a ``literal`` or ``enum`` schema whose named values don't each read back from their own JSON.
 
     Each value is written as JSON and read back by the schema, as a saved run or an answer reads it
@@ -181,15 +168,19 @@ def _check_named_values(schema: dict[str, Any]) -> None:
         )
 
 
-def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:
-    """Returns ``schema`` with every schema inside it walked, and ``schema``'s own type kept."""
-    return {
-        key: part if key in _NOT_VALIDATORS else _walked(part, definitions)
-        for key, part in schema.items()
-    }
+def _walked_inside(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:
+    """Returns ``schema`` with every schema inside it walked, and ``schema``'s own type kept.
+
+    A dict's ``keys_schema`` is left alone: a key is text in JSON, and so never a yes or no. Pydantic reads a key
+    like ``"1"`` from its text only when the key's schema is its own, so a guard around it would refuse every key of
+    ``dict[int, str]`` given as JSON.
+    """
+    return with_schemas_in(
+        schema, lambda part, key: part if key == "keys_schema" else _walked(part, definitions)
+    )
 
 
-def _walked_already(schema: dict[str, Any]) -> bool:
+def _walked_already(schema: Mapping[str, Any]) -> bool:
     """Whether ``_guarded`` already made ``schema``, so that a schema walked twice is only wrapped once."""
     return schema["type"] == "function-before" and schema["function"]["function"] is _not_a_bool
 
