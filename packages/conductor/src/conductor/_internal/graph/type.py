@@ -38,7 +38,7 @@ from conductor._internal.context import ContextValidator
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
-from conductor._internal.record import GraphRecord
+from conductor._internal.record import GraphRecord, RecordValidator
 from conductor._internal.utils import plural
 
 from .describe import (
@@ -131,7 +131,9 @@ class Graph[C]:
         # compile.py imports this module when it loads, so this module imports it here, not at the top
         from .compile import Compiler
 
-        return Compiler(registry, inside_subgraphs=(), compiled_subgraphs={}).compile(record)
+        return Compiler(
+            RecordValidator()(record), registry, inside_subgraphs=(), compiled_subgraphs={}
+        ).compile()
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else plural(len(self.problems), "problem")

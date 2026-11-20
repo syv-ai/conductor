@@ -71,7 +71,6 @@ from conductor._internal.record import (
     GraphInputEntry,
     GraphRecord,
     NodeRecord,
-    RecordValidator,
     SourcesEntry,
 )
 from conductor._internal.types import Type, choices_in_message
@@ -116,7 +115,7 @@ class _InputPlans:
 
 
 class Compiler:
-    """Compiles one graph record.
+    """Compiles one graph record, which ``RecordValidator`` has read.
 
     It compiles the nodes one at a time, each after the nodes it reads from, and keeps what it has found so far. A
     subgraph used as a node is compiled by a ``Compiler`` of its own.
@@ -140,31 +139,27 @@ class Compiler:
 
     def __init__(
         self,
+        record: GraphRecord,
         definitions: Definitions[Any],
         inside_subgraphs: tuple[str, ...],
         compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], Graph[Any]],
     ) -> None:
-        self.definitions = definitions
+        self.record, self.definitions = record, definitions
         self.inside_subgraphs, self.compiled_subgraphs = inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
         self.taken_first: dict[str, tuple[str, Field]] = {}
         self.used_two_ways: set[str] = set()
-        self.record = GraphRecord()
-        self.position: dict[str, int] = {}
+        # the record doesn't order its nodes, so ties go by id
+        self.position = {node_id: i for i, node_id in enumerate(sorted(record.nodes))}
 
-    def compile(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> Graph[Any]:
-        """Compiles ``record`` and returns the graph.
+    def compile(self) -> Graph[Any]:
+        """Compiles the record and returns the graph.
 
         A wrong record doesn't raise. The graph gets the problems, and every node whose inputs and outputs could be
         worked out. A node whose definition isn't found, or whose hook failed, is left out.
-
-        Raises:
-            InvalidCallError: ``record`` doesn't have the shape of a graph record (``invalid_record``).
         """
-        self.record = RecordValidator()(record)
-        ids = sorted(self.record.nodes)  # the record doesn't order its nodes, so ties go by id
-        self.position = {node_id: i for i, node_id in enumerate(ids)}
+        ids = list(self.position)  # the node ids, sorted
         edges_into = {node_id: _edges_into(self.record.nodes[node_id]) for node_id in ids}
         for node_id in self._order(ids, edges_into):
             node_record = self.record.nodes[node_id]
@@ -419,8 +414,11 @@ class Compiler:
         key = (definition.id, definition.version, stack)
         if key not in self.compiled_subgraphs:
             self.compiled_subgraphs[key] = Compiler(
-                self.definitions, inside_subgraphs=stack, compiled_subgraphs=self.compiled_subgraphs
-            ).compile(definition.graph)
+                definition.graph,
+                self.definitions,
+                inside_subgraphs=stack,
+                compiled_subgraphs=self.compiled_subgraphs,
+            ).compile()
         inner = self.compiled_subgraphs[key]
         if inner.problems:
             self.problems += [
