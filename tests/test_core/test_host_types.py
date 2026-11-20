@@ -34,6 +34,7 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     ByteSize,
+    ConfigDict,
     FtpUrl,
     HttpUrl,
     IPvAnyAddress,
@@ -779,8 +780,11 @@ def test_a_series_of_rows_with_a_hosts_class_in_a_cell_runs_and_its_saved_run_re
     assert Run.from_json(run.to_json(), graph).outputs == {"result": [value]}
 
 
-def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs() -> None:
-    """A node may return a table for a Series of rows whose cell is a model, as for any other row."""
+def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs_and_keeps_the_cell_as_its_fields() -> (
+    None
+):
+    """A node may return a table for a Series of rows whose cell is a model. The table keeps the cell as polars does,
+    a struct, so each row's cell is the model's fields as a dict."""
 
     @node("rows", title="Rows", description="For a test.")
     def rows() -> Series[MoneyRow]:
@@ -791,7 +795,7 @@ def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs() -> 
     graph = Graph.compile(make_graph(rows), registry)
     run = graph.run({})
 
-    assert run.status == "complete"
+    assert run.outputs == {"result": [{"money": {"amount": 1.0}}]}
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
@@ -816,3 +820,61 @@ def test_a_node_whose_two_outputs_hold_the_same_model_returns_both() -> None:
         "paid": row,
         "owed": row,
     }
+
+
+@host_type("label", title="Label")
+@dataclasses.dataclass(frozen=True)
+class Label:
+    text: str
+
+
+class StrippedRow(TypedDict):
+    __pydantic_config__ = ConfigDict(str_strip_whitespace=True)
+    label: Label
+
+
+class LabelRow(TypedDict):
+    label: Label
+
+
+def test_a_plain_dataclass_in_a_row_is_read_by_the_rows_config_and_its_saved_run_reads_back_as_itself() -> (
+    None
+):
+    """A plain dataclass takes the config of the row it sits in, whether a person answers the rows or a saved run
+    reads them back."""
+
+    @node("labels", title="Labels", description="For a test.", asks=True)
+    def labels() -> Series[StrippedRow]:
+        raise Ask("Which labels?")
+
+    registry = NodeRegistry()
+    registry.add(labels)
+    graph = Graph.compile(make_graph(labels), registry)
+    run = graph.run({})
+    run = run.with_answers(run.waiting[0], [{"label": {"text": "  a  "}}]).resume()
+
+    assert run.outputs == {"result": [{"label": Label("a")}]}
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+@dataclasses.dataclass
+class _StrippedAndKept:
+    stripped: StrippedRow
+    kept: LabelRow
+
+
+def test_a_return_whose_two_outputs_hold_one_plain_dataclass_under_two_configs_is_checked() -> None:
+    """Each output of a return is checked by its own type, so two rows of different configs may hold one plain
+    dataclass, which pydantic builds under each row's config."""
+    stripped: StrippedRow = {"label": Label("a")}
+    kept: LabelRow = {"label": Label("b")}
+
+    @node("two-labels", title="Two labels", description="For a test.")
+    def two_labels() -> _StrippedAndKept:
+        return _StrippedAndKept(stripped=stripped, kept=kept)
+
+    registry = NodeRegistry()
+    registry.add(two_labels)
+    graph = Graph.compile(make_graph(two_labels), registry)
+
+    assert graph.run({}).outputs == {"stripped": stripped, "kept": kept}
