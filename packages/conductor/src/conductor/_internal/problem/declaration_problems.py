@@ -782,10 +782,8 @@ def invalid_declaration_argument(
     person reads in a palette, so it isn't empty or only whitespace (``blank_text``). ``@host_type`` put above a class
     conductor names itself, such as ``HttpUrl``, is refused too (``conductors_own_type``, at ``loc`` ``["cls"]``, the
     class): declare a subclass of it to give it an id of your own. So is ``@host_type`` put above a dataclass that
-    isn't ``frozen=True``, or a pydantic model whose config isn't (``type_not_frozen``, at ``loc`` ``["cls"]``), since
-    a node never changes a value it is given: declare it with ``@dataclass(frozen=True)`` or
-    ``model_config = ConfigDict(frozen=True)``, and make a changed value with ``dataclasses.replace`` or
-    ``model_copy(update=...)``.
+    isn't ``frozen=True``, or a pydantic model whose config isn't (``type_not_frozen``, at ``loc`` ``["cls"]``); why
+    is in ``python -m conductor.about types``.
 
     ``ctx.errors`` has every fault of the arguments, and ``ctx.reason``, which the message quotes, names each after
     its argument, so one run finds them all. Each fault has pydantic's code, one of the codes above, or ``not_a_node``

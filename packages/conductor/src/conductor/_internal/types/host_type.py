@@ -11,8 +11,7 @@ host names a class of its own with ``@host_type``::
         amount: float
 
 A field typed ``Money`` then has the id ``"money"`` in ``describe()``, and an editor shows "Money". The decorator
-checks the declaration right away and stores it on the class, where ``declaration_of`` finds it. A dataclass or a
-pydantic model is declared frozen, since a node never changes a value it is given.
+checks the declaration right away and stores it on the class, where ``declaration_of`` finds it.
 """
 
 from __future__ import annotations
@@ -241,9 +240,7 @@ def host_type[C: type](
     stored on the class and would rename it for every registry. Declare a subclass of it instead, which is a type of
     your own.
 
-    A dataclass is declared with ``@dataclass(frozen=True)``, and a pydantic model with
-    ``model_config = ConfigDict(frozen=True)``, since a node never changes a value it is given. A node that needs a
-    changed value makes one with ``dataclasses.replace`` or ``model_copy(update=...)``.
+    A dataclass or a pydantic model is declared frozen; why is in ``python -m conductor.about types``.
 
     A subclass of ``str``, ``int`` or another class conductor names needs nothing more. A value is checked as the
     parent class, then made into the subclass. A subclass doesn't inherit its parent's declaration, so declare it
@@ -328,9 +325,7 @@ def _class_fault(cls: type) -> PydanticCustomError | None:
     A class conductor names itself is ``conductors_own_type``. The declaration is stored on the class, so it would
     rename the class for every registry.
 
-    A dataclass that isn't ``frozen=True``, or a pydantic model whose config isn't, is ``type_not_frozen``. Every
-    node that reads a value gets the same object, and so does the run that keeps it, so a node never changes a value
-    it is given. A frozen class refuses a new value for a field. It is shallow: a list in a field can still change.
+    A dataclass that isn't ``frozen=True``, or a pydantic model whose config isn't, is ``type_not_frozen``.
     """
     if cls in NAMES or cls in READ_AS:
         return conductor_error(
@@ -349,9 +344,8 @@ def _class_fault(cls: type) -> PydanticCustomError | None:
         return None
     return conductor_error(
         "type_not_frozen",
-        "{cls} isn't frozen, so a node could change a value that every node reading it shares; declare it with "
-        "@dataclass(frozen=True), or with model_config = ConfigDict(frozen=True) on a pydantic model, and make a "
-        "changed value with dataclasses.replace or model_copy(update=...)",
+        "{cls} isn't frozen; declare it with @dataclass(frozen=True), or with model_config = ConfigDict(frozen=True) "
+        "on a pydantic model, and make a changed value with dataclasses.replace or model_copy(update=...)",
         {"cls": cls.__qualname__},
     )
 
