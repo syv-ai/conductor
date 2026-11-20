@@ -57,7 +57,7 @@ def read_as_output(value_type: Type, value: Any) -> Any:
 
 def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
     """Reads ``value`` by ``value_type`` strictly, the way ``validator``, one of the type's two checks, reads the
-    same value sent as JSON text (``read_as_json_text``).
+    same value sent as JSON text (``read_entering_value``).
 
     A frame given where the type is a table, or a union with one (a type with a ``row``), is read as it is,
     strictly, as a node's return is: the table's own rules make it read as its JSON would, and it keeps only the
@@ -71,7 +71,7 @@ def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
         value: The value given.
 
     Raises:
-        ValidationError: As ``read_as_json_text`` raises it, with the type's id as its title, or ``finite_number``
+        ValidationError: As ``read_entering_value`` raises it, with the type's id as its title, or ``finite_number``
             for a float cell of a frame that isn't finite.
     """
     if isinstance(value, pl.DataFrame) and any(
@@ -82,14 +82,17 @@ def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
                 value_type.id, [{"type": "finite_number", "loc": (column,), "input": value}]
             )
         return _checked(value_type.id, value, lambda: validator.validate_python(value, strict=True))
-    return read_as_json_text(validator, value, title=value_type.id)
+    return read_entering_value(validator, value, title=value_type.id)
 
 
-def read_as_json_text(validator: SchemaValidator, value: Any, *, title: str) -> Any:
-    """Reads ``value`` strictly by ``validator``, the way it reads the same value sent as JSON text.
+def read_entering_value(validator: SchemaValidator, value: Any, *, title: str) -> Any:
+    """Reads a value that enters a graph strictly by a bare validator, held to the rules of such a value.
 
-    The two readers above read a value by a type through it, and a type's choices are read by it too
-    (``declared_choices``), since a choice is given as an answer is.
+    It reads ``value`` the way ``validator`` reads the same value sent as JSON text, with every rule this module
+    names: a number that isn't finite, a set and a value with no JSON form are refused, and a host's object is
+    written by its own class's schema. ``read_as_argument`` and ``read_as_output`` read a value by a type through
+    it. A type's choices are read by it too (``declared_choices``), since a choice is given as an answer is, by a
+    validator that may hold more checks than the type's own.
 
     The value is written as JSON text (``json_text``) and read back strictly, a host's object written by its own
     class's schema (``json_by_its_class``), as a value of its type is. A number in it must be finite: pydantic's
@@ -155,8 +158,8 @@ def _written(value: Any) -> Any:
     """
     if isinstance(value, pl.DataFrame):
         raise no_json_form(
-            "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list "
-            "with one object per row"
+            "a frame is read as it is only where a run is given it for a table, or a union with one; anywhere else,"
+            " such as a constant or a choice, give its rows as a list with one object per row"
         )
     return json_by_its_class(value)
 

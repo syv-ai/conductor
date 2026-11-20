@@ -2503,8 +2503,8 @@ def test_a_table_as_a_constant_is_refused_at_the_call_and_the_reason_says_to_wri
     (problem,) = refused.value.problems
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
     assert problem.ctx["reason"] == (
-        "a frame is read only where a run is given it for a table, or a union with one: give its rows as a list with"
-        " one object per row"
+        "a frame is read as it is only where a run is given it for a table, or a union with one; anywhere else, such"
+        " as a constant or a choice, give its rows as a list with one object per row"
     )
     assert [error["type"] for error in problem.ctx["errors"]] == ["no_json_form"]
 

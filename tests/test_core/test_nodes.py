@@ -42,6 +42,7 @@ from annotated_types import (
 from conductor import (
     JSON_CONFIG,
     SKIPPED,
+    Ask,
     Choice,
     Deprecation,
     ExternalError,
@@ -2884,6 +2885,30 @@ def test_a_default_or_a_choice_that_is_not_finite_is_refused_where_the_node_is_d
     ]
 
 
+def test_a_default_or_a_choice_a_hosts_check_raises_on_is_refused_as_value_error() -> None:
+    """A host's own check may raise something other than pydantic's error, such as ``float(None)``'s
+    ``TypeError``. For a default and a choice alike, that is a refusal where the node is declared, not a crash."""
+
+    def cannot_check(value: float) -> float:
+        return float(None)  # type: ignore[arg-type]
+
+    def with_default(limit: Annotated[float, AfterValidator(cannot_check)] = 1.0) -> str:
+        return str(limit)
+
+    def with_choice(
+        limit: Annotated[float, AfterValidator(cannot_check), Param(choices=[1.0])],
+    ) -> str:
+        return str(limit)
+
+    refused = []
+    for wrong in (with_default, with_choice):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        (problem,) = raised.value.problems
+        refused.append((problem.type, [error["type"] for error in problem.ctx["errors"]]))
+    assert refused == [("default_invalid", ["value_error"]), ("choices_invalid", ["value_error"])]
+
+
 @host_type("Shade", title="Shade")
 class Shade:
     """A host's value pydantic can write only by its own class's schema, as pydantic-extra-types' ``Color`` is."""
@@ -2918,6 +2943,13 @@ def test_a_choice_of_a_hosts_class_is_written_by_its_own_schema_as_its_default_i
     (described,) = definition.describe().inputs
     assert [choice.id for choice in described.choices or ()] == ["red", "blue"]
     assert compiled_graph(definition).run().outputs == {"result": "red"}
+
+    def tint(text: str) -> Shade:
+        raise Ask("Which shade?", choices=[Shade("red"), Shade("blue")])
+
+    asking = declared(tint, asks=True)
+    (question,) = compiled_graph(asking).run({"text": "wall"}).waiting[0].questions
+    assert [choice.id for choice in question.choices or ()] == ["red", "blue"]
 
 
 @pytest.mark.parametrize(

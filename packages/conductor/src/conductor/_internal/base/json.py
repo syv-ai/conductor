@@ -162,6 +162,12 @@ def validate_as_json(
     refuses a date given as text, and ``validate_strings`` takes ``"yes"`` as ``True``. So the value is written as
     JSON text first (``json_text``), and then the text is checked.
 
+    It is only that step. A value that enters a graph, such as a caller's input, an answer or a choice, is read by
+    the readers in ``types/``, which add the rules for such a value: a number that isn't finite, a set and a value
+    with no JSON form are refused, and a host's object is written by its own class's schema. This step is for a
+    value that must read back as itself whatever those rules say, such as a ``Literal``'s value, and for an answer a
+    host keeps, which is read again when it is given to the run.
+
     Args:
         validator: Pydantic's validator for the type.
         value: The value to check.
