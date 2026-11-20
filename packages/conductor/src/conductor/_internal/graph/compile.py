@@ -84,6 +84,7 @@ from .input import (
     GraphInput,
     Input,
     MissingInput,
+    inside_a_subgraph_node,
 )
 from .node import (
     CompiledFunctionNode,
@@ -628,11 +629,7 @@ class Compiler:
             series = [loops[-1], node_input.loops[-1]]
             reading = next(n for n, other in inputs.items() if other.loops == loops)
             subgraphs = list(
-                dict.fromkeys(
-                    node[0]
-                    for node, _ in series
-                    if isinstance(self.nodes[node[0]], CompiledSubgraphNode)
-                )
+                dict.fromkeys(node[0] for node, _ in series if inside_a_subgraph_node(node))
             )
             if subgraphs:
                 self.problems.append(
@@ -1221,7 +1218,7 @@ def _field_type(value_type: Type, name: str) -> Type | None:
 
 def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch]:
     """Returns the branches of nodes drawn in the graph being compiled, leaving out those inside subgraph nodes."""
-    return frozenset(branch for branch in branches if len(branch.node) == 1)
+    return frozenset(branch for branch in branches if not inside_a_subgraph_node(branch.node))
 
 
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:

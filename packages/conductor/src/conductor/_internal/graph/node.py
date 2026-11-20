@@ -151,6 +151,11 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
     definition: FunctionDefinition[..., Any]
 
+    @property
+    def asks(self) -> bool:
+        """Whether the node may stop to ask a person, as its ``@node(asks=True)`` says."""
+        return self.definition.asks
+
     def code_fingerprint(self, outer_loops: tuple[tuple[NodePath, str], ...]) -> str:
         """Returns a short hash of what a call's outputs depend on, besides its arguments.
 
@@ -280,6 +285,11 @@ class CompiledSubgraphNode(_CompiledNodeBase):
 
     definition: SubgraphDefinition
     inner: Graph[Any]
+
+    @property
+    def asks(self) -> bool:
+        """Whether any function node inside the subgraph may stop to ask a person, at any depth (``inner.asks``)."""
+        return self.inner.asks
 
     def edge_reading(self, output: str) -> Edge:
         """Returns the edge that reads the whole of ``output``.

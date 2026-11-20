@@ -148,6 +148,17 @@ def path_in_outer_graph(subgraph_path: NodePath, node_path: NodePath) -> NodePat
     return (*subgraph_path, *node_path)
 
 
+def inside_a_subgraph_node(node_path: NodePath) -> bool:
+    """Returns whether the function node at ``node_path`` is inside a subgraph node, not drawn in the graph itself.
+
+    A path always names a function node. One drawn in the graph is named by its id alone, like ``("split",)``. One
+    inside a subgraph node is named with the subgraph node's path in front (``path_in_outer_graph``), like
+    ``("loud", "split")``. So a path of more than one part is inside a subgraph node, and its first part is that
+    subgraph node's id.
+    """
+    return len(node_path) > 1
+
+
 # -- how an input gets its value ----------------------------------------------------------------
 
 

@@ -198,10 +198,7 @@ class Graph[C]:
         A node says it may with ``asks=True``. Only the nodes that compiled are read, so it is certain only for a
         graph with no problems.
         """
-        return any(
-            node.inner.asks if isinstance(node, CompiledSubgraphNode) else node.definition.asks
-            for node in self._nodes.values()
-        )
+        return any(node.asks for node in self._nodes.values())
 
     def describe(self) -> GraphDescription:
         """Returns the graph as an editor draws it.
