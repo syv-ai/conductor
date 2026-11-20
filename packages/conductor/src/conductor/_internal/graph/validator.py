@@ -39,6 +39,7 @@ from conductor._internal.problem import (
     call_problems,
     compile_problems,
 )
+from conductor._internal.table import own_copy
 from conductor._internal.types import Type
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, read_as_json
@@ -79,7 +80,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     def __call__(self, given: Mapping[Any, Any]) -> dict[str, Any]:
         """Checks ``given`` and returns the value of every graph input, by name, in the graph's order.
 
-        Each value is the caller's, read by the input's type, or else the input's default.
+        Each value is the caller's, read by the input's type, or else a copy of the input's default.
 
         Args:
             given: What the caller gave, each value under its input's name.
@@ -106,7 +107,8 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
             elif field.default is REQUIRED:
                 problems.append(call_problems.missing_input("inputs", name, name=name))
             else:
-                values[name] = field.default  # the default itself, never a copy
+                # the run's own copy, so a node that changes it can't change a later run
+                values[name] = own_copy(field.default)
         if problems:
             raise InvalidCallError(problems)
         return values
