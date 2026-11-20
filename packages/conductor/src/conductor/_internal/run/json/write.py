@@ -21,7 +21,6 @@ from conductor._internal.types import Type
 from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
-from ..reuse import ReusableOutcomes
 from .codec import saved_type
 from .type import (
     SAVED_DONE,
@@ -116,9 +115,9 @@ def saved_run(run: Run) -> SavedRun:
     }
     saved_reusables = {}
     for path, node in function_nodes.items():
-        if path in reusable.reused_freely or path in reusable.reused_in_item_order:
+        if entries := reusable.entries(path):
             saved_reusables[names[path]] = saved_reusable(
-                codec.reusable_classes[names[path]], node.compiled_node.outputs, reusable, path
+                codec.reusable_classes[names[path]], node.compiled_node.outputs, entries
             )
     return codec.model_construct(
         graph=run.graph.fingerprint,
@@ -220,31 +219,21 @@ def saved_outcomes[S: SavedOutcomes](
 def saved_reusable(
     saved_class: type[SavedReusable],
     outputs: Mapping[str, Field],
-    reusable: ReusableOutcomes,
-    path: NodePath,
+    entries: list[tuple[ItemIndexes, Done | Unanswered]],
 ) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run, the way a saved run writes them.
 
-    ``SavedReusable`` shows the JSON. Each outcome is written once, grouped by its call's fingerprint, which it
-    keeps. The first written with a fingerprint is the one any call with it reuses, and the outcomes of a node that
-    may ask are written in the order its calls take them.
+    ``SavedReusable`` shows the JSON. The outcomes are written in the order ``ReusableOutcomes.entries`` gives
+    them, each with the item indexes its call had.
 
     Args:
         saved_class: The codec's class for the node's reusable outcomes.
         outputs: The node's outputs, by name.
-        reusable: The run's reusable outcomes.
-        path: The node's path.
+        entries: The outcomes, each with its call's item indexes.
     """
-    outcomes: list[Outcome | None] = []
-    item_indexes: dict[int, ItemIndexes] = {}
-    for of_fingerprint in reusable.reused_freely.get(path, {}).values():
-        for indexes, done in of_fingerprint.items():
-            item_indexes[len(outcomes)] = indexes
-            outcomes.append(done)
-    for left in reusable.reused_in_item_order.get(path, {}).values():
-        outcomes.extend(left)
+    outcomes: list[Outcome | None] = [outcome for _, outcome in entries]
     return saved_outcomes(saved_class, outputs, outcomes).model_copy(
-        update={"item_indexes": item_indexes}
+        update={"item_indexes": [item_indexes for item_indexes, _ in entries]}
     )
 
 

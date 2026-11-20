@@ -93,23 +93,22 @@ class SavedReusable(SavedOutcomes):
     the three outcomes of ``shout``. Before it has called anything, it saves them as::
 
         "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]},
-                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>"], "item_indexes": {"0": [0], "1": [1], "2": [2]}}
+                  "fingerprints": ["<fp a>", "<fp b>", "<fp c>"], "item_indexes": [[0], [1], [2]]}
 
     It has the keys of ``SavedOutcomes``, a list per output. But here a place in the lists isn't a call number of this
-    run: these are calls of the previous run. So the item indexes each call had are written beside them, by place.
+    run: these are calls of the previous run. So the item indexes each call had are written beside them, in a list of
+    their own.
 
-    Each outcome is written once. Of the outcomes with one fingerprint, the first listed is the one any call with
-    that fingerprint reuses; each other one is reused only by the call with its item indexes. A node that may ask
-    has no item indexes: its calls with one fingerprint take its outcomes in the order they are listed.
+    Each outcome is written once, and every node's the same way, whether it may ask or not. Only the order matters
+    differently. For a node that never asks, the first listed with a fingerprint is the one any call with that
+    fingerprint reuses, and each other one is reused only by the call with its item indexes. A node that may ask
+    has its outcomes with one fingerprint taken by its calls in the order listed.
 
     Attributes:
-        item_indexes: By place in the lists, the item indexes the call had in the previous run. Every outcome of a
-            node that never asks has them, and no outcome of a node that may ask.
+        item_indexes: For each outcome, the item indexes its call had in the previous run.
     """
 
-    item_indexes: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = PydanticField(
-        default_factory=dict
-    )
+    item_indexes: list[tuple[NonNegativeInt, ...]]
 
 
 class SavedRun(BaseModel):

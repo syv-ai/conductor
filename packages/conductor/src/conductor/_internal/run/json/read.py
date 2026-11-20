@@ -1,8 +1,8 @@
 """Reads a run back from the JSON that ``run.to_json()`` wrote.
 
 ``run_from_json`` is where a saved run comes in. First the graph's codec checks the whole text: every key and
-every value. Then ``outcomes_from_saved`` and ``add_reusable_from_saved`` turn each node's saved lists back into
-the outcomes a run stores. Last, ``run_from_json`` checks what only the lists together can show: that each
+every value. Then ``outcomes_from_saved`` turns each node's saved lists back into the outcomes a run stores, and
+``ReusableOutcomes.add`` keeps those of ``reusable`` that a call may still reuse. Last, ``run_from_json`` checks what only the lists together can show: that each
 node's lists are as long as its number of calls.
 """
 
@@ -11,11 +11,11 @@ from __future__ import annotations
 import dataclasses
 import re
 from collections.abc import Callable
-from typing import Any, assert_never
+from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
+from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import (
     InvalidCallError,
@@ -27,17 +27,11 @@ from conductor._internal.problem import (
 )
 from conductor._internal.series import SeriesItems
 
-from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
 from .codec import where_in
-from .type import (
-    SAVED_DONE,
-    SAVED_SKIPPED,
-    SavedOutcomes,
-    SavedReusable,
-)
+from .type import SAVED_DONE, SAVED_SKIPPED, SavedOutcomes
 
 
 def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Graph[Any]) -> R:
@@ -51,9 +45,11 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     in call-number order. The item indexes are then worked out node by node, in the order a run tries them. A
     node's item indexes follow from the lengths of the series upstream of it, and those are read by then.
 
-    The outcomes the saved run could still reuse are kept only for a node whose code is unchanged and whose
-    ``Policy`` says ``reuse_when_inputs_match`` now. So a node switched to ``reuse_when_inputs_match=False`` after the
-    save is called again for every item.
+    The outcomes the saved run could still reuse go through ``ReusableOutcomes.add``, as a run made from a previous
+    one does. So they are kept only for a node whose ``Policy`` says ``reuse_when_inputs_match`` now, and a node
+    switched to ``reuse_when_inputs_match=False`` after the save is called again for every item. One that can't be
+    reused, such as a waiting question of a node that no longer asks, is dropped. An outcome that other code made
+    is kept, but no call reuses it, since its fingerprint keeps that code.
 
     Args:
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
@@ -109,12 +105,11 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             )
         for name, saved_reusable in read.reusable.items():
             where, path = f"reusable.{name}", parse_node_path(name)
-            reusable_in_call_order = outcomes_from_saved(
-                blueprint.function_nodes[path].compiled_node, saved_reusable
-            )
-            add_reusable_from_saved(
-                reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order
-            )
+            node = blueprint.function_nodes[path]
+            reusable_outcomes = outcomes_from_saved(node.compiled_node, saved_reusable)
+            if len(saved_reusable.item_indexes) != len(reusable_outcomes):
+                raise ValueError("'item_indexes' is not as long as 'states'")
+            reusable.add(node, zip(saved_reusable.item_indexes, reusable_outcomes, strict=True))
     except ValueError as wrong:
         raise InvalidCallError([_lists_disagree(where, str(wrong))]) from None
     outcomes = RunOutcomes(blueprint, read.inputs)
@@ -127,15 +122,6 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
                 if outcome is not None:
                     outcomes.record(node, item_indexes, outcome)
-    # Outcomes that other code produced are never reused, since their fingerprints keep that code. Nor are those of
-    # a node whose Policy says reuse_when_inputs_match=False now, whatever it said when the run was saved.
-    reusable.drop(
-        [
-            path
-            for path, node in blueprint.function_nodes.items()
-            if not node.policy.reuse_when_inputs_match
-        ]
-    )
     return run_type(
         graph,
         read.max_items,
@@ -270,60 +256,3 @@ def _refuse_null_where_none_is_refused(
                 raise ValueError(
                     f"call {call_number} is done and has null for an item of '{name}', whose items take no None"
                 )
-
-
-def add_reusable_from_saved(
-    reusable: ReusableOutcomes,
-    node: BlueprintFunctionNode,
-    saved: SavedReusable,
-    in_call_order: list[Outcome | None],
-) -> None:
-    """Adds the outcomes one node may reuse from the previous run to ``reusable``, as they were saved.
-
-    Take the three saved outcomes of ``shout`` in ``SavedReusable``'s example. Each goes under the fingerprint it
-    keeps and then its item indexes, in the order they were saved, so the first saved with a fingerprint is
-    the one any call with that fingerprint reuses. For a node that may ask, each goes under its fingerprint, in the
-    order the calls with it take them.
-
-    Args:
-        reusable: The run's reusable outcomes. Added to.
-        node: The node.
-        saved: The saved outcomes, with their item indexes.
-        in_call_order: ``saved`` as ``outcomes_from_saved`` returned them.
-
-    Raises:
-        ValueError: An outcome isn't one a call made, because it is skipped, a ``None`` input or missing, or it has
-            no fingerprint. Or, for a node that never asks, an outcome has no item indexes or is a waiting question.
-    """
-    asks = node.compiled_node.definition.asks
-    reused_freely: dict[str, dict[ItemIndexes, Done]] = {}
-    in_item_order: dict[str, list[Done | Unanswered]] = {}
-    for place, outcome in enumerate(in_call_order):
-        match outcome:
-            case Done(fingerprint=str(fingerprint)) | Unanswered(fingerprint=str(fingerprint)) if (
-                asks
-            ):
-                in_item_order.setdefault(fingerprint, []).append(outcome)
-            case Done(fingerprint=str(fingerprint)):
-                item_indexes = saved.item_indexes.get(place)
-                if item_indexes is None:
-                    raise ValueError(
-                        f"outcome {place} has no 'item_indexes', and every outcome of a node that never asks has them"
-                    )
-                reused_freely.setdefault(fingerprint, {})[item_indexes] = outcome
-            case Unanswered(fingerprint=str()):
-                raise ValueError(f"outcome {place} is waiting, and the node never asks")
-            case Done() | Unanswered():
-                raise ValueError(
-                    f"outcome {place} has no fingerprint, and only a call with one is reused"
-                )
-            case Skipped() | NoneInput() | None:
-                raise ValueError(
-                    "an outcome is skipped, a None input or missing, and only an outcome of a call is reused"
-                )
-            case _:
-                assert_never(outcome)
-    if reused_freely:
-        reusable.reused_freely[node.node_path] = reused_freely
-    if in_item_order:
-        reusable.reused_in_item_order[node.node_path] = in_item_order

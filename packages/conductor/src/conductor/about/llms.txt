@@ -870,7 +870,7 @@ second = first.again({"text": "ida@a.dk\nbo@b.dk\neva@c.dk"})   # one contact ad
 
 **Forgetting.** `run.with_forgotten("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
 
-**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `with_forgotten`) calls it for every item. The policy is checked when that run is made, and again when a saved run is read: `Run.from_json` drops the outcomes a saved run could still reuse for a node whose current `Policy` says `reuse_when_inputs_match=False`, so the rule holds however the run was made.
+**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `with_forgotten`) calls it for every item. The policy is checked when that run is made, and again when a saved run is read: `Run.from_json` drops the outcomes a saved run could still reuse for a node whose current `Policy` says `reuse_when_inputs_match=False`, so the rule holds however the run was made. A saved run's reusable outcomes are kept by the same rules as a run made in memory keeps them, so one the node can't reuse now, such as a waiting question of a node whose code no longer asks, is dropped, and the saved run reads back. It is provisional.
 
 **A reused value is shared.** A call reused from the previous run hands the nodes downstream the previous run's own value, not a copy. A node must not change a value it is given; one that changes a reused value changes the previous run's results too. It is provisional.
 
@@ -980,7 +980,7 @@ assert GraphRecord.model_validate_json(text) == record
 - The run's inputs.
 - The outcome of each call of each node: its outputs, waiting (with what its `Ask` said), a `None` input, or skipped. Each output is written by the output's type, the same whether the function returned it or a person answered.
 - Each call's fingerprint, taken when the call was made, which a later run reuses its outcome by.
-- The reusable outcomes from a previous run.
+- The reusable outcomes from a previous run, in the same lists, with the item indexes each call had. Every node's are written the same way, whether it may ask or not.
 - How the last `resume()` ended.
 - Only nodes that were called are in it. So a long graph waiting at its start saves small.
 - Each output's value is written under that output. Say a node `people` returns a table, and `split` splits it. Then the table is written under both `outcomes.people.outputs.result` and `outcomes.split.outputs.result`.
