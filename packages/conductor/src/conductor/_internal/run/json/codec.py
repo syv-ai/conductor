@@ -28,6 +28,7 @@ from conductor._internal.base import (
     schemas_in,
     under_definitions,
     with_definitions,
+    with_schemas_in,
 )
 from conductor._internal.graph import Graph
 from conductor._internal.port import Port
@@ -46,16 +47,19 @@ def saved_type(output: Port) -> Type:
 
 
 class _SavedValue:
-    """The hint a saved run declares one value with: a graph input, an output's value on one call, or an answer.
+    """The hint a saved run declares one value with: a graph input, or an output's value on one call.
 
-    Pydantic checks the value by its type's argument check (``Type.argument_schema``), the one an argument gets, so
-    ``true`` saved for an ``int`` is refused.
+    A saved run is read strictly, as a value that enters a graph is (``read_as_argument``, ``read_as_output``). A
+    graph input is checked by its type's argument check (``Type.argument_schema``), and an output's value by its
+    output check (``Type.output_schema``), the one a node's return gets. So ``true`` saved for an ``int`` is refused,
+    and so is ``"Yes"`` saved for an output whose type a deploy made a ``bool``. ``_read_strictly`` says how.
 
-    The codec's config writes ``inf`` as ``"Infinity"``, which a ``float`` reads back as the float. But a pydantic
-    model or a dataclass writes its fields by its own config, whatever schema it sits in. By default that writes
-    ``inf`` as ``null``, which a ``float`` field can't read back. So a type with a model or dataclass inside is
-    written the way ``Type.to_json`` writes it: first as Python's JSON values, which keep the float, then as text
-    by the codec's config.
+    A pydantic model or a dataclass writes its fields by its own config, whatever schema it sits in. By default that
+    writes ``inf`` as ``null``, which a ``float`` field can't read back. So a type with a model or dataclass inside is
+    written the way ``Type.to_json`` writes it: first as Python's JSON values, which keep the float, then as text by
+    the codec's config. Each field is written under its name, never an alias, and ``run_from_json`` reads it by its
+    name, so a field with ``alias``, ``serialization_alias`` or ``validation_alias`` reads back as it was saved,
+    whatever the class's config says.
 
     This is a class used as the hint, rather than ``GetPydanticSchema`` inside ``Annotated``. Pydantic moves the
     definitions of a schema a hint returns up beside the whole schema. For one that ``Annotated`` returns, it leaves
@@ -67,11 +71,12 @@ class _SavedValue:
 
     __slots__ = ("schema",)
 
-    def __init__(self, value_type: Type) -> None:
-        schema = value_type.argument_schema
+    def __init__(self, value_type: Type, *, output: bool) -> None:
+        """Builds the hint of a value of ``value_type``: an output's value when ``output``, else a graph input."""
+        schema = _read_strictly(value_type.output_schema if output else value_type.argument_schema)
         if _holds_a_model(schema):
             as_json = core_schema.plain_serializer_function_ser_schema(
-                functools.partial(value_type.serializer.to_python, mode="json")
+                functools.partial(value_type.serializer.to_python, mode="json", by_alias=False)
             )
             # what pydantic defined beside the type stays beside it
             inner, definitions = under_definitions(schema)
@@ -84,6 +89,65 @@ class _SavedValue:
         self, _source: Any, _handler: GetCoreSchemaHandler
     ) -> CoreSchema:
         return self.schema
+
+
+#: The texts the codec's config writes a float that isn't finite as (``JSON_CONFIG``).
+_NOT_FINITE = ["NaN", "Infinity", "-Infinity"]
+
+
+def _read_strictly(schema: Mapping[str, Any]) -> Any:
+    """Returns a copy of a value's core schema that a saved run reads strictly, and that reads a float that isn't
+    finite back from its text.
+
+    The codec's config is strict, and so is the config of each ``TypedDict`` inside the value here, since a
+    ``TypedDict`` reads its fields by its own config. A host's own model or dataclass is left as it is: pydantic
+    reads it by the validator its class keeps, so by its own config, as conductor's rules leave its fields to it
+    (``with_rules``).
+
+    Read strictly, a ``float`` takes only a number, but the codec writes ``inf`` as ``"Infinity"``. So each
+    ``float`` here first reads a number strictly, or one of ``"NaN"``, ``"Infinity"`` and ``"-Infinity"`` laxly, as
+    the float it stands for. Any other text is refused: ``"3"`` is no ``float``. Then the float is checked by the
+    ``float`` as declared, so a limit names itself: ``"-Infinity"`` under ``ge=0`` is ``greater_than_equal``. A lax
+    read is a weaker match than a strict one, so beside ``str`` in a union, ``"NaN"`` is the text, as a node
+    returned it.
+
+    A table's cells, and a ``Series`` of rows saved as a table, are read by the table's own reader, which doesn't
+    read them strictly yet: once a deploy makes a column a ``bool``, a saved ``"Yes"`` there still reads as ``True``.
+    """
+    kind = schema["type"]
+    if kind in HOSTS_OWN_CLASSES:
+        return schema
+    if kind == "float":
+        # the chain stands for the float in the rest of the schema: it takes the float's ref and how it is written
+        as_declared: Any = {key: value for key, value in schema.items() if key != "ref"}
+        a_float = core_schema.union_schema(
+            [
+                core_schema.float_schema(),
+                core_schema.chain_schema(
+                    [
+                        core_schema.literal_schema(_NOT_FINITE),
+                        core_schema.float_schema(strict=False),
+                    ]
+                ),
+            ]
+        )
+        return core_schema.chain_schema(
+            [a_float, as_declared],
+            ref=schema.get("ref"),
+            serialization=schema.get("serialization", core_schema.simple_ser_schema("float")),
+        )
+    if kind == "definitions":
+        inner, declared = under_definitions(schema)
+        # the wrapper is copied, so any other key it has, like its metadata, is kept
+        return {
+            **schema,
+            "schema": _read_strictly(inner),
+            "definitions": [_read_strictly(one) for one in declared.values()],
+        }
+    walked = with_schemas_in(schema, lambda inside, _key: _read_strictly(inside))
+    if "config" in walked:
+        walked["config"] = {**walked["config"], "strict": True}
+    return walked
 
 
 def _holds_a_model(schema: CoreSchema) -> bool:
@@ -137,7 +201,10 @@ class _ExactKeys:
             (name, core_schema.typed_dict_field(schemas[id(hint)], required=False))
             for name, hint in self.optional.items()
         )
-        return json_typed_dict_schema(fields, extra_behavior="forbid")
+        schema = json_typed_dict_schema(fields, extra_behavior="forbid")
+        # a typed dict reads its fields by its own config, and a saved run is read strictly
+        schema["config"] = {**schema.get("config", {}), "strict": True}
+        return schema
 
 
 def run_codec(
@@ -182,7 +249,7 @@ def run_codec(
             ] = {  # hints of several kinds: pydantic's create_model takes any hint
                 "outputs": _ExactKeys(
                     {
-                        name: GenericAlias(list, (_SavedValue(value_type),))
+                        name: GenericAlias(list, (_SavedValue(value_type, output=True),))
                         for name, value_type in value_types.items()
                     }
                 ),
@@ -215,7 +282,9 @@ def run_codec(
     complete = list[Literal[names]] if names else Annotated[list[str], PydanticField(max_length=0)]  # type: ignore[valid-type]
     fields_of_run: dict[str, Any] = {  # hints of several kinds, as in fields_of_node
         "graph": Literal[fingerprint],
-        "inputs": _ExactKeys({name: _SavedValue(of_input) for name, of_input in inputs.items()}),
+        "inputs": _ExactKeys(
+            {name: _SavedValue(of_input, output=False) for name, of_input in inputs.items()}
+        ),
         "outcomes": _ExactKeys({}, outcomes_classes),
         "reusable": _ExactKeys({}, reusable_classes),
         "complete": complete,

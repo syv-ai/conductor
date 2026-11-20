@@ -122,7 +122,9 @@ class ArgumentsValidator(Validator[Mapping[str, Any], Arguments]):
             faults = argument_errors(error, arguments)
         raise InvalidCallError(
             [
-                call_problems.invalid_argument(argument, reason=errors[0]["msg"], errors=errors)
+                call_problems.invalid_argument(
+                    argument, function="make_graph", reason=errors[0]["msg"], errors=errors
+                )
                 for argument, errors in faults.items()
             ]
         )

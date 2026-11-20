@@ -420,8 +420,8 @@ field's JSON schema. On a node's input, `Param` is the only spelling: pydantic's
 Every value that enters a graph from outside (a caller's graph inputs, a person's answers, the choices an `Ask`
 offers, and the constants and defaults a graph record holds) is read strictly from its JSON form by one reader, so a
 value given from Python reads as the same value sent over HTTP or written in a record: `"3"` is no `int`, wherever it
-is given. A node's return is read strictly as the Python value it is. A value an edge carries is read laxly where the
-input asks more than its source's type promises. Either way a `bool` never counts as a number.
+is given. A node's return is read strictly as the Python value it is, and a saved run strictly from its JSON by each value's
+declared type. A value an edge carries is read laxly where the input asks more than its source's type promises. Either way a `bool` never counts as a number.
 
 Each type hint is read once into one object, and pydantic does all the validating. The one thing pydantic can't say is
 whether an output of one type may feed an input of another, so conductor walks the two types itself. Answering that

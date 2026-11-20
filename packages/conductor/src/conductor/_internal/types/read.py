@@ -3,8 +3,8 @@
 A caller's graph inputs and a person's answers may come from Python or over HTTP, a graph record's constants
 and defaults are JSON, and a node's own default is written into a record, and all must read the same. So such a
 value is read strictly, the way its JSON text would be: ``True`` is a ``bool`` and ``"yes"`` is refused, ``3`` is an
-``int`` and ``"3"`` is refused, and a ``date`` may be given as a ``date`` or as its ISO text. A saved run is read
-laxly, since conductor wrote it, and what reads strictly here reads the same there.
+``int`` and ``"3"`` is refused, and a ``date`` may be given as a ``date`` or as its ISO text. A saved run is read as
+strictly, by its own reader, which also reads a float that isn't finite back from its text.
 
 A value is read by one of its type's two checks. ``read_as_argument`` reads it as an input is read, by the type's
 ``argument_validator``: a caller's graph input, a constant, a default, a decline's reason. ``read_as_output`` reads it

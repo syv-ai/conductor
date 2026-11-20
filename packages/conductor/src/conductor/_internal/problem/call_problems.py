@@ -701,28 +701,37 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
 
 
 @CALL_PROBLEMS.problem
-def invalid_argument(argument: str, /, *, reason: str, errors: list[dict[str, Any]]) -> str:
-    """``make_graph`` is given an argument that isn't of the type its signature says, such as ``outputs=None``.
+def invalid_argument(
+    argument: str, /, *, function: str, reason: str, errors: list[dict[str, Any]]
+) -> str:
+    """A function of conductor's is given an argument that isn't of the type its signature says, such as
+    ``make_graph(outputs=None)`` or ``run.with_decline(5)``.
 
-    The nodes are definitions, or tuples of an id and a definition such as ``("a", upper)``. ``edges`` is a sequence of
-    pairs of text, such as a list of tuples. ``constants``, ``defaults`` and ``outputs`` are mappings keyed by text,
-    and ``outputs`` maps to text. ``inputs`` maps text to one place, or to a sequence of them. A sequence is any but
-    text or bytes. A set is never taken, since it has no order. A type checker finds these faults too.
+    For ``make_graph``: the nodes are definitions, or tuples of an id and a definition such as ``("a", upper)``.
+    ``edges`` is a sequence of pairs of text, such as a list of tuples. ``constants``, ``defaults`` and ``outputs``
+    are mappings keyed by text, and ``outputs`` maps to text. ``inputs`` maps text to one place, or to a sequence of
+    them. A sequence is any but text or bytes. A set is never taken, since it has no order.
 
-    To fix it, give the argument the type ``make_graph``'s signature says. ``ctx.errors`` has every fault in it, each
+    A waiting id is text, wherever a call names a waiting call by it: ``run.with_answers``, ``run.with_decline``,
+    ``graph.answers_as_json`` and ``Run.declines_as_json``. A type checker finds these faults too.
+
+    To fix it, give the argument the type the function's signature says. ``ctx.errors`` has every fault in it, each
     with pydantic's code, or ``not_a_node`` for a node, and its ``loc`` inside the argument: an index, or a key of a
     mapping. A key that isn't text is not quoted: the ``loc`` stops before it, at ``"[key]"``, and a fault in the value
     under it is left out.
 
     Args:
-        argument: The argument: ``nodes``, ``edges``, ``constants``, ``defaults``, ``inputs`` or ``outputs``.
+        argument: The argument, as the function's signature names it: ``nodes``, ``edges``, ``constants``,
+            ``defaults``, ``inputs`` or ``outputs`` of ``make_graph``, or the waiting call or the mapping keyed by
+            waiting ids.
+        function: The function, such as ``make_graph`` or ``run.with_decline``.
         reason: What is wrong with it: the message of the first error in ``errors``.
         errors: Every fault in it, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:
         refused(lambda: make_graph(upper, inputs={"text": {"upper.text"}}))  # type: ignore[dict-item]
     """
-    return f"make_graph's {argument} isn't of the type it takes: {reason}. Give it the type make_graph's signature says."
+    return f"{function}'s {argument} isn't of the type it takes: {reason}. Give it the type {function}'s signature says."
 
 
 @CALL_PROBLEMS.problem

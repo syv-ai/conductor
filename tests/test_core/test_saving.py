@@ -44,7 +44,15 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, TypeAdapter, with_config
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    TypeAdapter,
+    with_config,
+)
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
@@ -2525,3 +2533,154 @@ def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refu
         ).ctx["where"]
         == "ended_early.status"
     )
+
+
+def test_a_saved_run_whose_cause_does_not_fit_its_status_is_refused():
+    """A run that ended early keeps the problem that ended it, and each status has its own.
+
+    A failed run keeps the problem its call failed with, at that call. A stopped run keeps ``item_limit``, a cancelled
+    one ``run_cancelled`` and a timed-out one ``run_timed_out``. A saved run whose cause is another is refused.
+    """
+
+    @node("blast", title="Blast", description="Fails on 'x'.")
+    def blast(text: str) -> str:
+        if text == "x":
+            raise ValueError("no")
+        return text
+
+    graph = Graph.compile(make_graph(blast), registry_of(blast))
+    failed = json.loads(graph.run({"text": "x"}).to_json())
+    cause = failed["ended_early"]["cause"]
+    assert (failed["ended_early"]["status"], cause["type"]) == ("failed", "execution_failed")
+    assert Run.from_json(json.dumps(failed), graph).status == "failed"
+    cancelled = {"type": "run_cancelled", "loc": [], "msg": "The run was cancelled."}
+    for ended_early in (
+        {"status": "cancelled", "cause": cause},
+        {"status": "timed_out", "cause": cause},
+        {"status": "stopped", "cause": cause},
+        {"status": "failed", "cause": cancelled},
+        {"status": "timed_out", "cause": cancelled},
+    ):
+        problem = _refused(graph, {**failed, "ended_early": ended_early})
+        assert problem.ctx["where"] == "ended_early", ended_early
+    read = Run.from_json(
+        json.dumps({**failed, "ended_early": {"status": "cancelled", "cause": cancelled}}), graph
+    )
+    assert (read.status, read.cause.type) == ("cancelled", "run_cancelled")
+
+
+class _Verdict(TypedDict):
+    ok: bool
+
+
+@pytest.mark.parametrize(
+    ("before", "saved_value", "after"),
+    [
+        (str, "Yes", bool),
+        (str, "no", bool),
+        (str, "3", int),
+        (str, "1.5", float),
+        (int, 1, bool),
+        (dict[str, str], {"ok": "Yes"}, _Verdict),
+        (list[str], ["1"], list[int]),
+    ],
+)
+def test_a_saved_value_is_read_strictly_by_the_type_a_deploy_gives_its_output(
+    before: Any, saved_value: Any, after: Any
+):
+    """A saved run is read by each output's declared type as strictly as a value that enters a graph is. So once a
+    deploy changes an output to ``bool``, a saved ``"Yes"`` is refused, never read as ``True``."""
+
+    def graph_returning(returns: Any) -> Graph:
+        @node("verdict", title="Verdict", description="For a test.")
+        def verdict(text: str) -> returns:  # type: ignore[valid-type]
+            return saved_value
+
+        return Graph.compile(make_graph(verdict), registry_of(verdict))
+
+    saved = graph_returning(before).run({"text": "a"}).to_json()
+
+    problem = _refused(graph_returning(after), json.loads(saved))
+    assert problem.ctx["where"] == "outcomes.verdict.outputs.result.0"
+
+
+@pytest.mark.parametrize(
+    ("value", "limit", "code"),
+    [
+        (-math.inf, Param(ge=0), "greater_than_equal"),
+        (math.nan, Param(le=0), "less_than_equal"),
+        (math.inf, Param(lt=5), "less_than"),
+        (-1.0, Param(ge=0), "greater_than_equal"),
+    ],
+)
+def test_a_saved_float_a_deploy_s_limit_refuses_is_refused_by_that_limit(
+    value: float, limit: Param, code: str
+):
+    """A float the codec saved as text, or as a number, is held to the limit a deploy gives its output, and the
+    refusal names the limit, as it does for any value."""
+
+    def graph_returning(returns: Any) -> Graph:
+        @node("measure", title="Measure", description="For a test.")
+        def measure(text: str) -> returns:  # type: ignore[valid-type]
+            return value
+
+        return Graph.compile(make_graph(measure), registry_of(measure))
+
+    saved = graph_returning(float).run({"text": "a"}).to_json()
+
+    problem = _refused(graph_returning(Annotated[float, limit]), json.loads(saved))
+    assert (problem.ctx["where"], problem.ctx["errors"][0]["type"]) == (
+        "outcomes.measure.outputs.result.0",
+        code,
+    )
+
+
+@host_type("aliased-reading", title="Aliased reading")
+class _AliasedReading(BaseModel, frozen=True):
+    n: int = Field(alias="p")
+    m: int = Field(validation_alias="vm", serialization_alias="sm")
+    k: int = Field(serialization_alias="sk")
+
+
+@host_type("aliased-by-name", title="Aliased by name")
+class _AliasedByName(BaseModel, frozen=True):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+    n: int = Field(alias="p")
+    inner: list[_AliasedReading]
+
+
+@host_type("aliased-pair", title="Aliased pair")
+@pydantic_dataclass(frozen=True)
+class _AliasedPair:
+    left: int = Field(alias="l")
+
+
+@pytest.mark.parametrize(
+    ("returns", "value"),
+    [
+        (_AliasedReading, _AliasedReading(p=1, vm=2, k=3)),
+        (
+            _AliasedByName,
+            _AliasedByName(p=4, inner=[_AliasedReading(p=1, vm=2, k=3)]),
+        ),
+        (list[_AliasedReading], [_AliasedReading(p=5, vm=6, k=7)]),
+        (_AliasedPair, _AliasedPair(l=8)),  # type: ignore[call-arg]
+    ],
+)
+def test_a_host_type_with_aliased_fields_reads_back_from_its_save_as_it_was(
+    returns: Any, value: Any
+):
+    """A saved run writes each field of a host's model or dataclass under its name, never an alias, and reads it by
+    its name, so the run reads back as itself and writes the same bytes again."""
+
+    @node("aliased", title="Aliased", description="For a test.")
+    def aliased(text: str) -> returns:  # type: ignore[valid-type]
+        return value
+
+    graph = Graph.compile(make_graph(aliased), registry_of(aliased))
+    saved = graph.run({"text": "a"}).to_json()
+
+    back = Run.from_json(saved, graph)
+
+    assert back.results["aliased"]["result"] == value
+    assert back.to_json() == saved

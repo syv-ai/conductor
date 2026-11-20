@@ -23,6 +23,7 @@ from conductor._internal.problem import (
     Problem,
     call_problems,
     conductor_error,
+    run_problems,
     shape_error,
     value_free_errors,
 )
@@ -66,7 +67,8 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     """
     blueprint, codec = graph._blueprint, graph._codec
     try:
-        read = codec.model_validate_json(saved)
+        # a field is saved under its name, never an alias (the codec's _SavedValue), so it is read by its name
+        read = codec.model_validate_json(saved, by_alias=False, by_name=True)
     except ValidationError as error:
         first = error.errors()[0]
         # the fingerprint under "graph" is not this graph's
@@ -142,25 +144,41 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     )
 
 
+#: The one problem that ends a run early with each of these statuses: a series over the item limit stops it, a cancel
+#: cancels it, and the timeout times it out. A failed run has no such code: it ends with the problem its call failed
+#: with, and a node's ``NodeError`` may give that any code.
+_CAUSE_OF_STATUS = {
+    "stopped": run_problems.item_limit.code,
+    "cancelled": run_problems.run_cancelled.code,
+    "timed_out": run_problems.run_timed_out.code,
+}
+
+
 def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarly:
     """Returns how a saved run ended early, once it is one a run could have written.
 
     A run a decline ended keeps the call declined and no ``cause``, since its ``answer_declined`` is made from the
-    call. Any other keeps its ``cause`` and no declined call. The declined call is one the graph has, with no
-    outcome of its own any more, and its question names only outputs of the node (``_check_question``). Whether
-    the node asks isn't checked: a deploy may make it stop asking, and a run read back keeps what it did, as it keeps
-    an answered call's question.
+    call. Any other keeps its ``cause`` and no declined call. A stopped, cancelled or timed-out run keeps the one
+    problem that ends a run that way (``_CAUSE_OF_STATUS``). A failed run keeps the problem of the call that failed,
+    so its cause is at a call: its ``loc`` isn't empty, as a cancel's and a timeout's is. The declined call is one
+    the graph has, with no outcome of its own any more, and its question names only outputs of the node
+    (``_check_question``). Whether the node asks isn't checked: a deploy may make it stop asking, and a run read
+    back keeps what it did, as it keeps an answered call's question.
 
     Raises:
         ValueError: Any of that doesn't hold. The message names no value.
     """
-    declined = ended_early.declined
+    declined, cause = ended_early.declined, ended_early.cause
     if (ended_early.status == "declined") != (declined is not None):
         raise ValueError("a run keeps a declined call when, and only when, it is declined")
-    if (ended_early.cause is None) != (declined is not None):
+    if (cause is None) != (declined is not None):
         raise ValueError(
             "a declined run keeps no cause, and any other run that ended early keeps one"
         )
+    if cause is not None:
+        code = _CAUSE_OF_STATUS.get(ended_early.status)
+        if (cause.type != code) if code is not None else not cause.loc:
+            raise ValueError(f"a {ended_early.status} run can't have this cause")
     if declined is None:
         return ended_early
     node = outcomes.blueprint.function_nodes.get(declined.node_path)

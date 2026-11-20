@@ -49,6 +49,7 @@ from .type import (
     Run,
     make_run,
 )
+from .validator import WaitingIdValidator
 from .waiting import Question, Waiting
 
 __all__ = [
@@ -72,6 +73,7 @@ __all__ = [
     "RunStatus",
     "SavedRun",
     "Waiting",
+    "WaitingIdValidator",
     "codec_of",
     "make_run",
 ]

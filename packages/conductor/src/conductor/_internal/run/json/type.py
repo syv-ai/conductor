@@ -17,14 +17,15 @@ from ..outcome import Unanswered
 from ..state import EndedEarly
 
 #: The config of every class here. A key a class doesn't declare is refused, ``inf`` and ``nan`` are written as
-#: text, and ``bytes`` as base64 (``JSON_CONFIG``). The config doesn't leave defaults out: ``run_to_json`` writes with ``exclude_defaults=True``, so a key
+#: text, and ``bytes`` as base64 (``JSON_CONFIG``). A saved run is read strictly, as a value that enters a graph is,
+#: so ``"Yes"`` is never a ``bool`` and ``"3"`` never an ``int`` (the codec's ``_read_strictly``). The config doesn't leave defaults out: ``run_to_json`` writes with ``exclude_defaults=True``, so a key
 #: whose value is its default, an empty dict or list, is left out of the JSON.
 #:
 #: The classes are plain pydantic models, not ``ConductorModel``s. The codec subclasses them with the graph's own
 #: value types, and ``ConductorModel`` refuses a class with a field that has no JSON form as soon as the class is
 #: built. A node may return a host's type that has no JSON form: its run runs, and only saving it is refused, with
 #: ``run_unwritable`` naming the output.
-_SAVED = ConfigDict(**JSON_CONFIG, extra="forbid")
+_SAVED = ConfigDict(**JSON_CONFIG, extra="forbid", strict=True)
 
 #: What a saved run writes for one call's state. ``"done"`` means it has its outputs, because its function
 #: returned or a person answered. ``"skipped"`` means it was skipped. Any other call is written as ``null``.
