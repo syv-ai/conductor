@@ -338,7 +338,7 @@ class GuardedStore(Generic[M]):
             graph=graph,
             metadata=self._metadata.dump_json(metadata, by_alias=True).decode(),
             rev=0,
-            **await self._columns(False, state=state, run=run, outcome=outcome),
+            **await self._columns(holds=False, state=state, run=run, outcome=outcome),
         )
         await guarded("create", self._store.create(stored))
         return RunRow(stored, state, self._metadata)
@@ -383,7 +383,7 @@ class GuardedStore(Generic[M]):
         Returns:
             The row as written; ``None`` when another writer moved its ``rev`` on first, and nothing was written.
         """
-        columns = await self._columns(holds, state=state, run=run, outcome=outcome)
+        columns = await self._columns(holds=holds, state=state, run=run, outcome=outcome)
         if state is not None and not state.is_running:
             call_end = RunEnd(status=state.status, cause=state.cause)
         event = None if call_end is None else call_end.model_dump_json()
@@ -454,8 +454,8 @@ class GuardedStore(Generic[M]):
                 )
         return rows
 
-    def holds(self, row: RunRow[M]) -> bool:
-        """Whether this worker holds the run in ``row``: it is the row's ``owner``."""
+    def owns(self, row: RunRow[M]) -> bool:
+        """Whether this worker is the ``owner`` of the run in ``row``."""
         return row.stored.owner == self._worker_id
 
     async def add_event(self, run_id: str, body: str) -> bool:
@@ -472,8 +472,8 @@ class GuardedStore(Generic[M]):
 
     async def _columns(
         self,
-        holds: bool | None,
         *,
+        holds: bool | None,
         state: RunState | None,
         run: str | None,
         outcome: RunOutcome | None,

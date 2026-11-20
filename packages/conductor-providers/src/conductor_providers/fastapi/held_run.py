@@ -318,6 +318,6 @@ class HeldRun:
         """Take in the row as read: what another writer changed in its state, a cancel asked of it, and whether
         another worker took it."""
         self._row = row
-        self._released = not self._store.holds(row)
+        self._released = not self._store.owns(row)
         if self._released or row.state.cancel_asked:
             self._stop.set()
