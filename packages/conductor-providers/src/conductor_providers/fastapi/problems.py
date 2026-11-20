@@ -33,17 +33,24 @@ def no_such_run(*loc: str | int) -> str:
 
 
 #: The statuses of a run that a resume goes on from: the ways a resume call ends a run early. ``Worker.resume``
-#: refuses any other as ``run_not_resumable``, whose message lists these.
+#: refuses ``waiting``, ``complete`` and ``declined`` as ``run_not_resumable``, whose message lists these. A
+#: ``running`` run is taken or left as it is, but it is refused a new item limit, since it hasn't stopped.
 RESUMABLE: tuple[RunStatus, ...] = ("failed", "stopped", "cancelled", "timed_out")
 
 
 @SERVING_PROBLEMS.problem
 def run_not_resumable(*, status: RunStatus) -> str:
-    """A resume was asked of a run that didn't end early, or that a person's decline ended for good.
+    """A resume was asked of a run that didn't end early or that a person's decline ended for good, or a new item
+    limit was given to a run that hasn't stopped.
 
     Args:
         status: The run's status.
     """
+    if status == "running":
+        return (
+            "The run is running, and a new item limit is taken only by a run that has stopped; give it again once "
+            "the run stops at its limit."
+        )
     resumable = f"{', '.join(RESUMABLE[:-1])} or {RESUMABLE[-1]}"
     return (
         f"The run is {status}, and only a run that is {resumable} can be resumed; read the run to see what it "

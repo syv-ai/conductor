@@ -144,7 +144,7 @@ class RunState(BaseModel):
     cancel_asked: bool
 
     @classmethod
-    def started(cls) -> RunState:
+    def new(cls) -> RunState:
         """The state of a run just stored: running, since a worker is about to resume it, and nothing queued, refused
         or asked."""
         return cls(status="running", cause=None, queued=[], refused={}, cancel_asked=False)

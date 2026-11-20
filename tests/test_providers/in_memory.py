@@ -28,7 +28,7 @@ from conductor import (
 )
 from conductor_providers.fastapi import RunChanges, RunView, StoredRun, Worker
 
-#: The ``state`` column of a run that has just begun, written out by hand as a host's database stores it. Tests that
+#: The ``state`` column of a run that has just created, written out by hand as a host's database stores it. Tests that
 #: write a row the way an earlier worker left it use this text. If the stored form changes in a way that would break
 #: the rows already in hosts' databases, those tests break too.
 BEGUN_RUN_STATE = json.dumps(

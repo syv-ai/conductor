@@ -72,9 +72,9 @@ async def _started(
     metadata: Any = ANNA,
     previous: str | None = None,
 ) -> str:
-    """Begins a run and resumes it, as ``POST /runs`` does, and returns its id."""
-    begun = await worker.begin(graph, inputs, metadata, previous=previous, allows=EVERY_RUN)
-    return (await worker.resume(begun.id, allows=EVERY_RUN)).id
+    """Creates a run and resumes it, as ``POST /runs`` does, and returns its id."""
+    created = await worker.create(graph, inputs, metadata, previous=previous, allows=EVERY_RUN)
+    return (await worker.resume(created.id, allows=EVERY_RUN)).id
 
 
 async def _resume_calls(store: MemoryStore, run_id: str) -> int:
@@ -82,10 +82,10 @@ async def _resume_calls(store: MemoryStore, run_id: str) -> int:
     return [event["type"] for event in await store.stored_events(run_id)].count("run_start")
 
 
-# -- beginning a run ------------------------------------------------------------------------------
+# -- creating a run -------------------------------------------------------------------------------
 
 
-async def test_a_run_begun_from_a_previous_one_of_an_earlier_version_of_its_graph_calls_only_what_the_edit_changed() -> (
+async def test_a_run_created_from_a_previous_one_of_an_earlier_version_of_its_graph_calls_only_what_the_edit_changed() -> (
     None
 ):
     registry, store, calls = NodeRegistry(), MemoryStore(), []
@@ -144,7 +144,7 @@ def _registry_that_drops_old() -> tuple[
     return earlier, later, make_graph(split, square, old), make_graph(split, square)
 
 
-async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_callers_nodes_is_refused_with_its_graphs_problems() -> (
+async def test_a_run_created_from_a_previous_run_that_cant_be_loaded_on_the_callers_nodes_is_refused_with_its_graphs_problems() -> (
     None
 ):
     earlier, later, uses_old, edited = _registry_that_drops_old()
@@ -156,7 +156,7 @@ async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_caller
     worker = _worker(store, later)
     async with worker.serving():
         with pytest.raises(InvalidCallError) as refused:
-            await worker.begin(edited, {"n": 2}, ANNA, previous=first, allows=EVERY_RUN)
+            await worker.create(edited, {"n": 2}, ANNA, previous=first, allows=EVERY_RUN)
 
         # the previous run's own graph, the one it was saved from, uses a node the caller's nodes don't have
         assert refused.value.problems == Graph.compile(uses_old, later).problems
@@ -164,11 +164,11 @@ async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_caller
             ("unknown_node", "old")
         ]
         assert list(store.rows) == [first]  # nothing is stored
-        begun = await _started(worker, edited, {"n": 2})  # without previous=, it goes through
-        assert (await store.ended(begun)).outputs == {"result": [0, 1]}
+        created = await _started(worker, edited, {"n": 2})  # without previous=, it goes through
+        assert (await store.ended(created)).outputs == {"result": [0, 1]}
 
 
-async def test_a_graph_begun_from_a_previous_run_is_refused_for_its_own_problems_and_its_inputs_before_the_previous_runs() -> (
+async def test_a_graph_created_from_a_previous_run_is_refused_for_its_own_problems_and_its_inputs_before_the_previous_runs() -> (
     None
 ):
     earlier, later, uses_old, edited = _registry_that_drops_old()
@@ -181,7 +181,7 @@ async def test_a_graph_begun_from_a_previous_run_is_refused_for_its_own_problems
     async with worker.serving():
         previous = first
         with pytest.raises(InvalidCallError) as broken:
-            await worker.begin(
+            await worker.create(
                 {"nodes": {"x": {"node": "nonesuch"}}},
                 {},
                 ANNA,
@@ -189,7 +189,7 @@ async def test_a_graph_begun_from_a_previous_run_is_refused_for_its_own_problems
                 allows=EVERY_RUN,
             )
         with pytest.raises(InvalidCallError) as wrong_input:
-            await worker.begin(edited, {"n": "two"}, ANNA, previous=previous, allows=EVERY_RUN)
+            await worker.create(edited, {"n": "two"}, ANNA, previous=previous, allows=EVERY_RUN)
 
     assert [problem.type for problem in broken.value.problems] == ["unknown_node"]
     assert [problem.type for problem in wrong_input.value.problems] == ["invalid_input"]
@@ -203,7 +203,7 @@ async def test_a_worker_that_never_served_refuses_to_make_a_run_running_and_one_
     store = MemoryStore()
     worker = _worker(store, registry)
 
-    # begin only stores the run, so it needs no serving worker; the resume that would start it does
+    # create only stores the run, so it needs no serving worker; the resume that would start it does
     with pytest.raises(RuntimeError, match=r"serving\(\)"):
         await _started(worker, graph, inputs)
     (unserved,) = store.rows
@@ -214,14 +214,17 @@ async def test_a_worker_that_never_served_refuses_to_make_a_run_running_and_one_
         assert (await store.ended(run_id)).status == "waiting"
 
     assert (await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)).status == "running"
-    begun = await _started(worker, graph, inputs)
-    for handed_back in (run_id, begun):  # handed back, so the next worker to serve takes them over
+    created = await _started(worker, graph, inputs)
+    for handed_back in (
+        run_id,
+        created,
+    ):  # handed back, so the next worker to serve takes them over
         row = await store.until(handed_back, lambda row: row.owner is None)
         assert (row.status, row.lease_until) == ("running", 0.0)
 
     async with _worker(store, registry).serving():
         assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
-        assert (await store.ended(begun)).status == "waiting"
+        assert (await store.ended(created)).status == "waiting"
 
 
 class _TransactionStore(MemoryStore):
@@ -265,55 +268,57 @@ class _SerializationFailure(Exception):
     """What a database raises to make a host retry a serializable transaction."""
 
 
-async def test_a_run_begun_in_a_transaction_that_is_retried_is_started_once_and_only_after_the_commit(
+async def test_a_run_created_in_a_transaction_that_is_retried_is_started_once_and_only_after_the_commit(
     caplog: LogCaptureFixture,
 ) -> None:
     registry, graph, gate, inputs, _ = asking()
     gate.set()
     store = _TransactionStore()
     worker = _worker(store, registry)
-    begun: list[str] = []
+    created: list[str] = []
 
     async def unit() -> str:
-        begun.append((await worker.begin(graph, inputs, ANNA, allows=EVERY_RUN)).id)
-        return begun[-1]
+        created.append((await worker.create(graph, inputs, ANNA, allows=EVERY_RUN)).id)
+        return created[-1]
 
     async with worker.serving():
         committed = await store.transaction(unit)
-        # time enough for a resume call begin had started to write its first event
+        # time enough for a resume call create had started to write its first event
         await asyncio.sleep(0.2)
         assert list(store.rows) == [committed] and store.written[committed] == []
         await worker.resume(committed, allows=EVERY_RUN)
         assert (await store.ended(committed)).status == "waiting"
 
-    rolled_back = begun[0]
+    rolled_back = created[0]
     assert rolled_back != committed and rolled_back not in store.reads
     assert await _resume_calls(store, committed) == 1
     assert [record.getMessage() for record in caplog.records if record.levelname == "ERROR"] == []
 
 
-async def test_a_run_begun_is_started_by_a_resume_and_by_the_sweep_when_nobody_resumes_it() -> None:
+async def test_a_run_created_is_started_by_a_resume_and_by_the_sweep_when_nobody_resumes_it() -> (
+    None
+):
     registry, graph, gate, inputs, _ = asking()
     gate.set()
     store = MemoryStore()
     worker = _worker(store, registry)
     async with worker.serving():
-        begun = await worker.begin(graph, inputs, ANNA, allows=EVERY_RUN)
+        created = await worker.create(graph, inputs, ANNA, allows=EVERY_RUN)
         await asyncio.sleep(0.2)
-        row = store.rows[begun.id]
-        assert (begun.status, row.owner, row.lease_until) == ("running", None, 0.0)
-        assert store.written[begun.id] == []
-        resumed = await worker.resume(begun.id, allows=EVERY_RUN)
+        row = store.rows[created.id]
+        assert (created.status, row.owner, row.lease_until) == ("running", None, 0.0)
+        assert store.written[created.id] == []
+        resumed = await worker.resume(created.id, allows=EVERY_RUN)
         # it's held now, so this one is left as it is
-        again = await worker.resume(begun.id, allows=EVERY_RUN)
+        again = await worker.resume(created.id, allows=EVERY_RUN)
         assert (resumed.status, again.status) == ("running", "running")
-        assert (await store.ended(begun.id)).status == "waiting"
-        assert await _resume_calls(store, begun.id) == 1
+        assert (await store.ended(created.id)).status == "waiting"
+        assert await _resume_calls(store, created.id) == 1
 
     swept = MemoryStore()
     sweeping = _worker(swept, registry, lease=0.3)
     async with sweeping.serving():
-        forgotten = await sweeping.begin(graph, inputs, ANNA, allows=EVERY_RUN)
+        forgotten = await sweeping.create(graph, inputs, ANNA, allows=EVERY_RUN)
         assert (await swept.ended(forgotten.id)).status == "waiting"
         assert await _resume_calls(swept, forgotten.id) == 1
 
@@ -2560,11 +2565,11 @@ async def test_a_graph_with_no_node_to_call_begins_running_with_no_outputs_and_s
     store = MemoryStore()
     worker = _worker(store, NodeRegistry())
     async with worker.serving():
-        begun = await worker.begin(GraphRecord(nodes={}, outputs={}), {}, ANNA, allows=EVERY_RUN)
-        await worker.resume(begun.id, allows=EVERY_RUN)
-        completed = await store.ended(begun.id)
+        created = await worker.create(GraphRecord(nodes={}, outputs={}), {}, ANNA, allows=EVERY_RUN)
+        await worker.resume(created.id, allows=EVERY_RUN)
+        completed = await store.ended(created.id)
 
-    assert (begun.status, begun.outputs) == ("running", None)
+    assert (created.status, created.outputs) == ("running", None)
     assert (completed.status, completed.outputs) == ("complete", {})
 
 
@@ -3073,12 +3078,12 @@ async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the
     )
 
 
-async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_worker_has_shut_down() -> (
+async def test_a_run_created_as_a_worker_shuts_down_is_handed_back_before_the_worker_has_shut_down() -> (
     None
 ):
     registry, graph, called, _ = _slow_items()
 
-    class BeginsAtHandBack(MemoryStore):
+    class CreatesAtHandBack(MemoryStore):
         """Starts a second run on the worker just as the worker hands its first run back."""
 
         late: str | None = None
@@ -3090,7 +3095,7 @@ async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_work
                 self.late = await _started(worker, graph, {"n": 40})
             return await super().update(run_id, rev, changes, event)
 
-    store = BeginsAtHandBack()
+    store = CreatesAtHandBack()
     worker = _worker(store, registry)
 
     async with worker.serving():
@@ -3315,7 +3320,7 @@ async def test_a_worker_whose_run_another_took_stops_resuming_it_and_writes_noth
 async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_previous_run_does_too() -> (
     None
 ):
-    """``allows=`` is required, so a host's own route can't skip the access check by leaving it out. ``begin`` and
+    """``allows=`` is required, so a host's own route can't skip the access check by leaving it out. ``create`` and
     ``estimate`` require it too, with or without a previous run, so no method has a rule of its own."""
     registry, graph, gate, inputs, _ = asking()
     gate.set()
@@ -3327,7 +3332,7 @@ async def test_a_call_on_a_run_by_id_names_its_run_filter_and_a_start_from_a_pre
 
         with pytest.raises(TypeError):
             await worker.read(run_id)  # type: ignore[call-arg]
-        for start in (worker.begin, worker.estimate):
+        for start in (worker.create, worker.estimate):
             with pytest.raises(TypeError, match="allows"):
                 await start(graph, inputs, ANNA, previous=run_id)  # type: ignore[call-arg]
             with pytest.raises(TypeError, match="allows"):

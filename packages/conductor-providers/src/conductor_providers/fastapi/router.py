@@ -170,11 +170,10 @@ def run_router(
     ) -> RunView:
         """Start a run of any graph. This is an author's route, so guard it with a dependency of your own."""
         sent = StartRun.read(await request.body())
-        begun = await worker.begin(
+        created = await worker.create(
             sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
-        # the request stored the run, so it may start it, whatever its filter says of the run's metadata
-        return await worker.resume(begun.id, allows=lambda stored: True)
+        return await worker.resume(created.id, allows=allows)
 
     @router.post("/estimate", openapi_extra=start_body, responses=_refusals(no_such_run))
     async def estimate_run(
@@ -268,8 +267,7 @@ def run_router(
         """A new run with these inputs changed, of this request's own and on its own nodes. A call that gets what it
         got before isn't made again."""
         again = await worker.again(run_id, inputs, requester, allows=allows)
-        # the request stored the run, so it may start it, whatever its filter says of the run's metadata
-        return await worker.resume(again.id, allows=lambda stored: True)
+        return await worker.resume(again.id, allows=allows)
 
     @router.post("/runs/{run_id}/cancel", responses=_refusals(no_such_run))
     async def cancel_run(

@@ -34,9 +34,9 @@ log = logging.getLogger("conductor_providers.fastapi")
 #: The owner and lease of a row whose run isn't running.
 _UNHELD: RunChanges = {"owner": None, "lease_until": None}
 
-#: The owner and lease of a row whose run is to go on and that no worker holds: handed back, or just begun. Its lease
+#: The owner and lease of a row whose run is to go on and that no worker holds: handed back, or just created. Its lease
 #: has already run out, so the next sweep of any worker takes it, and ``Worker.resume`` takes it at once.
-HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
+UNCLAIMED: RunChanges = {"owner": None, "lease_until": 0.0}
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ class ResumeSettings:
     async def load(self, row: RunRow[Any], metadata: Any) -> Run[Any]:
         """The run ``row`` keeps, loaded on a thread on the registry for ``metadata``.
 
-        A resume call, an answer and a decline load a row on its own metadata. ``again`` and ``begin`` with
+        A resume call, an answer and a decline load a row on its own metadata. ``again`` and ``create`` with
         ``previous`` load it on the metadata of the run they start.
 
         Raises:
@@ -260,7 +260,7 @@ class HeldRun:
             if goes_on:
                 holder = settings.holder()
             elif state.is_running:
-                holder = HANDED_BACK
+                holder = UNCLAIMED
             else:
                 holder = _UNHELD
             written = await self._store.update(
