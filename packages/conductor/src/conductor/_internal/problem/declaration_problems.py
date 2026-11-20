@@ -1157,6 +1157,42 @@ def table_row_not_a_typed_dict(*, row: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
+def table_cell_not_kept(*, row: str, column: str, cell: str, reason: str) -> str:
+    """A column of a ``Table``'s row type has a type a table doesn't keep as it is.
+
+    A table keeps its cells in polars, which has a column type for Python's own classes like ``int``, ``str`` and
+    ``date``, and for lists and structs of them. So a column may be, at any depth: one of those classes; a
+    ``Literal`` or an enum whose values are all of one of them; ``list[C]`` or a tuple whose items are all ``C``; a
+    model, a dataclass or a ``TypedDict`` of such fields that declares every key a value has; ``C | None``; or
+    ``Any``, which a hook gives for a type it doesn't know yet, and which keeps what polars makes of a value. Any
+    other type would come back from polars changed: a union of two types, a dict, a tuple of different items, a
+    ``NotRequired`` field or a config with ``extra="allow"``. A ``Series`` of the same rows is a list, and keeps each
+    value as it is.
+
+    To fix it, give the column a type a table keeps, such as a model whose fields are all required.
+
+    Args:
+        row: The row type's name.
+        column: The column whose type a table doesn't keep.
+        cell: The type, in the column's type, that a table doesn't keep, such as ``dict[str, int]``.
+        reason: Why a table doesn't keep it.
+
+    Example:
+        class Scores(TypedDict):
+            name: str
+            points: dict[str, int]
+
+
+        def scores(text: str) -> Table[Scores]:
+            return pl.DataFrame({"name": ["Ann"], "points": [{"math": 3}]})
+
+
+        declaration_refused(lambda: node("scores", title="Scores", description="Reads the scores in a text.")(scores))
+    """
+    return f"in column '{column}' of the row type {row}, a table doesn't keep {cell} as it is: {reason}. Give the column a type a table keeps, such as a model whose fields are all required."
+
+
+@DECLARATION_PROBLEMS.problem
 def row_field_optional(*, row: str, field: str) -> str:
     """The row type of a ``Table``, or of a ``Series`` of rows, lets a field be left out.
 

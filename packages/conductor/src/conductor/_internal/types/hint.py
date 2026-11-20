@@ -134,14 +134,25 @@ def has_own_config(cls: Any) -> bool:
     )
 
 
+def allows_extra(cls: Any) -> bool:
+    """Whether ``cls`` takes keys it doesn't declare, by a pydantic config of its own (``has_own_config``) whose
+    ``extra`` is ``"allow"``: a model, a pydantic dataclass, or a ``TypedDict`` ``with_config`` gave one. ``False``
+    for any other class, and for anything that is no class."""
+    return has_own_config(cls) and _own_config(cls).get("extra") == "allow"
+
+
+def _own_config(cls: type) -> Any:
+    """The pydantic config a class with one of its own reads its fields by (``has_own_config``)."""
+    return cls.model_config if issubclass(cls, BaseModel) else getattr(cls, "__pydantic_config__")
+
+
 def revalidates_instances(cls: Any) -> bool:
     """Whether pydantic checks again a value that is already an instance of ``cls``, a model or a pydantic dataclass
     whose config's ``revalidate_instances`` isn't ``"never"``. It then reads a subclass's instance by ``cls``'s own
     config, so the value may change. ``False`` for any other class, and for anything that is no class."""
     if not has_own_config(cls):
         return False
-    config = cls.model_config if issubclass(cls, BaseModel) else cls.__pydantic_config__
-    return config.get("revalidate_instances", "never") != "never"
+    return _own_config(cls).get("revalidate_instances", "never") != "never"
 
 
 def field_hints(hint: Any) -> dict[str, Any]:

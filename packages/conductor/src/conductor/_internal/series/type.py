@@ -14,7 +14,7 @@ import polars as pl
 from pydantic import GetCoreSchemaHandler, GetPydanticSchema
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.table import Table, is_bare_table_row
+from conductor._internal.table import Table, is_bare_table_row, table_and_cells_schema
 from conductor._internal.types import (
     Param,
     Type,
@@ -143,7 +143,7 @@ class SeriesType(Type, of=_Series):
         """The schema that checks what a node returned for the Series, and converts it to how a run stores it.
 
         For ``Series[str]``, the return ``["a", "b"]`` becomes ``SeriesItems(["a", "b"])``. For ``Series[Row]``,
-        where ``Row`` is a ``TypedDict``, a frame is checked as a ``Table[Row]`` and becomes ``SeriesRows(frame)``. Anything
+        where ``Row`` is a ``TypedDict``, a frame is checked as a ``Table[Row]`` and becomes a ``SeriesRows``, with the cells the check read. Anything
         else becomes a ``SeriesItems``.
 
         The class of the value picks the form. Pydantic puts the form's name first in an error's ``loc``, as in
@@ -167,7 +167,8 @@ class SeriesType(Type, of=_Series):
                         as_items, handler.generate_schema(self.carried)
                     ),
                     SeriesRows.__name__: core_schema.no_info_after_validator_function(
-                        SeriesRows, handler.generate_schema(table.carried)
+                        lambda read: SeriesRows(*read),
+                        table_and_cells_schema(table.carried, handler),
                     ),
                 },
                 discriminator=form_of,

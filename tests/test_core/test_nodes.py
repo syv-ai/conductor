@@ -18,7 +18,7 @@ from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
 from fractions import Fraction
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, NotRequired, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -88,7 +88,9 @@ from pydantic import (
     StringConstraints,
     ValidationError,
     field_serializer,
+    with_config,
 )
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import core_schema
 
@@ -836,6 +838,204 @@ def test_a_table_row_that_names_no_columns_is_refused_where_the_node_is_declared
 
     run = compiled_graph(keep_point).run({"points": [{"x": 1.0}], "anything": [{"y": 1}]})
     assert run.outputs["result"].columns == ["x"]
+
+
+class _Part(TypedDict):
+    a: int
+    b: NotRequired[int]
+
+
+@host_type("keyed-wallet", title="Keyed wallet")
+@dataclass(frozen=True)
+class _KeyedWallet:
+    amounts: dict[str, int]
+
+
+@host_type("part-box", title="Part box")
+@dataclass(frozen=True)
+class _PartBox:
+    part: _Part
+
+
+type _Counts = dict[str, int]
+
+
+@host_type("open-note", title="Open note")
+class _OpenNote(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+    text: str
+
+
+@host_type("cat-pet", title="Cat pet")
+class _Cat(BaseModel, frozen=True):
+    meow: str
+
+
+@host_type("dog-pet", title="Dog pet")
+class _Dog(BaseModel, frozen=True):
+    bark: int
+
+
+@host_type("twin-pet", title="Twin pet")
+class _Twin(BaseModel, frozen=True):
+    meow: str
+
+
+type _Nest = list[_Nest] | int
+type _Deep = list[_Deep]
+
+
+@host_type("cell-colour", title="Cell colour")
+class _Colour(Enum):
+    RED = "red"
+
+
+@host_type("cell-money", title="Cell money")
+class _Money(BaseModel, frozen=True):
+    amount: float
+
+
+@with_config(ConfigDict(extra="allow"))
+class _OpenRow(TypedDict):
+    a: int
+
+
+@host_type("open-point", title="Open point")
+@pydantic_dataclass(frozen=True, config=ConfigDict(extra="allow"))
+class _OpenPoint:
+    x: float
+
+
+@pytest.mark.parametrize(
+    ("cell", "named", "reason"),
+    [
+        (dict[str, int], "dict[str, int]", "a table has no column type for it"),
+        (dict, "dict", "a table has no column type for it"),
+        (list[dict[str, int]] | None, "dict[str, int]", "a table has no column type for it"),
+        (_Counts, "_Counts", "a table has no column type for it"),
+        (_Counts | None, "_Counts", "a table has no column type for it"),
+        (JsonValue, "JsonValue", "a value of a union may be of either type"),
+        (_Part, "_Part", "a value may leave out its key 'b'"),
+        (list[_Part], "_Part", "a value may leave out its key 'b'"),
+        (_KeyedWallet, "dict[str, int]", "a table has no column type for it"),
+        (_PartBox, "_Part", "a value may leave out its key 'b'"),
+        (_OpenNote, "_OpenNote", "a value may have keys it doesn't declare"),
+        (_OpenRow, "_OpenRow", "a value may have keys it doesn't declare"),
+        (_OpenPoint, "_OpenPoint", "a value may have keys it doesn't declare"),
+        (_Cat | _Dog, "cat-pet | dog-pet", "a value of a union may be of either type"),
+        (_Cat | _Twin, "cat-pet | twin-pet", "a value of a union may be of either type"),
+        (_Money | str, "cell-money | str", "a value of a union may be of either type"),
+        (int | str, "int | str", "a value of a union may be of either type"),
+        (_Nest, "_Nest", "a value of a union may be of either type"),
+        (tuple[int, str], "tuple[int, str]", "its items differ in type"),
+        (tuple[_Money, _Colour], "tuple[cell-money, cell-colour]", "its items differ in type"),
+        (Literal["a", 1], "str | int", "its values are of different classes"),
+    ],
+    ids=[
+        "a dict",
+        "a bare dict",
+        "a dict in a list",
+        "a dict through an alias",
+        "an alias that may be None",
+        "JsonValue",
+        "a NotRequired field",
+        "a NotRequired field in a list",
+        "a dict in a dataclass",
+        "a NotRequired field in a dataclass",
+        "a model that takes extra keys",
+        "a TypedDict that takes extra keys",
+        "a pydantic dataclass that takes extra keys",
+        "a union of models whose fields differ",
+        "a union of models with the same fields",
+        "a union of a model and a text",
+        "a union of numbers and texts",
+        "an alias of a union",
+        "a tuple of an int and a text",
+        "a tuple of a model and an enum",
+        "a Literal of two classes",
+    ],
+)
+def test_a_table_cell_of_a_type_a_table_does_not_keep_is_refused_where_the_node_is_declared(
+    cell: Any, named: str, reason: str
+) -> None:
+    """Polars holds a few of Python's own classes, and lists and structs of them. A cell of any other type would
+    come back changed, so a table whose row declares one is refused. A Series of the same rows is a list, and is
+    taken."""
+    row: Any = TypedDict("Row", {"name": str, "cell": cell})  # type: ignore[operator]
+
+    def table_of_rows(text: str) -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame()
+
+    def series_of_rows(text: str) -> Series[row]:  # type: ignore[valid-type]
+        return []
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(table_of_rows)
+
+    assert [(one.type, one.ctx["cell"], one.ctx["reason"]) for one in raised.value.problems] == [
+        ("table_cell_not_kept", named, reason)
+    ]
+    declared(series_of_rows)
+
+
+class _Branch(TypedDict):
+    name: str
+    branches: list["_Branch"]
+
+
+class _Tree(TypedDict):
+    root: _Branch
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        int,
+        str | None,
+        datetime.date,
+        Decimal,
+        bytes,
+        Any,
+        Literal["a", "b"],
+        _Colour,
+        list[int],
+        tuple[int, ...],
+        tuple[int, int],
+        _Money,
+        list[_Money | None],
+        _Tree,
+        _Deep,
+        Annotated[int, Param(ge=0)],
+    ],
+    ids=[
+        "an int",
+        "a text that may be None",
+        "a date",
+        "a decimal",
+        "bytes",
+        "Any",
+        "a Literal of texts",
+        "an enum",
+        "a list",
+        "a tuple of one item type",
+        "a tuple of two alike items",
+        "a model",
+        "a list of models that may be None",
+        "a TypedDict that holds itself",
+        "an alias that holds itself",
+        "a limit",
+    ],
+)
+def test_a_table_cell_of_a_type_a_table_keeps_is_declared(cell: Any) -> None:
+    """A table keeps one of Python's own classes polars has a type for, a ``Literal`` or enum of one class, a list
+    or tuple of one item type, a model, dataclass or ``TypedDict`` of such fields, and any of them ``| None``, at
+    any depth, a type that holds itself too."""
+    row: Any = TypedDict("Row", {"name": str, "cell": cell})  # type: ignore[operator]
+
+    def tables(text: str) -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame()
+
+    declared(tables)
 
 
 def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in():

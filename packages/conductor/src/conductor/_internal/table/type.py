@@ -9,13 +9,17 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, get_args
+from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
-from conductor._internal.types import Type, is_typed_dict, json_by_its_class
+from conductor._internal.types import (
+    Type,
+    is_typed_dict,
+    json_by_its_class,
+)
 
 from .read import as_saved, check_table_row, column_missing, table_schema
 from .write import (
@@ -45,6 +49,34 @@ class _Table[T]:
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Returns the pydantic schema of ``Table[R]``, which ``read.py`` builds."""
         return table_schema(source, handler)
+
+
+class _RowsChecked[T]:
+    """A ``Table[R]`` whose rows are already ``R``'s values, which a run checks a table of rows from outputs that
+    declare ``R`` by (``with_rows_checked``). A list of rows is made into a frame without its cells being checked
+    again, and a frame with exactly the polars types ``R``'s own frame has is kept. No host writes it."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        """Returns the pydantic schema of ``Table[R]`` for rows already ``R``'s values."""
+        return table_schema(source, handler, rows_checked=True)
+
+
+def with_rows_checked(hint: Any) -> Any:
+    """Returns ``hint``, a ``Table[R]`` or an ``Annotated`` one, read as rows already ``R``'s values
+    (``_RowsChecked``).
+
+    The rest of the hint is kept, so a host's own check on the table, like
+    ``Annotated[Table[R], AfterValidator(look)]``, still runs, and is called as for any table.
+    """
+    origin = get_origin(hint)
+    if origin is Annotated:
+        inner, *metadata = get_args(hint)
+        return Annotated[with_rows_checked(inner), *metadata]
+    if origin is _Table:
+        return _RowsChecked[get_args(hint)]  # type: ignore[misc]
+    # any other hint, such as a union, is kept, and its rows are checked again
+    return hint
 
 
 if TYPE_CHECKING:  # a type checker sees a Table as the frame a node gets, with its row type kept
