@@ -16,7 +16,8 @@ item indexes, one index per loop the node is inside. After the run, ``RunOutcome
 ``RunOutcomes.arguments_for(shout, (1,))`` returns the arguments of ``shout``'s call for the second line,
 ``{"line": "b", "mark": "!"}``.
 
-Sometimes a node can't be called, and ``arguments_for`` says why instead. It checks these in order:
+Sometimes a node can't be called, and ``arguments_for`` says why instead. A node switched off is never called: each
+of its calls is ``Skipped``, and none of its inputs is read. For any other node, it checks these in order:
 
 1. An input gets only ``SKIPPED``, because every edge into it comes from a skipped branch. The call is
    ``Skipped``, whatever the other inputs get.
@@ -257,7 +258,8 @@ class RunOutcomes:
         some of them ``MAY_HAVE_VALUE``, when an item may be called.
 
         Returns:
-            The arguments by parameter name. Or ``Skipped`` when an input gets ``SKIPPED``. Or ``NOT_READY`` when a
+            The arguments by parameter name. Or ``Skipped`` when the node is switched off, or an input gets
+            ``SKIPPED``. Or ``NOT_READY`` when a
             value an input needs doesn't exist yet. Or ``NoneInput`` when an input gets ``None`` and its parameter
             doesn't take it.
 
@@ -265,6 +267,8 @@ class RunOutcomes:
             InvalidCallError: ``invalid_edge_value`` if an edge reads a field of a value (``lines.result.name``) and
                 the value has no such field, or the field is ``SKIPPED``.
         """
+        if node.off:
+            return Skipped(node.compiled_node.outputs_when_skipped)
         arguments = self.constants[node.node_path].copy()
         graph_inputs = self.graph_inputs
         for name, graph_input in node.graph_inputs:

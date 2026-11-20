@@ -377,7 +377,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 ```
 
 - `GraphInputRecord(default=)` is one graph input, declared once under `inputs`: `{}`, or `{"default": v}` for one a caller may leave out. A graph output is declared under `outputs`. Used as a subgraph, these are the node's inputs and outputs.
-- `NodeRecord(node=, version=1, inputs=, display=)` is one node of the graph. `node` is the id of the node it uses. Empty fields, and a `version` of 1, are left out when it is saved.
+- `NodeRecord(node=, version=1, inputs=, off=False, display=)` is one node of the graph. `node` is the id of the node it uses. Empty fields, a `version` of 1 and an `off` of `false` are left out when it is saved.
 - Each input's entry is one of three kinds, and the one key its JSON has says which: `{"constant": v}`, `{"graph_input": name}` or `{"sources": [{"node", "output", "field"?}, ...]}`. `InputEntry` is the type of an entry, the union of the three. It is a type alias, so it can't be called or used with `isinstance`: a record reads an entry from its JSON, `NodeRecord(node=..., inputs={"text": {"constant": "x"}})` or `GraphRecord.model_validate(data)`, and `make_graph` writes entries for you. Read one's kind by its key in `record.model_dump(mode="json")`.
 - A dict of the same shape is read too: `GraphRecord.model_validate(data)`.
 - Constants, defaults and a node's `display` are JSON values. `make_graph` writes a Python value as its JSON, as a caller's value for an `Any` input is written ("Starting a run"): a date as its ISO text, an enum as its value, and a host's object by its own schema. So a record equals what its JSON reads back as. A float that isn't finite is refused, by `make_graph` with `finite_number` ("Starting a run"), and by a record built with one in it.
@@ -405,6 +405,16 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 - An entry has exactly one of `constant`, `graph_input` and `sources` (`invalid_record`, `one_of_constant_graph_input_sources` in `ctx.errors`). Any other key is refused, a `default` beside `graph_input` among them (`extra_forbidden`): a default goes on the graph input it is for.
 - With nothing set, the input takes its declared default. A required input with nothing set, on any node, is `input_has_no_value`.
 - `display` is the host's own. It is stored, and never read. What a host keeps about the whole graph, such as a name or a viewport, it stores beside the record.
+
+**A node switched off.** `"off": true` on a node switches it off: `{"node": "shout", "inputs": {...}, "off": true}`. It is read strictly, as `true` or `false` (`invalid_record`, `bool_type` in `ctx.errors`). It is provisional.
+
+- It compiles as any node does, and its problems are reported, so a broken node switched off stays visible, and a graph with one doesn't run: an unknown node or version, a constant its input refuses, an edge leaving it whose types don't meet, two edges into one input that could both have a value. The one exception is an input with nothing set: a node switched off reads no input, so a required input that gets nothing is no `input_has_no_value` there. An input that takes only a constant still needs one (`input_has_no_value_constant_only`), since a hook may read it. `describe()` shows it as it would show it switched on; the host reads `off` from its record.
+- A run never calls it, or any node inside it when it is a subgraph node. Each of its calls is skipped, once per item inside a loop, and `run.progress` counts them as `skipped`. A node that reads only from it is skipped, as on a branch not taken ("A skip wins"), and so is a `Series` input that collects it. An input with several edges takes its other sources, as from branches. A node that asks never waits while it is switched off, and `graph.asks` leaves it out.
+- A graph input that only nodes switched off take is no graph input: it isn't in `graph.inputs` or `describe()`, and a caller who gives it is refused (`unknown_graph_input`). Its default is still read, and a default its type refuses is still `invalid_value`. An output of a node switched off is no graph output. A graph output read from a node downstream of it stays, and a run skips it, so `run.outputs` shows `None`.
+- Compiling counts a node switched off as one that needs a branch never taken. So what reads only from it is described as an output that may be skipped (`"required": false`, no `default`), in `graph.outputs` and in a subgraph node's outputs, as one that needs a branch is. A list collected from it inside a loop is one too, since every item is skipped. Being switched off is no branch of the node, so two edges from it into one input are still `several_edges_into_one_input` unless they come from two of its branches.
+- `GraphRecord.inputs_offered` and `GraphRecord.outputs_offered` are the graph inputs and outputs the record offers, read from the record alone. A subgraph's inputs and outputs are the ones its record offers, so a port only nodes switched off serve isn't one of the subgraph node's.
+- The record is part of the graph's `fingerprint`, so a run saved while a node was off doesn't read back into the graph with it on (`saved_run_of_another_graph`). Switched back on, a node has nothing of its own to reuse: `with_inputs(previous=run)` calls it, and what reads it, again ("Running again").
+- `make_graph` doesn't write it. Leave the node out of `make_graph`'s call, or switch it off in the record's JSON.
 
 **One value or many.** The type decides, never the value.
 
@@ -930,6 +940,53 @@ Retries live on the node's `Policy`, and are counted per call.
 - There is no `run_end`, since the run didn't end.
 - A `cancel` set as well wins.
 
+**A node that runs a graph.** A node's function may run another graph inside its call, as a host runs an agent's tools. It compiles the graph once, and runs it with its own context, so what the host keeps there, such as a cost so far, is the same object in both runs. The inner graph's registry names the context's class too. A cancel event the host puts in the context goes to the inner run as `cancel=`. Once it is set, the inner run ends `cancelled`, the node raises, and the outer run ends `cancelled` too (above). The inner run is the node's own business: its calls are not in the outer run's events or saved run, and a retry, or a call made again, runs the inner graph again. A node with `concurrency` may be used in both graphs, but not by a node that runs a graph using itself ("Versions and Policies").
+
+```python
+import asyncio
+import threading
+
+from conductor.events import RunEnd
+
+
+@dataclass(frozen=True)
+class Session:
+    cancel: threading.Event
+
+
+tools = NodeRegistry(context_type=Session)
+
+
+@tools.node("look_up", title="Look up", description="Looks a word up.")
+def look_up(ctx: Context[Session], word: str) -> str:
+    return word.upper()
+
+
+look_up_graph = Graph.compile(make_graph(look_up), tools)
+
+
+async def _finished(run: Run[Session], ctx: Session) -> RunEnd:
+    async for event in run.stream(context=ctx, cancel=ctx.cancel):
+        if isinstance(event, RunEnd):
+            return event
+    raise AssertionError("a stream ends with run_end")
+
+
+@tools.node("research", title="Research", description="Looks up each word with a graph.")
+def research(ctx: Context[Session], words: list[str]) -> list[str]:
+    results = []
+    for word in words:
+        end = asyncio.run(_finished(look_up_graph.with_inputs({"word": word}), ctx))
+        if end.status != "complete":
+            raise ExternalError(f"The look-up ended {end.status}.")
+        results.append(end.run.outputs["result"])
+    return results
+
+
+researched = Graph.compile(make_graph(research), tools).run({"words": ["a", "b"]}, context=Session(threading.Event()))
+print(researched.outputs)  # {'result': ['A', 'B']}
+```
+
 ### Errors
 
 The classes are exported from `conductor`. What is wrong is always one model, `Problem(type, loc, msg, ctx)`. It is on `graph.problems`, on `node_failed`, as an ended run's `run.cause`, and in the `problems` of each exception conductor defines: `NodeDeclarationError`, `InvalidCallError` and `NodeError`. Conductor's own check of what a call is given raises `InvalidCallError`, an argument of the wrong type included; Python's own call errors stay Python's, such as the `TypeError` for a keyword a function doesn't take, and so does pydantic's validation error from a model built by hand, such as `Policy(...)`. Those have no problems.
@@ -1042,7 +1099,7 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - `"default": v` gives that value. `null` is the value `None`, and nothing else.
 - `"default": v` with `"required": true` can't be left out, and `v` is only where an editor starts. That is the one question of a node of one output.
 - No `default` key, with `"required": true`, is refused. That is an input with no default, or an output an answer must give.
-- No `default` key, with `"required": false`, is an output that may be skipped on a call. On a function node, that is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`; left out of an answer, it is skipped. On a subgraph node, and in `graph.outputs`, it is an output that needs a branch.
+- No `default` key, with `"required": false`, is an output that may be skipped on a call. On a function node, that is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`; left out of an answer, it is skipped. On a subgraph node, and in `graph.outputs`, it is an output that needs a branch, or that reads only from a node switched off.
 - A missing `default` key means no value. So a host that writes these models with `exclude_none` turns `"default": null` into a skipped branch. Write them as pydantic writes them.
 - An output is described as the question its type sets, the same as a waiting call's question without an `Ask` on a node of several outputs. So `-> str | None` is `"required": false, "default": null`.
 

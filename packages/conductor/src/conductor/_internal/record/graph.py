@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Annotated
 
 from pydantic import MISSING, AfterValidator, JsonValue
@@ -73,11 +73,41 @@ class GraphRecord(ConductorModel):
     def graph_inputs_taken(self) -> frozenset[str]:
         """The names of the graph inputs that some node's input takes, as in ``GraphInputEntry(graph_input="text")``.
 
-        A graph input the record declares and no input takes isn't in it.
+        A graph input the record declares and no input takes isn't in it. A node switched off counts.
         """
-        return frozenset(
-            entry.graph_input
-            for node_record in self.nodes.values()
-            for entry in node_record.inputs.values()
-            if isinstance(entry, GraphInputEntry)
+        return _graph_inputs_taken_by(self.nodes.values())
+
+    @property
+    def inputs_offered(self) -> dict[str, GraphInputRecord]:
+        """The graph inputs a caller gives values for: each one the record declares that a node switched on takes.
+
+        A graph input that only nodes switched off take isn't offered, since no call reads it. Used as a subgraph,
+        these are the subgraph node's inputs.
+        """
+        taken = _graph_inputs_taken_by(
+            node_record for node_record in self.nodes.values() if not node_record.off
         )
+        return {name: declared for name, declared in self.inputs.items() if name in taken}
+
+    @property
+    def outputs_offered(self) -> dict[str, Source]:
+        """The graph outputs a run gives: each one the record declares whose node isn't switched off.
+
+        One that names a node the record doesn't have is offered, so compiling says what's wrong with it. Used as a
+        subgraph, these are the subgraph node's outputs.
+        """
+        return {
+            name: source
+            for name, source in self.outputs.items()
+            if source.node not in self.nodes or not self.nodes[source.node].off
+        }
+
+
+def _graph_inputs_taken_by(node_records: Iterable[NodeRecord]) -> frozenset[str]:
+    """Returns the names of the graph inputs that an input of one of these nodes takes."""
+    return frozenset(
+        entry.graph_input
+        for node_record in node_records
+        for entry in node_record.inputs.values()
+        if isinstance(entry, GraphInputEntry)
+    )
