@@ -18,7 +18,7 @@ from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
 from fractions import Fraction
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, TypedDict, TypeVar
+from typing import Annotated, Any, Literal, NotRequired, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -836,6 +836,133 @@ def test_a_table_row_that_names_no_columns_is_refused_where_the_node_is_declared
 
     run = compiled_graph(keep_point).run({"points": [{"x": 1.0}], "anything": [{"y": 1}]})
     assert run.outputs["result"].columns == ["x"]
+
+
+class _Part(TypedDict):
+    a: int
+    b: NotRequired[int]
+
+
+@host_type("keyed-wallet", title="Keyed wallet")
+@dataclass(frozen=True)
+class _KeyedWallet:
+    amounts: dict[str, int]
+
+
+@host_type("part-box", title="Part box")
+@dataclass(frozen=True)
+class _PartBox:
+    part: _Part
+
+
+type _Counts = dict[str, int]
+
+
+@host_type("open-note", title="Open note")
+class _OpenNote(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+    text: str
+
+
+@host_type("cat-pet", title="Cat pet")
+class _Cat(BaseModel, frozen=True):
+    meow: str
+
+
+@host_type("dog-pet", title="Dog pet")
+class _Dog(BaseModel, frozen=True):
+    bark: int
+
+
+@host_type("twin-pet", title="Twin pet")
+class _Twin(BaseModel, frozen=True):
+    meow: str
+
+
+type _Nest = list[_Nest] | int
+
+
+@pytest.mark.parametrize(
+    ("cell", "named"),
+    [
+        (dict[str, int], "dict[str, int]"),
+        (dict, "dict"),
+        (list[dict[str, int]] | None, "dict[str, int]"),
+        (_Counts, "_Counts"),
+        (_Part, "_Part"),
+        (list[_Part], "_Part"),
+        (_KeyedWallet, "dict[str, int]"),
+        (_PartBox, "_Part"),
+        (_OpenNote, "_OpenNote"),
+        (_Cat | _Dog, "_Cat | _Dog"),
+        (list[_Cat | _Dog] | None, "_Cat | _Dog"),
+        (JsonValue, "JsonValue"),
+    ],
+    ids=[
+        "a dict",
+        "a bare dict",
+        "a dict in a list",
+        "a dict through an alias",
+        "a NotRequired field",
+        "a NotRequired field in a list",
+        "a dict in a dataclass",
+        "a NotRequired field in a dataclass",
+        "a model that takes extra keys",
+        "a union of models whose fields differ",
+        "such a union in a list",
+        "JsonValue",
+    ],
+)
+def test_a_table_cell_whose_keys_may_vary_is_refused_where_the_node_is_declared(
+    cell: Any, named: str
+) -> None:
+    """A table keeps a cell with keys as a struct, which gives every row every key. So a cell whose value may leave
+    a key out would read back changed, and is refused. A Series of the same rows is a list, and is taken."""
+    row: Any = TypedDict("Row", {"name": str, "cell": cell})  # type: ignore[operator]
+
+    def table_of_rows(text: str) -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame()
+
+    def series_of_rows(text: str) -> Series[row]:  # type: ignore[valid-type]
+        return []
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(table_of_rows)
+
+    assert [(one.type, one.ctx["cell"]) for one in raised.value.problems] == [
+        ("table_cell_keys_vary", named)
+    ]
+    declared(series_of_rows)
+
+
+class _Branch(TypedDict):
+    name: str
+    branches: list["_Branch"]
+
+
+class _Tree(TypedDict):
+    root: _Branch
+
+
+class _Nested(TypedDict):
+    nest: _Nest
+
+
+class _Pet(TypedDict):
+    pet: _Cat | _Twin
+
+
+@pytest.mark.parametrize(
+    "row", [_Tree, _Nested, _Pet], ids=["a row type", "a type alias", "a union of alike models"]
+)
+def test_a_table_cell_whose_keys_are_fixed_is_declared(row: Any) -> None:
+    """A cell's type may hold itself, as a tree of branches or ``type Nest = list[Nest] | int`` does, and may be a
+    union of models with the same fields. Its keys are fixed, so the table is taken."""
+
+    def tables(text: str) -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame()
+
+    declared(tables)
 
 
 def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in():

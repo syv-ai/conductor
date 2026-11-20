@@ -6,7 +6,8 @@ plain rows. And the table is checked column by column when the node returns it.
 """
 
 import json
-from typing import Annotated, Any, NotRequired, TypedDict
+from enum import Enum
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import polars as pl
 import pytest
@@ -789,3 +790,96 @@ def test_rows_collected_into_a_bare_table_are_read_as_rows_whose_keys_are_text()
         "invalid_edge_value",
         ["string_type"],
     )
+
+
+TABLE_CONTEXTS: list[Any] = []
+
+
+def _look(table: pl.DataFrame, info: ValidationInfo) -> pl.DataFrame:
+    TABLE_CONTEXTS.append(info.context)
+    return table
+
+
+class Count(TypedDict):
+    n: int
+
+
+class Measure(TypedDict):
+    n: float
+
+
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_hosts_validator_on_a_table_of_collected_rows_is_called_with_no_context(
+    returned: str,
+) -> None:
+    @node("count-rows", title="Count rows", description="For a test.")
+    def count_rows(k: int) -> Series[Count]:
+        return pl.DataFrame({"n": [1]}) if returned == "frame" else [{"n": 1}]  # type: ignore[return-value]
+
+    @node("looked-height", title="Looked height", description="For a test.")
+    def looked_height(table: Annotated[Table[Count], AfterValidator(_look)]) -> int:
+        return table.height
+
+    graph = Graph.compile(
+        make_graph(count_rows, looked_height), registry_of(count_rows, looked_height)
+    )
+    TABLE_CONTEXTS.clear()
+    run = graph.run({"k": 1})
+
+    assert (run.status, TABLE_CONTEXTS) == ("complete", [None])
+
+
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_whole_numbers_collected_into_a_float_column_are_floats(returned: str) -> None:
+    @node("count-rows", title="Count rows", description="For a test.")
+    def count_rows(k: int) -> Series[Count]:
+        return pl.DataFrame({"n": [1]}) if returned == "frame" else [{"n": 1}]  # type: ignore[return-value]
+
+    @node("measure-types", title="Measure types", description="For a test.")
+    def measure_types(table: Table[Measure]) -> str:
+        return str(table.schema["n"])
+
+    graph = Graph.compile(
+        make_graph(count_rows, measure_types), registry_of(count_rows, measure_types)
+    )
+
+    assert graph.run({"k": 1}).outputs == {"result": "Float64"}
+
+
+NAMED_CHECKS: list[Any] = []
+
+
+def _noted(value: Any) -> Any:
+    NAMED_CHECKS.append(value)
+    return value
+
+
+@host_type("shade", title="Shade")
+class Shade(Enum):
+    DARK = "dark"
+
+
+class Named(TypedDict):
+    size: Annotated[Literal["s", "m"], AfterValidator(_noted)]
+    colour: Annotated[Shade, AfterValidator(_noted)]
+
+
+def test_a_frame_of_named_values_collected_into_a_table_is_not_read_again() -> None:
+    """A frame a Series of rows returned, with a ``Literal`` and an enum column, has the polars types its row type's
+    own frame has, so the table input wired to it keeps it and checks no cell again."""
+
+    @node("named-rows", title="Named rows", description="For a test.")
+    def named_rows(k: int) -> Series[Named]:
+        return pl.DataFrame({"size": ["s"] * k, "colour": ["dark"] * k})  # type: ignore[return-value]
+
+    @node("named-height", title="Named height", description="For a test.")
+    def named_height(table: Table[Named]) -> int:
+        return table.height
+
+    graph = Graph.compile(
+        make_graph(named_rows, named_height), registry_of(named_rows, named_height)
+    )
+    NAMED_CHECKS.clear()
+    run = graph.run({"k": 2})
+
+    assert (run.status, run.outputs["result"], len(NAMED_CHECKS)) == ("complete", 2, 4)

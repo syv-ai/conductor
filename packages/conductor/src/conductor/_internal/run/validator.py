@@ -17,8 +17,9 @@ needs one has no edge validator at all.
 
 A ``Table[R]`` input that collects rows is the one input always read by the edge validator, since the rows are made
 into a table there. Its rows are checked against ``R`` only where an output wired to it declares less than ``R``,
-as an item is for a ``Series`` input. Rows from ``-> Series[R]`` aren't checked again; the table's own checks still
-hold: its limits, and that a saved run keeps each cell (``ROWS_CHECKED``).
+as an item is for a ``Series`` input. Rows from ``-> Series[R]`` aren't checked again, as a list or as a frame with
+exactly the polars types ``R``'s own frame has; the table's own checks still hold: its limits, and that a saved run
+keeps each cell (``with_rows_checked``).
 
 Compiling checks that each edge's types fit. Which inputs still need a check at run time is worked out once, when
 the run blueprint is built, by ``EdgeValidator.of``. The validator is built then, and called before each call of the
@@ -44,7 +45,8 @@ from conductor._internal.base import (
 from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.problem import InvalidCallError, call_problems, run_problems
-from conductor._internal.table import ROWS_CHECKED, is_bare_table_row
+from conductor._internal.table import is_bare_table_row, with_rows_checked
+from conductor._internal.types import Type
 
 
 def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
@@ -90,39 +92,37 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
 
         The validator checks each input whose type asks for more than the outputs wired to it promise. A table
         input that collects rows is read too, since its rows are made into a table there. Where its row type names
-        columns and every output wired to it declares that row type, it is read with ``ROWS_CHECKED``, so the cells
-        aren't checked again. A bare table's rows are read as they come, since their keys must be text. If no input
+        columns and every output wired to it declares that row type, it is read by its type for rows already that row
+        type's values (``with_rows_checked``), so the cells aren't checked again. A bare table's rows are read as they come, since their keys must be text. If no input
         needs any of this, this returns ``None``.
 
         Args:
             inputs: The node's inputs that get their values through edges, by name.
         """
-        read: dict[str, tuple[Field, ROWS_CHECKED | None]] = {}
+        read: dict[str, tuple[Field, Type]] = {}
         for name, node_input in inputs.items():
+            whole = node_input.field.whole
             if _demands_more(node_input):
-                read[name] = (node_input.field, None)
-            elif (
-                isinstance(node_input, CollectingInput)
-                and (row := node_input.field.whole.row) is not None
-            ):
+                read[name] = (node_input.field, whole)
+            elif isinstance(node_input, CollectingInput) and (row := whole.row) is not None:
                 read[name] = (
                     node_input.field,
-                    None if is_bare_table_row(row.hint) else ROWS_CHECKED,
+                    whole if is_bare_table_row(row.hint) else Type(with_rows_checked(whole.hint)),
                 )
         return cls(read) if read else None
 
-    def __init__(self, inputs: Mapping[str, tuple[Field, ROWS_CHECKED | None]]) -> None:
-        """Builds the validator for ``inputs``: by name, each input to check and the pydantic context its rows are
-        checked with."""
+    def __init__(self, inputs: Mapping[str, tuple[Field, Type]]) -> None:
+        """Builds the validator for ``inputs``: by name, each input to check and the type its value is checked by,
+        which for a table of rows its sources already checked is the table for rows already its row type's values
+        (``with_rows_checked``)."""
         self._inputs = tuple(
             (
                 name,
                 field.whole,
                 field.whole.exact_classes,
-                field.whole.argument_validator.validate_python,
-                context,
+                checked_by.argument_validator.validate_python,
             )
-            for name, (field, context) in inputs.items()
+            for name, (field, checked_by) in inputs.items()
         )
 
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -132,14 +132,12 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
             InvalidCallError: See the class.
         """
         read = dict(arguments)
-        for name, whole, exact, validate, context in self._inputs:
+        for name, whole, exact, validate in self._inputs:
             value = read[name]
             if value is SKIPPED or type(value) in exact:
                 continue
             try:
-                # ROWS_CHECKED speaks of a list of rows; a frame is read as any frame is, so no host's check sees it
-                rows_context = context if isinstance(value, list) else None
-                read[name] = validate(value, strict=False, context=rows_context)
+                read[name] = validate(value, strict=False)
             except ValidationError as error:
                 raise InvalidCallError(
                     [run_problems.invalid_edge_value(input=name, **whole.refusal(error))]

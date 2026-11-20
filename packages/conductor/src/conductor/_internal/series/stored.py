@@ -23,7 +23,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.table import Table, written_columns
+from conductor._internal.table import Table, table_and_cells_schema, written_columns
 from conductor._internal.types import UnreadableFieldError, field_of
 
 
@@ -118,22 +118,28 @@ class SeriesRows[T]:
     ``{"name": "Ann", "amount": 10}``, and ``rows.cell("amount", 1)`` is ``20``. A node with a ``Table``
     input wired to the Series gets ``rows.frame`` itself, so no dict is made for it.
 
+    Each cell is a value of its type in the row type, as in a row the node returned in a list. The table's check
+    reads a column polars has no type for, such as one of a host's model held as a struct, and the cells it read are
+    kept here, so a row's cell is the model, not a dict, and no cell is read twice. A ``str`` or ``float`` column is
+    made a list as polars gives it.
+
     ``SeriesRows[R]`` is also the type hint a saved run writes and reads one back by. It is saved as a table's JSON.
 
     Attributes:
         frame: The table whose rows are the Series' items.
     """
 
-    __slots__ = ("_columns", "frame")
+    __slots__ = ("_cells", "_columns", "frame")
 
-    def __init__(self, frame: pl.DataFrame) -> None:
-        """Stores ``frame``, which has already been checked as a table of the rows' type."""
+    def __init__(self, frame: pl.DataFrame, read: dict[str, list[Any]]) -> None:
+        """Stores ``frame``, which has already been checked as a table of rows, with ``read``, the cells its check
+        read by the row type (``table_and_cells_schema``)."""
         self.frame = frame
-        self._columns = ColumnsOnDemand(self._cells_of)
-
-    def _cells_of(self, name: str) -> list[Any]:
-        cells: list[Any] = self.frame[name].to_list()
-        return cells
+        # each column as polars gives it, which a saved run writes, and as a node gets it: the cells the check read,
+        # or the same list for a column polars gives values of its type for, like a str column
+        self._cells = ColumnsOnDemand(lambda name: frame[name].to_list())
+        self._columns = ColumnsOnDemand(lambda name: self._cells[name])
+        self._columns.update(read)
 
     def __len__(self) -> int:
         return self.frame.height
@@ -187,10 +193,9 @@ class SeriesRows[T]:
         return self, []
 
     def _as_json(self) -> dict[str, Any]:
-        # Go through ``_columns``, so a run saved at every checkpoint turns each column into a list only once.
-        return written_columns(
-            self.frame, {name: self._columns[name] for name in self.frame.columns}
-        )
+        # Go through ``_cells``, so a run saved at every checkpoint turns each column into a list only once, and a
+        # host's model is written as the frame holds it
+        return written_columns(self.frame, {name: self._cells[name] for name in self.frame.columns})
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -198,7 +203,7 @@ class SeriesRows[T]:
         table: Any = Table
         return core_schema.json_or_python_schema(
             json_schema=core_schema.no_info_after_validator_function(
-                cls, handler.generate_schema(table[get_args(source)[0]])
+                lambda read: cls(*read), table_and_cells_schema(table[get_args(source)[0]], handler)
             ),
             python_schema=core_schema.is_instance_schema(cls),
             serialization=core_schema.plain_serializer_function_ser_schema(SeriesRows._as_json),
