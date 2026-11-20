@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
+from conductor._internal.ask import Ask, AskValidator
+from conductor._internal.base import REQUIRED, SKIPPED, NodePath, parse_node_path, place_text
+from conductor._internal.field import Field
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import (
     InvalidCallError,
@@ -27,11 +29,10 @@ from conductor._internal.problem import (
 )
 from conductor._internal.series import SeriesItems
 
-from ..blueprint import outcome_loc
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
-from ..state import Declined, EndedEarly
+from ..state import EndedEarly
 from .codec import where_in
 from .type import SAVED_DONE, SAVED_SKIPPED, SavedOutcomes
 
@@ -124,34 +125,44 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
                 if outcome is not None:
                     outcomes.record(node, item_indexes, outcome)
-    if read.ended_early is not None and (declined := read.ended_early.declined) is not None:
+    if read.ended_early is not None:
         try:
-            _check_declined(read.ended_early, declined, outcomes)
+            ended_early = _checked_ending(read.ended_early, outcomes)
         except ValueError as wrong:
-            raise InvalidCallError([_lists_disagree("ended_early.declined", str(wrong))]) from None
+            raise InvalidCallError([_lists_disagree("ended_early", str(wrong))]) from None
+    else:
+        ended_early = None
     return run_type(
         graph,
         read.max_items,
         outcomes,
         reusable,
-        _last_resume=read.ended_early,
+        _last_resume=ended_early,
         _complete_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
 
 
-def _check_declined(ended_early: EndedEarly, declined: Declined, outcomes: RunOutcomes) -> None:
-    """Checks that the call a saved run says a person declined is one a decline could have left.
+def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarly:
+    """Returns how a saved run ended early, once it is one a run could have written.
 
-    ``run.with_decline`` writes it only on a ``declined`` run, for a call the graph has, with no outcome of its own
-    any more. Its loc and reason are its problem's, and its question names only outputs of the node. Whether the
-    node asks isn't checked: a deploy may make it stop asking, and a run read back keeps what it did, as it keeps an
-    answered call's question.
+    A run a decline ended keeps the call declined and no ``cause``, since its ``answer_declined`` is made from the
+    call. Any other keeps its ``cause`` and no declined call. The declined call is one the graph has, with no
+    outcome of its own any more, and its question is read as the node's ``Ask`` was (``_read_question``). Whether
+    the node asks isn't checked: a deploy may make it stop asking, and a run read back keeps what it did, as it keeps
+    an answered call's question.
 
     Raises:
         ValueError: Any of that doesn't hold. The message names no value.
     """
-    if ended_early.status != "declined":
-        raise ValueError(f"a run that is {ended_early.status} has no declined call")
+    declined = ended_early.declined
+    if (ended_early.status == "declined") != (declined is not None):
+        raise ValueError("a run keeps a declined call when, and only when, it is declined")
+    if (ended_early.cause is None) != (declined is not None):
+        raise ValueError(
+            "a declined run keeps no cause, and any other run that ended early keeps one"
+        )
+    if declined is None:
+        return ended_early
     node = outcomes.blueprint.function_nodes.get(declined.node_path)
     if node is None:
         raise ValueError("the declined call is not of a node of the graph")
@@ -159,25 +170,42 @@ def _check_declined(ended_early: EndedEarly, declined: Declined, outcomes: RunOu
         raise ValueError("the node has no call at the declined call's item indexes")
     if outcomes.of(declined.node_path).get(declined.item_indexes) is not None:
         raise ValueError("the declined call has an outcome")
-    cause = ended_early.cause
-    if (
-        cause.loc != outcome_loc(node, declined.item_indexes)
-        or cause.ctx.get("reason") != declined.reason
-    ):
-        raise ValueError(
-            "the declined call is not the one its problem names, or has another reason"
-        )
-    _check_question(node.compiled_node, declined.question)
+    outputs = node.compiled_node.outputs
+    question = _read_question(AskValidator(outputs, asks=True), outputs, declined.question)
+    return ended_early.model_copy(
+        update={"declined": dataclasses.replace(declined, question=question)}
+    )
 
 
-def _check_question(node: CompiledFunctionNode, question: Unanswered) -> None:
-    """Checks that a saved question gives choices and defaults only to outputs the node has.
+def _read_question(
+    asks: AskValidator, outputs: Mapping[str, Field], question: Unanswered
+) -> Unanswered:
+    """Returns a saved question with its choices and defaults read by the node's outputs, as its ``Ask`` was.
+
+    A saved question is what ``AskValidator`` gave when the node asked, in its JSON form. So it is read by the same
+    validator again: a choice or a default the output's type refuses, or one for an output the node doesn't have,
+    is refused here, where the run is read, and never shown to a person.
 
     Raises:
-        ValueError: It names another output. The message names no value.
+        ValueError: The validator refused it. The message is its reason, which quotes no value.
     """
-    if not {*question.choices, *question.defaults} <= node.outputs.keys():
-        raise ValueError("a question names an output the node does not have")
+    if len(outputs) == 1:
+        # a node of one output has its choices and default given alone, not by output name
+        (name,) = outputs
+        if not {*question.choices, *question.defaults} <= {name}:
+            raise ValueError("a question names an output the node does not have")
+        choices: Any = list(question.choices[name]) if name in question.choices else None
+        default = question.defaults.get(name, REQUIRED)
+    else:
+        choices = {name: list(given) for name, given in question.choices.items()} or None
+        default = dict(question.defaults) if question.defaults else REQUIRED
+    try:
+        read_choices, read_defaults = asks(Ask(question.prompt, choices=choices, default=default))
+    except InvalidCallError as refused:
+        raise ValueError(
+            f"a question doesn't fit the node: {refused.problems[0].ctx['reason']}"
+        ) from None
+    return dataclasses.replace(question, choices=read_choices, defaults=read_defaults)
 
 
 def _lists_disagree(where: str, reason: str) -> Problem:
@@ -244,9 +272,11 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
                 outcomes.append(skipped_outcome)
             else:
                 outcomes.append(None)
+        # read by the node's outputs whether it asks now or not: a deploy may have made it stop asking
+        asks = AskValidator(node.outputs, asks=True)
         for call_number, saved_question in saved.questions.items():
-            _check_question(node, saved_question)
-            asked = dataclasses.replace(saved_question, fingerprint=fingerprints[call_number])
+            read_question = _read_question(asks, node.outputs, saved_question)
+            asked = dataclasses.replace(read_question, fingerprint=fingerprints[call_number])
             match outcomes[call_number]:
                 case Done() as answered:  # a question a person answered
                     outcomes[call_number] = dataclasses.replace(answered, asked=asked)

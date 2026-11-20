@@ -24,11 +24,14 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import ClassVar, Literal
+
+from pydantic import ConfigDict
 
 from conductor._internal.base import ConductorModel, ItemIndexes, NodePath
 from conductor._internal.problem import Problem, run_problems
 
+from .blueprint import outcome_loc
 from .outcome import Unanswered
 from .outcomes import RunOutcomes
 from .progress import call_count, is_complete
@@ -64,6 +67,10 @@ class Declined:
         reason: The reason the person gave, or ``None`` when they gave none.
     """
 
+    # A saved run reads it strictly, as it is written: an item index is a whole number, never "1" or true, and a
+    # key it doesn't declare is refused.
+    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(strict=True, extra="forbid")
+
     node_path: NodePath
     item_indexes: ItemIndexes
     question: Unanswered
@@ -76,19 +83,20 @@ class EndedEarly(ConductorModel):
     A ``resume()`` ends a run early as ``failed``, ``stopped``, ``cancelled`` or ``timed_out``, and the next
     ``resume()`` goes on from where it stopped. ``run.with_decline`` ends it as ``declined``, and that is final.
 
-    A decline also keeps the call declined, in ``declined``. The call itself has no outcome any more, so it waits on
-    nothing, and ``again`` calls it afresh.
+    A decline keeps the call declined, in ``declined``, and no ``cause``: its ``answer_declined`` is made from the
+    call whenever the run's cause is asked for (``cause_of``), so the decline has one source. The call itself has no
+    outcome any more, so it waits on nothing, and ``again`` calls it afresh.
 
     Attributes:
         status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
             ``cancelled`` when the stream's ``cancel`` was set, ``timed_out`` when the ``timeout`` passed, and
             ``declined`` when a person declined to answer a question.
-        cause: The problem that ended the run, with its ``loc`` and code.
+        cause: The problem that ended the run, with its ``loc`` and code. ``None`` for a ``declined`` run.
         declined: For a ``declined`` run, the call declined. ``None`` for any other status.
     """
 
     status: Literal["failed", "stopped", "cancelled", "timed_out", "declined"]
-    cause: Problem
+    cause: Problem | None = None
     declined: Declined | None = None
 
 
@@ -114,10 +122,30 @@ def status_of(outcomes: RunOutcomes, last_resume: LastResume) -> tuple[RunStatus
     if all(is_complete(count) for count in counts):
         return "complete", None
     if last_resume is not None:
-        return last_resume.status, last_resume.cause
+        return last_resume.status, cause_of(last_resume, outcomes)
     if any(count.waiting for count in counts):
         return "waiting", None
     return "ready", None
+
+
+def cause_of(ended_early: EndedEarly, outcomes: RunOutcomes) -> Problem:
+    """Returns the problem that ended a run early.
+
+    A decline's is ``answer_declined`` at the call declined, with the reason given, as ``run.with_decline`` makes it.
+    Any other is the ``cause`` it keeps.
+
+    Raises:
+        RuntimeError: A run that ended early other than by a decline keeps no cause. That's a bug: every place that
+            ends a run early gives one, and a saved run without it isn't read back.
+    """
+    if (declined := ended_early.declined) is not None:
+        node = outcomes.blueprint.function_nodes[declined.node_path]
+        return run_problems.answer_declined(
+            *outcome_loc(node, declined.item_indexes), reason=declined.reason
+        )
+    if ended_early.cause is None:
+        raise RuntimeError(f"a run that is {ended_early.status} keeps no cause")
+    return ended_early.cause
 
 
 def kept_by_an_answer(last_resume: LastResume) -> LastResume:

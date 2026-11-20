@@ -23,6 +23,7 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
+    Question,
     Run,
     Series,
     Table,
@@ -610,9 +611,9 @@ def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_sh
     None
 ):
     """``run.asked`` is a host's record: the question as ``run.waiting`` showed it, the proposed default included,
-    and the answer or the decline's reason. A decline keeps its question where the run says how it ended, not in its
-    problem, so ``cause.ctx`` holds only the reason. It reads the same from a run read back, whose save writes the
-    same text again."""
+    and the answer or the decline's reason. A decline keeps the call where the run says how it ended, and its
+    ``answer_declined`` is made from it, so ``cause.ctx`` holds only the reason and the save writes no cause. It reads
+    the same from a run read back, whose save writes the same text again."""
     graph = _draft_graph()
     first = graph.run({"text": "a\nb\nc"})
     one, two, three = first.waiting
@@ -641,7 +642,7 @@ def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_sh
         ),
         (("reply", 2), "Send a reply to c?", [("Re: c", ["Yes", "Re: c"])], None, "Not now"),
     ]
-    assert [a.question.id for a in declined.asked] == ["reply@0", "reply@1", "reply@2"]
+    assert (declined.cause.type, declined.cause.loc) == ("answer_declined", ("reply", 2))
     assert [a.question.inputs for a in declined.asked] == [
         {"line": "a"},
         {"line": "b"},
@@ -649,11 +650,14 @@ def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_sh
     ]
     assert back.asked == declined.asked
     assert back.to_json() == saved
-    assert json.loads(saved)["ended_early"]["declined"] == {
-        "node_path": ["reply"],
-        "item_indexes": [2],
-        "question": _question("c"),
-        "reason": "Not now",
+    assert json.loads(saved)["ended_early"] == {
+        "status": "declined",
+        "declined": {
+            "node_path": ["reply"],
+            "item_indexes": [2],
+            "question": _question("c"),
+            "reason": "Not now",
+        },
     }
     assert (back.status, back.waiting, back.cause) == ("declined", [], declined.cause)
 
@@ -673,31 +677,35 @@ def _declined_wrong(saved: dict[str, Any]) -> None:
 def _declined_at_a_node_that_never_asks_and_has_returned(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["node_path"] = ["lines"]
     saved["ended_early"]["declined"]["item_indexes"] = []
-    saved["ended_early"]["cause"]["loc"] = ["lines"]
 
 
 def _declined_past_its_items(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["item_indexes"] = [7]
-    saved["ended_early"]["cause"]["loc"] = ["reply", 7]
 
 
 def _declined_at_no_node(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["node_path"] = []
     saved["ended_early"]["declined"]["item_indexes"] = []
-    saved["ended_early"]["cause"]["loc"] = []
 
 
-def _declined_elsewhere_than_its_problem(saved: dict[str, Any]) -> None:
-    saved["ended_early"]["cause"]["loc"] = ["reply", 0]
+def _declined_with_a_cause_of_its_own(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["cause"] = {"type": "answer_declined", "loc": ["reply", 1], "msg": "No."}
 
 
-def _declined_with_another_reason(saved: dict[str, Any]) -> None:
-    saved["ended_early"]["declined"]["reason"] = "yes"
+def _declined_with_no_call(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"] = None
+
+
+def _declined_at_an_item_index_written_as_text(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["item_indexes"] = ["1"]
+
+
+def _declined_with_a_default_its_output_refuses(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["question"]["defaults"] = {"result": 5}
 
 
 def _declined_at_a_call_with_an_outcome(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["item_indexes"] = [0]
-    saved["ended_early"]["cause"]["loc"] = ["reply", 0]
 
 
 def _declined_naming_no_output(saved: dict[str, Any]) -> None:
@@ -711,16 +719,18 @@ def _declined_naming_no_output(saved: dict[str, Any]) -> None:
         _declined_at_a_node_that_never_asks_and_has_returned,
         _declined_past_its_items,
         _declined_at_no_node,
-        _declined_elsewhere_than_its_problem,
-        _declined_with_another_reason,
+        _declined_with_a_cause_of_its_own,
+        _declined_with_no_call,
+        _declined_at_an_item_index_written_as_text,
+        _declined_with_a_default_its_output_refuses,
         _declined_at_a_call_with_an_outcome,
         _declined_naming_no_output,
     ],
 )
 def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any) -> None:
-    """A saved run says a call was declined only on a ``declined`` run, for a call the graph has with no outcome,
-    the one its problem names with its reason, asking only about the node's outputs. Any other is refused where it
-    is read, not when ``run.asked`` reads it."""
+    """A saved run says a call was declined on a ``declined`` run and no other, with no cause, since its problem is
+    made from the call, for a call the graph has with no outcome, read strictly, with a question its node's outputs
+    take. Any other is refused where it is read, not when ``run.asked`` reads it."""
     graph, saved = _declined_save()
     assert Run.from_json(json.dumps(saved), graph).asked[-1].reason == "no"
     damage(saved)
@@ -729,24 +739,26 @@ def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any
         Run.from_json(json.dumps(saved), graph)
 
     ((problem,),) = [refused.value.problems]
-    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "ended_early.declined")
-    assert problem.ctx["errors"][0]["type"] == "saved_lists_disagree"
+    assert problem.type == "saved_run_unreadable"
+    assert problem.ctx["where"].startswith("ended_early")
 
 
 @pytest.mark.parametrize("answered", [False, True])
-def test_a_saved_question_that_names_an_output_the_node_does_not_have_is_refused(
-    answered: bool,
-) -> None:
-    """A waiting or an answered call's question gives choices and defaults only to the node's outputs."""
+def test_a_saved_question_its_node_s_outputs_refuse_is_refused(answered: bool) -> None:
+    """A waiting or an answered call's question is read by its node's outputs, as its ``Ask`` was: a choice or a
+    default for an output the node doesn't have, or one the output's type refuses, never reaches a person."""
     graph = _draft_graph()
     run = graph.run({"text": "a"})
     if answered:
         run = run.with_answers(run.waiting[0], "Yes")
-    for key in ("defaults", "choices"):
+    for key, wrong in [
+        ("defaults", {"nope": "x"}),
+        ("choices", {"nope": []}),
+        ("defaults", {"result": 5}),
+        ("choices", {"result": [{"id": 1, "title": "One"}]}),
+    ]:
         saved = json.loads(run.to_json())
-        saved["outcomes"]["reply"]["questions"]["0"][key] = {
-            "nope": "x" if key == "defaults" else []
-        }
+        saved["outcomes"]["reply"]["questions"]["0"][key] = wrong
 
         with pytest.raises(InvalidCallError) as refused:
             Run.from_json(json.dumps(saved), graph)
@@ -755,8 +767,8 @@ def test_a_saved_question_that_names_an_output_the_node_does_not_have_is_refused
         assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
 
 
-def test_every_record_of_run_asked_names_its_call_alone_so_a_deploy_keeps_its_id() -> None:
-    """No call ``run.asked`` lists waits, so its id has no ``~`` part, unlike the id it waited under, and a deploy
+def test_a_record_of_run_asked_has_no_id_to_answer_by_and_a_deploy_leaves_it_as_it_was() -> None:
+    """No call ``run.asked`` lists waits, so its question has no id: a record is never an answer's target. A deploy
     that changes the node's code, so far that it stops asking, leaves the record as it was, the decline too."""
     graph = _draft_graph()
     first = graph.run({"text": "a\nb"})
@@ -765,7 +777,8 @@ def test_every_record_of_run_asked_names_its_call_alone_so_a_deploy_keeps_its_id
 
     redeployed = Run.from_json(declined.to_json(), _draft_graph(asks=False))
 
-    assert "~" in one.id and [a.question.id for a in declined.asked] == ["reply@0", "reply@1"]
+    assert [type(a.question) for a in declined.asked] == [Question, Question]
+    assert all("id" not in a.question.model_dump() for a in declined.asked)
     assert redeployed.asked == declined.asked
 
 

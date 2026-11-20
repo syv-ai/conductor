@@ -65,6 +65,7 @@ from conductor._internal.run import (
     Asked,
     CallCount,
     NoneInputCall,
+    Question,
     Run,
     RunProgress,
     RunStatus,
@@ -112,6 +113,7 @@ __all__ = [
     # A run
     "Run",
     "Waiting",
+    "Question",
     "Asked",
     "NoneInputCall",
     "RunProgress",

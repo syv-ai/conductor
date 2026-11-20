@@ -36,7 +36,7 @@ from conductor._internal.base import (
     write_waiting_id,
 )
 from conductor._internal.graph import Graph, LimitsValidator
-from conductor._internal.problem import InvalidCallError, Problem, call_problems, run_problems
+from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .asked import Asked, asked_of
 from .blueprint import BlueprintFunctionNode, outcome_loc
@@ -467,7 +467,6 @@ class Run[C]:
             waiting_id, cache(lambda: self.status)
         )
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
-        cause = run_problems.answer_declined(*loc, reason=reason)
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome. The
         # declined one is kept where the run says how it ended, for run.asked; with no outcome, nothing reads it as
         # waiting, and again() calls its node afresh.
@@ -477,7 +476,6 @@ class Run[C]:
             _outcomes=self._outcomes.replacing(removing=asked),
             _last_resume=EndedEarly(
                 status="declined",
-                cause=cause,
                 declined=Declined(
                     node.node_path,
                     item_indexes,
@@ -668,7 +666,7 @@ class Run[C]:
         for. The answered calls come in the graph's node order, the order a run tries its nodes, each after the
         nodes upstream of it, then in item order; not in the order the answers came. A declined one comes last, since
         it ended the run. A call the function returned for isn't listed, nor one still waiting (``run.waiting`` lists
-        those). Each names its call alone, with no ``~`` part, since none of them waits.
+        those). A record's ``question`` is a ``Question``, with no id: it is never an answer's target.
 
         It is provisional: the name and shape may change before 2.0.
         """

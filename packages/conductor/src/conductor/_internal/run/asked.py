@@ -5,10 +5,10 @@ declined, the question as they were shown it and their reply. Say ``approve(line
 lines ``a`` and ``b``, a person answered ``True`` for ``a`` and declined ``b`` as "Over budget". ``run.asked`` then
 lists::
 
-    Asked(question=Waiting(id="approve@0", loc=("approve", 0), prompt="Approve a?", ...),
-          answer={"result": True}, reason=None)
-    Asked(question=Waiting(id="approve@1", loc=("approve", 1), prompt="Approve b?", ...),
-          answer=None, reason="Over budget")
+    Asked(question=Question(loc=("approve", 0), prompt="Approve a?", ...), answer={"result": True}, reason=None)
+    Asked(question=Question(loc=("approve", 1), prompt="Approve b?", ...), answer=None, reason="Over budget")
+
+A record has no id to answer by: its call was answered or declined already, so it is never an answer's target.
 
 An answered call keeps its question in its ``Done`` (``Done.asked``), and a declined one where the run says how it
 ended (``EndedEarly.declined``, a ``Declined``), so both read the same from a run read back.
@@ -16,26 +16,24 @@ ended (``EndedEarly.declined``, a ``Declined``), so both read the same from a ru
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Any
 
-from conductor._internal.base import ConductorModel, ItemIndexes
+from conductor._internal.base import ConductorModel
 
-from .blueprint import BlueprintFunctionNode
 from .json import SavedRun, answer_to_json
-from .outcome import Done, Unanswered
+from .outcome import Done
 from .outcomes import RunOutcomes
 from .state import EndedEarly, LastResume
-from .waiting import Waiting, waiting_of
+from .waiting import Question, question_of
 
 
 class Asked(ConductorModel):
     """A call of a node that asked a person, and what they replied: an answer, or a decline.
 
     Attributes:
-        question: What the person was shown: the call as a ``Waiting``, with the ``Ask``'s prompt, choices and
-            default, and the call's inputs. Its ``id`` is the call alone, such as ``"approve@1"``, with no ``~``
-            part: no call here waits, so the id stays the same after a deploy and is never taken for a waiting id.
+        question: What the person was shown: the call's ``Question``, with the ``Ask``'s prompt, choices and
+            default, and the call's inputs, where ``run.waiting`` showed a ``Waiting``. It has no id, since the call
+            was answered or declined already: a record is never an answer's target.
         answer: The outputs the answer gave, by output name, as JSON, as a saved run writes them. A node of one
             output has its value under ``result``, and a branch the answer left out isn't named. ``None`` when the
             person declined.
@@ -43,7 +41,7 @@ class Asked(ConductorModel):
             reason.
     """
 
-    question: Waiting
+    question: Question
     answer: dict[str, Any] | None
     reason: str | None
 
@@ -62,7 +60,7 @@ def asked_of(outcomes: RunOutcomes, last_resume: LastResume, codec: type[SavedRu
     """
     records = [
         Asked(
-            question=_as_shown(outcomes, node, item_indexes, outcome.asked),
+            question=question_of(node, item_indexes, outcome.asked, outcomes),
             answer=answer_to_json(codec, node, outcome),
             reason=None,
         )
@@ -73,23 +71,9 @@ def asked_of(outcomes: RunOutcomes, last_resume: LastResume, codec: type[SavedRu
         node = outcomes.blueprint.function_nodes[declined.node_path]
         records.append(
             Asked(
-                question=_as_shown(outcomes, node, declined.item_indexes, declined.question),
+                question=question_of(node, declined.item_indexes, declined.question, outcomes),
                 answer=None,
                 reason=declined.reason,
             )
         )
     return records
-
-
-def _as_shown(
-    outcomes: RunOutcomes,
-    node: BlueprintFunctionNode,
-    item_indexes: ItemIndexes,
-    question: Unanswered,
-) -> Waiting:
-    """Returns the question as the person was shown it, with the call alone for its id.
-
-    No call of the record waits, so its id has no ``~`` part: it names the call, stays the same after a deploy, and
-    is never taken for a waiting id.
-    """
-    return waiting_of(node, item_indexes, dataclasses.replace(question, fingerprint=None), outcomes)

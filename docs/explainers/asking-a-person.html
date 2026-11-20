@@ -491,7 +491,6 @@ graph = Graph.compile(make_graph(lines, approve, count, edges=[
 print(run.results)</pre><pre class="out">waiting
 {'lines': {'result': ['ok', 'this is long', 'fine']}, 'approve': {'result': [True, None, True]}, 'count': {'result': None}}</pre></template>
   <template id="walk-3"><pre data-lang="py">print(dumps(run.waiting[0].model_dump(mode="json")))  # the series' JSON layout</pre><pre data-lang="json" class="out">{
-  "id": "approve@1~23c82614",
   "loc": ["approve", 1],
   "prompt": "Approve 'this is long'?",
   "questions": [
@@ -514,7 +513,8 @@ print(run.results)</pre><pre class="out">waiting
   ],
   "inputs": {
     "line": "this is long"
-  }
+  },
+  "id": "approve@1~23c82614"
 }</pre></template>
   <template id="walk-4"><pre data-lang="py">answered = run.with_answers(run.waiting[0], True)
 print(answered.status, answered.waiting)
