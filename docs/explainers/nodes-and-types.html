@@ -1108,7 +1108,7 @@ except NodeDeclarationError as error:
     print(error)</pre>
       <p class="label">raised at import</p>
       <pre class="out">type_not_supported_set
-tags (version 1).names: a set has no order, so set[str] has no JSON form that keeps it the same. Declare a list or a tuple instead.</pre>
+tags (version 1).names: a set has no order, so conductor doesn't take one in a declared type, and set[str] is or holds one. Declare a list or a tuple in its place.</pre>
     </div>
     <div class="fault-view" id="fault-view-8" hidden data-label="a Series of Series">
       <pre data-lang="py">try:

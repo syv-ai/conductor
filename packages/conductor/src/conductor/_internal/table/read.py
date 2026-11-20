@@ -517,9 +517,12 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             },
         }
 
+    # each written with its row class, so a fault in a column names the row's field, as in a bare TypedDict
+    row_class = origin if declared else None
     one_row = (
         core_schema.typed_dict_schema(
-            {name: core_schema.typed_dict_field(cell) for name, cell in cells.items()}
+            {name: core_schema.typed_dict_field(cell) for name, cell in cells.items()},
+            cls=row_class,
         )
         if declared
         else core_schema.dict_schema(core_schema.str_schema())
@@ -528,7 +531,8 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         {
             name: core_schema.typed_dict_field(core_schema.list_schema(cell), required=False)
             for name, cell in cells.items()
-        }
+        },
+        cls=row_class,
     )
     as_frame = (
         core_schema.no_info_wrap_validator_function(from_frame, by_column)

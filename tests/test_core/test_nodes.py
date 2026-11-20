@@ -40,6 +40,7 @@ from annotated_types import (
     Unit,
 )
 from conductor import (
+    JSON_CONFIG,
     SKIPPED,
     Choice,
     Deprecation,
@@ -85,6 +86,7 @@ from pydantic import (
     SecretStr,
     StringConstraints,
     ValidationError,
+    field_serializer,
 )
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import core_schema
@@ -2595,7 +2597,7 @@ def test_a_declared_choice_is_read_strictly_and_checked_against_the_fields_limit
 
     (problem,) = raised.value.problems
     assert (problem.type, problem.ctx["errors"][0]["loc"]) == ("choices_invalid", [0])
-    assert f"the choices can't be used: {reason}." in str(raised.value)
+    assert f"the choices in int can't be used: {reason}." in str(raised.value)
 
 
 def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> (
@@ -2982,6 +2984,19 @@ class _TagShelf(BaseModel):
     holders: list[_TagHolder]
 
 
+class _TagRow(TypedDict):
+    tags: set[str]
+
+
+@host_type("sorted-tags", title="Sorted tags")
+class _SortedTags(BaseModel):
+    tags: set[str]
+
+    @field_serializer("tags")
+    def _sorted(self, tags: set[str]) -> list[str]:
+        return sorted(tags)
+
+
 @pytest.mark.parametrize(
     ("hint", "where"),
     [
@@ -2989,14 +3004,29 @@ class _TagShelf(BaseModel):
         (_NumberBag, "_NumberBag.numbers"),
         (_TagRecord, "_TagRecord.tags"),
         (list[_TagShelf], "_TagHolder.tags"),
+        (Table[_TagRow], "_TagRow.tags"),
+        (_SortedTags, "_SortedTags.tags"),
+        (list[set[str]], "set[str]"),
+        (dict[str, frozenset[int]], "frozenset[int]"),
     ],
-    ids=["model-set", "model-frozenset", "dataclass-set", "set-in-a-list-of-models"],
+    ids=[
+        "model-set",
+        "model-frozenset",
+        "dataclass-set",
+        "set-in-a-list-of-models",
+        "a-tables-row",
+        "a-serializer-that-sorts-it",
+        "in-a-list",
+        "a-dicts-value",
+    ],
 )
-def test_a_set_in_a_hosts_own_class_is_refused_at_node_naming_its_field(
+def test_a_set_anywhere_is_refused_at_node_naming_the_field_or_the_set(
     hint: Any, where: str
 ) -> None:
     """A host's class holds its value as pydantic writes it, so a set field there writes a list in a varying order,
-    and its call hashes differently in each process. The field that holds it is named, the nearest class's."""
+    and its call hashes differently in each process. The field that holds it is named, the nearest class's, a
+    table's row's too; with no class around it, the set as written. A serializer that sorts it doesn't make it
+    taken: the rule is that a declared type holds no set."""
 
     def takes(x: Any) -> int:
         return 1
@@ -3013,6 +3043,36 @@ def test_a_set_in_a_hosts_own_class_is_refused_at_node_naming_its_field(
         assert (problem.type, problem.ctx) == ("type_not_supported_set", {"type": where})
 
 
+@pytest.mark.parametrize(
+    "default",
+    [
+        {"type": "set"},
+        {"type": "bytes"},
+        {"type": "x", "metadata": {"conductor_choices": ["a"]}},
+        {"type": "definition-ref"},
+        {"type": "dataclass-field"},
+        {"type": "definitions"},
+    ],
+    ids=["set", "bytes", "choices", "definition-ref", "dataclass-field", "definitions"],
+)
+def test_a_fields_default_that_looks_like_a_schema_is_a_value_not_a_schema(
+    default: dict[str, Any],
+) -> None:
+    """The walk of a type's schema reads only the keys that hold schemas, so a model field's default, a value, is
+    never read as one."""
+
+    @host_type(f"settings-{default['type']}", title="Settings")
+    class Settings(BaseModel):
+        model_config = ConfigDict(**JSON_CONFIG)
+
+        meta: dict[str, Any] = default
+
+    def takes(x: Settings) -> int:
+        return 1
+
+    declared(takes)
+
+
 def _exclaimed(text: str) -> str:
     return text + "!"
 
@@ -3026,13 +3086,20 @@ class _MoodCard(BaseModel):
 
 
 @pytest.mark.parametrize(
-    "hint",
-    [_Exclaimed, list[_Exclaimed], dict[str, _Exclaimed], _MoodCard],
+    ("hint", "where"),
+    [
+        (_Exclaimed, "str"),
+        (list[_Exclaimed], "list[str]"),
+        (dict[str, _Exclaimed], "dict[str, str]"),
+        (_MoodCard, "_MoodCard.mood"),
+    ],
     ids=["the-field", "a-lists-item", "a-dicts-value", "a-models-field"],
 )
-def test_choices_another_check_on_the_hint_moves_off_are_refused_at_any_depth(hint: Any) -> None:
+def test_choices_another_check_on_the_hint_moves_off_are_refused_at_any_depth(
+    hint: Any, where: str
+) -> None:
     """Every value would fail at run time: the check adds "!" before the choices are compared. So the choices are
-    read by the check around them wherever their ``Param`` sits, as a field's own are."""
+    read by the check around them wherever their ``Param`` sits, and the fix is the check, not the choices."""
 
     def takes(x: Any) -> int:
         return 1
@@ -3041,7 +3108,12 @@ def test_choices_another_check_on_the_hint_moves_off_are_refused_at_any_depth(hi
     with pytest.raises(NodeDeclarationError) as raised:
         declared(takes)
     (problem,) = raised.value.problems
-    assert (problem.type, problem.ctx["errors"][0]["type"]) == ("choices_invalid", "not_a_choice")
+    assert (problem.type, problem.ctx["type"], problem.ctx["errors"][0]["type"]) == (
+        "choices_invalid",
+        where,
+        "not_a_choice",
+    )
+    assert problem.ctx["instead"].startswith("Give choices that every check on the value keeps")
 
 
 def test_choices_inside_a_type_that_its_checks_keep_are_taken() -> None:

@@ -84,8 +84,8 @@ class SeriesType(Type, of=_Series):
     def _check_own_arguments(self) -> None:
         """Refuses the items' choices if they can't be read, as ``Type._check_own_arguments`` says.
 
-        The items' type is read as a whole, so a check that converts a value is read with them: a choice it moves
-        off would never be picked (``choices_invalid``).
+        A ``Literal``'s values and an enum's members are read here; a ``Param``'s choices are read by every check
+        on the items when ``Type.check_declared`` walks the Series' schema.
         """
         self.item.choices  # noqa: B018
 
