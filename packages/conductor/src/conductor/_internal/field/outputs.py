@@ -55,6 +55,11 @@ def outputs_schema(
     output's value, and more than one branch given a value (``several_branches_given``, ``_check_branches``). The
     caller that wants only the first takes the first.
 
+    A node that returns one value (``"value"``) or nothing (``"nothing"``) gives no fault of the whole after the split:
+    its one output, ``result``, is always there, and is never ``SKIPPED``, since a node that returns ``SKIPPED`` skips
+    every output and its return isn't split (``ReturnValidator``). So its schema only checks the value, and costs no
+    more than the output's own check.
+
     Args:
         outputs: The node's outputs, by name.
         fields: How each output's value is read, by output name: its schema, whether it must be given, and its
@@ -109,12 +114,11 @@ def outputs_schema(
                 filled[name] = read.get(name, SKIPPED)
         return filled
 
+    by_name = core_schema.typed_dict_schema(dict(fields), extra_behavior="forbid")
+    if given_as in ("value", "nothing"):
+        return core_schema.no_info_before_validator_function(split, by_name)
     return core_schema.no_info_before_validator_function(
-        split,
-        core_schema.no_info_wrap_validator_function(
-            all_at_once,
-            core_schema.typed_dict_schema(dict(fields), extra_behavior="forbid"),
-        ),
+        split, core_schema.no_info_wrap_validator_function(all_at_once, by_name)
     )
 
 
