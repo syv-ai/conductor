@@ -7,7 +7,9 @@ columns ``R`` names, each of the right type.
 There is one more step. A run saves its values as JSON and reads them back later, and some polars types don't
 come back the same. An ``Int32`` column comes back as ``Int64``, and a ``Categorical`` as ``String``. So the
 schema converts each column to the type it will come back as (``as_saved``). A column that can't be converted
-without changing a cell is refused instead. That way a table looks the same before and after a run is saved.
+without changing a cell is refused instead. That way a table looks the same before and after a run is saved. A
+list or struct is saved as plain JSON, and a column its row type declares is read back by its type, so a date
+inside it comes back as a date.
 
 Polars has no type for a host's model, dataclass or enum. A frame keeps such a cell as a struct of its fields or as
 its value. A frame's cell is checked by the row type from that, and kept as polars holds what the check gave. A
@@ -49,7 +51,7 @@ from conductor._internal.types import (
     type_fields,
 )
 
-from .cells import cell_type, kept_column
+from .cells import cell_not_kept, cell_type, kept_column
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
 
@@ -141,16 +143,27 @@ def _found_in_json(dtype: Any) -> Any:
 
 
 @functools.lru_cache(maxsize=1024)  # a server meets many kinds of Enum and Struct
-def _saved_dtype(dtype: Any) -> Any:
+def _saved_dtype(dtype: Any, typed: bool) -> Any:
     """Returns the polars type a column of ``dtype`` comes back as from a saved run.
 
     A column is written with the Python class of its cells (``CELLS``), and read back as that class's polars type.
     So an ``Int32`` comes back as ``Int64``, and a ``Categorical`` as ``String``. A ``Datetime`` comes back in
     microseconds, and in UTC if it had a time zone. A ``Decimal`` comes back with a precision of 38 and its own
-    scale. A list or a struct is written as plain JSON (``_found_in_json``).
+    scale.
+
+    A list or a struct is written as plain JSON. A column a row type declares (``typed``) is read back by its type,
+    so each value inside it comes back as its own class's polars type, as it would in a column of its own: a
+    ``List(Date)`` comes back as a ``List(Date)``. Any other list or struct comes back as polars reads the JSON
+    (``_found_in_json``), so the same column would come back as a ``List(String)``.
 
     Returns ``None`` when the column has no JSON form at all.
     """
+    if typed and isinstance(dtype, pl.List | pl.Array):
+        inner = _saved_dtype(dtype.inner, typed)
+        return None if inner is None else pl.List(inner)
+    if typed and isinstance(dtype, pl.Struct):
+        fields = {field.name: _saved_dtype(field.dtype, typed) for field in dtype.fields}
+        return None if None in fields.values() else pl.Struct(fields)
     kind = dtype.to_python()
     if kind not in CELLS:
         return _found_in_json(dtype)
@@ -177,7 +190,7 @@ def _converts_exactly(dtype: Any, saved: Any) -> bool:
     - a list or struct whose cells all convert exactly.
 
     A ``Datetime`` in a time zone other than UTC would change, since it comes back in UTC. So would a date, time
-    or decimal inside a list, since it comes back as text.
+    or decimal inside a list no row type declares, since it comes back as text.
     """
     if isinstance(dtype, pl.List | pl.Array):
         return isinstance(saved, pl.List) and _converts_exactly(dtype.inner, saved.inner)
@@ -204,55 +217,79 @@ _MILLISECONDS_IN_RANGE = (2**63 - 1) // 1000
 
 
 def _finer_than_a_microsecond(column: pl.Series) -> str | None:
-    """Checks that every cell of a nanosecond column is a whole number of microseconds.
+    """Checks that every time, and every ``Datetime`` or ``Duration`` in nanoseconds, in the column or inside its
+    lists and structs, is a whole number of microseconds.
 
-    This is for a time, or a ``Datetime`` or ``Duration`` in nanoseconds. A saved run counts in microseconds, as
-    Python's ``time``, ``datetime`` and ``timedelta`` do, so anything finer would be lost.
+    A saved run counts in microseconds, as Python's ``time``, ``datetime`` and ``timedelta`` do, so anything finer
+    would be lost.
 
     Returns:
         What is wrong with the column, or ``None`` if nothing is.
     """
-    return (
-        "has a time finer than a microsecond, which a saved run does not keep"
-        if (column.cast(pl.Int64) % 1000 != 0).any()
-        else None
-    )
+    if any((times.cast(pl.Int64) % 1000 != 0).any() for times in _inside(column, _in_nanoseconds)):
+        return "has a time finer than a microsecond, which a saved run does not keep"
+    return None
 
 
 def _out_of_microseconds(column: pl.Series) -> str | None:
-    """Checks that every cell of a millisecond column still fits when it is counted in microseconds.
+    """Checks that every ``Datetime`` or ``Duration`` in milliseconds, in the column or inside its lists and
+    structs, still fits when it is counted in microseconds.
 
-    This is for a ``Datetime`` or ``Duration`` in milliseconds. A date very far from 1970, or a very long duration,
-    would overflow an ``Int64`` once it is multiplied by 1,000.
+    A date very far from 1970, or a very long duration, would overflow an ``Int64`` once it is multiplied by 1,000.
 
     Returns:
         What is wrong with the column, or ``None`` if nothing is.
     """
-    counts = column.cast(pl.Int64)
-    return (
-        "has a time too far out to be held in microseconds, which a saved run keeps"
-        if ((counts > _MILLISECONDS_IN_RANGE) | (counts < -_MILLISECONDS_IN_RANGE)).any()
-        else None
-    )
+    for times in _inside(column, _in_milliseconds):
+        counts = times.cast(pl.Int64)
+        if ((counts > _MILLISECONDS_IN_RANGE) | (counts < -_MILLISECONDS_IN_RANGE)).any():
+            return "has a time too far out to be held in microseconds, which a saved run keeps"
+    return None
 
 
-def _floats_inside(column: pl.Series) -> list[pl.Series]:
-    """Returns the float cells inside a list or struct column.
+def _in_nanoseconds(dtype: Any) -> bool:
+    """Says whether a column of ``dtype`` counts in nanoseconds: a time, or a ``Datetime`` or ``Duration`` in ns."""
+    return bool(dtype == pl.Time) or getattr(dtype, "time_unit", None) == "ns"
 
-    There is one series for each place a float can be. A struct with two float fields gives two series.
+
+def _in_milliseconds(dtype: Any) -> bool:
+    """Says whether a column of ``dtype`` is a ``Datetime`` or ``Duration`` in milliseconds."""
+    return getattr(dtype, "time_unit", None) == "ms"
+
+
+def _is_float(dtype: Any) -> bool:
+    """Says whether a column of ``dtype`` holds floats."""
+    return bool(dtype.is_float())
+
+
+def _inside(column: pl.Series, kind: Callable[[Any], bool]) -> list[pl.Series]:
+    """Returns the cells of the column, and those inside its lists and structs, of a polars type ``kind`` takes.
+
+    There is one series for each place such a cell can be. A struct with two float fields gives two series for
+    ``_is_float``.
     """
     dtype = column.dtype
     if isinstance(dtype, pl.List):
-        return _floats_inside(column.explode())
+        return _inside(column.explode(), kind)
     if isinstance(dtype, pl.Array):
-        return _floats_inside(column.arr.explode())
+        return _inside(column.arr.explode(), kind)
     if isinstance(dtype, pl.Struct):
         return [
-            floats
+            cells
             for field in dtype.fields
-            for floats in _floats_inside(column.struct.field(field.name))
+            for cells in _inside(column.struct.field(field.name), kind)
         ]
-    return [column] if dtype.is_float() else []
+    return [column] if kind(dtype) else []
+
+
+def _has_inside(dtype: Any, kind: Callable[[Any], bool]) -> bool:
+    """Says whether a column of ``dtype`` has cells of a polars type ``kind`` takes, itself or inside its lists and
+    structs."""
+    if isinstance(dtype, pl.List | pl.Array):
+        return _has_inside(dtype.inner, kind)
+    if isinstance(dtype, pl.Struct):
+        return any(_has_inside(field.dtype, kind) for field in dtype.fields)
+    return kind(dtype)
 
 
 def _not_finite_inside(column: pl.Series) -> str | None:
@@ -264,7 +301,7 @@ def _not_finite_inside(column: pl.Series) -> str | None:
     Returns:
         What is wrong with the column, or ``None`` if nothing is.
     """
-    if any((floats.is_nan() | floats.is_infinite()).any() for floats in _floats_inside(column)):
+    if any((floats.is_nan() | floats.is_infinite()).any() for floats in _inside(column, _is_float)):
         return "has a float that isn't finite (nan or inf) inside a list or struct, and a saved run can't keep it"
     return None
 
@@ -278,41 +315,32 @@ def _casts(column: pl.Series, dtype: Any) -> bool:
     return True
 
 
-def _has_float_inside(dtype: Any) -> bool:
-    """Says whether a list or struct of ``dtype`` has floats anywhere inside it."""
-    if isinstance(dtype, pl.List | pl.Array):
-        return _has_float_inside(dtype.inner)
-    if isinstance(dtype, pl.Struct):
-        return any(_has_float_inside(field.dtype) for field in dtype.fields)
-    return bool(dtype.is_float())
-
-
 @functools.lru_cache(maxsize=1024)  # a server meets many kinds of Enum and Struct
-def _kept_as(dtype: Any) -> tuple[Any, tuple[Callable[[pl.Series], str | None], ...]]:
+def _kept_as(dtype: Any, typed: bool) -> tuple[Any, tuple[Callable[[pl.Series], str | None], ...]]:
     """Returns the type a column of ``dtype`` is converted to, and the checks its cells must pass.
 
     The type is ``dtype`` itself when the column comes back from a saved run unchanged. It is the type the column
     comes back as when converting changes no cell, so an ``Int32`` column becomes ``Int64``. It is ``None`` when the
-    column would come back changed, or can't be written as JSON at all.
+    column would come back changed, or can't be written as JSON at all. ``typed`` says whether a row type declares
+    the column, so a saved table reads it back by its type (``_saved_dtype``).
 
-    Some columns depend on their cells too, such as a ``Datetime`` in nanoseconds. Those get checks: each takes the
-    column and returns what is wrong with it, or ``None``.
+    Some columns depend on their cells too, such as a ``Datetime`` in nanoseconds, in the column or inside a list.
+    Those get checks: each takes the column and returns what is wrong with it, or ``None``.
     """
-    saved = _saved_dtype(dtype)
+    saved = _saved_dtype(dtype, typed)
     if saved is None or not _converts_exactly(dtype, saved):
         return None, ()
     checks: list[Callable[[pl.Series], str | None]] = []
-    unit = getattr(dtype, "time_unit", None)
-    if dtype == pl.Time or unit == "ns":
+    if _has_inside(dtype, _in_nanoseconds):
         checks.append(_finer_than_a_microsecond)
-    if unit == "ms":
+    if _has_inside(dtype, _in_milliseconds):
         checks.append(_out_of_microseconds)
-    if dtype.to_python() not in CELLS and _has_float_inside(dtype):
+    if dtype.to_python() not in CELLS and _has_inside(dtype, _is_float):
         checks.append(_not_finite_inside)
     return saved, tuple(checks)
 
 
-def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
+def as_saved(frame: pl.DataFrame, typed: frozenset[str] = frozenset()) -> pl.DataFrame:
     """Converts each column of ``frame`` to the type it will come back as from a saved run.
 
     After this, every cell comes back from ``run.to_json()`` and ``Run.from_json`` exactly as it is. A column is
@@ -326,18 +354,24 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
     - a ``Datetime`` in nanoseconds becomes microseconds if every cell is a whole microsecond.
     - a ``Datetime`` in ``"Europe/Copenhagen"`` is refused, since it would come back in UTC.
     - a ``nan`` inside a list is refused.
+    - a date inside a list is kept in a column ``typed`` names, which a saved table reads back by its row type, and
+      refused in any other, since it would come back as text.
 
     A column with no values, empty or all null, may still come back with another type. There is no cell to tell
     what it was.
+
+    Args:
+        frame: The table.
+        typed: The columns a row type declares, each of a type that says its polars type (``CellType.dtype``).
 
     Raises:
         PydanticCustomError: ``column_not_saved`` if a column would come back changed.
     """
     casts: dict[Any, Any] = {}
     for name, dtype in frame.schema.items():
-        kept, checks = _kept_as(dtype)
+        kept, checks = _kept_as(dtype, name in typed)
         if kept is None:
-            saved = _saved_dtype(dtype)
+            saved = _saved_dtype(dtype, name in typed)
             if saved is None:
                 raise conductor_error(
                     "column_not_saved",
@@ -442,9 +476,20 @@ def _read_from_json(column: Type, dtype: Any) -> bool:
 def _columns_as_json(frame: pl.DataFrame, names: list[str]) -> str:
     """Writes the columns ``names`` of ``frame`` as the JSON text of a dict of lists, each object by its own class.
 
+    A cell is written as the Python value polars gives for it, and Python's ``time``, ``datetime`` and ``timedelta``
+    stop at microseconds and hold no time too far out to count in them. So a column with a time finer than that, or
+    a millisecond time too far out, itself or inside a list or struct, is refused rather than cut or overflowed.
+
     Raises:
-        PydanticCustomError: ``column_not_saved`` for a column of Python objects with no JSON form.
+        PydanticCustomError: ``column_not_saved`` for a column of Python objects with no JSON form, or with a time
+            finer than a microsecond or too far out to count in microseconds.
     """
+    for name in names:
+        for check in (_finer_than_a_microsecond, _out_of_microseconds):
+            if (fault := check(frame[name])) is not None:
+                raise conductor_error(
+                    "column_not_saved", "column '{column}' " + fault, {"column": name}
+                )
     try:
         return json_text(
             {name: frame[name].to_list() for name in names}, fallback=json_by_its_class
@@ -540,6 +585,8 @@ def _table_schemas(
     cells = {name: fields[name]["schema"] for name in columns}
     # the polars type of each column a frame of R's own values has, where its type says it
     kept_schema = {name: cell_type(column.hint).dtype for name, column in columns.items()}
+    # the columns a saved table is read back by their type, so a date in a list comes back as a date
+    typed = frozenset(name for name, dtype in kept_schema.items() if dtype is not None)
     # the columns of a type a table doesn't keep as it is, which a Series of rows may declare, since a list keeps it
     not_kept = {
         name: refusal
@@ -550,11 +597,7 @@ def _table_schemas(
     def refuse_not_kept() -> None:
         if not_kept:
             name, (cell, reason) = next(iter(not_kept.items()))
-            raise conductor_error(
-                "table_cell_not_kept",
-                "column '{column}' holds {cell}, which a table doesn't keep as it is: {reason}",
-                {"column": name, "cell": cell, "reason": reason},
-            )
+            raise cell_not_kept(name, cell, reason)
 
     dtypes = {
         name: CELLS[column.options[0]][0]
@@ -655,14 +698,18 @@ def _table_schemas(
         if declared
         else core_schema.dict_schema(core_schema.str_schema())
     )
-    # some of a frame's columns, each a list of cells by name, checked by the row's own schema of each field
-    by_column = core_schema.typed_dict_schema(
+    # some of a frame's columns, each a list of cells by name, checked by the row's own schema of each field, and
+    # read by the row's config as a row is, so bytes inside a list read from the base64 they are written as. They
+    # are read strictly, as any saved value is: a saved table's "Yes" is never a bool, after a deploy that made the
+    # column one
+    by_column = json_typed_dict_schema(
         {
             name: core_schema.typed_dict_field(core_schema.list_schema(cell), required=False)
             for name, cell in cells.items()
         },
         cls=row_class,
     )
+    by_column["config"] = {**by_column.get("config", {}), "strict": True}
     as_frame = (
         core_schema.no_info_wrap_validator_function(from_frame, core_schema.json_schema(by_column))
         if declared
@@ -686,7 +733,7 @@ def _table_schemas(
             custom_error_context=dict(OWN_MESSAGE),
         )
         return core_schema.no_info_after_validator_function(
-            lambda read: (as_saved(read[0]), read[1]), any_form
+            lambda read: (as_saved(read[0], typed), read[1]), any_form
         )
 
     read_rows = core_schema.no_info_after_validator_function(from_rows, rows)

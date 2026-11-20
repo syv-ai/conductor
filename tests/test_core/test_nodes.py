@@ -77,6 +77,7 @@ from pydantic import (
     BaseModel,
     ByteSize,
     ConfigDict,
+    Discriminator,
     Field,
     ImportString,
     Json,
@@ -868,17 +869,14 @@ class _OpenNote(BaseModel):
 
 @host_type("cat-pet", title="Cat pet")
 class _Cat(BaseModel, frozen=True):
+    kind: Literal["cat"]
     meow: str
 
 
 @host_type("dog-pet", title="Dog pet")
 class _Dog(BaseModel, frozen=True):
+    kind: Literal["dog"]
     bark: int
-
-
-@host_type("twin-pet", title="Twin pet")
-class _Twin(BaseModel, frozen=True):
-    meow: str
 
 
 type _Nest = list[_Nest] | int
@@ -922,8 +920,11 @@ class _OpenPoint:
         (_OpenNote, "_OpenNote", "a value may have keys it doesn't declare"),
         (_OpenRow, "_OpenRow", "a value may have keys it doesn't declare"),
         (_OpenPoint, "_OpenPoint", "a value may have keys it doesn't declare"),
-        (_Cat | _Dog, "cat-pet | dog-pet", "a value of a union may be of either type"),
-        (_Cat | _Twin, "cat-pet | twin-pet", "a value of a union may be of either type"),
+        (
+            Annotated[_Cat | _Dog, Discriminator("kind")],
+            "cat-pet | dog-pet",
+            "a value of a union may be of either type",
+        ),
         (_Money | str, "cell-money | str", "a value of a union may be of either type"),
         (int | str, "int | str", "a value of a union may be of either type"),
         (_Nest, "_Nest", "a value of a union may be of either type"),
@@ -945,8 +946,7 @@ class _OpenPoint:
         "a model that takes extra keys",
         "a TypedDict that takes extra keys",
         "a pydantic dataclass that takes extra keys",
-        "a union of models whose fields differ",
-        "a union of models with the same fields",
+        "a discriminated union of models",
         "a union of a model and a text",
         "a union of numbers and texts",
         "an alias of a union",

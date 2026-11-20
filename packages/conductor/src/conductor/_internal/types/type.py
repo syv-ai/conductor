@@ -993,7 +993,7 @@ def _check_built(schema: CoreSchema) -> None:
     """Refuses a type, by the schema pydantic built for it, if a node may not declare something inside it.
 
     The schema is what pydantic really checks and writes a value by, so this walk reaches every part of the type, the
-    fields of a host's own model or dataclass included. It walks the schema once and refuses three things:
+    fields of a host's own model or dataclass included. It walks the schema once and refuses four things:
 
     - A set or a frozenset. A set has no order, so its JSON form is a list whose order may differ from one process to
       the next. Its value would then hash differently each time, and a call of it would never be reused.
@@ -1007,6 +1007,7 @@ def _check_built(schema: CoreSchema) -> None:
       ``"!"`` before the choices are compared. Every value would fail at run time. ``Param`` reads its choices by
       the type it is on; this reads them again by the part of the schema it built, on the port, a list's item, a
       dict's value or a model's field.
+    - A union with two members JSON can't tell apart by their class (``_check_union``).
 
     Say ``class Tags(BaseModel)`` has the field ``tags: set[str]``. Then the schema of ``list[Tags]`` is refused,
     naming ``Tags.tags``.
@@ -1015,8 +1016,8 @@ def _check_built(schema: CoreSchema) -> None:
         schema: The type's core schema.
 
     Raises:
-        NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text`` or
-            ``choices_invalid``.
+        NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text``,
+            ``choices_invalid`` or ``union_members_alike``.
     """
     # the schemas pydantic declared beside the type, by their ref, and the ids of those walked already, so each is
     # walked once
@@ -1057,6 +1058,8 @@ def _check_built(schema: CoreSchema) -> None:
             definitions.update(under_definitions(part)[1])
         if (choices := part.get("metadata", {}).get(CHOICES)) is not None:
             _check_choices(part, choices, definitions)
+        if kind == "union":
+            _check_union(part, held, definitions)
         if kind in _DECLARES_FIELDS and isinstance(cls := part.get("cls"), type):
             held = (cls.__name__, "")
             # a class with no config of its own, and a schema with no config written on it, read by the config they
@@ -1100,6 +1103,106 @@ def _set_written(schema: dict[str, Any]) -> str:
     if isinstance(cls := items.get("cls"), type):
         return f"{schema['type']}[{cls.__name__}]"
     return str(schema["type"])
+
+
+def _check_union(
+    union: CoreSchema, held: tuple[str, str] | None, definitions: dict[str, Any]
+) -> None:
+    """Refuses a union with two members whose values JSON can't tell apart by their class.
+
+    A run keeps a value as JSON, which says nothing of its class, and pydantic reads a union back as the member that
+    takes it best, the first where two take it as well. So a union is refused when two of its members are written
+    alike:
+
+    - two whose JSON is an object: a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``, generic or not;
+    - an enum beside another enum, a ``Literal`` or ``str`` that shares a value with it.
+
+    That refuses some unions pydantic could tell apart, such as two models with different required fields, since
+    which it can is not one rule a reader can see. ``X | None`` and members whose JSON is of different kinds, like
+    ``int | str``, are kept. A union pydantic tells apart by a ``Discriminator`` is a schema of another kind, and
+    isn't walked here.
+
+    Args:
+        union: The union's schema.
+        held: The class around the union, by name, and its field the union is in, as ``_check_built`` keeps it.
+        definitions: The schemas pydantic declared beside the type, which a member may refer to.
+
+    Raises:
+        NodeDeclarationError: ``union_members_alike``.
+    """
+    members = [
+        _written_as(choice[0] if isinstance(choice, tuple) else choice, definitions)
+        for choice in union["choices"]
+    ]
+    for at, (name, values) in enumerate(members):
+        for other, other_values in members[at + 1 :]:
+            if values is not None and other_values is not None and _alike(values, other_values):
+                raise NodeDeclarationError(
+                    declaration_problems.union_members_alike(
+                        type=_field_or(held, " | ".join(member for member, _ in members)),
+                        member=name,
+                        alike=other,
+                    )
+                )
+
+
+#: The JSON values of a member written as an object, which any other such member's may be.
+_AN_OBJECT = "object"
+
+#: The JSON values of ``str``: any text.
+_ANY_TEXT = "text"
+
+
+def _written_as(schema: Any, definitions: dict[str, Any]) -> tuple[str, Any]:
+    """Returns a union member's name, and what its JSON may be, as ``_alike`` compares it.
+
+    What its JSON may be is ``_AN_OBJECT`` for a model, a dataclass, a ``TypedDict`` or a dict, the values of an enum
+    or a ``Literal`` as a ``frozenset`` with the enum's class, ``_ANY_TEXT`` for ``str``, and ``None`` for any other
+    member, which no other is taken for here. A reference and a validator around the member are looked through.
+    """
+    while schema is not None and schema["type"] in (
+        "definition-ref",
+        "function-before",
+        "function-after",
+        "function-wrap",
+    ):
+        schema = (
+            looked_up(schema, definitions)
+            if schema["type"] == "definition-ref"
+            else schema["schema"]
+        )
+    if schema is None:
+        return "Any", None
+    kind = schema["type"]
+    if kind in _DECLARES_FIELDS:
+        return str(schema["cls"].__name__), _AN_OBJECT
+    if kind == "dict":
+        return "dict", _AN_OBJECT
+    if kind == "enum":
+        return str(schema["cls"].__name__), (
+            schema["cls"],
+            frozenset(member.value for member in schema["members"]),
+        )
+    if kind == "literal":
+        return f"Literal{list(schema['expected'])}", (None, frozenset(schema["expected"]))
+    if kind == "str":
+        return "str", _ANY_TEXT
+    return kind, None
+
+
+def _alike(one: Any, other: Any) -> bool:
+    """Says whether two union members, by what their JSON may be (``_written_as``), may be written alike: both
+    objects, or an enum and another enum, a ``Literal`` or ``str`` with a value in common."""
+    if one == _AN_OBJECT or other == _AN_OBJECT:
+        return one == other
+    enums = [
+        values for values in (one, other) if isinstance(values, tuple) and values[0] is not None
+    ]
+    if not enums:
+        return False
+    if _ANY_TEXT in (one, other):
+        return any(isinstance(value, str) for value in enums[0][1])
+    return bool(one[1] & other[1])
 
 
 def _check_choices(

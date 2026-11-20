@@ -111,8 +111,8 @@ def _read_strictly(schema: Mapping[str, Any]) -> Any:
     read is a weaker match than a strict one, so beside ``str`` in a union, ``"NaN"`` is the text, as a node
     returned it.
 
-    A table's cells, and a ``Series`` of rows saved as a table, are read by the table's own reader, which doesn't
-    read them strictly yet: once a deploy makes a column a ``bool``, a saved ``"Yes"`` there still reads as ``True``.
+    A table's cells, and a ``Series`` of rows saved as a table, are read by the table's own reader, which reads each
+    column strictly too.
     """
     kind = schema["type"]
     if kind in HOSTS_OWN_CLASSES:

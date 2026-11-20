@@ -36,6 +36,7 @@ from pydantic import (
     BaseModel,
     ByteSize,
     ConfigDict,
+    Discriminator,
     Field,
     FtpUrl,
     HttpUrl,
@@ -1211,24 +1212,13 @@ class AnyRow(TypedDict):
             [{"amount": 1.0}, {"amount": 2.0}],
         ),
         (WalletAliasRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
-        (AnyRow, Money(amount=1), {"amount": 1.0}),
-        (AnyRow, [Money(amount=1)], [{"amount": 1.0}]),
-        (AnyRow, {"colour": Colour.RED}, {"colour": "red"}),
     ],
-    ids=[
-        "a subclass in a list",
-        "a subclass in a tuple",
-        "a subclass through an alias",
-        "a model in an Any cell",
-        "a list of models in an Any cell",
-        "an enum in a dict in an Any cell",
-    ],
+    ids=["a subclass in a list", "a subclass in a tuple", "a subclass through an alias"],
 )
 def test_a_table_keeps_a_cell_by_its_declared_types_at_any_depth(
     row: Any, value: Any, kept: Any
 ) -> None:
-    """A subclass is kept as the class its column's type declares wherever the type puts it, and a cell of ``Any``
-    by each value's own class."""
+    """A subclass is kept as the class its column's type declares wherever the type puts it."""
 
     def returns() -> Table[row]:  # type: ignore[valid-type]
         return [{"cell": value}]  # type: ignore[return-value]
@@ -1241,6 +1231,72 @@ def test_a_table_keeps_a_cell_by_its_declared_types_at_any_depth(
 
     assert run.outputs["result"].to_dicts() == [{"cell": kept}]
     assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
+
+
+def _any_table(cells: list[Any]) -> Any:
+    """A graph whose one node returns a ``Table[AnyRow]`` of ``cells``, one per row."""
+
+    def returns() -> Table[AnyRow]:
+        return [{"cell": one} for one in cells]  # type: ignore[return-value]
+
+    table = node("table", title="Table", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(table)
+    return Graph.compile(make_graph(table), registry)
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        [1, None, 2],
+        ["a", "b"],
+        [[1, 2], [3]],
+        [{"x": 1, "y": None}, {"y": 2, "x": 3}],
+        [datetime.date(2026, 1, 1)],
+    ],
+    ids=["whole numbers", "texts", "lists of one type", "dicts of the same keys", "dates"],
+)
+def test_an_any_cell_polars_gives_back_as_it_was_is_kept(cells: list[Any]) -> None:
+    run = _any_table(cells).run({})
+
+    assert run.outputs["result"]["cell"].to_list() == cells
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        [1, 1.5],
+        [1, "x"],
+        [True, 2],
+        [[1], [1.5]],
+        [{"x": 1}, {"y": 2}],
+        [Money(amount=1)],
+        [[Money(amount=1)]],
+        [{"colour": Colour.RED}],
+        [(1, 2)],
+    ],
+    ids=[
+        "a whole number and a float",
+        "a number and a text",
+        "a yes or no and a number",
+        "lists of different items",
+        "dicts of different keys",
+        "a model",
+        "a list of models",
+        "an enum in a dict",
+        "a tuple",
+    ],
+)
+def test_an_any_cell_polars_would_change_fails_the_run_naming_the_column(cells: list[Any]) -> None:
+    """A column of ``Any`` gets the type polars picks for its values, so it is kept only if polars gives each value
+    back as it was, of the same class: ``1`` beside ``1.5`` would come back as ``1.0``."""
+    run = _any_table(cells).run({})
+
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("table",))
+    assert [(e["type"], e["ctx"]["column"], e["ctx"]["cell"]) for e in run.cause.ctx["errors"]] == [
+        ("table_cell_not_kept", "cell", "Any")
+    ]
+    assert "Give the column a type a table keeps, or pass the rows as a Series" in run.cause.msg
 
 
 class _Part(TypedDict):
@@ -1285,16 +1341,18 @@ def test_a_series_of_rows_whose_cell_leaves_out_a_not_required_key_reads_back(
 
 @host_type("meowing", title="Meowing")
 class Meowing(BaseModel, frozen=True):
+    kind: Literal["meowing"] = "meowing"
     meow: str | None = None
 
 
 @host_type("barking", title="Barking")
 class Barking(BaseModel, frozen=True):
+    kind: Literal["barking"] = "barking"
     bark: int
 
 
 class PetRow(TypedDict):
-    pet: Meowing | Barking
+    pet: Annotated[Meowing | Barking, Discriminator("kind")]
 
 
 class ScoresRow(TypedDict):
@@ -1320,7 +1378,7 @@ def _as_plain_data(value: Any) -> Any:
         (ScoresRow, [{"points": {"x": 1}}, {"points": {"y": 2}}], "dict[str, int]"),
         (MoneyColourRow, [{"pair": (Money(amount=1), Colour.RED)}], "tuple[money, colour]"),
     ],
-    ids=["a union of models whose fields differ", "a dict", "a tuple of different items"],
+    ids=["a discriminated union of models", "a dict", "a tuple of different items"],
 )
 @pytest.mark.parametrize("returned", ["list", "frame"])
 def test_a_series_of_rows_of_a_cell_a_table_does_not_keep_is_taken_as_a_list_and_refused_as_a_frame(

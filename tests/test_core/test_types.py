@@ -5,6 +5,7 @@ test picks one place where a hint could be read two ways, and checks that it is 
 """
 
 import datetime
+from enum import Enum
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import polars as pl
@@ -29,6 +30,7 @@ from pydantic import (
     AfterValidator,
     BaseModel,
     ConfigDict,
+    Discriminator,
     GetCoreSchemaHandler,
     JsonValue,
     model_validator,
@@ -483,6 +485,143 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
         _returning_its_input(Annotated[Cat | Dog, Discriminator("kind")])
     )
     assert _run(pet, value={"kind": "dog"}).outputs == {"result": "kind='dog'"}
+
+
+@host_type("tern", title="Tern")
+class _Tern(BaseModel, frozen=True):
+    name: str
+
+
+@host_type("gull", title="Gull")
+class _Gull(BaseModel, frozen=True):
+    name: str
+
+
+@host_type("plover", title="Plover")
+class _Plover(BaseModel, frozen=True):
+    name: str
+    age: int
+
+
+@host_type("tern-kind", title="Tern kind")
+class _KindTern(BaseModel, frozen=True):
+    kind: Literal["tern"] = "tern"
+    name: str
+
+
+@host_type("gull-kind", title="Gull kind")
+class _KindGull(BaseModel, frozen=True):
+    kind: Literal["gull"] = "gull"
+    name: str
+
+
+@host_type("flock", title="Flock")
+class _Flock(BaseModel, frozen=True):
+    birds: list[_Tern | _Gull]
+
+
+class _TernRecord(TypedDict):
+    name: str
+
+
+class _GullRecord(TypedDict):
+    name: str
+
+
+class _BirdRow(TypedDict):
+    bird: _Tern | _Plover
+
+
+@host_type("shore-bird", title="Shore bird")
+class _ShoreBird(Enum):
+    TERN = "tern"
+    PLOVER = "plover"
+
+
+@host_type("sea-bird", title="Sea bird")
+class _SeaBird(Enum):
+    TERN = "tern"
+    GULL = "gull"
+
+
+@host_type("wader", title="Wader")
+class _Wader(Enum):
+    HERON = "heron"
+
+
+@pytest.mark.parametrize(
+    ("hint", "where"),
+    [
+        (_Tern | _Gull, "_Tern | _Gull"),
+        (_Tern | _Plover, "_Tern | _Plover"),
+        (_KindTern | _KindGull, "_KindTern | _KindGull"),
+        (_Tern | _TernRecord, "_Tern | _TernRecord"),
+        (_TernRecord | _GullRecord, "_TernRecord | _GullRecord"),
+        (_Tern | dict[str, str], "_Tern | dict"),
+        (_ShoreBird | _SeaBird, "_ShoreBird | _SeaBird"),
+        (_ShoreBird | Literal["tern", "gull"], "_ShoreBird | Literal['tern', 'gull']"),
+        (_ShoreBird | str, "_ShoreBird | str"),
+        (list[_Tern | _Gull | None], "_Tern | _Gull"),
+        (Series[_BirdRow], "_BirdRow.bird"),
+        (_Flock, "_Flock.birds"),
+    ],
+    ids=[
+        "two models of the same fields",
+        "two models of different fields",
+        "two models told apart by a Literal field but no discriminator",
+        "a model and a TypedDict",
+        "two TypedDicts",
+        "a model and a dict",
+        "two enums sharing a value",
+        "an enum and a Literal sharing a value",
+        "an enum of texts and str",
+        "in a list",
+        "in a Series of rows",
+        "in a field of a host's model",
+    ],
+)
+def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_declared(
+    hint: Any, where: str
+) -> None:
+    """JSON doesn't keep a value's class, so of two members written alike, both as an object, or an enum and a
+    member sharing one of its values, a saved value could read back as the other. Such a union is refused even
+    where pydantic might tell its members apart."""
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("bird", title="Bird", description="For a test.")(_returning_its_input(hint))
+
+    (problem,) = raised.value.problems
+    assert problem.type == "union_members_alike" and f" in {where} are written alike" in problem.msg
+
+
+@pytest.mark.parametrize(
+    ("hint", "value"),
+    [
+        (Annotated[_KindTern | _KindGull, Discriminator("kind")], _KindGull(name="g")),
+        (_Tern | None, _Tern(name="t")),
+        (_Tern | str, _Tern(name="t")),
+        (_ShoreBird | _Wader, _Wader.HERON),
+        (int | str, "1"),
+    ],
+    ids=[
+        "told apart by a discriminator",
+        "a model or None",
+        "a model or a text",
+        "two enums of no value in common",
+        "a number or a text",
+    ],
+)
+def test_a_union_whose_members_json_tells_apart_reads_back_as_each_values_own_class(
+    hint: Any, value: Any
+) -> None:
+    @node("bird", title="Bird", description="For a test.")
+    def bird() -> hint:  # type: ignore[valid-type]
+        return value
+
+    graph = Graph.compile(make_graph(bird), registry_of(bird))
+    run = graph.run({})
+
+    read_back = Run.from_json(run.to_json(), graph).outputs["result"]
+    assert type(read_back) is type(value) and read_back == value
 
 
 def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
