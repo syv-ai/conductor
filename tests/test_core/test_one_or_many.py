@@ -31,6 +31,8 @@ from conductor import (
 )
 from pydantic import BaseModel, ValidationError
 
+from tests.test_core.nodes import registry_of
+
 CALLS: Counter[str] = Counter()
 registry = NodeRegistry()
 
@@ -558,6 +560,46 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
         ).problems
         assert [error["type"] for error in problem.ctx["errors"]] == ["bool_is_not_a_number"], hint
     assert _taken(Row, right) == right and _taken(list[Row], [right]) == [right]
+
+
+def test_true_returned_or_answered_for_a_number_is_refused_with_one_code_wherever_it_is():
+    """A node's return and a person's answer are read strictly, and refuse ``True`` for a number with the same code an
+    input gets: in a ``Series``, a list, a field of a host's own model, and as a whole.
+
+    Pydantic's strict check refuses it as ``int_type`` or ``float_type``, which a host is shown as
+    ``bool_is_not_a_number``.
+    """
+
+    @host_type("tally", title="Tally")
+    class Tally(BaseModel, frozen=True):
+        count: int
+
+    for hint, value, loc in (
+        (int, True, []),
+        (float, False, []),
+        (Series[int], [1, True], [1]),
+        (list[float], [0.5, True], [1]),
+        (Tally, {"count": True}, ["count"]),
+    ):
+
+        def returns() -> Any:
+            return value
+
+        def asks() -> Any:
+            raise Ask("How many?")
+
+        returns.__annotations__["return"] = asks.__annotations__["return"] = hint
+        give = node("give", title="Give", description="For a test.")(returns)
+        ask = node("ask", title="Ask", description="For a test.", asks=True)(asks)
+        failed = Graph.compile(make_graph(give), registry_of(give)).run()
+        waiting = Graph.compile(make_graph(ask), registry_of(ask)).run()
+        with pytest.raises(InvalidCallError) as refused:
+            waiting.with_answers(waiting.waiting[0].id, value)
+        expected = [
+            {"type": "bool_is_not_a_number", "loc": loc, "msg": "a yes or no is not a number"}
+        ]
+        assert failed.cause is not None and failed.cause.ctx["errors"] == expected, hint
+        assert refused.value.problems[0].ctx["errors"] == expected, hint
 
 
 def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():

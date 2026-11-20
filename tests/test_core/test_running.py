@@ -2629,7 +2629,7 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
         (0, "greater_than"),
         (-1, "greater_than"),
         (math.inf, "finite_number"),
-        (True, "float_type"),
+        (True, "bool_is_not_a_number"),
         ("5", "float_type"),
     ],
 )
@@ -2687,7 +2687,11 @@ def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_o
             {
                 "limit": "checkpoint_every",
                 "errors": [
-                    {"type": "float_type", "loc": [], "msg": "Input should be a valid number"}
+                    {
+                        "type": "bool_is_not_a_number",
+                        "loc": [],
+                        "msg": "a yes or no is not a number",
+                    }
                 ],
             },
         ),
