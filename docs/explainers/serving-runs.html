@@ -867,7 +867,7 @@ refused: {'approve~60a01e27': ['not_waiting']}</pre>
 
   <div class="two" style="margin-top:3rem">
     <div class="sample">
-      <p class="label">Sample 2, hand_back.py. Worker A creates and resumes a run of 40 slow items and shuts down after 10 calls. Worker B serves after it. The store prints each update that writes <code>owner</code>.</p>
+      <p class="label">Sample 2, hand_back.py. Worker A creates and resumes a run of 40 slow items and shuts down after 10 calls. Worker B serves after it. The store prints each update that writes <code>owner</code> with the run's status, so not the renewals.</p>
       <script type="text/x-python">
 import time
 
@@ -888,18 +888,22 @@ def slow(x: int) -> int:
     return x
 
 
+names = {}
+
+
 def who(owner):
-    return {a._settings.worker_id: "A", b._settings.worker_id: "B"}.get(owner, owner)
+    """Names each worker by the order it first owns the run: A, then B."""
+    return None if owner is None else names.setdefault(owner, "AB"[len(names)])
 
 
 def log(run_id, rev, changes, written):
-    """Prints each update that writes owner, without its rev, which depends on timing."""
-    if "owner" in changes:
+    """Prints each update that writes owner with the status, without its rev, which depends on timing."""
+    if "owner" in changes and "status" in changes:
         lease = changes["lease_until"]
         until = "now + lease" if lease else lease
         back = " (handed back)" if lease == 0.0 else ""
         print(f"  update: owner={who(changes['owner'])}, lease_until={until}{back}, "
-              f"status={changes.get('status', 'running')}, written={written}")
+              f"status={changes['status']}, written={written}")
 </script>
       <pre data-lang="py">store = DictStore(log)
 a = Worker(store, nodes_for=lambda m: registry, lease=0.6)
@@ -1191,7 +1195,7 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
   const COLS = [
     { id: "id", g: "acts", what: "The run's id, a uuid hex the worker makes in `create` and `again`.", writes: "`create` only.", reads: "Every worker method that acts on a run, by id." },
     { id: "rev", g: "acts", what: "Moved one on by every `update`. A write is made only while the row is still at the rev its writer read.", writes: "The store, on each `update` it lets through.", reads: "Every writer, to write at the rev it read." },
-    { id: "owner", g: "acts", what: "The worker resuming the run. `add_event` appends only while the owner given is the row's owner.", writes: "`create` (`None`: no worker holds a run just created), a claim (this worker's id), the end of a resume call (`None`, or this worker's id again when the run goes on at once), a [hand-back](running-and-streaming.html#stream) (`None`), and a decline given with no resume call.", reads: "`add_event`, and a held run, which stops when it reads another owner." },
+    { id: "owner", g: "acts", what: "The worker resuming the run. `add_event` appends only while the owner given is the row's owner.", writes: "`create` (`None`: no worker holds a run just created), a claim and each renewal (this worker's id), the end of a resume call (`None`, or this worker's id again when the run goes on at once), a [hand-back](running-and-streaming.html#stream) (`None`), and a decline given with no resume call.", reads: "`add_event`, and a held run, which stops when it reads another owner." },
     { id: "lease_until", g: "acts", what: "Until when the owner's lease holds, in seconds since the epoch. `0.0` for a run handed back. `None` when the run isn't running.", writes: "`create` and a claim (now + `lease`), each renewal, a hand-back (`0.0`), the end of a resume call (`None`, or a new lease when the run goes on at once), and a decline given with no resume call.", reads: "`expired(now)`, which gives the rows whose lease_until is before now, for the sweep." },
     { id: "status", g: "query", what: "`running` while a worker resumes the run or is about to, else how the run was left. Written in the same `update` as `state`, from it.", writes: "With every write of `state`.", reads: "Your own queries only. The worker and the routes read `state`. A test has a store that drops this column, and the worker still works." },
     { id: "metadata", g: "query", what: "What you keep on the run, such as who started it, as JSON written by alias. Written once by `create`.", writes: "`create` only.", reads: "The run filter, `nodes_for` and `context` on every resume, and your own queries." },

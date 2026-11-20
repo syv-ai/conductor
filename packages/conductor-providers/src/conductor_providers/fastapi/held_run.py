@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time
 from asyncio import Event as AsyncioEvent
 from asyncio import Lock
 from collections.abc import Awaitable, Callable
@@ -27,16 +26,9 @@ from conductor import Graph, InvalidCallError, NodeRegistry, Problem, Run
 from conductor.events import RunCheckpoint, RunEnd
 
 from conductor_providers.fastapi.problems import raised_outside_a_node
-from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunRow, StoreFailedError
+from conductor_providers.fastapi.store import GuardedStore, RunRow, StoreFailedError
 
 log = logging.getLogger("conductor_providers.fastapi")
-
-#: The owner and lease of a row whose run isn't running.
-_UNHELD: RunChanges = {"owner": None, "lease_until": None}
-
-#: The owner and lease of a row whose run is to go on and that no worker holds: handed back, or just created. Its lease
-#: has already run out, so the next sweep of any worker takes it, and ``Worker.resume`` takes it at once.
-UNCLAIMED: RunChanges = {"owner": None, "lease_until": 0.0}
 
 
 @dataclass(frozen=True)
@@ -47,26 +39,18 @@ class ResumeSettings:
     itself, so a run is compiled and read in one place.
 
     Attributes:
-        worker_id: The worker's id, written as the ``owner`` of the runs it holds.
         nodes_for: The registry for a run's metadata.
         context: The run's context, from its metadata and the resume call's stop event; ``None`` for no context.
-        lease: The seconds the worker holds a run between renewals.
         checkpoint_every: The seconds between saves of a running run.
         resume_timeout: The seconds one resume call may take; ``None`` for no limit.
         handing_back: Set when the worker shuts down, so every resume call hands its run back.
     """
 
-    worker_id: str
     nodes_for: Callable[[Any], NodeRegistry[Any]]
     context: Callable[[Any, Event], Any] | None
-    lease: float
     checkpoint_every: float
     resume_timeout: float | None
     handing_back: AsyncioEvent
-
-    def holder(self) -> RunChanges:
-        """The ``owner`` and ``lease_until`` of a row this worker holds, from now."""
-        return {"owner": self.worker_id, "lease_until": time.time() + self.lease}
 
     async def load(self, row: RunRow[Any], metadata: Any) -> Run[Any]:
         """The run ``row`` keeps, loaded on a thread on the registry for ``metadata``.
@@ -206,9 +190,7 @@ class HeldRun:
                         # written here, so a run that can't be written fails this call (run_unwritable)
                         saved = await asyncio.to_thread(event.run.to_json)
                         return (event, saved), None
-                    elif not await self._store.add_event(
-                        self.run_id, settings.worker_id, event.model_dump_json()
-                    ):
+                    elif not await self._store.add_event(self.run_id, event.model_dump_json()):
                         self._stop.set()  # another worker holds the run
             return None, None
         except StoreFailedError:
@@ -247,7 +229,7 @@ class HeldRun:
             failed: For a call that failed, why and the run as the row has it, which ``RunState.failed`` takes;
                 ``None`` for a call that didn't.
         """
-        settings = self._settings
+        handing_back = self._settings.handing_back
 
         async def end(row: RunRow[Any]) -> RunRow[Any] | None:
             state, run, outcome, call_end = row.state, None, None, None
@@ -256,15 +238,9 @@ class HeldRun:
             elif ended is not None:
                 call_end, saved = ended
                 state, run, outcome = await asyncio.to_thread(state.ended_with, call_end.run, saved)
-            goes_on = state.is_running and not settings.handing_back.is_set()
-            if goes_on:
-                holder = settings.holder()
-            elif state.is_running:
-                holder = UNCLAIMED
-            else:
-                holder = _UNHELD
+            goes_on = state.is_running and not handing_back.is_set()
             written = await self._store.update(
-                row, holder, state=state, run=run, outcome=outcome, call_end=call_end
+                row, holds=goes_on, state=state, run=run, outcome=outcome, call_end=call_end
             )
             if written is not None:
                 self._released = not goes_on
@@ -286,11 +262,11 @@ class HeldRun:
         such as the end of a resume call. A renewal doesn't hold up the other writes, so a worker whose run was taken
         meanwhile learns it at its next checkpoint or event.
         """
-        lease = self._settings.lease
+        lease = self._store.lease
 
         async def renewed(row: RunRow[Any]) -> RunRow[Any] | None:
             async with asyncio.timeout(lease / 3):
-                return await self._store.update(row, {"lease_until": time.time() + lease})
+                return await self._store.update(row, holds=True)
 
         wait = lease / 3
         while not self._released:
@@ -342,6 +318,6 @@ class HeldRun:
         """Take in the row as read: what another writer changed in its state, a cancel asked of it, and whether
         another worker took it."""
         self._row = row
-        self._released = row.stored.owner != self._settings.worker_id
+        self._released = not self._store.holds(row)
         if self._released or row.state.cancel_asked:
             self._stop.set()

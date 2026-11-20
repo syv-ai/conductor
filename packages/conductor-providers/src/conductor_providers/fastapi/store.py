@@ -11,6 +11,9 @@ lands with the row that says how the run stopped.
 reads the row's JSON into its types. It writes a row's changes back as text, and turns anything the store raises
 into one exception, ``StoreFailedError``, which names the method. ``check_run_store`` calls a store with
 ``guarded`` alone, since it checks the text a store keeps.
+
+``GuardedStore`` also writes a row's ``owner`` and ``lease_until`` itself, from the row's state and whether the
+worker holds the run. A row whose state stops the run holds no lease, so no sweep takes it again.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -281,37 +285,47 @@ class GuardedStore(Generic[M]):
     state and outcome as their types, and can tell an outage apart from a fault in its own code by the exception's
     class alone.
 
+    It acts for one worker. It writes the row's ``owner`` and ``lease_until`` from the row's state and whether this
+    worker holds the run, and adds events as this worker. So the lease columns are written in one place.
+
     Args:
         store: The host's store.
         metadata: Reads a run's metadata: the worker's ``metadata_type``.
+        worker_id: The worker's id, written as the ``owner`` of the runs it holds.
+        lease: The seconds the worker holds a run between renewals.
+
+    Attributes:
+        lease: The seconds the worker holds a run between renewals.
 
     Raises:
         TypeError: The store's ``update`` can't be given ``event`` as its fourth argument.
     """
 
-    def __init__(self, store: RunStore, metadata: TypeAdapter[M]) -> None:
+    def __init__(
+        self, store: RunStore, metadata: TypeAdapter[M], *, worker_id: str, lease: float
+    ) -> None:
         refuse_an_update_without_an_event(store)
         self._store = store
         self._metadata = metadata
+        self._worker_id = worker_id
+        self.lease = lease
 
     async def create(
         self,
         run_id: str,
         graph: str,
         metadata: M,
-        holder: RunChanges,
         *,
         state: RunState,
         run: str,
         outcome: RunOutcome,
     ) -> RunRow[M]:
-        """Insert a new run: ``RunStore.create`` with the row written as text.
+        """Insert a new run: ``RunStore.create`` with the row written as text, held by no worker.
 
         Args:
             run_id: The run's id.
             graph: The ``GraphRecord`` the run is of, as JSON.
             metadata: The run's metadata, written by alias.
-            holder: The row's ``owner`` and ``lease_until``.
             state: The row's state, written as its ``state`` and ``status``.
             run: The row's ``run``, as JSON.
             outcome: The row's outcome.
@@ -324,7 +338,7 @@ class GuardedStore(Generic[M]):
             graph=graph,
             metadata=self._metadata.dump_json(metadata, by_alias=True).decode(),
             rev=0,
-            **await self._columns(holder, state=state, run=run, outcome=outcome),
+            **await self._columns(False, state=state, run=run, outcome=outcome),
         )
         await guarded("create", self._store.create(stored))
         return RunRow(stored, state, self._metadata)
@@ -341,8 +355,8 @@ class GuardedStore(Generic[M]):
     async def update(
         self,
         row: RunRow[M],
-        holder: RunChanges | None = None,
         *,
+        holds: bool | None = None,
         state: RunState | None = None,
         run: str | None = None,
         outcome: RunOutcome | None = None,
@@ -357,7 +371,9 @@ class GuardedStore(Generic[M]):
 
         Args:
             row: The run's row as read.
-            holder: The row's new ``owner`` or ``lease_until``, or both; ``None`` to leave them.
+            holds: Whether this worker holds the run once the write lands: ``True`` takes or renews its lease from
+                now, ``False`` lets the run go for any worker to take, ``None`` leaves the owner and lease as they
+                are. A state that stops the run always writes no owner and no lease.
             state: The row's new state, written as its ``state`` and ``status``; ``None`` to leave both.
             run: The row's new ``run``, as JSON; ``None`` to leave it.
             outcome: The row's new outcome; ``None`` to leave it.
@@ -367,7 +383,7 @@ class GuardedStore(Generic[M]):
         Returns:
             The row as written; ``None`` when another writer moved its ``rev`` on first, and nothing was written.
         """
-        columns = await self._columns(holder or {}, state=state, run=run, outcome=outcome)
+        columns = await self._columns(holds, state=state, run=run, outcome=outcome)
         if state is not None and not state.is_running:
             call_end = RunEnd(status=state.status, cause=state.cause)
         event = None if call_end is None else call_end.model_dump_json()
@@ -438,9 +454,13 @@ class GuardedStore(Generic[M]):
                 )
         return rows
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        """``RunStore.add_event``."""
-        return await guarded("add_event", self._store.add_event(run_id, owner, body))
+    def holds(self, row: RunRow[M]) -> bool:
+        """Whether this worker holds the run in ``row``: it is the row's ``owner``."""
+        return row.stored.owner == self._worker_id
+
+    async def add_event(self, run_id: str, body: str) -> bool:
+        """``RunStore.add_event``, as this worker."""
+        return await guarded("add_event", self._store.add_event(run_id, self._worker_id, body))
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         """``RunStore.events``."""
@@ -450,9 +470,9 @@ class GuardedStore(Generic[M]):
         """A row with its state read; its metadata and outcome are read when they are first asked for."""
         return RunRow(stored, RunState.model_validate_json(stored.state), self._metadata)
 
-    @staticmethod
     async def _columns(
-        holder: RunChanges,
+        self,
+        holds: bool | None,
         *,
         state: RunState | None,
         run: str | None,
@@ -460,7 +480,10 @@ class GuardedStore(Generic[M]):
     ) -> RunChanges:
         """The columns a write changes, as the store keeps them: the one place the worker writes a row's JSON.
 
-        ``status`` is written with ``state``, from it. An outcome can be megabytes, so it is written on a thread.
+        ``status`` is written with ``state``, from it. So are ``owner`` and ``lease_until`` when the state stops the
+        run: a stopped row holds no lease, or every sweep would take it again. Else ``holds`` decides them. A run that
+        no worker holds but that is to go on has a lease already run out, so the next sweep of any worker takes it.
+        An outcome can be megabytes, so it is written on a thread.
         """
         columns: RunChanges = {}
         if state is not None:
@@ -469,5 +492,10 @@ class GuardedStore(Generic[M]):
             columns["run"] = run
         if outcome is not None:
             columns["outcome"] = await asyncio.to_thread(outcome.model_dump_json)
-        columns.update(holder)
+        if state is not None and not state.is_running:
+            columns["owner"], columns["lease_until"] = None, None
+        elif holds:
+            columns["owner"], columns["lease_until"] = self._worker_id, time.time() + self.lease
+        elif holds is not None:
+            columns["owner"], columns["lease_until"] = None, 0.0
         return columns
