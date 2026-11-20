@@ -128,14 +128,18 @@ def field_hints(hint: Any) -> dict[str, Any]:
     """Returns the type hint of each field ``hint`` declares, by name. It is empty for a hint that declares none.
 
     A pydantic model, a dataclass and a ``TypedDict`` declare their fields. This is the one place they are read.
-    A generic one has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
-    ``value: T`` is ``int``, and so is a generic pydantic model's, ``Box[int]``. A type variable left open, as in a
-    bare ``Row``, becomes its bound, or ``Any``.
+    Each field's type is the one pydantic checks it as. A model's fields are read from pydantic itself, so a
+    generic model has its type arguments filled in: for ``class Box[T](BaseModel)``, the field ``value: T`` is
+    ``int`` in ``Box[int]``, and in ``class IntBox(Box[int])`` too. A generic ``TypedDict`` or dataclass has them
+    filled in when its arguments are given: ``Row[int]``'s ``value: T`` is ``int``. Pydantic leaves them open in a
+    subclass of one, like ``class IntRow(Row[int])``, so they are left open here. A type variable left open
+    becomes its bound, or ``Any``.
 
-    Each hint is the one its author wrote, with its ``Annotated`` metadata, so a field's limits and choices stay
-    on it. A ``TypedDict``'s ``Required`` and ``ReadOnly`` are taken off. A field a value may leave out, written
-    ``NotRequired`` or in a class declared ``total=False``, is always given as ``NotRequired[...]``, so one test
-    finds it (``types_and_left_out``).
+    Each hint keeps its ``Annotated`` metadata, so a field's limits and choices stay on it. A model's field is
+    given as pydantic reads it: a ``Field(ge=0)`` on the field is its check ``Ge(ge=0)``, and the ``Field``'s
+    title and description, which check nothing, are left out. A ``TypedDict``'s ``Required`` and ``ReadOnly``
+    are taken off. A field a value may leave out, written ``NotRequired`` or in a ``TypedDict`` declared
+    ``total=False``, is always given as ``NotRequired[...]``, so one test finds it (``types_and_left_out``).
 
     Only what the class declares as a field is one: a model's ``model_fields``, a dataclass's ``dataclasses.fields``
     and every key of a ``TypedDict``. So a model's private attribute, a dataclass's ``InitVar`` and a ``ClassVar``
@@ -146,14 +150,25 @@ def field_hints(hint: Any) -> dict[str, Any]:
             find.
     """
     origin, arguments = get_origin(hint) or hint, get_args(hint)
-    # pydantic makes a class of its own for Box[int], which keeps the generic class and its arguments
-    generic = (
-        vars(origin).get("__pydantic_generic_metadata__") if isinstance(origin, type) else None
-    )
-    if generic is not None and generic["origin"] is not None:
-        origin, arguments = generic["origin"], generic["args"]
     if not declares_fields(origin):
         return {}
+    if issubclass(origin, BaseModel):
+        # pydantic finds a field written as text when the model is first used, so it is asked to do that now; it
+        # returns False when a name can't be found
+        if origin.model_rebuild(raise_errors=False) is False:
+            raise NodeDeclarationError(
+                declaration_problems.type_not_supported(type=origin.__qualname__)
+            )
+        # pydantic keeps a field's Annotated metadata apart from its type, so the two are put back together
+        return {
+            name: substituted(
+                Annotated[(field.annotation, *field.metadata)]
+                if field.metadata
+                else field.annotation,
+                {},
+            )
+            for name, field in origin.model_fields.items()
+        }
     try:
         written = typing.get_type_hints(origin, include_extras=True)
     except NameError:
@@ -164,14 +179,12 @@ def field_hints(hint: Any) -> dict[str, Any]:
     # a TypedDict says which of its keys must be there, but not for a qualifier written as text, which only the
     # resolved hint shows
     required_keys = getattr(origin, "__required_keys__", written.keys())
-    # the hints are read from the annotations, since the class's own record of its fields keeps a field's
-    # Annotated metadata apart from its type; that record only says which names are fields
-    if issubclass(origin, BaseModel):
-        declared = origin.model_fields.keys()
-    elif dataclasses.is_dataclass(origin):
-        declared = {f.name for f in dataclasses.fields(origin)}
-    else:
-        declared = written.keys()
+    # a dataclass's annotations hold its InitVars and ClassVars too; its fields say which names are fields
+    declared = (
+        {f.name for f in dataclasses.fields(origin)}
+        if dataclasses.is_dataclass(origin)
+        else written.keys()
+    )
     fields = {}
     for name, field in written.items():
         if name not in declared:
@@ -206,10 +219,12 @@ def type_fields(hint: Any) -> dict[str, Any]:
     type arriving on an input: ``type_fields(Contact)`` is ``{"name": str, "email": str | None}``. Conductor reads a
     type's fields the same way. It is provisional.
 
-    A parameterised generic type has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s
-    field ``value: T`` is ``int``. A type variable left open, as in a bare ``Row``, becomes its bound, or ``Any``. Each
-    type is the one its author wrote, with its ``Annotated`` limits. A field a value may leave out is given as its
-    type, without ``NotRequired``.
+    Each type is the one pydantic checks the field as, with its ``Annotated`` limits. A parameterised generic type
+    has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field ``value: T`` is
+    ``int``. A pydantic model that subclasses one, like ``class IntBox(Box[int])``, has them filled in too. A type
+    variable left open, as in a bare ``Row``, becomes its bound, or ``Any``. A model's field with a
+    ``Field(ge=0)`` is given with its check, ``Annotated[int, Ge(ge=0)]``. A field a value may leave out is given
+    as its type, without ``NotRequired``.
 
     Only what the class declares as a field is given. A model's private attribute, like ``_secret``, a
     dataclass's ``InitVar`` and a ``ClassVar`` are left out. A dataclass's ``field(init=False)`` is given, since
