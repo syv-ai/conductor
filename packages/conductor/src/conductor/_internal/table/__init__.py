@@ -17,7 +17,7 @@ It always reaches the node as a frame with exactly the columns ``R`` names. The 
 ``python -m conductor.about types``.
 """
 
-from .read import ROWS_CHECKED, is_bare_table_row
+from .read import ROWS_CHECKED, is_bare_table_row, table_and_cells_schema
 from .type import Table, TableType, hash_fallback, json_fallback
 from .write import own_copy, written_columns
 
@@ -29,5 +29,6 @@ __all__ = [
     "is_bare_table_row",
     "json_fallback",
     "own_copy",
+    "table_and_cells_schema",
     "written_columns",
 ]

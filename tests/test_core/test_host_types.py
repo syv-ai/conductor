@@ -25,6 +25,7 @@ from conductor import (
     NodeRegistry,
     Run,
     Series,
+    Table,
     host_type,
     make_graph,
     node,
@@ -41,6 +42,7 @@ from pydantic import (
     NaiveDatetime,
     PastDate,
     PostgresDsn,
+    field_validator,
 )
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic_core import core_schema
@@ -780,24 +782,223 @@ def test_a_series_of_rows_with_a_hosts_class_in_a_cell_runs_and_its_saved_run_re
     assert Run.from_json(run.to_json(), graph).outputs == {"result": [value]}
 
 
-def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs_and_keeps_the_cell_as_its_fields() -> (
-    None
-):
-    """A node may return a table for a Series of rows whose cell is a model. The table keeps the cell as polars does,
-    a struct, so each row's cell is the model's fields as a dict."""
+class MoniesRow(TypedDict):
+    monies: list[Money]
 
-    @node("rows", title="Rows", description="For a test.")
-    def rows() -> Series[MoneyRow]:
-        return pl.DataFrame({"money": [{"amount": 1.0}]})  # type: ignore[return-value]
 
+class ColourCellRow(TypedDict):
+    colour: Colour
+
+
+class ColoursRow(TypedDict):
+    colours: list[Colour]
+
+
+class PurseRow(TypedDict):
+    purse: dict[str, Money]
+
+
+class PairRow(TypedDict):
+    pair: tuple[Money, Money]
+
+
+class Paint(TypedDict):
+    colour: Colour
+
+
+class PaintRow(TypedDict):
+    paint: Paint
+
+
+#: A row type with a host's class in its cell, the row as a node returns it in a list, and the same row as a frame
+#: keeps it: a struct of its fields, its value, or a list of structs.
+_HOSTS_CLASS_CELLS = [
+    (MoneyRow, {"money": Money(amount=1)}, {"money": {"amount": 1.0}}),
+    (PointRow, {"point": Point(1.0, 2.0)}, {"point": {"x": 1.0, "y": 2.0}}),
+    (ColourCellRow, {"colour": Colour.RED}, {"colour": "red"}),
+    (MoniesRow, {"monies": [Money(amount=1)]}, {"monies": [{"amount": 1.0}]}),
+    (ColoursRow, {"colours": [Colour.RED]}, {"colours": ["red"]}),
+    (PurseRow, {"purse": {"a": Money(amount=1)}}, {"purse": {"a": {"amount": 1.0}}}),
+    (
+        PairRow,
+        {"pair": (Money(amount=1), Money(amount=2))},
+        {"pair": [{"amount": 1.0}, {"amount": 2.0}]},
+    ),
+    (PaintRow, {"paint": {"colour": Colour.RED}}, {"paint": {"colour": "red"}}),
+]
+_CELL_IDS = [
+    "model",
+    "dataclass",
+    "enum",
+    "list of models",
+    "list of enums",
+    "dict of models",
+    "tuple of models",
+    "enum in a row",
+]
+
+
+@pytest.mark.parametrize(("row", "value", "kept"), _HOSTS_CLASS_CELLS, ids=_CELL_IDS)
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_series_of_rows_gives_a_hosts_class_in_a_cell_whether_the_node_returned_a_list_or_a_frame(
+    row: Any, value: dict[str, Any], kept: dict[str, Any], returned: str
+) -> None:
+    """A node may return a Series of rows as a frame. A cell of a host's class is still the class, as when the node
+    returns a list, for the run, for a node wired to it and in the saved run read back."""
+    got: list[Any] = []
+
+    def returns() -> Series[row]:  # type: ignore[valid-type]
+        return pl.DataFrame([kept]) if returned == "frame" else [value]  # type: ignore[return-value]
+
+    def takes(rows: Series[row]) -> int:  # type: ignore[valid-type]
+        got.extend(rows)
+        return len(rows)
+
+    rows = node("rows", title="Rows", description="For a test.")(returns)
+    counts = node("counts", title="Counts", description="For a test.")(takes)
     registry = NodeRegistry()
-    registry.add(rows)
-    graph = Graph.compile(make_graph(rows), registry)
+    registry.add(rows, counts)
+    graph = Graph.compile(
+        make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
+    )
     run = graph.run({})
 
-    # the cell is a dict until a frame's model cells are read by the row's type
-    assert run.outputs == {"result": [{"money": {"amount": 1.0}}]}
-    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+    assert run.results["rows"] == {"result": [value]}
+    assert got == [value]
+    assert Run.from_json(run.to_json(), graph).results == run.results
+
+
+@pytest.mark.parametrize(("row", "value", "kept"), _HOSTS_CLASS_CELLS, ids=_CELL_IDS)
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_table_keeps_a_hosts_class_in_a_cell_as_its_fields_or_its_value(
+    row: Any, value: dict[str, Any], kept: dict[str, Any], returned: str
+) -> None:
+    """Polars has no type for a host's class, so a table keeps such a cell as its fields or its value, whether the node returned
+    rows or a frame. Each cell is checked by the row's type, and the saved run reads it back the same."""
+
+    def returns() -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame([kept]) if returned == "frame" else [value]  # type: ignore[return-value]
+
+    table = node("table", title="Table", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(table)
+    graph = Graph.compile(make_graph(table), registry)
+    run = graph.run({})
+
+    assert run.outputs["result"].to_dicts() == [kept]
+    assert Run.from_json(run.to_json(), graph).outputs["result"].to_dicts() == [kept]
+
+
+def test_a_frames_column_of_python_objects_is_checked_as_they_are() -> None:
+    """A frame may hold a host's models as Python objects. They are checked as they are, so a model is taken and
+    kept as its fields, and any other object is refused as not one."""
+
+    def returns(cells: list[Any]) -> Any:
+        @node("table", title="Table", description="For a test.")
+        def table() -> Table[MoneyRow]:
+            return pl.DataFrame({"money": pl.Series(cells, dtype=pl.Object)})
+
+        registry = NodeRegistry()
+        registry.add(table)
+        return Graph.compile(make_graph(table), registry).run({})
+
+    refused = returns([object()])
+
+    assert returns([Money(amount=1)]).outputs["result"].to_dicts() == [{"money": {"amount": 1.0}}]
+    assert refused.cause is not None
+    assert refused.cause.type == "invalid_output"
+    assert (
+        refused.cause.ctx["reason"]
+        == "column 'money': Input should be a valid dictionary or instance of Money"
+    )
+
+
+@host_type("trimmed-name", title="Trimmed name")
+class TrimmedName(BaseModel, frozen=True):
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def _trimmed(cls, text: str) -> str:
+        return text.strip()
+
+
+class TrimmedRow(TypedDict):
+    name: TrimmedName
+
+
+@pytest.mark.parametrize("declared", ["Series", "Table"])
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_cell_a_model_changes_is_the_changed_value_in_the_table_the_series_and_the_saved_run(
+    declared: str, returned: str
+) -> None:
+    """A model whose check strips its text gives ``"a"`` for ``"  a  "``. The node's output, a node with a ``Table``
+    input wired to it, and the saved run all hold ``"a"``, whether the node returned rows or a frame."""
+    got: list[Any] = []
+    output: Any = Series if declared == "Series" else Table
+
+    def returns() -> output[TrimmedRow]:  # type: ignore[valid-type]
+        if returned == "frame":
+            return pl.DataFrame({"name": [{"text": "  a  "}]})  # type: ignore[return-value]
+        return [{"name": TrimmedName(text="  a  ")}]  # type: ignore[return-value]
+
+    def takes(rows: Table[TrimmedRow]) -> int:
+        got.extend(rows.to_dicts())
+        return rows.height
+
+    rows = node("rows", title="Rows", description="For a test.")(returns)
+    counts = node("counts", title="Counts", description="For a test.")(takes)
+    registry = NodeRegistry()
+    registry.add(rows, counts)
+    graph = Graph.compile(
+        make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
+    )
+    run = graph.run({})
+    result = run.results["rows"]["result"]
+
+    if declared == "Series":
+        assert result == [{"name": TrimmedName(text="a")}]
+    else:
+        assert result.to_dicts() == [{"name": {"text": "a"}}]
+    assert got == [{"name": {"text": "a"}}]
+    assert "  a  " not in run.to_json()
+    assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
+
+
+def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once() -> None:
+    """A frame's cell of a host's model is read by the model's check once, when the node returns it. A node wired to
+    the Series gets the models that check gave."""
+    calls: list[str] = []
+
+    @host_type("counted-name", title="Counted name")
+    class CountedName(BaseModel, frozen=True):
+        text: str
+
+        @field_validator("text")
+        @classmethod
+        def _counted(cls, text: str) -> str:
+            calls.append(text)
+            return text
+
+    class CountedRow(TypedDict):
+        name: CountedName
+
+    @node("rows", title="Rows", description="For a test.")
+    def rows() -> Series[CountedRow]:
+        return pl.DataFrame({"name": [{"text": "a"}] * 10})  # type: ignore[return-value]
+
+    @node("counts", title="Counts", description="For a test.")
+    def counts(rows: Series[CountedRow]) -> int:
+        return len(rows)
+
+    registry = NodeRegistry()
+    registry.add(rows, counts)
+    graph = Graph.compile(
+        make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
+    )
+
+    assert graph.run({}).outputs == {"result": 10}
+    assert len(calls) == 10
 
 
 @dataclasses.dataclass
@@ -889,6 +1090,23 @@ def test_a_plain_dataclass_in_a_row_is_read_by_the_rows_config_and_its_saved_run
     graph = Graph.compile(make_graph(labels), registry)
     run = graph.run({})
     run = run.with_answers(run.waiting[0], [{"label": {"text": "  a  "}}]).resume()
+
+    assert run.outputs == {"result": [{"label": Label("a")}]}
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+def test_a_plain_dataclass_in_a_frame_for_a_series_of_rows_is_read_by_the_rows_config() -> None:
+    """A frame's cell is read by the row's own schema of its field, so a plain dataclass takes the row's config there
+    too."""
+
+    @node("labels", title="Labels", description="For a test.")
+    def labels() -> Series[StrippedRow]:
+        return pl.DataFrame({"label": [{"text": "  a  "}]})  # type: ignore[return-value]
+
+    registry = NodeRegistry()
+    registry.add(labels)
+    graph = Graph.compile(make_graph(labels), registry)
+    run = graph.run({})
 
     assert run.outputs == {"result": [{"label": Label("a")}]}
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
