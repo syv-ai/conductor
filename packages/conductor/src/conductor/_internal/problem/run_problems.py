@@ -197,7 +197,8 @@ def invalid_edge_value(
     errors: list[dict[str, Any]],
     column: str | None = None,
 ) -> str:
-    """The value an edge gives an input is refused by the input's type, just before the call.
+    """The value an edge gives an input is refused just before the call: by the input's type, or because the field
+    the edge reads is missing or ``SKIPPED``.
 
     Compiling checks that the types on each edge fit. Some things it can't check until there is a value, so they are
     checked on each call:
@@ -219,7 +220,7 @@ def invalid_edge_value(
         loc: The call that was about to be made.
         input: The input.
         reason: Why the value is refused, without quoting it.
-        field: The field the edge names, if the value has no field by that name.
+        field: The field the edge names, if the value has no field by that name, or the field is ``SKIPPED``.
         errors: What was refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the value.
         column: For a table, the column of the first value refused.
 

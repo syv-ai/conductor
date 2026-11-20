@@ -72,10 +72,10 @@ class DisplayReader(RunOutcomes):
     ) -> Any:
         """Returns what ``RunOutcomes.read_output`` returns, as a host is shown it.
 
-        A field the value doesn't have, or that is ``SKIPPED``, is ``None``. A ``Series`` output is a plain list of its items. A value that
-        isn't there yet stays ``NOT_READY``, so that working out whether any item of a loop may have a value goes as
-        it does for a call: a question still waiting upstream is not a ``None``. ``display_value`` shows it as
-        ``None``.
+        A field the value doesn't have, or that is ``SKIPPED``, is ``None``. A ``Series`` output is a plain list of
+        its items. A value that isn't there yet stays ``NOT_READY``, so that working out whether any item of a loop
+        may have a value goes as it does for a call: a question still waiting upstream is not a ``None``.
+        ``display_value`` shows it as ``None``.
         """
         try:
             value = RunOutcomes.read_output(

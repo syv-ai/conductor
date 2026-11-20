@@ -816,7 +816,10 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     ``ctx.where`` names the output. In the example, ``cut_emoji`` returns a text with half of an emoji's pair, a lone
     surrogate, which JSON can't write. A value may also hold an object pydantic can't write, or ``SKIPPED`` inside
     it, such as an item of a list typed ``Any``. A node's return isn't searched for ``SKIPPED``, so such a run
-    finishes in memory and is refused here, when it is saved.
+    finishes in memory and is refused here, when it is saved. Until then, a node typed ``Any`` that passes on that
+    ``SKIPPED``, whole or as an item of a ``Series``, skips what it feeds, and the run reads ``complete`` with its
+    results shown. A host that reads the results without saving never sees the fault; the providers' worker saves at
+    every checkpoint, so it fails the run there.
 
     To fix it, give the output a type that pydantic can write as JSON, and return ``SKIPPED`` only as a branch's
     whole value or an item of a ``Series``.

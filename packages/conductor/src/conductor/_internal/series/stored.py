@@ -151,7 +151,7 @@ class SeriesRows[T]:
         """
         # a frame of a Series[Any] or a Series[dict] may not have the field the edge names
         if name not in self.frame.columns:
-            raise UnreadableFieldError(name)
+            raise UnreadableFieldError.missing(name)
         return self._columns[name][index]
 
     def as_list(self) -> list[dict[str, Any]]:
@@ -179,7 +179,7 @@ class SeriesRows[T]:
         if not self.frame.height:
             return []
         if name not in self.frame.columns:
-            raise UnreadableFieldError(name)
+            raise UnreadableFieldError.missing(name)
         return list(self._columns[name])
 
     def for_saving(self) -> tuple[SeriesRows[T], list[int]]:

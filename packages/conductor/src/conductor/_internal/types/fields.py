@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic_core import PydanticCustomError
+
 from conductor._internal.base import SKIPPED
 from conductor._internal.problem import conductor_error
 
@@ -35,9 +37,9 @@ def field_of(value: Any, name: str) -> Any:
             else getattr(value, name)
         )
     except (KeyError, AttributeError):
-        raise UnreadableFieldError(name) from None
+        raise UnreadableFieldError.missing(name) from None
     if field is SKIPPED:
-        raise UnreadableFieldError(name, skipped=True)
+        raise UnreadableFieldError.skipped(name)
     return field
 
 
@@ -49,17 +51,26 @@ class UnreadableFieldError(Exception):
         error: Why, as the one error of the problem the call fails with: ``no_such_field`` or ``skipped_inside``.
     """
 
-    def __init__(self, field: str, *, skipped: bool = False) -> None:
-        """Makes the error for the field ``field``, which is missing, or ``SKIPPED`` if ``skipped``."""
+    def __init__(self, field: str, error: PydanticCustomError) -> None:
         super().__init__(field)
         self.field = field
-        if skipped:
-            self.error = conductor_error(
+        self.error = error
+
+    @classmethod
+    def missing(cls, field: str) -> UnreadableFieldError:
+        """The error for a value with no field ``field``: ``no_such_field``."""
+        return cls(
+            field, conductor_error("no_such_field", "it has no field '{field}'", {"field": field})
+        )
+
+    @classmethod
+    def skipped(cls, field: str) -> UnreadableFieldError:
+        """The error for a field ``field`` that is ``SKIPPED``: ``skipped_inside``."""
+        return cls(
+            field,
+            conductor_error(
                 "skipped_inside",
                 "its field '{field}' is SKIPPED, which has no JSON form inside a value",
                 {"field": field},
-            )
-        else:
-            self.error = conductor_error(
-                "no_such_field", "it has no field '{field}'", {"field": field}
-            )
+            ),
+        )

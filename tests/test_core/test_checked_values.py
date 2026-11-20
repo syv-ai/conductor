@@ -567,6 +567,45 @@ def test_skipped_inside_a_returned_value_is_refused_when_the_run_is_saved(return
         assert "SKIPPED inside a value" in problem.msg
 
 
+@node("pass-on-one", title="Pass on one", description="For a test.")
+def _pass_on_one(values: Any) -> Any:
+    return values[1]
+
+
+@node("pass-on-all", title="Pass on all", description="For a test.")
+def _pass_on_all(values: Any) -> Series[Any]:
+    return list(values)
+
+
+@node("shown", title="Shown", description="For a test.")
+def _shown(value: Any) -> str:
+    return "shown"
+
+
+@pytest.mark.parametrize(
+    ("passer", "shown"),
+    [(_pass_on_one, None), (_pass_on_all, ["shown", None])],
+    ids=["whole", "as-a-series-item"],
+)
+def test_a_node_that_passes_on_skipped_from_inside_a_value_skips_what_it_feeds_until_the_run_is_saved(
+    passer: Any, shown: Any
+) -> None:
+    """A node typed ``Any`` that passes on ``SKIPPED`` taken from inside a value, whole or as a ``Series`` item,
+    skips what it feeds as a branch not taken. The run reads ``complete`` in memory, and only saving it is
+    ``run_unwritable``, at the value that holds ``SKIPPED``."""
+    give = _giving([1, SKIPPED], Any)
+    run = Graph.compile(
+        make_graph(give, passer, _shown, outputs={"shown": "shown.result"}),
+        registry_of(give, passer, _shown),
+    ).run()
+
+    assert (run.status, run.outputs["shown"]) == ("complete", shown)
+    with pytest.raises(InvalidCallError) as refused:
+        run.to_json()
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "give.result")
+
+
 @pytest.mark.parametrize(
     ("returned", "return_type", "output", "error"),
     [
