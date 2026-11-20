@@ -19,6 +19,7 @@ from .hint import (
     a_number,
     aliased,
     field_hints,
+    has_own_config,
     is_alias,
     is_typed_dict,
     literal_classes,
@@ -49,7 +50,8 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         bound: What each type variable is bound to so far. New bindings are added to it. When a variable appears
             in two places, it is bound to the union of what arrives at each.
         exact: Ask a stricter question instead: is every ``source`` value already a ``target`` value as it is, so
-            that it needs no checking or converting?
+            that it needs no checking or converting? A ``TypedDict`` read by a pydantic config of its own holds
+            no other type, since the config may change a value, as ``str_to_lower`` does.
     """
     if target == source:
         return True
@@ -160,6 +162,9 @@ def _fit(
         # a TypedDict fits by its keys: every key the target requires must be there for sure, and every key both
         # name must have a type that fits; a key the target may do without may be missing
         if is_typed_dict(target):
+            if exact and has_own_config(target_class):
+                # a row read by a config of its own, such as str_to_lower, may change a value of another type
+                return False
             expected = types_and_left_out(field_hints(target))
             # a check drops the keys the target doesn't name, so the value isn't the same as it was
             same = not exact or expected.keys() == given.keys()

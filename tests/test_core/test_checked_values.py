@@ -39,7 +39,7 @@ from conductor import (
     make_graph,
     node,
 )
-from pydantic import AfterValidator, BaseModel, Discriminator, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, Field, field_validator
 from pydantic_core import PydanticCustomError, core_schema
 
 from tests.test_core.nodes import input_entry, registry_of
@@ -2114,3 +2114,51 @@ def test_a_value_that_holds_itself_is_refused_as_no_json_form():
         "invalid_input",
         ["no_json_form"],
     )
+
+
+class PlainName(TypedDict):
+    name: str
+
+
+class LowerName(TypedDict):
+    __pydantic_config__ = ConfigDict(str_to_lower=True)  # type: ignore[misc]
+    name: str
+
+
+@node("plain-name", title="Plain name", description="For a test.")
+def plain_name(k: int) -> PlainName:
+    return {"name": "ANN"}
+
+
+@node("plain-names", title="Plain names", description="For a test.")
+def plain_names(k: int) -> Series[PlainName]:
+    return [{"name": "ANN"} for _ in range(k)]
+
+
+@node("lower-name", title="Lower name", description="For a test.")
+def lower_name(row: LowerName) -> list[str]:
+    return [row["name"]]
+
+
+@node("lower-series", title="Lower series", description="For a test.")
+def lower_series(rows: Series[LowerName]) -> list[str]:
+    return [row["name"] for row in rows]
+
+
+@node("lower-table", title="Lower table", description="For a test.")
+def lower_table(table: Table[LowerName]) -> list[str]:
+    return table["name"].to_list()
+
+
+@pytest.mark.parametrize(
+    "nodes",
+    [(plain_name, lower_name), (plain_names, lower_series), (plain_names, lower_table)],
+    ids=["a row", "a series of rows", "rows collected into a table"],
+)
+def test_a_row_read_by_a_config_of_its_own_reads_each_value_of_another_row_type_by_it(
+    nodes,
+) -> None:
+    graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
+    run = graph.run({"k": 1})
+
+    assert (run.status, run.outputs["result"]) == ("complete", ["ann"])

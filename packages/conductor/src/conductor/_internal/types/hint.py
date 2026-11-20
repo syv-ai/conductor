@@ -125,6 +125,15 @@ def is_typed_dict(hint: Any) -> bool:
     return typing_extensions.is_typeddict(get_origin(hint) or hint)
 
 
+def has_own_config(cls: Any) -> bool:
+    """Whether ``cls`` reads its fields by a pydantic config of its own: a model, a pydantic dataclass, or a class
+    pydantic's ``with_config`` gave one, such as a ``TypedDict`` with ``__pydantic_config__``. ``False`` for
+    anything that is no class, such as ``None``."""
+    return isinstance(cls, type) and (
+        issubclass(cls, BaseModel) or getattr(cls, "__pydantic_config__", None) is not None
+    )
+
+
 def field_hints(hint: Any) -> dict[str, Any]:
     """Returns the type hint of each field ``hint`` declares, by name. It is empty for a hint that declares none.
 

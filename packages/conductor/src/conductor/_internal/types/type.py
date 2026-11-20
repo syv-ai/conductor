@@ -36,7 +36,6 @@ from weakref import WeakValueDictionary
 
 from annotated_types import Predicate, Timezone, Unit
 from pydantic import (
-    BaseModel,
     ImportString,
     Json,
     JsonValue,
@@ -83,6 +82,7 @@ from .hint import (
     READ_AS,
     declares_fields,
     field_hints,
+    has_own_config,
     hint_parts,
     is_alias,
     is_typed_dict,
@@ -1065,7 +1065,7 @@ def _check_built(schema: CoreSchema) -> None:
             held = (cls.__name__, "")
             # a class with no config of its own, and a schema with no config written on it, read by the config they
             # sit in; a table's row is read by its class's own config when it has one (json_typed_dict_schema)
-            if _has_own_config(cls) and "config" in part:
+            if has_own_config(cls) and "config" in part:
                 config = part["config"]
                 reads_text = (
                     config.get("ser_json_bytes") != "base64"
@@ -1130,14 +1130,6 @@ def _check_choices(
         SchemaValidator(whole, config=JSON_CORE_CONFIG),
         lambda value: plain_json(serializer.to_python(value, mode="json")),
         where=as_written(on.bare),
-    )
-
-
-def _has_own_config(cls: Any) -> bool:
-    """Whether ``cls`` reads its fields by a pydantic config of its own: a model, a pydantic dataclass, or a class
-    pydantic's ``with_config`` gave one. ``False`` for ``None``, a schema with no class."""
-    return isinstance(cls, type) and (
-        issubclass(cls, BaseModel) or getattr(cls, "__pydantic_config__", None) is not None
     )
 
 
