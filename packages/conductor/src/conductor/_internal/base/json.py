@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import json
 from collections.abc import Callable, Iterator
+from json import JSONEncoder
 from typing import Any, Final, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
@@ -129,6 +129,10 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
     return plain
 
 
+# json.dumps builds a new encoder on each call when it is given any setting, which is most of a small value's cost
+_CANONICAL = JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+
 def canonical_json(value: Any) -> str:
     """Returns one fixed JSON text for ``value``, so that two values can be compared and hashed by their text.
 
@@ -140,9 +144,7 @@ def canonical_json(value: Any) -> str:
     (``JSON_CONFIG``). That way ``float("inf")`` and ``"Infinity"`` give the same text.
     """
     try:
-        return json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-        )
+        return _CANONICAL.encode(value)
     except ValueError:  # inf or nan, which JSON has no number for
         return canonical_json(plain_json(value))
 
