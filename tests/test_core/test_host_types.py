@@ -13,7 +13,7 @@ from http import HTTPStatus
 from ipaddress import IPv4Address
 from pathlib import Path
 from re import Pattern
-from typing import Any, Generic, Literal, TypedDict, TypeVar
+from typing import Any, Generic, Literal, NotRequired, TypedDict, TypeVar
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -36,12 +36,15 @@ from pydantic import (
     BaseModel,
     ByteSize,
     ConfigDict,
+    Field,
     FtpUrl,
     HttpUrl,
     IPvAnyAddress,
     NaiveDatetime,
     PastDate,
     PostgresDsn,
+    computed_field,
+    field_serializer,
     field_validator,
 )
 from pydantic.dataclasses import dataclass as pydantic_dataclass
@@ -972,8 +975,11 @@ def test_a_cell_a_model_changes_is_the_changed_value_in_the_table_the_series_and
     assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
 
 
+@pytest.mark.parametrize("in_a_list", [False, True], ids=["a model", "a list of models"])
 @pytest.mark.parametrize("taken", ["Series", "Table"])
-def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once(taken: str) -> None:
+def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once(
+    taken: str, in_a_list: bool
+) -> None:
     """A frame's cell of a host's model is read by the model's check once, when the node returns it. A node wired to
     the Series, as a Series or as a table of the same rows, gets what that check gave."""
     calls: list[str] = []
@@ -991,13 +997,19 @@ def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once(taken: str) 
     class CountedRow(TypedDict):
         name: CountedName
 
+    class CountedListRow(TypedDict):
+        name: list[CountedName]
+
+    row: Any = CountedListRow if in_a_list else CountedRow
+    cell: Any = [{"text": "a"}] if in_a_list else {"text": "a"}
+
     @node("rows", title="Rows", description="For a test.")
-    def rows() -> Series[CountedRow]:
-        return pl.DataFrame({"name": [{"text": "a"}] * 10})  # type: ignore[return-value]
+    def rows() -> Series[row]:  # type: ignore[valid-type]
+        return pl.DataFrame({"name": [cell] * 10})  # type: ignore[return-value]
 
     taker: Any = Series if taken == "Series" else Table
 
-    def takes(rows: taker[CountedRow]) -> int:  # type: ignore[valid-type]
+    def takes(rows: taker[row]) -> int:  # type: ignore[valid-type]
         return len(rows)
 
     counts = node("counts", title="Counts", description="For a test.")(takes)
@@ -1075,6 +1087,250 @@ def test_a_model_or_none_cell_holding_none_runs_and_reads_back(
         assert result.to_dicts() == kept
     assert got == (kept if taken else [])
     assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
+
+
+@host_type("priced", title="Priced")
+class Priced(BaseModel, frozen=True):
+    amount: float
+
+    @field_serializer("amount")
+    def _as_text(self, amount: float) -> str:
+        return f"{amount:.2f}"
+
+
+@host_type("doubled", title="Doubled")
+class Doubled(BaseModel, frozen=True):
+    a: int
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def double(self) -> int:
+        return self.a * 2
+
+
+@host_type("hidden", title="Hidden")
+class Hidden(BaseModel, frozen=True):
+    a: int
+    secret: str = Field(exclude=True)
+
+
+@host_type("noted-money", title="Noted money")
+class NotedMoney(Money, frozen=True):
+    note: str
+
+
+class PricedRow(TypedDict):
+    cell: Priced
+
+
+class DoubledRow(TypedDict):
+    cell: Doubled
+
+
+class HiddenRow(TypedDict):
+    cell: Hidden
+
+
+#: A row type whose cell's class has a rule for how it is written, a value of it, and the cell as a table keeps it:
+#: by the fields the class declares, as they are.
+_WRITTEN_BY_FIELDS = [
+    (PricedRow, Priced(amount=1), {"amount": 1.0}),
+    (DoubledRow, Doubled(a=1), {"a": 1}),
+    (HiddenRow, Hidden(a=1, secret="s"), {"a": 1, "secret": "s"}),
+    (MoneyRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
+]
+
+
+@pytest.mark.parametrize(
+    ("row", "value", "kept"),
+    _WRITTEN_BY_FIELDS,
+    ids=["a field serializer", "a computed field", "an excluded field", "a subclass"],
+)
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_table_keeps_a_cell_by_the_fields_its_type_declares(
+    row: Any, value: Any, kept: dict[str, Any], returned: str
+) -> None:
+    """A cell is kept as its declared type's fields, as they are: a field serializer isn't applied, a computed field
+    isn't added, an excluded field is kept, and a subclass is kept as the declared class. Its saved run reads back
+    the same."""
+    (name,) = row.__annotations__
+
+    def returns() -> Table[row]:  # type: ignore[valid-type]
+        if returned == "frame":
+            return pl.DataFrame({name: [kept]})  # type: ignore[return-value]
+        return [{name: value}]  # type: ignore[return-value]
+
+    table = node("table", title="Table", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(table)
+    graph = Graph.compile(make_graph(table), registry)
+    run = graph.run({})
+
+    assert run.outputs["result"].to_dicts() == [{name: kept}]
+    assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
+
+
+@host_type("cost", title="Cost")
+class Cost(BaseModel, frozen=True):
+    amount: float
+
+
+type _Wallet = Money
+
+
+class MoniesPairRow(TypedDict):
+    cell: tuple[Money, Money]
+
+
+class MoneyListRow(TypedDict):
+    cell: list[Money]
+
+
+class WalletAliasRow(TypedDict):
+    cell: _Wallet
+
+
+class MoneyOrCostRow(TypedDict):
+    cell: Money | Cost
+
+
+class AnyRow(TypedDict):
+    cell: Any
+
+
+@pytest.mark.parametrize(
+    ("row", "value", "kept"),
+    [
+        (MoneyListRow, [NotedMoney(amount=1, note="n")], [{"amount": 1.0}]),
+        (
+            MoniesPairRow,
+            (NotedMoney(amount=1, note="n"), Money(amount=2)),
+            [{"amount": 1.0}, {"amount": 2.0}],
+        ),
+        (WalletAliasRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
+        (MoneyOrCostRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
+        (AnyRow, Money(amount=1), {"amount": 1.0}),
+        (AnyRow, [Money(amount=1)], [{"amount": 1.0}]),
+        (AnyRow, {"colour": Colour.RED}, {"colour": "red"}),
+    ],
+    ids=[
+        "a subclass in a list",
+        "a subclass in a tuple",
+        "a subclass through an alias",
+        "a subclass in a union",
+        "a model in an Any cell",
+        "a list of models in an Any cell",
+        "an enum in a dict in an Any cell",
+    ],
+)
+def test_a_table_keeps_a_cell_by_its_declared_types_at_any_depth(
+    row: Any, value: Any, kept: Any
+) -> None:
+    """A subclass is kept as the class its column's type declares wherever the type puts it, and a cell of ``Any``
+    by each value's own class."""
+
+    def returns() -> Table[row]:  # type: ignore[valid-type]
+        return [{"cell": value}]  # type: ignore[return-value]
+
+    table = node("table", title="Table", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(table)
+    graph = Graph.compile(make_graph(table), registry)
+    run = graph.run({})
+
+    assert run.outputs["result"].to_dicts() == [{"cell": kept}]
+    assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
+
+
+class _Part(TypedDict):
+    a: int
+    b: NotRequired[int]
+
+
+class PartRow(TypedDict):
+    part: _Part
+
+
+class PartsRow(TypedDict):
+    parts: list[_Part]
+
+
+@pytest.mark.parametrize(
+    ("row", "value", "returned"),
+    [
+        (PartRow, {"part": {"a": 1}}, "list"),
+        (PartRow, {"part": {"a": 1}}, "frame"),
+        (PartsRow, {"parts": [{"a": 1}]}, "list"),
+        (PartsRow, {"parts": [{"a": 1}]}, "frame"),
+    ],
+    ids=["a row of rows", "a frame", "a list in a row", "a list in a frame"],
+)
+def test_a_series_of_rows_whose_cell_leaves_out_a_not_required_key_reads_back(
+    row: Any, value: dict[str, Any], returned: str
+) -> None:
+    """A Series of rows may hold a ``TypedDict`` with a ``NotRequired`` field. A key the value leaves out stays out,
+    so the saved run reads back as it was."""
+
+    def returns() -> Series[row]:  # type: ignore[valid-type]
+        return pl.DataFrame([value]) if returned == "frame" else [value]  # type: ignore[return-value]
+
+    rows = node("rows", title="Rows", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(rows)
+    graph = Graph.compile(make_graph(rows), registry)
+    run = graph.run({})
+
+    assert run.outputs == {"result": [value]}
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+class NotedMoneyRow(TypedDict):
+    money: NotedMoney
+
+
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_rows_of_a_wider_row_into_a_table_input_keep_only_the_tables_fields(returned: str) -> None:
+    """A Series of rows whose cell is a subclass, wired to a table whose cell is the class, gives the table the
+    class's fields only, from a list and from a frame alike."""
+    got: list[Any] = []
+
+    def returns() -> Series[NotedMoneyRow]:
+        if returned == "frame":
+            return pl.DataFrame({"money": [{"amount": 1.0, "note": "n"}]})  # type: ignore[return-value]
+        return [{"money": NotedMoney(amount=1, note="n")}]
+
+    def takes(rows: Table[MoneyRow]) -> int:
+        got.extend(rows.to_dicts())
+        return rows.height
+
+    rows = node("rows", title="Rows", description="For a test.")(returns)
+    counts = node("counts", title="Counts", description="For a test.")(takes)
+    registry = NodeRegistry()
+    registry.add(rows, counts)
+    graph = Graph.compile(
+        make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
+    )
+    run = graph.run({})
+
+    assert (run.status, got) == ("complete", [{"money": {"amount": 1.0}}])
+
+
+def test_a_frame_with_two_columns_of_python_objects_names_the_one_with_no_json_form() -> None:
+    @node("table", title="Table", description="For a test.")
+    def table() -> Table[TwoMoneyRow]:
+        return pl.DataFrame(
+            {
+                "paid": pl.Series([Money(amount=1)], dtype=pl.Object),
+                "owed": pl.Series([object()], dtype=pl.Object),
+            }
+        )
+
+    registry = NodeRegistry()
+    registry.add(table)
+    refused = Graph.compile(make_graph(table), registry).run({})
+
+    assert refused.cause is not None
+    assert refused.cause.ctx["reason"] == "column 'owed' is Object, which can't be written as JSON"
 
 
 @dataclasses.dataclass

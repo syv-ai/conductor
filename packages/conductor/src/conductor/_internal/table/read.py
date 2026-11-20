@@ -21,20 +21,18 @@ import datetime
 import functools
 from collections.abc import Callable, Iterable, Mapping
 from decimal import Decimal
-from enum import Enum
 from typing import Any, NotRequired, TypeVar, get_args, get_origin
 
 import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import (
+    BaseModel,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
-    ValidationInfo,
     ValidatorFunctionWrapHandler,
 )
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, PydanticSerializationError, core_schema
-from typing_extensions import sentinel
 
 from conductor._internal.base import json_text, json_typed_dict_schema
 from conductor._internal.problem import (
@@ -52,8 +50,10 @@ from conductor._internal.types import (
     is_typed_dict,
     json_by_its_class,
     type_fields,
+    union_members,
 )
 
+from .cells import kept_column, kept_dtype
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
 
@@ -374,13 +374,6 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
         ) from None
 
 
-#: The context a table is checked with when each of its rows is already a value of the table's row type, as a run
-#: knows when the rows come from outputs that declare it. A list of rows is made into a frame, and a frame kept,
-#: without their cells being read again. The table's own checks still hold: its limits, such as
-#: ``Param(min_length=1)``, and ``as_saved``. No cell's check is called with it, so a host's validator never sees it.
-ROWS_CHECKED = sentinel("ROWS_CHECKED")
-
-
 def _table_form(value: Any) -> str | None:
     """Says which of a table's three forms ``value`` is in: a frame, a list of rows, or conductor's JSON."""
     if isinstance(value, pl.DataFrame):
@@ -402,28 +395,50 @@ def is_bare_table_row(hint: Any) -> bool:
 
 
 def _keys_left_out(hint: Any, walked: frozenset[int] = frozenset()) -> str | None:
-    """Returns what, in the type of a table's cell, lets a value leave out a key, or ``None`` if nothing does.
+    """Returns the type, in the type of a table's cell, whose values may leave out a key, or ``None`` if none may.
 
     A table keeps a cell that has keys as a struct, and a struct gives every row every key, a ``None`` for a key the
-    row's value leaves out. So such a value would read back changed. That is a dict with open keys, like
-    ``dict[str, int]`` (named as written), and a ``NotRequired`` field of a ``TypedDict`` (named ``Inner.b``), at any
-    depth: in a list, a union, or a model's, dataclass's or ``TypedDict``'s field. ``Any`` says nothing, so it lets
-    nothing.
+    row's value leaves out. So such a value would read back changed. These types' values may leave out a key, at
+    any depth: in a list, a union, or a field of a model, a dataclass or a ``TypedDict``.
+
+    - a dict with open keys, like ``dict[str, int]`` (and so pydantic's ``JsonValue``);
+    - a ``TypedDict`` with a ``NotRequired`` field;
+    - a model that takes extra keys (``extra="allow"``);
+    - a union of models, dataclasses or ``TypedDict``s whose fields differ, like ``Cat | Dog``.
+
+    ``Any`` says nothing, so it lets nothing. ``walked`` is the types on the way down, so one that holds itself ends.
     """
+    # a type alias is named for what it holds, as ``JsonValue``
     if is_alias(hint):
-        return None if id(hint) in walked else _keys_left_out(hint.__value__, walked | {id(hint)})
+        if id(hint) in walked or _keys_left_out(hint.__value__, walked | {id(hint)}) is None:
+            return None
+        return str(hint.__name__)
     origin = get_origin(hint) or hint
     if isinstance(origin, type) and issubclass(origin, Mapping) and not is_typed_dict(hint):
         return origin.__name__ if hint is origin else str(hint).replace("typing.", "")
     if declares_fields(origin):
         if id(origin) in walked:
             return None
-        for name, field in field_hints(hint).items():
-            if get_origin(field) is NotRequired:
-                return f"{origin.__qualname__}.{name}"
-            if (found := _keys_left_out(field, walked | {id(origin)})) is not None:
-                return found
-        return None
+        fields = field_hints(hint)
+        if any(get_origin(field) is NotRequired for field in fields.values()) or (
+            isinstance(origin, type)
+            and issubclass(origin, BaseModel)
+            and origin.model_config.get("extra") == "allow"
+        ):
+            return origin.__qualname__
+        return next(
+            (
+                found
+                for field in fields.values()
+                if (found := _keys_left_out(field, walked | {id(origin)})) is not None
+            ),
+            None,
+        )
+    with_fields = [
+        member for member in union_members(hint) if declares_fields(get_origin(member) or member)
+    ]
+    if len({tuple(type_fields(member)) for member in with_fields}) > 1:
+        return " | ".join((get_origin(member) or member).__qualname__ for member in with_fields)
     return next(
         (found for part in get_args(hint) if (found := _keys_left_out(part, walked)) is not None),
         None,
@@ -472,7 +487,7 @@ def _read_from_json(column: Type, dtype: Any) -> bool:
     read: a struct as the host's model or dataclass, a text as the enum's member or a date, an ``int`` against a
     limit like ``Param(ge=0)``, and a column of Python objects (``Object``) by each object's own class.
     """
-    return dtype == pl.Object or not column.holds(Type(dtype.to_python()))
+    return not column.holds(Type(dtype.to_python()))
 
 
 def _columns_as_json(frame: pl.DataFrame, names: list[str]) -> str:
@@ -503,38 +518,6 @@ def _has_json_form(cells: list[Any]) -> bool:
     return True
 
 
-def _kept_column(name: str, cells: list[Any], write: Callable[[list[Any]], Any]) -> pl.Series:
-    """Returns the cells of one column of a table as polars keeps them.
-
-    ``write`` is the column type's own serializer, which writes each host's model or dataclass as the dict of its
-    fields, wherever it is, and keeps a ``None``: ``[Money(amount=1.0), None]`` becomes the struct column
-    ``[{"amount": 1.0}, None]``. Polars keeps a value it has no type for, like an enum member, as a Python object,
-    which a saved run can't write, so a column polars keeps so is made plain cell by cell (``_as_polars_keeps``).
-    """
-    written = write(cells)
-    column = pl.Series(name, written, strict=False)
-    if column.dtype == pl.Object:
-        return pl.Series(name, [_as_polars_keeps(cell) for cell in written], strict=False)
-    return column
-
-
-def _as_polars_keeps(cell: Any) -> Any:
-    """Returns ``cell``, as a column type's serializer wrote it, as polars can keep it: an enum member as its value,
-    wherever it is, and a tuple as a list. ``{"colour": Colour.RED}`` becomes ``{"colour": "red"}``.
-    """
-    kind = type(cell)
-    if cell is None or kind in CELLS:
-        return cell
-    if kind is list or kind is tuple:
-        return [_as_polars_keeps(one) for one in cell]
-    if kind is dict:
-        return {key: _as_polars_keeps(value) for key, value in cell.items()}
-    if isinstance(cell, Enum):
-        return _as_polars_keeps(cell.value)
-    # any other object stays one, and a saved run refuses its column (``as_saved``)
-    return cell
-
-
 def table_and_cells_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     """Returns the schema that checks a table as ``Table[R]`` does, and gives the frame and the cells it read.
 
@@ -546,7 +529,9 @@ def table_and_cells_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSc
     return _table_schemas(source, handler)[0]
 
 
-def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+def table_schema(
+    source: Any, handler: GetCoreSchemaHandler, *, rows_checked: bool = False
+) -> CoreSchema:
     """Returns the pydantic schema of ``Table[R]``.
 
     The schema accepts a table in any of its three forms: a frame, a list of rows like ``[{"name": "Ann"}]``,
@@ -556,11 +541,16 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     Args:
         source: The hint, such as ``Table[Invoice]``.
         handler: Pydantic's handler, which builds the schema of each column's type.
+        rows_checked: Whether a table given in Python is already a table of ``R``'s values, as a run knows for one
+            made of rows from outputs that declare ``R`` (``RowsChecked``). A list of rows is then made into a frame
+            without its cells being checked again, and a frame with exactly the polars types ``R``'s own frame has
+            is kept as it is. The table's own checks still hold: its limits, such as ``Param(min_length=1)``, and
+            ``as_saved``.
 
     Raises:
         NodeDeclarationError: ``row_field_optional`` if the row type lets a row leave a column out.
     """
-    with_cells, json_schema = _table_schemas(source, handler)
+    with_cells, json_schema = _table_schemas(source, handler, rows_checked=rows_checked)
     kept = core_schema.no_info_after_validator_function(lambda read: read[0], with_cells)
     # The same schema for JSON and for Python. It is deliberately not a function schema at the top: that way, a
     # limit pydantic has no rule for on a table, like ``Param(ge=1)``, is reported when the node is declared. It says
@@ -576,7 +566,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
 
 
 def _table_schemas(
-    source: Any, handler: GetCoreSchemaHandler
+    source: Any, handler: GetCoreSchemaHandler, *, rows_checked: bool = False
 ) -> tuple[CoreSchema, Callable[[CoreSchema, GetJsonSchemaHandler], JsonSchemaValue]]:
     """Returns the schema that checks a ``Table[R]`` and gives the frame and the cells it read, and the function
     that writes its JSON schema.
@@ -599,12 +589,8 @@ def _table_schemas(
     columns = {name: Type(hint) for name, hint in hints.items()}
     fields = handler.resolve_ref_schema(handler.generate_schema(row))["fields"] if declared else {}
     cells = {name: fields[name]["schema"] for name in columns}
-    # how each column's values are written as plain data, by its type's own serializer
-    writers = {
-        # the column's type is known only here
-        name: Type(list[column.hint]).serializer.to_python  # type: ignore[name-defined]
-        for name, column in columns.items()
-    }
+    # the polars type of each column a frame of R's own values has, where its type says it
+    kept_schema = {name: kept_dtype(column.hint) for name, column in columns.items()}
     dtypes = {
         name: CELLS[column.options[0]][0]
         if column.options[0] in CELLS and len(column.options) == 1
@@ -618,7 +604,7 @@ def _table_schemas(
             (
                 (
                     name,
-                    _kept_column(name, [one.get(name) for one in rows], writers[name])
+                    kept_column(name, [one.get(name) for one in rows], columns[name].hint)
                     if declared and dtypes[name] is None
                     else [one.get(name) for one in rows],
                     dtypes.get(name),
@@ -629,13 +615,8 @@ def _table_schemas(
         )
         return frame, {}
 
-    def from_rows_unless_checked(
-        rows: list[Any], read_rows: ValidatorFunctionWrapHandler, info: ValidationInfo
-    ) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
-        return from_rows(rows if info.context is ROWS_CHECKED else read_rows(rows))
-
     def from_frame(
-        frame: pl.DataFrame, read_columns: ValidatorFunctionWrapHandler, info: ValidationInfo
+        frame: pl.DataFrame, read_columns: ValidatorFunctionWrapHandler
     ) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
         # a table with no rows still has every column, empty and of its declared type
         if not frame.height:
@@ -655,17 +636,18 @@ def _table_schemas(
                     "column '{column}' has a blank cell, and its type doesn't allow blanks",
                     {"column": name},
                 )
+        # a frame of R's own values, with exactly the polars types R's own frame has, is kept as it is
+        if rows_checked and frame.schema == kept_schema:
+            return frame, {}
         read = [
-            name
-            for name, column in columns.items()
-            if info.context is not ROWS_CHECKED and _read_from_json(column, frame.schema[name])
+            name for name, column in columns.items() if _read_from_json(column, frame.schema[name])
         ]
         cells: dict[str, list[Any]] = read_columns(_columns_as_json(frame, read)) if read else {}
         # the frame keeps each cell as it was read, so a value its type changes, like a text a model strips, is
         # the same in the table, in a Series of its rows and in a saved run
         if cells:
             frame = frame.with_columns(
-                _kept_column(name, values, writers[name]) for name, values in cells.items()
+                kept_column(name, values, columns[name].hint) for name, values in cells.items()
             )
         return frame if frame.columns == list(columns) else frame.select(list(columns)), cells
 
@@ -712,9 +694,7 @@ def _table_schemas(
         cls=row_class,
     )
     as_frame = (
-        core_schema.with_info_wrap_validator_function(
-            from_frame, core_schema.json_schema(by_column)
-        )
+        core_schema.no_info_wrap_validator_function(from_frame, core_schema.json_schema(by_column))
         if declared
         else core_schema.no_info_after_validator_function(
             lambda frame: (frame, {}), core_schema.is_instance_schema(pl.DataFrame)
@@ -739,15 +719,14 @@ def _table_schemas(
             lambda read: (as_saved(read[0]), read[1]), any_form
         )
 
-    # Only a run's own rows, given in Python, are ever ``ROWS_CHECKED``. JSON never is, and keeps a plain schema,
-    # since a function that wraps the rows' check hides from a union how exactly they matched: a saved run's Series
-    # of rows would read back as a frame, not a list.
+    read_rows = core_schema.no_info_after_validator_function(from_rows, rows)
+    # Rows already of R's values are only ever given in Python. A list of them is taken as it is, with no check of
+    # its rows; JSON keeps the plain schema
+    taken_rows = core_schema.no_info_after_validator_function(from_rows, core_schema.list_schema())
     return (
         core_schema.json_or_python_schema(
-            json_schema=with_cells(core_schema.no_info_after_validator_function(from_rows, rows)),
-            python_schema=with_cells(
-                core_schema.with_info_wrap_validator_function(from_rows_unless_checked, rows)
-            ),
+            json_schema=with_cells(read_rows),
+            python_schema=with_cells(taken_rows if rows_checked else read_rows),
         ),
         json_schema,
     )

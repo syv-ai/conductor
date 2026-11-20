@@ -858,17 +858,45 @@ class _PartBox:
 type _Counts = dict[str, int]
 
 
+@host_type("open-note", title="Open note")
+class _OpenNote(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+    text: str
+
+
+@host_type("cat-pet", title="Cat pet")
+class _Cat(BaseModel, frozen=True):
+    meow: str
+
+
+@host_type("dog-pet", title="Dog pet")
+class _Dog(BaseModel, frozen=True):
+    bark: int
+
+
+@host_type("twin-pet", title="Twin pet")
+class _Twin(BaseModel, frozen=True):
+    meow: str
+
+
+type _Nest = list[_Nest] | int
+
+
 @pytest.mark.parametrize(
     ("cell", "named"),
     [
         (dict[str, int], "dict[str, int]"),
         (dict, "dict"),
         (list[dict[str, int]] | None, "dict[str, int]"),
-        (_Counts, "dict[str, int]"),
-        (_Part, "_Part.b"),
-        (list[_Part], "_Part.b"),
+        (_Counts, "_Counts"),
+        (_Part, "_Part"),
+        (list[_Part], "_Part"),
         (_KeyedWallet, "dict[str, int]"),
-        (_PartBox, "_Part.b"),
+        (_PartBox, "_Part"),
+        (_OpenNote, "_OpenNote"),
+        (_Cat | _Dog, "_Cat | _Dog"),
+        (list[_Cat | _Dog] | None, "_Cat | _Dog"),
+        (JsonValue, "JsonValue"),
     ],
     ids=[
         "a dict",
@@ -879,6 +907,10 @@ type _Counts = dict[str, int]
         "a NotRequired field in a list",
         "a dict in a dataclass",
         "a NotRequired field in a dataclass",
+        "a model that takes extra keys",
+        "a union of models whose fields differ",
+        "such a union in a list",
+        "JsonValue",
     ],
 )
 def test_a_table_cell_whose_keys_may_vary_is_refused_where_the_node_is_declared(
@@ -912,13 +944,25 @@ class _Tree(TypedDict):
     root: _Branch
 
 
-def test_a_table_cell_that_holds_itself_with_fixed_keys_is_declared() -> None:
-    """A cell's type may hold itself, as a tree of branches does. Its keys are fixed, so the table is taken."""
+class _Nested(TypedDict):
+    nest: _Nest
 
-    def trees(text: str) -> Table[_Tree]:
+
+class _Pet(TypedDict):
+    pet: _Cat | _Twin
+
+
+@pytest.mark.parametrize(
+    "row", [_Tree, _Nested, _Pet], ids=["a row type", "a type alias", "a union of alike models"]
+)
+def test_a_table_cell_whose_keys_are_fixed_is_declared(row: Any) -> None:
+    """A cell's type may hold itself, as a tree of branches or ``type Nest = list[Nest] | int`` does, and may be a
+    union of models with the same fields. Its keys are fixed, so the table is taken."""
+
+    def tables(text: str) -> Table[row]:  # type: ignore[valid-type]
         return pl.DataFrame()
 
-    declared(trees)
+    declared(tables)
 
 
 def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in():

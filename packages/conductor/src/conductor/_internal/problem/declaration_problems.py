@@ -1158,21 +1158,23 @@ def table_row_not_a_typed_dict(*, row: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def table_cell_keys_vary(*, row: str, column: str, cell: str) -> str:
-    """A column of a ``Table``'s row type holds a value whose keys may differ from row to row.
+    """A column of a ``Table``'s row type has a type whose values may leave out a key.
 
-    That is a dict with open keys, like ``dict[str, int]``, or a ``TypedDict`` with a ``NotRequired`` field, at any
-    depth of the cell: in a list, or in a field of a model, a dataclass or a ``TypedDict``. A table keeps such a cell
-    as a struct, and a struct gives every row every key, with ``None`` for a key the row's value leaves out. So the
-    value would come back from a saved run changed, or not at all. A ``Series`` of the same rows is a list, and keeps
-    each value as it is.
+    That is a dict with open keys, like ``dict[str, int]`` or pydantic's ``JsonValue``, a ``TypedDict`` with a
+    ``NotRequired`` field, a model that takes extra keys (``extra="allow"``), or a union of models whose fields
+    differ, at any depth of the cell: in a list, or in a field of a model, a dataclass or a ``TypedDict``. A table
+    keeps such a cell as a struct, and a struct gives every row every key, with ``None`` for a key the row's value
+    leaves out. So the value would come back from a saved run changed, or not at all. A ``Series`` of the same rows
+    is a list, and keeps each value as it is.
 
     To fix it, give the cell fixed keys: a ``TypedDict`` or model whose every field is required, with ``X | None``
     for one a value may have no value for.
 
     Args:
         row: The row type's name.
-        column: The column whose cell's keys may vary.
-        cell: What in the cell's type lets a key be left out, such as ``dict[str, int]`` or ``Inner.b``.
+        column: The column whose values may leave out a key.
+        cell: The type in the column that lets a key be left out, such as ``dict[str, int]``, ``Inner`` or
+            ``Cat | Dog``.
 
     Example:
         class Scores(TypedDict):
@@ -1186,7 +1188,7 @@ def table_cell_keys_vary(*, row: str, column: str, cell: str) -> str:
 
         declaration_refused(lambda: node("scores", title="Scores", description="Reads the scores in a text.")(scores))
     """
-    return f"column '{column}' of the row type {row} holds {cell}, whose keys may differ from row to row, and a table gives every row every key. Give the cell fixed keys: a TypedDict or model whose every field is required."
+    return f"in column '{column}' of the row type {row}, a value of {cell} may leave out a key, but a table gives every row every key. Give the column a type with fixed keys: a TypedDict or model whose every field is required."
 
 
 @DECLARATION_PROBLEMS.problem
