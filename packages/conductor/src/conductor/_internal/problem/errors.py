@@ -137,8 +137,10 @@ def bool_is_not_a_number() -> PydanticCustomError:
 
     Pydantic takes ``True`` as the number 1 when it reads laxly, so the rules a type's check is built with raise
     this for a ``bool`` (``with_rules``). Read strictly, pydantic refuses a ``bool`` for an ``int`` or a ``float``
-    itself, with ``int_type`` or ``float_type``, and ``value_free_errors`` writes that refusal as this one. So a
-    host is shown one code for the fault at every door, whichever check found it.
+    itself, with ``int_type`` or ``float_type``, and every error of a problem's ``ctx.errors`` is written with this
+    one in its place (``_as_conductor_names_it``). So a problem names the fault with one code, whichever check found
+    it. A pydantic error conductor doesn't write into a problem keeps pydantic's code, such as the one
+    ``Policy(retries=True)`` raises.
     """
     return conductor_error("bool_is_not_a_number", "a yes or no is not a number")
 
@@ -166,7 +168,8 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     by the code. Of pydantic's ``ctx`` only the keys its message reads are kept (``_ctx_its_message_reads``). Any
     other message is replaced and its ``ctx`` dropped: one a host's validator raised, whatever type it gives, and one
     of pydantic's that quotes the value or an exception's text, like ``value_error``'s. Pydantic's strict refusal of
-    a ``bool`` for a number, ``int_type`` or ``float_type``, is written as ``bool_is_not_a_number``.
+    a ``bool`` for a number, ``int_type`` or ``float_type``, is written as ``bool_is_not_a_number``
+    (``_as_conductor_names_it``).
 
     For example, an ``Annotated[int, Param(ge=3)]`` refusing ``1`` gives::
 
@@ -183,8 +186,8 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
 
 def _value_free(fault: ErrorDetails) -> dict[str, Any]:
     """Returns one of pydantic's errors with nothing of the refused value left in it, as ``value_free_errors`` says."""
-    if fault["type"] in ("int_type", "float_type") and type(fault.get("input")) is bool:
-        return shape_error(bool_is_not_a_number())
+    if (own := _as_conductor_names_it(fault)) is not None:
+        return shape_error(own)
     if _message_holds_no_value(fault):
         return _written_error(fault["type"], [], fault["msg"], _ctx_its_message_reads(fault))
     return _written_error(fault["type"], [], _VALIDATOR_PREFIX, {})
@@ -202,13 +205,31 @@ def shape_error(
     ``_one_fault`` in ``record/node.py``), so it reaches here without one. Its ``loc`` is ``loc``,
     the steps from where the problem's own ``loc`` points, often none. A fault found outside a pydantic schema, such as
     a key written twice in a record's text, is given as the error pydantic or conductor would raise for it.
+    Pydantic's strict refusal of a ``bool`` for a number is named ``bool_is_not_a_number``
+    (``_as_conductor_names_it``), as ``value_free_errors`` names it.
 
     For example, ``shape_error(conductor_error("repeated_key", "a key is written twice in one object"))`` is
     ``{"type": "repeated_key", "loc": [], "msg": "a key is written twice in one object"}``.
     """
-    if isinstance(fault, (PydanticCustomError, PydanticKnownError)):
-        return _written_error(fault.type, list(loc), fault.message(), fault.context or {})
-    return _written_error(fault["type"], list(loc), fault["msg"], fault.get("ctx", {}))
+    if not isinstance(fault, (PydanticCustomError, PydanticKnownError)):
+        own = _as_conductor_names_it(fault)
+        if own is None:
+            return _written_error(fault["type"], list(loc), fault["msg"], fault.get("ctx", {}))
+        fault = own
+    return _written_error(fault.type, list(loc), fault.message(), fault.context or {})
+
+
+def _as_conductor_names_it(fault: ErrorDetails) -> PydanticCustomError | None:
+    """Returns the error conductor names one of pydantic's errors with, or ``None`` when it keeps pydantic's own.
+
+    Pydantic's strict check refuses ``True`` or ``False`` for an ``int`` or a ``float`` as ``int_type`` or
+    ``float_type``, and conductor names that fault ``bool_is_not_a_number``, the code its own rule raises where
+    pydantic would take the ``bool`` as a number. Only the error's type and its input are read, not who raised it,
+    so a host's own validator that raises ``int_type`` for a ``bool`` is named so too.
+    """
+    if fault["type"] in ("int_type", "float_type") and type(fault.get("input")) is bool:
+        return bool_is_not_a_number()
+    return None
 
 
 def argument_errors(

@@ -93,7 +93,7 @@ from .hint import (
 )
 from .host_type import NAMES, OWN_IDS, PYTHON_NAMES, declaration_of
 from .param import CHOICES, LIMITS, Param, as_written, not_taken, split_hint
-from .rules import with_rules
+from .rules import with_rules, with_strict_rules
 
 #: Generic classes whose arguments are each read as a ``Type`` too, so conductor's rules reach their items.
 _CONTAINERS = (list, dict, tuple, set, frozenset)
@@ -383,7 +383,7 @@ class Type:
 
         A saved run's values are read by it too, so the rules reach every door.
         """
-        return with_rules(self.schema, read_strictly=False)
+        return with_rules(self.schema)
 
     @functools.cached_property
     def argument_validator(self) -> SchemaValidator:
@@ -398,12 +398,12 @@ class Type:
     def output_schema(self) -> CoreSchema:
         """The schema an output of the type is checked by, strictly: what a node returns, or a person's answer.
 
-        It is ``returned_schema`` with conductor's rules added for a check that only reads strictly (``with_rules``),
-        so an ``int`` or a ``float`` is left to pydantic's strict check to refuse a ``bool``. A value is what the
+        It is ``returned_schema`` with conductor's rules for a schema never read laxly (``with_strict_rules``), so an
+        ``int`` or a ``float`` is set strict and pydantic itself refuses a ``bool`` for it. A value is what the
         type's own check gives, whatever its class: pydantic's ``EmailStr`` gives a ``str``, and ``AwareDatetime`` a
         ``datetime``.
         """
-        return with_rules(self.returned_schema, read_strictly=True)
+        return with_strict_rules(self.returned_schema)
 
     @functools.cached_property
     def output_validator(self) -> SchemaValidator:
