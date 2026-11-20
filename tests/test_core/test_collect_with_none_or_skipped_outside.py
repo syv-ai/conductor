@@ -765,6 +765,7 @@ def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_fl
     flat = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
                     "u": {
@@ -786,7 +787,7 @@ def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_fl
                             "b": {"sources": [{"node": "x", "output": "result"}]},
                         },
                     },
-                }
+                },
             }
         ),
         REGISTRY,
@@ -794,13 +795,14 @@ def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_fl
     in_subgraph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
                     "e": {
                         "node": "summary-and-letters",
                         "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                     },
-                }
+                },
             }
         ),
         REGISTRY,
@@ -886,13 +888,14 @@ def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
                     "q": {
                         "node": "approve",
                         "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
                     },
-                }
+                },
             }
         ),
         REGISTRY,
@@ -967,6 +970,7 @@ def test_a_node_wired_to_a_subgraphs_per_word_and_per_letter_outputs_is_called_p
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "e": {
                         "node": "words-up-and-letters",
@@ -979,7 +983,7 @@ def test_a_node_wired_to_a_subgraphs_per_word_and_per_letter_outputs_is_called_p
                             "b": {"sources": [{"node": "e", "output": "letters"}]},
                         },
                     },
-                }
+                },
             }
         ),
         REGISTRY,

@@ -425,6 +425,9 @@ def shout(line: str) -> str:
 print(make_graph(shout).model_dump_json(indent=2))
 </script>
       <pre data-lang="json" class="out">{
+  "inputs": {
+    "line": {}
+  },
   "nodes": {
     "shout": {
       "node": "shout",
@@ -602,6 +605,7 @@ def summary(approved: Series[bool]) -> str:
     return f"{sum(approved)} of {len(approved)} approved"
 </script>
 <pre data-lang="py" data-step="2">record = """{
+  "inputs": {"csv": {}},
   "nodes": {
     "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
     "approve": {"node": "approve", "inputs": {
@@ -652,7 +656,7 @@ def dumps(text):
 print(dumps(saved))
 </script>
 <pre data-lang="json" class="out" data-step="6">{
-  "graph": "96d522e165790468",
+  "graph": "7073b7e39f4a7eec",
   "ended_early": null,
   "max_items": null,
   "inputs": {

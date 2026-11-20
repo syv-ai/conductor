@@ -149,6 +149,7 @@ def test_declaring_an_id_the_registry_has_is_a_duplicate_even_when_replaces_name
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
     inner = GraphRecord.model_validate(
         {
+            "inputs": {"text": {}},
             "nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
             "outputs": {"result": {"node": "a", "output": "result"}},
         }
@@ -837,6 +838,7 @@ def test_a_subgraph_is_described_as_its_own_graph_compiles_and_left_out_when_tha
 
     record = GraphRecord.model_validate(
         {
+            "inputs": {"first": {}, "second": {}},
             "nodes": {
                 "z": {"node": "upper", "inputs": {"text": {"graph_input": "first"}}},
                 "a": {"node": "approve", "inputs": {"text": {"graph_input": "second"}}},
@@ -913,6 +915,7 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -
         subgraph("loud", title="Loud", description="For a test.")(
             GraphRecord.model_validate(
                 {
+                    "inputs": {"words": {}},
                     "nodes": {
                         "s": {"node": "shout", "inputs": {"words": {"graph_input": "words"}}}
                     },

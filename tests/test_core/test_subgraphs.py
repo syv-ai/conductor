@@ -251,6 +251,7 @@ def chain(
         for before, (node_id, definition_id) in zip(nodes, nodes[1:], strict=False)
     }
     return {
+        "inputs": {name: {} for name in inputs},
         "nodes": {
             first: {
                 "node": nodes[0][1],
@@ -268,6 +269,7 @@ def side_by_side(*nodes: tuple[str, str]) -> dict[str, Any]:
     Each node's ``result`` is a graph output, named after the node.
     """
     return {
+        "inputs": {"text": {}},
         "nodes": {
             node_id: {"node": definition_id, "inputs": {"text": {"graph_input": "text"}}}
             for node_id, definition_id in nodes
@@ -280,12 +282,13 @@ def side_by_side(*nodes: tuple[str, str]) -> dict[str, Any]:
 INNER = {
     "shout-inner": chain(("up", "upper"), ("ex", "exclaim")),
     "greet-inner": {
+        "inputs": {"text": {}, "greeting": {"default": "hello"}},
         "nodes": {
             "g": {
                 "node": "greet",
                 "inputs": {
                     "text": {"graph_input": "text"},
-                    "greeting": {"graph_input": "greeting", "default": "hello"},
+                    "greeting": {"graph_input": "greeting"},
                 },
             }
         },
@@ -310,7 +313,11 @@ INNER = {
     "shout-wrapping": chain(
         ("in", "shout-inner")
     ),  # a subgraph inside a subgraph, with no question
-    "greet-each-word-inner": {  # loops over the words of its text, and greets each with the subgraph's greeting
+    "greet-each-word-inner": {
+        "inputs": {
+            "text": {},
+            "greeting": {},
+        },  # loops over the words of its text, and greets each with the subgraph's greeting
         "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "g": {
@@ -327,7 +334,8 @@ INNER = {
         ("w", "words"), ("c", "chars"), ("up", "upper")
     ),  # its output is inside two loops
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series returned per word
-    "chars-and-upper-inner": {  # a Series, and a value per item of it
+    "chars-and-upper-inner": {
+        "inputs": {"text": {}},  # a Series, and a value per item of it
         "nodes": {
             "c": {"node": "chars", "inputs": {"text": {"graph_input": "text"}}},
             "up": {"node": "upper", "inputs": {"text": _sources("c", "result")}},
@@ -353,6 +361,7 @@ INNER = {
     "self-a": chain(("x", "self-b")),
     "self-b": chain(("y", "self-a")),
     "deciding-inner": {
+        "inputs": {"text": {}},
         "nodes": {
             "d": {"node": "decide", "inputs": {"text": {"graph_input": "text"}}},
             "s": {"node": "exclaim", "inputs": {"text": _sources("d", "short")}},
@@ -364,6 +373,7 @@ INNER = {
         },
     },
     "words-deciding-inner": {
+        "inputs": {"text": {}},
         "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "d": {"node": "decide", "inputs": {"text": _sources("w", "result")}},
@@ -376,6 +386,7 @@ INNER = {
         },
     },
     "deciding-twice-inner": {
+        "inputs": {"text": {}},
         "nodes": {
             "d": {"node": "decide", "inputs": {"text": {"graph_input": "text"}}},
             "s": {"node": "exclaim", "inputs": {"text": _sources("d", "short")}},
@@ -525,7 +536,8 @@ def test_an_edge_reads_a_subgraph_output_by_its_declared_name():
 
 
 def test_an_unwired_required_input_of_a_subgraph_node_is_a_problem_as_on_any_node():
-    record = {  # written out: make_graph would make the open e.text a graph input
+    record = {
+        "inputs": {"text": {}},  # written out: make_graph would make the open e.text a graph input
         "nodes": {
             "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
             "e": {"node": "greet-inner", "inputs": {"greeting": _sources("w", "result")}},
@@ -1747,10 +1759,11 @@ def test_a_subgraph_of_no_nodes_runs_to_empty_results_as_a_graph_of_no_nodes_doe
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"text": {}},
                 "nodes": {
                     "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
                     "e": {"node": "nothing"},
-                }
+                },
             }
         ),
         registry,

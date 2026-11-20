@@ -4,18 +4,19 @@ Say ``split`` at version 1 takes an input ``sep``. Version 2 calls it ``separato
 ``Upgrade(renamed_inputs={"sep": "separator"})``. Upgrading a record whose ``split`` is at version 1 moves whatever
 ``sep`` got, a constant, a graph input or edges, over to ``separator``, and sets the version to 2.
 
-An input the newer version neither has nor renames is dropped. Its ``rewrite`` still sees its constant or default
-first, so it can carry the value over to another input. A key the rewrite returns is kept, so a rewrite that returns
-the dropped input's key keeps it in the record, as a constant.
+An input the newer version neither has nor renames is dropped. Its ``rewrite`` still sees its constant first, so it
+can carry the value over to another input. A key the rewrite returns is kept, so a rewrite that returns the dropped
+input's key keeps it in the record, as a constant.
+
+A graph input belongs to the whole graph, so an upgrade of one node never changes its default. A graph input that
+only the dropped inputs took is dropped with them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import partial
 from typing import Any
-
-from pydantic import MISSING
 
 from conductor._internal.base import Source
 from conductor._internal.node import NodeDefinition, RewriteValidator, gone_inputs
@@ -26,11 +27,17 @@ from conductor._internal.problem import (
     compile_problems,
 )
 from conductor._internal.record import (
+    ConstantEntry,
+    GraphInputEntry,
     GraphRecord,
     InputEntry,
-    NodeRecord,
     RecordValidator,
+    SourcesEntry,
 )
+
+#: An input's entry as an upgrade step writes it: an entry it keeps, or the JSON of one it changes, which the record
+#: validator then checks.
+type _Written = InputEntry | dict[str, Any]
 
 
 def upgraded(
@@ -99,29 +106,46 @@ def upgraded(
             upgrade.renamed_inputs.get(name, name): entry
             for name, entry in graph.nodes[node_id].inputs.items()
         }
-        inputs = {name: entry for name, entry in renamed.items() if name not in gone}
-        if upgrade.rewrite is not None:
-            inputs = _rewritten(node_id, upgrade.rewrite, older, step, renamed, inputs)
-        node_records = {
-            other: NodeRecord.model_construct(
-                node=node.node,
-                version=step.version if other == node_id else node.version,
-                display=node.display,
-                inputs={
-                    name: _renamed(entry, node_id, upgrade.renamed_outputs)
-                    for name, entry in (inputs if other == node_id else node.inputs).items()
-                },
-            )
+        inputs_of: dict[str, dict[str, _Written]] = {
+            other: {
+                name: _renamed(entry, node_id, upgrade.renamed_outputs)
+                for name, entry in node.inputs.items()
+            }
             for other, node in graph.nodes.items()
         }
-        outputs = {
-            name: _renamed_source(source, node_id, upgrade.renamed_outputs)
-            for name, source in graph.outputs.items()
+        inputs_of[node_id] = {
+            name: _renamed(entry, node_id, upgrade.renamed_outputs)
+            for name, entry in renamed.items()
+            if name not in gone
         }
-        # The records above are built without checks. The record validator checks what the step wrote.
+        if upgrade.rewrite is not None:
+            inputs_of[node_id] = _rewritten(
+                node_id, upgrade.rewrite, older, step, renamed, inputs_of[node_id]
+            )
+        dropped = _graph_inputs_named(
+            node.inputs for node in graph.nodes.values()
+        ) - _graph_inputs_named(inputs_of.values())
         graph = RecordValidator(
             written_by=f"the Upgrade of '{node_record.node}' to version {step.version}"
-        )(GraphRecord.model_construct(nodes=node_records, outputs=outputs).model_dump(mode="json"))
+        )(
+            {
+                "inputs": {
+                    name: declared for name, declared in graph.inputs.items() if name not in dropped
+                },
+                "nodes": {
+                    other: node.model_dump(mode="json")
+                    | {
+                        "version": step.version if other == node_id else node.version,
+                        "inputs": inputs_of[other],
+                    }
+                    for other, node in graph.nodes.items()
+                },
+                "outputs": {
+                    name: _renamed_source(source, node_id, upgrade.renamed_outputs)
+                    for name, source in graph.outputs.items()
+                },
+            }
+        )
     return graph
 
 
@@ -131,14 +155,15 @@ def _rewritten(
     older: NodeDefinition,
     step: NodeDefinition,
     renamed: Mapping[str, InputEntry],
-    inputs: Mapping[str, InputEntry],
-) -> dict[str, InputEntry]:
+    inputs: Mapping[str, _Written],
+) -> dict[str, _Written]:
     """Runs the ``rewrite`` of an ``Upgrade`` and returns the node's inputs after it.
 
-    The rewrite gets the node's constants and graph-input defaults as one dict. That dict still has the inputs the
-    step drops, so the rewrite can move their values elsewhere. ``RewriteValidator`` checks what it returns, and
-    writes it as JSON. A key that was a graph input's default stays a default. Every other key becomes a constant. A
-    constant or default the rewrite leaves out is dropped.
+    The rewrite gets the node's constants as one dict. That dict still has the inputs the step drops, so the
+    rewrite can move their values elsewhere. ``RewriteValidator`` checks what it returns, and writes it as JSON.
+    Every key it returns becomes a constant, and a constant it leaves out is dropped. An input that takes a graph
+    input or edges keeps them, and a key the rewrite returns for one makes an entry of two kinds, which the record
+    validator refuses.
 
     The rewrite is the node author's code. A ``NodeError`` it raises keeps its code and message. Any other exception
     goes to the ``conductor`` logger, and the problem has only its class name.
@@ -156,9 +181,7 @@ def _rewritten(
             raises. See ``RewriteValidator`` for what it may return.
     """
     values = {
-        name: entry.default if entry.constant is MISSING else entry.constant
-        for name, entry in renamed.items()
-        if entry.constant is not MISSING or entry.default is not MISSING
+        name: entry.constant for name, entry in renamed.items() if isinstance(entry, ConstantEntry)
     }
     try:
         returned = rewrite(values)
@@ -189,30 +212,22 @@ def _rewritten(
             ]
         ) from None
     written = RewriteValidator(node_id, step.id, older.version, step.version)(returned)
-    kept = {
-        name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)
-        for name, entry in inputs.items()
-        if entry.constant is MISSING
+    kept: dict[str, _Written] = {
+        name: entry for name, entry in inputs.items() if not isinstance(entry, ConstantEntry)
     }
-    for name, value in written.items():
-        entry = kept.get(name)
-        if entry is not None and entry.graph_input is not MISSING:
-            kept[name] = InputEntry.model_construct(graph_input=entry.graph_input, default=value)
-        else:  # if the entry has sources, this makes it two kinds at once, which the record validator refuses
-            kept[name] = InputEntry.model_construct(
-                constant=value, sources=MISSING if entry is None else entry.sources
-            )
-    return kept
+    return kept | {
+        name: _json(kept[name]) | {"constant": value} if name in kept else {"constant": value}
+        for name, value in written.items()
+    }
 
 
-def _renamed(entry: InputEntry, node_id: str, renames: Mapping[str, str]) -> InputEntry:
+def _renamed(entry: InputEntry, node_id: str, renames: Mapping[str, str]) -> _Written:
     """Returns ``entry`` with each source from a renamed output of ``node_id`` pointed at the new name."""
-    if entry.sources is MISSING:
+    if not isinstance(entry, SourcesEntry) or not any(
+        source.node == node_id and source.output in renames for source in entry.sources
+    ):
         return entry
-    return InputEntry.model_construct(
-        constant=entry.constant,
-        sources=tuple(_renamed_source(source, node_id, renames) for source in entry.sources),
-    )
+    return {"sources": [_renamed_source(source, node_id, renames) for source in entry.sources]}
 
 
 def _renamed_source(source: Source, node_id: str, renames: Mapping[str, str]) -> Source:
@@ -222,3 +237,18 @@ def _renamed_source(source: Source, node_id: str, renames: Mapping[str, str]) ->
         if source.node == node_id and source.output in renames
         else source
     )
+
+
+def _graph_inputs_named(inputs_of: Iterable[Mapping[str, _Written]]) -> set[str]:
+    """Returns the names of the graph inputs that the entries of ``inputs_of``, each node's inputs, take."""
+    return {
+        entry.graph_input
+        for inputs in inputs_of
+        for entry in inputs.values()
+        if isinstance(entry, GraphInputEntry)
+    }
+
+
+def _json(entry: _Written) -> dict[str, Any]:
+    """Returns ``entry`` as the JSON a record writes it as."""
+    return entry if isinstance(entry, dict) else entry.model_dump(mode="json")

@@ -190,6 +190,7 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"path": {}},
                 "nodes": {
                     "read": {"node": "csv", "inputs": {"path": {"graph_input": "path"}}},
                     "lines": {
@@ -258,6 +259,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
     (found,) = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"path": {}},
                 "nodes": {
                     "a": {"node": "amounts", "inputs": {"path": {"graph_input": "path"}}},
                     "r": {
@@ -298,6 +300,7 @@ def test_wiring_an_item_of_one_series_into_the_node_that_returns_the_other_pairs
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"folder": {}},
                 "nodes": {
                     "docs": {"node": "documents", "inputs": {"folder": {"graph_input": "folder"}}},
                     "list": {
@@ -344,6 +347,7 @@ def test_a_hook_reads_the_row_type_of_the_table_arriving():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
+                "inputs": {"path": {}},
                 "nodes": {
                     "read": {"node": "contacts", "inputs": {"path": {"graph_input": "path"}}},
                     "look": {

@@ -214,14 +214,19 @@ def _source(node_id: str) -> dict[str, Any]:
     return {"sources": [{"node": node_id, "output": "result"}]}
 
 
-def _graph(nodes: dict[str, dict[str, Any]], *, returns: str | None = None) -> dict[str, Any]:
+def _graph(
+    nodes: dict[str, dict[str, Any]], *, takes: tuple[str, ...] = (), returns: str | None = None
+) -> dict[str, Any]:
     """Builds a graph record from ``nodes``, a mapping from node id to inputs.
 
-    Each node's id is also the id of its definition. With ``returns``, the graph returns that node's ``result`` as its
-    own output ``result``.
+    Each node's id is also the id of its definition. ``takes`` are the graph inputs it declares, each with no
+    default. With ``returns``, the graph returns that node's ``result`` as its own output ``result``.
     """
     record: dict[str, Any] = {
-        "nodes": {node_id: {"node": node_id, "inputs": inputs} for node_id, inputs in nodes.items()}
+        "inputs": {name: {} for name in takes},
+        "nodes": {
+            node_id: {"node": node_id, "inputs": inputs} for node_id, inputs in nodes.items()
+        },
     }
     if returns is not None:
         record["outputs"] = {"result": {"node": returns, "output": "result"}}
@@ -230,7 +235,9 @@ def _graph(nodes: dict[str, dict[str, Any]], *, returns: str | None = None) -> d
 
 _GATE_ASK = _graph({"gate": {}, "ask": {"value": _source("gate")}}, returns="ask")
 _WORK = _graph(
-    {"numbers": {"n": {"graph_input": "n"}}, "work": {"i": _source("numbers")}}, returns="work"
+    {"numbers": {"n": {"graph_input": "n"}}, "work": {"i": _source("numbers")}},
+    takes=("n",),
+    returns="work",
 )
 _APPROVE = _graph(
     {
@@ -238,6 +245,7 @@ _APPROVE = _graph(
         "approve_each": {"i": _source("numbers")},
         "after": {"approved": _source("approve_each")},
     },
+    takes=("n",),
     returns="after",
 )
 
@@ -579,7 +587,8 @@ def test_a_run_is_seen_only_by_the_user_who_started_it(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(
-                _graph({"greet": {"name": {"graph_input": "name"}}}), {"name": "ida"}
+                _graph({"greet": {"name": {"graph_input": "name"}}}, takes=("name",)),
+                {"name": "ida"},
             )
             await a.until_status(run_id, "complete")
             for route in ("", "/events"):
