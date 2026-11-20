@@ -755,8 +755,9 @@ class Type:
         to.
 
         A ``None`` reaches an input only if its hint says ``| None``. Anywhere else, the node isn't called for it.
-        So when a type variable is the whole hint, it binds to ``source`` without its ``None``. Fed
-        ``str | None``, ``value: T`` binds ``T`` to ``str``, and ``value: T | None`` takes the ``None`` too.
+        So a type variable binds to ``source`` without the ``None`` its whole value may be. Fed ``str | None``,
+        both ``value: T`` and ``value: T | None`` bind ``T`` to ``str``. Fed ``list[str | None]``, ``values: list[T]``
+        binds ``T`` to ``str | None``, since a ``None`` inside the list does reach the node.
 
         Returns:
             What each type variable binds to, or ``{}`` for a type without any. ``None`` if the value may not be
@@ -764,9 +765,7 @@ class Type:
             variable's bound doesn't fit.
         """
         bound: dict[TypeVar, Any] = {}
-        lands_without_blank = isinstance(split_hint(self.hint)[0], TypeVar) and source.options
-        arriving = union_of(source.options) if lands_without_blank else source.closed
-        return bound if fit(self.hint, arriving, bound, False) else None
+        return bound if fit(self.hint, source.closed, bound, False) else None
 
     def holds(self, source: Type) -> bool:
         """Says whether every value of ``source`` is already a value of this type, so it needs no check per call."""

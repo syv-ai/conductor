@@ -24,6 +24,7 @@ from .hint import (
     literal_classes,
     types_and_left_out,
     union_members,
+    union_of,
 )
 from .host_type import accepted_classes
 from .param import split_hint
@@ -35,6 +36,13 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     Along the way it binds the type variables in ``target``. For ``target`` ``list[T]`` and ``source``
     ``list[int]``, it returns ``True`` and binds ``T`` to ``int``.
 
+    A ``None`` that arrives as the whole value never reaches an input that doesn't take ``None``: the node isn't
+    called for it, and a loop's ``None`` items are left out of the list an input collects. So ``source`` is
+    compared without that ``None``, and ``int | None`` fits ``int``. Inside a value, ``None`` is a value like any
+    other, which ``target`` must take: ``list[int | None]`` doesn't fit ``list[int]``. The one place the whole
+    value's ``None`` still counts is a ``Literal`` source, which lands when the target takes one of its values:
+    ``Literal["x"] | None`` lands on a target that takes ``None`` beside its choices.
+
     Args:
         target: The type expected, which may have type variables.
         source: The type arriving, which has none.
@@ -42,6 +50,39 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
             in two places, it is bound to the union of what arrives at each.
         exact: Ask a stricter question instead: is every ``source`` value already a ``target`` value as it is, so
             that it needs no checking or converting?
+    """
+    whole, may_be_none = _split_off_none(source)
+    return _fit(target, whole, bound, exact, may_be_none=may_be_none)
+
+
+def _split_off_none(hint: Any) -> tuple[Any, bool]:
+    """Returns ``hint`` without the ``None`` its whole value may be, and whether it may be ``None``.
+
+    ``int | None`` gives ``int``, and ``Literal["a", None]`` gives ``Literal["a"]``, both with ``True``.
+    ``list[int | None]`` is given back as it is, with ``False``, and ``None`` itself as it is, with ``True``.
+    """
+    members, may_be_none = [], False
+    for member in union_members(split_hint(hint)[0]):
+        if is_alias(member):
+            member, alias_may_be_none = _split_off_none(aliased(member))
+            may_be_none |= alias_may_be_none
+        if get_origin(member) is Literal:
+            values = tuple(value for value in get_args(member) if value is not None)
+            may_be_none |= len(values) < len(get_args(member))
+            member = Literal[values] if values else type(None)
+        if member is type(None):
+            may_be_none = True
+        else:
+            members.append(member)
+    return (union_of(members) if members else hint), may_be_none
+
+
+def _fit(
+    target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool, *, may_be_none: bool = False
+) -> bool:
+    """Says what ``fit`` says, for a ``source`` without the ``None`` its whole value may be.
+
+    ``may_be_none`` says whether the whole value may be ``None``, which only a ``Literal`` source asks.
     """
     if target == source:
         return True
@@ -61,28 +102,27 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
 
         values = [value for member in members for value in (get_args(member) or (None,))]
         checks, classes = Type(target), literal_classes(source)
-        if not any(checks.takes_value(value) for value in values):
+        landing = [*values, None] if may_be_none else values
+        if not any(checks.takes_value(value) for value in landing):
             return False
-        if not fit(target, classes, bound, False):
+        if not _fit(target, classes, bound, False):
             return False
-        return not exact or all(
-            checks.takes_value(value, as_it_is=True) for value in values if value is not None
-        )
+        return not exact or all(checks.takes_value(value, as_it_is=True) for value in values)
     if checked:
         # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call
-        return not exact and fit(bare, source, bound, False)
+        return not exact and _fit(bare, source, bound, False)
     target = bare
     if target == source:
         return True
     if is_alias(target) or is_alias(source):  # an alias stands for another type, so compare that
-        return fit(
+        return _fit(
             aliased(target) if is_alias(target) else target,
             aliased(source) if is_alias(source) else source,
             bound,
             exact,
         )
     if isinstance(target, TypeVar):
-        if target.__bound__ is not None and not fit(target.__bound__, source, {}, exact):
+        if target.__bound__ is not None and not _fit(target.__bound__, source, {}, exact):
             return False
         bound[target] = bound[target] | source if target in bound else source
         return True
@@ -90,14 +130,11 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         return True
     if source is Any:
         return not exact
-    targets, sources = (
-        union_members(target),
-        [option for option in union_members(source) if option is not type(None)],
-    )
-    if len(targets) > 1 or len(union_members(source)) > 1:
+    targets, sources = union_members(target), union_members(source)
+    if len(targets) > 1 or len(sources) > 1:
         for one in sources:
             for option in targets:
-                if fit(option, one, trial := dict(bound), exact):
+                if _fit(option, one, trial := dict(bound), exact):
                     bound.update(trial)
                     break
             else:
@@ -105,7 +142,7 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         return True
     if get_origin(target) is Literal:
         # a value of the right class may be one of them, so it is checked on each call
-        return not exact and fit(literal_classes(target), source, bound, False)
+        return not exact and _fit(literal_classes(target), source, bound, False)
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
     if is_typed_dict(source):
         given = types_and_left_out(field_hints(source))
@@ -118,14 +155,14 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
             return same and all(
                 left_out
                 if key not in given
-                else (left_out or not given[key][1]) and fit(hint, given[key][0], bound, exact)
+                else (left_out or not given[key][1]) and _fit(hint, given[key][0], bound, exact)
                 for key, (hint, left_out) in expected.items()
             )
         if target_class is not dict:
             return False
         key, value = get_args(target) or (Any, Any)
-        return fit(key, str, bound, exact) and all(
-            fit(value, hint, bound, exact) for hint, _ in given.values()
+        return _fit(key, str, bound, exact) and all(
+            _fit(value, hint, bound, exact) for hint, _ in given.values()
         )
     if is_typed_dict(target) or not (
         isinstance(target_class, type) and isinstance(source_class, type)
@@ -143,5 +180,5 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     if not given_args:  # a bare generic like ``list`` says nothing about its items
         return not (exact and expected_args)
     return len(expected_args) != len(given_args) or all(
-        fit(a, b, bound, exact) for a, b in zip(expected_args, given_args, strict=True)
+        _fit(a, b, bound, exact) for a, b in zip(expected_args, given_args, strict=True)
     )
