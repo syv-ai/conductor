@@ -8,6 +8,9 @@ its own in the JSON.
 pydantic's own discriminated union would pick the kind too, but it puts the tag in front of the place of every fault
 inside the value, as ``inputs.text.sources.sources.0``. Reading the picked model directly keeps the place a fault has
 in the JSON, ``inputs.text.sources.0``, and each kind's key is written once, as its field's name.
+
+It is an ``Annotated`` marker on a hint, as ``Param`` and ``NotBlank`` are, so it lives in ``types/``. Its reader calls
+the picked model's ``model_validate``, and a pydantic validator is called only in ``types/`` or in a ``validator.py``.
 """
 
 from __future__ import annotations

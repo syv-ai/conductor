@@ -42,7 +42,6 @@ from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
     conductor_error,
-    json_form,
     run_problems,
 )
 from conductor._internal.table import json_fallback
@@ -53,7 +52,9 @@ from conductor._internal.types import (
     check_one_of,
     choices_schema,
     pick_texts,
-    read_as_json,
+    read_as_argument,
+    read_as_output,
+    written_as_json,
 )
 
 from .question import as_asked
@@ -104,7 +105,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     {
                         name: core_schema.typed_dict_field(
                             choices_schema(
-                                functools.partial(read_as_json, field.type, as_output=True),
+                                functools.partial(read_as_output, field.type),
                                 field.type.to_json,
                                 known=field.type.choices or (),
                             ),
@@ -297,9 +298,7 @@ def _answer_fields(
         if not required and default is not MISSING:
             schema = core_schema.with_default_schema(
                 schema,
-                default_factory=functools.partial(
-                    read_as_json, field.whole, default, as_output=True
-                ),
+                default_factory=functools.partial(read_as_output, field.whole, default),
             )
         fields[name] = core_schema.typed_dict_field(schema, required=required)
     return fields
@@ -335,7 +334,7 @@ def _by_output(outputs: Mapping[str, Field], several: Callable[[Any], Any]) -> C
 def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
     """Builds the schema of one question: a person's answer read as the value of its output.
 
-    The answer is read strictly, the way its JSON text would be (``read_as_json``). So ``True`` is a ``bool``, but
+    The answer is read strictly, the way its JSON text would be (``read_as_output``). So ``True`` is a ``bool``, but
     ``"yes"`` is refused. A ``date`` may be given as a ``date`` or as its ISO text, like ``"2026-11-15"``. The
     output's type checks any choices written on it. Then ``_check_picks`` checks what the type can't.
 
@@ -354,7 +353,7 @@ def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
     whole = field.whole
 
     def read(value: Any) -> Any:
-        answer = read_as_json(whole, value, as_output=True)
+        answer = read_as_output(whole, value)
         _check_picks(field, answer, choices)
         return answer
 
@@ -483,7 +482,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
         """
         fields = _as_mapping(answer)
         try:
-            return json_form(
+            return written_as_json(
                 _ANY.id,
                 fields,
                 lambda: validate_as_json(_ANY.output_validator, fields, fallback=json_fallback),
@@ -532,7 +531,7 @@ class DeclineValidator(Validator[Any, str | None]):
             InvalidCallError: See the class.
         """
         try:
-            return cast(str | None, read_as_json(_REASON, reason))
+            return cast(str | None, read_as_argument(_REASON, reason))
         except ValidationError as error:
             raise InvalidCallError(
                 [

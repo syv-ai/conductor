@@ -8,7 +8,7 @@ A type variable makes this happen twice. In ``first(one: T, other: T = 0)``, the
 its own. Once a graph wires ``one`` from an output of type ``str``, ``T`` is ``str``, and ``0`` no longer fits. So
 the default is checked again when the graph is compiled, and the graph gets an ``invalid_value`` problem.
 
-A default is read strictly, as its JSON text would be (``read_as_json``), the way a caller's graph input and a
+A default is read strictly, as its JSON text would be (``read_as_argument``), the way a caller's graph input and a
 graph record's constant are read. A default is written into a graph record and read back from it, so it must read
 the same from either. So ``"3"`` and ``5.0`` are refused for an ``int``, ``1`` for a ``bool`` and a ``datetime``
 for a ``date``, and ``1`` for a ``float`` becomes ``1.0``.
@@ -33,7 +33,7 @@ from conductor._internal.problem import (
     compile_problems,
     declaration_problems,
 )
-from conductor._internal.types import Type, hint_parts, read_as_json
+from conductor._internal.types import Type, hint_parts, read_as_argument
 
 from .type import Field
 
@@ -215,7 +215,7 @@ def _read_default(whole: Type, default: Any) -> Any:
     """Reads a default by a field's type strictly, as its JSON text would be read, and returns what it reads.
 
     ``REQUIRED`` and ``SKIPPED`` aren't values, so they are returned as they are. Any other default, ``None``
-    included, is read as a caller's graph input is (``read_as_json``): an editor shows it and a saved graph stores
+    included, is read as a caller's graph input is (``read_as_argument``): an editor shows it and a saved graph stores
     it as JSON, and the graph reads it back from there.
 
     Args:
@@ -228,4 +228,4 @@ def _read_default(whole: Type, default: Any) -> Any:
     """
     if default is REQUIRED or default is SKIPPED:
         return default
-    return read_as_json(whole, default)
+    return read_as_argument(whole, default)

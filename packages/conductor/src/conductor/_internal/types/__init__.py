@@ -7,9 +7,9 @@ may join two types. ``Type`` wraps one hint and answers all of these.
 
 The rest of the package supports it. ``Param`` is what a node author adds to a hint: a title, limits like
 ``ge=0``, choices to pick from. ``Choice`` is one of those choices. ``@host_type`` is how a host gives a class of
-its own a name. ``read_as_json`` reads a value that enters a graph by its type, strictly, the way its JSON text
-would be read. ``KindByKey`` marks a union of one-field models, so a mapping is read as the model whose field is
-its one key. The full rules are in the reference: ``python -m conductor.about types``.
+its own a name. ``read_as_argument`` and ``read_as_output`` read a value that enters a graph by its type, strictly,
+the way its JSON text would be read, and ``written_as_json`` writes one or refuses it. ``KindByKey`` marks a union of
+one-field models, so a mapping is read as the model whose field is its one key. The full rules are in the reference: ``python -m conductor.about types``.
 """
 
 from .choice import (
@@ -26,7 +26,7 @@ from .hint import a_number, field_hints, hint_parts, is_typed_dict, union_member
 from .host_type import NAMES, NotBlank, host_type, is_declared
 from .kind_by_key import KindByKey
 from .param import SIZED, Param, as_written, split_hint
-from .read import read_as_json
+from .read import read_as_argument, read_as_output, written_as_json
 from .type import Type, TypeRefusal, json_by_its_class
 
 __all__ = [
@@ -54,8 +54,10 @@ __all__ = [
     "is_typed_dict",
     "json_by_its_class",
     "pick_texts",
-    "read_as_json",
+    "read_as_argument",
+    "read_as_output",
     "split_hint",
     "union_members",
     "union_of",
+    "written_as_json",
 ]

@@ -33,7 +33,7 @@ from conductor._internal.problem import (
     conductor_error,
     shape_error,
 )
-from conductor._internal.types import Type, read_as_json
+from conductor._internal.types import Type, read_as_output
 
 from .graph import GraphRecord
 
@@ -144,7 +144,7 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
     """A validator for the constants or defaults Python code writes into a graph record for one node.
 
     It writes each value as the JSON the record stores, as a caller's value is written for an ``Any`` input
-    (``read_as_json``). ``{"day": date(2026, 1, 2)}`` becomes ``{"day": "2026-01-02"}``, a host's object is written
+    (``read_as_output``). ``{"day": date(2026, 1, 2)}`` becomes ``{"day": "2026-01-02"}``, a host's object is written
     by its own class's schema. The input's type reads it when the graph is compiled.
 
     Raises (when called):
@@ -171,7 +171,7 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
         problems = []
         for name, value in values.items():
             try:
-                written[name] = plain_json(read_as_json(Type(Any), value, as_output=True))
+                written[name] = plain_json(read_as_output(Type(Any), value))
             except ValidationError as error:
                 problems.append(
                     compile_problems.invalid_value(self._node_id, name, **Type(Any).refusal(error))

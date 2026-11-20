@@ -40,7 +40,7 @@ from conductor._internal.problem import (
     compile_problems,
 )
 from conductor._internal.table import own_copy
-from conductor._internal.types import Type, read_as_json
+from conductor._internal.types import Type, read_as_argument
 from conductor._internal.utils import comma_separated
 
 
@@ -51,7 +51,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     nothing else may be.
 
     Each value is read by its input's type strictly, the way its JSON text would be, as a person's answer is
-    (``read_as_json``). So a value given from Python and the same value sent over HTTP read the same, and so does
+    (``read_as_argument``). So a value given from Python and the same value sent over HTTP read the same, and so does
     the value a saved run reads back. ``3`` is an ``int``, but ``"3"`` and ``3.0`` are refused. ``True`` is a
     ``bool``, but ``"yes"`` and ``1`` are refused. A ``date`` may be given as a ``date`` or as its ISO text, and a
     model as its class or as a mapping of its fields. A value JSON can't write, such as an object held in memory,
@@ -98,7 +98,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         for name, field in self._inputs.items():
             if name in given:
                 try:
-                    values[name] = read_as_json(field.whole, given[name])
+                    values[name] = read_as_argument(field.whole, given[name])
                 except ValidationError as error:
                     problems.append(_refused(field, given[name], error))
             elif field.default is REQUIRED:
@@ -207,7 +207,7 @@ class ConstantValidator(Validator[JsonValue, Any]):
     """The validator for a value the graph record gives one input of a node.
 
     The value is a constant, or a graph input's default. The record stores it as JSON, and this validator reads it
-    by the input's type strictly, as a caller's graph input is read (``read_as_json``). So ``"3"`` is refused for an
+    by the input's type strictly, as a caller's graph input is read (``read_as_argument``). So ``"3"`` is refused for an
     ``int``, as ``graph.run({"n": "3"})`` is, and ``"2026-01-02"`` is a ``date``.
 
     Raises (when called):
@@ -227,7 +227,7 @@ class ConstantValidator(Validator[JsonValue, Any]):
         """
         whole, name = self._field.whole, self._field.name
         try:
-            return read_as_json(whole, value)
+            return read_as_argument(whole, value)
         except ValidationError as error:
             found = compile_problems.invalid_value(self._node_id, name, **whole.refusal(error))
         raise InvalidCallError([found])

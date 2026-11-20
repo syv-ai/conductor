@@ -50,16 +50,10 @@ from types import MappingProxyType
 from typing import Any, Self, cast
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
-from pydantic_core import (
-    ErrorDetails,
-    InitErrorDetails,
-    PydanticCustomError,
-    PydanticKnownError,
-    PydanticSerializationError,
-)
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticKnownError
 from pydantic_core.core_schema import ErrorType
 
-from conductor._internal.base import holds_a_set, place_text, plain_json
+from conductor._internal.base import place_text, plain_json
 
 from .run_problems import external_failed, node_error
 from .type import Problem
@@ -132,35 +126,6 @@ def set_has_no_order() -> PydanticCustomError:
         "set_has_no_order",
         "a set has no order, so its items could come in a different order each time",
     )
-
-
-def json_form[T](title: str, value: Any, write: Callable[[], T]) -> T:
-    """Calls ``write``, which writes ``value`` as JSON, and returns what it gives, or refuses a value with no JSON
-    form.
-
-    A value JSON can't hold is refused with pydantic's ``ValidationError``, as a type refuses a value, so a caller
-    handles one kind of error. ``read_as_json`` and the validator of an answer a host keeps write a value through it.
-    A set is looked for first, since pydantic writes it as an array by itself (``holds_a_set``).
-
-    Args:
-        title: The title of the error, such as the type's id.
-        value: The value written.
-        write: Writes ``value``. It may raise ``PydanticSerializationError``, which is ``no_json_form``, or a
-            refusal of its ``fallback``, such as a frame where the type is no table.
-
-    Raises:
-        ValidationError: ``set_has_no_order``, ``no_json_form`` or the fallback's refusal, with an empty ``loc``,
-            or whatever ``write`` raises as one.
-    """
-    try:
-        if holds_a_set(value):
-            raise set_has_no_order()
-        return write()
-    except PydanticSerializationError:
-        refused = no_json_form()
-    except PydanticCustomError as error:
-        refused = error
-    raise ValidationError.from_exception_data(title, [{"type": refused, "loc": (), "input": value}])
 
 
 def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:

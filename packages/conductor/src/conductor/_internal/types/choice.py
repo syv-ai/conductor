@@ -96,7 +96,7 @@ def choices_schema(
     ``{"b": 2, "a": 1}`` are one choice given twice, which is refused.
 
     The caller's ``read`` decides the rules. ``Param`` reads by its own type, limits included. The ``Ask`` validator
-    reads by the output's type as an answer is read (``read_as_json``), so a choice a person couldn't give, such as
+    reads by the output's type as an answer is read (``read_as_output``), so a choice a person couldn't give, such as
     ``inf``, is refused.
 
     Args:

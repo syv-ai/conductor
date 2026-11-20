@@ -10,10 +10,13 @@ method lets them reach its own caller, compiling keeps them in ``graph.problems`
 outcome of the call.
 
 Validators check values with the checks a ``Type`` owns (``types/``), and read a value that enters a graph strictly
-with ``read_as_json``. A few values are checked elsewhere. A saved run is checked in ``run/json/``, where one schema
-both reads and writes it. A ``NodeError``'s ``ctx`` is checked by ``NodeError`` itself, where a node makes one. And a
-type's own declarations are checked where the type is declared: ``Param`` checks its choices against the type it
-limits (``types/param.py``), and ``@host_type`` checks its arguments.
+with ``read_as_argument`` or ``read_as_output``. A few values are checked elsewhere. A saved run is checked in
+``run/json/``, where one schema both reads and writes it. A ``NodeError``'s ``ctx`` is checked by ``NodeError``
+itself, where a node makes one. And a type's own declarations are checked where the type is declared: ``Param``
+checks its choices against the type it limits (``types/param.py``), and ``@host_type`` checks its arguments.
+
+This module holds the base class, not a concept's validators, so it is the one ``validator.py`` with no
+``Validator`` subclass in it.
 
 The class imports nothing, so it stands at the bottom of conductor, where every package can use it.
 """
