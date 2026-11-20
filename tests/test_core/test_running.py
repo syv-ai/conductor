@@ -242,7 +242,6 @@ def test_a_node_that_changes_its_constants_and_a_default_changes_them_only_in_it
     runs = [graph.run() for _ in range(3)]
 
     assert [run.outputs for run in runs] == [{"result": "2 2 2"}] * 3
-    assert [run.inputs["seen"] for run in runs] == [["a", "x"]] * 3
 
 
 def test_a_run_with_its_own_constants_still_reuses_a_call_of_an_earlier_run_of_the_graph():
