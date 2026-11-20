@@ -2908,8 +2908,8 @@ def test_with_max_items_none_removes_the_item_limit_and_with_inputs_none_keeps_i
     [
         (0, "greater_than_equal"),
         (-1, "greater_than_equal"),
-        (True, "int_type"),
-        (False, "int_type"),
+        (True, "bool_is_not_a_number"),
+        (False, "bool_is_not_a_number"),
         (2.5, "int_type"),
         ("5", "int_type"),
     ],

@@ -5,14 +5,19 @@ list or a ``Series``, a field of a ``TypedDict``, a value of a dict and a cell o
 pydantic reads it, from its text. The fields of a host's own
 model or dataclass are left to the host's rules.
 
-- A yes or no is not a number. Pydantic takes ``True`` as the number 1, so the schema of ``list[int]`` turns
-  ``[1, True]`` into ``[1, 1]``; with the rule it is refused with ``bool_is_not_a_number`` at ``loc`` ``(1,)``.
+- A yes or no is not a number. Pydantic takes ``True`` as the number 1 when it reads laxly, so the schema of
+  ``list[int]`` turns ``[1, True]`` into ``[1, 1]``; with the rule it is refused with ``bool_is_not_a_number`` at
+  ``loc`` ``(1,)``. Read strictly, pydantic refuses a ``bool`` for an ``int`` or a ``float`` itself, so a check that
+  only reads strictly leaves them to it, and guards only a ``Literal`` and an enum of numbers, which take ``True``
+  as 1 even then. Pydantic's strict refusal, ``int_type`` or ``float_type``, is written as ``bool_is_not_a_number``
+  where a refusal is explained (``value_free_errors``), so both checks report the same code.
 - A named value, a ``Literal``'s value or an enum's member, reads back from its own JSON as itself, so a run of it
   can be saved, described and asked. ``Literal[Color.RED]`` of a plain enum, ``Literal[b"a"]`` and an enum of
   tuples don't, so the walk refuses them, and ``@node`` does (``named_value_invalid``).
 
-``Type.argument_validator`` is the type's check with these rules: the one an edge's value, a graph input and a
-constant get, and the one ``Type.takes_value`` asks.
+``Type.argument_validator`` is the type's check with these rules, read laxly or strictly: the one an edge's value,
+a graph input and a constant get, and the one ``Type.takes_value`` asks. ``Type.output_validator`` only reads
+strictly.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from conductor._internal.base import (
 from conductor._internal.problem import (
     NodeDeclarationError,
     Problem,
-    conductor_error,
+    bool_is_not_a_number,
     declaration_problems,
 )
 
@@ -50,11 +55,11 @@ def _not_a_bool(value: Any) -> Any:
     ``bool`` can't be subclassed, so ``True`` and ``False`` are its only values.
     """
     if value is True or value is False:
-        raise conductor_error("bool_is_not_a_number", "a yes or no is not a number")
+        raise bool_is_not_a_number()
     return value
 
 
-def with_rules(schema: CoreSchema) -> CoreSchema:
+def with_rules(schema: CoreSchema, *, read_strictly: bool) -> CoreSchema:
     """Returns a copy of a pydantic core schema with conductor's rules added, at any depth.
 
     For the schema of ``list[int]``, the result takes ``[1, 2]`` and refuses ``[1, True]``, where pydantic alone
@@ -62,15 +67,21 @@ def with_rules(schema: CoreSchema) -> CoreSchema:
     text too: a ``true`` in a saved run or in a person's answer is refused for an ``int``, just like ``True`` from a
     caller, and with the same message. ``schema`` itself is left unchanged.
 
+    Args:
+        schema: A core schema.
+        read_strictly: Whether the schema is only ever read strictly. Then an ``int`` and a ``float`` are left as
+            they are, since pydantic's strict check refuses a ``bool`` for them without a call into Python per
+            number.
+
     Raises:
         NodeDeclarationError: ``named_value_invalid``, for a ``Literal`` or an enum anywhere in ``schema`` whose named
             values don't read back from their own JSON.
     """
-    walked: CoreSchema = _walked(schema, {})
+    walked: CoreSchema = _walked(schema, {}, read_strictly)
     return walked
 
 
-def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
+def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any], read_strictly: bool) -> Any:
     """Returns a core schema with every number in it set to refuse a ``bool``.
 
     It walks down through the schema, wraps each number schema it finds with ``_guarded``, and checks each ``literal``
@@ -80,6 +91,7 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
         schema: A core schema.
         definitions: The schemas pydantic declared beside the schema, such as a ``TypedDict``'s or an enum's, by
             their ``ref``. The walk looks a reference up here to see what it points to.
+        read_strictly: As ``with_rules`` takes it.
 
     Raises:
         NodeDeclarationError: ``named_value_invalid``, from ``_check_named_values``.
@@ -99,20 +111,24 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
         # like its metadata
         return {
             **schema,
-            "schema": _walked(inner, declared),
+            "schema": _walked(inner, declared, read_strictly),
             "definitions": [
                 definition
                 if _a_number_schema(definition) or definition["type"] in HOSTS_OWN_CLASSES
-                else _walked_inside(definition, declared)
+                else _walked_inside(definition, declared, read_strictly)
                 for definition in declared_here.values()
             ],
         }
     if kind == "definition-ref":
-        return _guarded(schema) if _a_number_schema(looked_up(schema, definitions)) else schema
+        return (
+            _guarded(schema)
+            if _takes_a_bool(looked_up(schema, definitions), read_strictly)
+            else schema
+        )
     _check_named_values(schema)
     if _a_number_schema(schema):
-        return _guarded(schema)
-    return _walked_inside(schema, definitions)
+        return _guarded(schema) if _takes_a_bool(schema, read_strictly) else schema
+    return _walked_inside(schema, definitions, read_strictly)
 
 
 def _check_named_values(schema: Mapping[str, Any]) -> None:
@@ -183,7 +199,9 @@ def _named_value_fault(schema: Mapping[str, Any]) -> Problem | None:
     return None
 
 
-def _walked_inside(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:
+def _walked_inside(
+    schema: Mapping[str, Any], definitions: Mapping[str, Any], read_strictly: bool
+) -> dict[str, Any]:
     """Returns ``schema`` with every schema inside it walked, and ``schema``'s own type kept.
 
     A dict's ``keys_schema`` is left alone: a key is text in JSON, and so never a yes or no. Pydantic reads a key
@@ -191,7 +209,10 @@ def _walked_inside(schema: Mapping[str, Any], definitions: Mapping[str, Any]) ->
     ``dict[int, str]`` given as JSON.
     """
     return with_schemas_in(
-        schema, lambda part, key: part if key == "keys_schema" else _walked(part, definitions)
+        schema,
+        lambda part, key: (
+            part if key == "keys_schema" else _walked(part, definitions, read_strictly)
+        ),
     )
 
 
@@ -209,6 +230,14 @@ def _a_number_schema(schema: Any) -> bool:
     return kind in ("int", "float") or (
         kind == "enum" and schema.get("sub_type") in ("int", "float")
     )
+
+
+def _takes_a_bool(schema: Any, read_strictly: bool) -> bool:
+    """Whether pydantic's check of the core schema takes a ``bool`` as a number: laxly, any number schema, and
+    strictly, a ``Literal`` of numbers or an enum of them, since ``True == 1``."""
+    if not _a_number_schema(schema):
+        return False
+    return not read_strictly or schema["type"] not in ("int", "float")
 
 
 def _guarded(number: Any) -> CoreSchema:

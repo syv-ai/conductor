@@ -115,6 +115,18 @@ def no_json_form(reason: str = "the value can't be written as JSON") -> Pydantic
     return conductor_error("no_json_form", reason)
 
 
+def bool_is_not_a_number() -> PydanticCustomError:
+    """The refusal of ``True`` or ``False`` where a number is due, as an ``int``, a ``float`` or a ``Literal`` of
+    numbers.
+
+    Pydantic takes ``True`` as the number 1 when it reads laxly, so the rules a type's check is built with raise
+    this for a ``bool`` (``with_rules``). Read strictly, pydantic refuses a ``bool`` for an ``int`` or a ``float``
+    itself, with ``int_type`` or ``float_type``, and ``value_free_errors`` writes that refusal as this one. So a
+    host is shown one code for the fault at every door, whichever check found it.
+    """
+    return conductor_error("bool_is_not_a_number", "a yes or no is not a number")
+
+
 def set_has_no_order() -> PydanticCustomError:
     """The refusal of a set where a value is read from its JSON form, written into a graph record, or given for a
     ``Series``.
@@ -137,7 +149,8 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     wrote them about the type, as a limit's are: ``{"ge": 3}`` is the type's, and lets a host write its own message
     by the code. Of pydantic's ``ctx`` only the keys its message reads are kept (``_ctx_its_message_reads``). Any
     other message is replaced and its ``ctx`` dropped: one a host's validator raised, whatever type it gives, and one
-    of pydantic's that quotes the value or an exception's text, like ``value_error``'s.
+    of pydantic's that quotes the value or an exception's text, like ``value_error``'s. Pydantic's strict refusal of
+    a ``bool`` for a number, ``int_type`` or ``float_type``, is written as ``bool_is_not_a_number``.
 
     For example, an ``Annotated[int, Param(ge=3)]`` refusing ``1`` gives::
 
@@ -149,12 +162,16 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     Returns:
         One dict per error, with the keys ``type``, ``loc`` and ``msg``, and ``ctx`` when it is kept and not empty.
     """
-    return [
-        _written_error(fault["type"], [], fault["msg"], _ctx_its_message_reads(fault))
-        if _message_holds_no_value(fault)
-        else _written_error(fault["type"], [], _VALIDATOR_PREFIX, {})
-        for fault in error.errors()
-    ]
+    return [_value_free(fault) for fault in error.errors()]
+
+
+def _value_free(fault: ErrorDetails) -> dict[str, Any]:
+    """Returns one of pydantic's errors with nothing of the refused value left in it, as ``value_free_errors`` says."""
+    if fault["type"] in ("int_type", "float_type") and type(fault.get("input")) is bool:
+        return shape_error(bool_is_not_a_number())
+    if _message_holds_no_value(fault):
+        return _written_error(fault["type"], [], fault["msg"], _ctx_its_message_reads(fault))
+    return _written_error(fault["type"], [], _VALIDATOR_PREFIX, {})
 
 
 def shape_error(
