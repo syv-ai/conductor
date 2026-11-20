@@ -418,7 +418,10 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             declaration_problems.row_field_optional(row=origin.__qualname__, field=left_out[0])
         )
     columns = {name: Type(hint) for name, hint in hints.items()}
-    cells = {name: handler.generate_schema(column.carried) for name, column in columns.items()}
+    # each cell is checked by the row's own schema of its field, as one item of a Series of the rows is, so a cell
+    # of a class that takes the config it sits in, like a plain dataclass, is built under the row's config
+    fields = handler.resolve_ref_schema(handler.generate_schema(row))["fields"] if declared else {}
+    cells = {name: fields[name]["schema"] for name in columns}
     dtypes = {
         name: CELLS[column.options[0]][0]
         if column.options[0] in CELLS and len(column.options) == 1

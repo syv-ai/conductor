@@ -29,6 +29,7 @@ JSON.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Mapping, Sequence
 from typing import Annotated, Any, TypedDict
 
@@ -101,10 +102,15 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             outputs: The node's outputs, by name.
         """
         self._outputs = outputs
-        # an output a node can't return SKIPPED on must be returned; a branch may be left out of a mapping
+        # Each output is checked by its type's own validator, not by its schema joined into this one. Two outputs
+        # may hold one plain dataclass built under two configs, which pydantic names by one ref. An output a node
+        # can't return SKIPPED on must be returned; a branch may be left out of a mapping.
         fields = {
             name: core_schema.typed_dict_field(
-                field.whole.output_schema, required=not field.is_branch
+                core_schema.no_info_plain_validator_function(
+                    functools.partial(field.whole.output_validator.validate_python, strict=True)
+                ),
+                required=not field.is_branch,
             )
             for name, field in outputs.items()
         }
