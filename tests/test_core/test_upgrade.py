@@ -15,9 +15,7 @@ from typing import Annotated
 
 import pytest
 from conductor import (
-    ConstantEntry,
     Graph,
-    GraphInputEntry,
     GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
@@ -26,7 +24,6 @@ from conductor import (
     NodeRegistry,
     Param,
     Source,
-    SourcesEntry,
     Upgrade,
     host_type,
     make_graph,
@@ -35,7 +32,7 @@ from conductor import (
 )
 from conductor.widgets import Textarea
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 @host_type("upgrade-test-txt", title="Text")
@@ -106,13 +103,13 @@ def _graph(version: int = 1) -> GraphRecord:
             "r": NodeRecord(
                 node="rename",
                 version=version,
-                inputs={"name": ConstantEntry(constant="Ada Lovelace")} if version == 1 else {},
+                inputs={"name": input_entry({"constant": "Ada Lovelace"})} if version == 1 else {},
             ),
             "e": NodeRecord(
                 node="echo",
                 inputs={
-                    "text": SourcesEntry(
-                        sources=(Source("r", "result" if version < 3 else "text"),)
+                    "text": input_entry(
+                        {"sources": (Source("r", "result" if version < 3 else "text"),)}
                     )
                 },
             ),
@@ -688,7 +685,7 @@ def test_upgrading_a_subgraph_sets_only_its_version():
         return GraphRecord(
             nodes={
                 inner_id: NodeRecord(
-                    node="echo", inputs={"text": GraphInputEntry(graph_input="text")}
+                    node="echo", inputs={"text": input_entry({"graph_input": "text"})}
                 )
             }
         )

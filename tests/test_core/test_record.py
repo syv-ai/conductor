@@ -20,9 +20,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     SKIPPED,
-    ConstantEntry,
     Graph,
-    GraphInputEntry,
     GraphInputRecord,
     GraphRecord,
     InvalidCallError,
@@ -32,7 +30,6 @@ from conductor import (
     Run,
     Series,
     Source,
-    SourcesEntry,
     Table,
     Upgrade,
     host_type,
@@ -42,7 +39,7 @@ from conductor import (
 )
 from pydantic import MISSING, ValidationError
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 @node("text", title="Text in", description="For a test.")
@@ -116,7 +113,7 @@ def test_a_bare_node_saves_as_its_node():
     """Empty fields, and a version of 1, are left out when a node record is saved."""
     assert NodeRecord(node="upper").model_dump() == {"node": "upper"}
     assert NodeRecord(
-        node="upper", version=2, inputs={"text": ConstantEntry(constant="hi")}
+        node="upper", version=2, inputs={"text": input_entry({"constant": "hi"})}
     ).model_dump(mode="json") == {
         "node": "upper",
         "version": 2,
@@ -147,12 +144,12 @@ def test_each_kind_of_input_entry_is_its_own_class_and_a_dict_validates_to_the_s
     written = NodeRecord(
         node="both",
         inputs={
-            "yes": ConstantEntry(constant="y"),
-            "no": GraphInputEntry(graph_input="no"),
+            "yes": input_entry({"constant": "y"}),
+            "no": input_entry({"graph_input": "no"}),
         },
     )
     edged = NodeRecord(
-        node="upper", inputs={"text": SourcesEntry(sources=(Source("a", "result", "email"),))}
+        node="upper", inputs={"text": input_entry({"sources": (Source("a", "result", "email"),)})}
     )
 
     assert (
@@ -178,7 +175,7 @@ def test_each_kind_of_input_entry_is_its_own_class_and_a_dict_validates_to_the_s
     assert edged.model_dump(mode="json")["inputs"] == {
         "text": {"sources": [{"node": "a", "output": "result", "field": "email"}]}
     }
-    assert GraphInputEntry(graph_input="no").model_dump(mode="json") == {"graph_input": "no"}
+    assert input_entry({"graph_input": "no"}).model_dump(mode="json") == {"graph_input": "no"}
 
 
 def test_the_record_reads_back_what_it_saved():
@@ -200,7 +197,7 @@ def test_the_record_reads_back_what_it_saved():
     )
 
     assert GraphRecord.model_validate_json(graph.model_dump_json()) == graph
-    assert graph.nodes["b"].inputs["y"] == SourcesEntry(sources=(Source("a", "result"),))
+    assert graph.nodes["b"].inputs["y"] == input_entry({"sources": (Source("a", "result"),)})
 
 
 def test_display_is_the_hosts_own_and_takes_any_key():
@@ -259,8 +256,8 @@ def test_a_field_of_a_source_may_have_dots_but_never_starts_with_one():
         }
     )
 
-    assert record.nodes["b"].inputs["x"] == SourcesEntry(
-        sources=(Source("a", "result", "Amount in USD."),)
+    assert record.nodes["b"].inputs["x"] == input_entry(
+        {"sources": (Source("a", "result", "Amount in USD."),)}
     )
     with pytest.raises(ValidationError):
         GraphRecord.model_validate(
@@ -281,7 +278,7 @@ def test_a_field_of_a_source_may_have_dots_but_never_starts_with_one():
 
 def test_the_json_schema_gives_an_input_one_entry_of_a_constant_a_graph_input_or_sources():
     schema = GraphRecord.model_json_schema()
-    kinds = schema["$defs"]["InputEntry"]["oneOf"]
+    kinds = schema["$defs"]["InputEntry"]["anyOf"]
 
     assert schema["$defs"]["NodeRecord"]["properties"]["inputs"]["additionalProperties"] == {
         "$ref": "#/$defs/InputEntry"
@@ -458,7 +455,7 @@ _SOURCE = {"node": "a", "output": "result"}
             json.dumps(
                 {"nodes": {"b": {"node": "upper", "inputs": {"text": {"graph_input": "a.b"}}}}}
             ),
-            ("record", "nodes", "b", "inputs", "text", "graph_input", "graph_input"),
+            ("record", "nodes", "b", "inputs", "text", "graph_input"),
             "not_a_name",
         ),
         (
@@ -481,7 +478,7 @@ _SOURCE = {"node": "a", "output": "result"}
                     }
                 }
             ),
-            ("record", "nodes", "b", "inputs", "text", "sources", "sources", 0, "field"),
+            ("record", "nodes", "b", "inputs", "text", "sources", 0, "field"),
             "not_a_field",
         ),
         (
@@ -493,12 +490,12 @@ _SOURCE = {"node": "a", "output": "result"}
                     }
                 }
             ),
-            ("record", "nodes", "b", "inputs", "text", "sources", "sources"),
+            ("record", "nodes", "b", "inputs", "text", "sources"),
             "repeated_source",
         ),
         (
             json.dumps({"nodes": {"b": {"node": "upper", "inputs": {"text": {"sources": []}}}}}),
-            ("record", "nodes", "b", "inputs", "text", "sources", "sources"),
+            ("record", "nodes", "b", "inputs", "text", "sources"),
             "no_sources",
         ),
         (
@@ -538,7 +535,7 @@ _SOURCE = {"node": "a", "output": "result"}
                     },
                 }
             ),
-            ("record", "nodes", "b", "inputs", "text", "graph_input", "default"),
+            ("record", "nodes", "b", "inputs", "text", "default"),
             "extra_forbidden",
         ),
         (
@@ -903,7 +900,7 @@ def test_a_declared_graph_input_no_input_takes_is_the_graphs_problem_at_no_node(
     ]
 
 
-def test_a_graph_inputs_default_its_type_refuses_is_an_invalid_value_at_each_input_that_takes_it():
+def test_a_graph_inputs_default_its_type_refuses_is_an_invalid_value_at_the_first_input_that_takes_it():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -917,10 +914,43 @@ def test_a_graph_inputs_default_its_type_refuses_is_an_invalid_value_at_each_inp
         REGISTRY,
     )
 
-    assert [(p.type, p.loc) for p in graph.problems] == [
-        ("invalid_value", ("a", "value")),
-        ("invalid_value", ("b", "text")),
-    ]
+    assert [(p.type, p.loc) for p in graph.problems] == [("invalid_value", ("a", "value"))]
+    assert graph.inputs["x"].required
+
+
+@node("as-int", title="As int", description="For a test.")
+def _as_int(n: int) -> int:
+    return n
+
+
+@node("as-str", title="As str", description="For a test.")
+def _as_str(n: str) -> str:
+    return n
+
+
+@pytest.mark.parametrize(("a", "b"), [("as-int", "as-str"), ("as-str", "as-int")])
+def test_two_types_for_one_graph_input_are_used_two_ways_whichever_node_comes_first_and_its_default_is_not_read(
+    a: str, b: str
+):
+    """A type clash shows whatever the order of the nodes, and the default isn't read by either type.
+
+    ``"5"`` is no ``int``. If the default were read by the first type before the clash was found, the graph would
+    show ``invalid_value`` alone when the ``int`` node came first.
+    """
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "inputs": {"x": {"default": "5"}},
+                "nodes": {
+                    "a": {"node": a, "inputs": {"n": {"graph_input": "x"}}},
+                    "b": {"node": b, "inputs": {"n": {"graph_input": "x"}}},
+                },
+            }
+        ),
+        registry_of(_as_int, _as_str),
+    )
+
+    assert [(p.type, p.loc) for p in graph.problems] == [("graph_input_used_two_ways", ("b", "n"))]
 
 
 def test_a_graph_output_naming_a_node_or_an_output_the_record_lacks_is_the_graphs_problem_at_no_node():
@@ -1022,8 +1052,8 @@ def test_make_graph_numbers_a_node_used_twice():
     assert [
         (node_id, n.inputs["text"]) for node_id, n in graph.nodes.items() if node_id != "hello"
     ] == [
-        ("shout-1", SourcesEntry(sources=(Source("hello", "result"),))),
-        ("shout-2", SourcesEntry(sources=(Source("shout-1", "result"),))),
+        ("shout-1", input_entry({"sources": (Source("hello", "result"),)})),
+        ("shout-2", input_entry({"sources": (Source("shout-1", "result"),)})),
     ]
     assert Graph.compile(graph, PLAIN).run().outputs == {"result": "HELLO IDA!!!"}
 
@@ -1128,7 +1158,7 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
     record = make_graph(_hello, pad, outputs={"padded": "pad.result"})
 
     assert record.nodes["pad"].inputs == {
-        "text": SourcesEntry(sources=(Source("hello", "result"),))
+        "text": input_entry({"sources": (Source("hello", "result"),)})
     }
     graph = Graph.compile(record, registry_of(_hello, pad))
     assert list(graph.inputs) == ["name"] and [(p.type, p.loc) for p in graph.problems] == [
@@ -1251,7 +1281,7 @@ def test_make_graph_writes_a_type_mismatch_and_an_output_a_hook_does_not_give_an
 def test_make_graph_writes_defaults_and_compile_reports_a_list_for_an_input_of_one_value():
     record = make_graph(_hello, defaults={"hello.name": "you"})
     assert record.inputs == {"name": GraphInputRecord(default="you")}
-    assert record.nodes["hello"].inputs == {"name": GraphInputEntry(graph_input="name")}
+    assert record.nodes["hello"].inputs == {"name": input_entry({"graph_input": "name"})}
     assert Graph.compile(record, PLAIN).run().outputs == {"result": "hello you"}
     assert Graph.compile(record, PLAIN).run({"name": "ida"}).outputs == {"result": "hello ida"}
     listed = make_graph(_hello, defaults={"hello.name": ["you"]})
@@ -1295,7 +1325,7 @@ def test_make_graph_writes_each_node_at_its_version():
 def test_make_graph_declares_each_open_input_of_a_node_no_edge_leads_into_and_each_output_no_edge_leaves():
     record = make_graph(_hello, _shout)
 
-    assert record.nodes["hello"].inputs == {"name": GraphInputEntry(graph_input="name")}
+    assert record.nodes["hello"].inputs == {"name": input_entry({"graph_input": "name"})}
     # an edge leads into shout, so its optional input keeps the node's default
     assert "times" not in record.nodes["shout"].inputs
     assert record.outputs == {"result": Source("shout", "result")}
@@ -1412,7 +1442,7 @@ def test_make_graph_feeds_several_inputs_from_one_graph_input_given_a_list():
     graph = Graph.compile(record, REGISTRY)
 
     assert [n.inputs["text"] for n in record.nodes.values()] == [
-        GraphInputEntry(graph_input="text")
+        input_entry({"graph_input": "text"})
     ] * 2
     assert list(graph.inputs) == ["text"] and graph.run({"text": "p"}).outputs == {
         "x": "P",
@@ -1688,7 +1718,7 @@ def _a_table_read_by_one_text(source: str) -> Problem:
         return pl.DataFrame({"name": ["a"]})
 
     node_id, output, *field = source.split(".", 2)
-    edge = SourcesEntry(sources=(Source(node_id, output, *field),))
+    edge = input_entry({"sources": (Source(node_id, output, *field),)})
     graph = Graph.compile(
         GraphRecord(
             nodes={
@@ -1790,7 +1820,7 @@ def test_make_graph_chains_a_subgraph_by_the_inputs_and_outputs_its_record_decla
     """
     record = make_graph(split, ENRICH, join)
     assert record.nodes["enrich"].inputs == {
-        "text": SourcesEntry(sources=(Source("split", "result"),))
+        "text": input_entry({"sources": (Source("split", "result"),)})
     }
     assert Graph.compile(record, SUBGRAPHS).run({"text": "a,b"}).outputs == {"result": "A.+B."}
     with pytest.raises(InvalidCallError) as refused:
@@ -1865,7 +1895,7 @@ def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_rec
 
     record = make_graph(halves)
 
-    assert record.nodes["halves"].inputs == {"a": GraphInputEntry(graph_input="a")}
+    assert record.nodes["halves"].inputs == {"a": input_entry({"graph_input": "a"})}
     assert record.outputs == {"x": Source("halves", "x"), "y": Source("halves", "y")}
     assert Graph.compile(record, registry_of(upper, tail, halves)).run({"a": "a"}).outputs == {
         "x": "A",
@@ -2316,14 +2346,14 @@ def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
 
 @pytest.mark.parametrize("name", [name for name in NodeRecord.model_fields if name != "display"])
 def test_every_field_of_a_node_but_its_display_is_in_the_fingerprint(name: str):
-    node_record = NodeRecord(node="hello", inputs={"name": ConstantEntry(constant="Ida")})
+    node_record = NodeRecord(node="hello", inputs={"name": input_entry({"constant": "Ida"})})
     value = getattr(node_record, name)
     if isinstance(value, int):
         changed = value + 1
     elif isinstance(value, str):
         changed = f"{value}x"
     else:
-        changed = {"name": ConstantEntry(constant="Bo")}
+        changed = {"name": input_entry({"constant": "Bo"})}
     other = node_record.model_copy(update={name: changed})
     assert (
         Graph.compile(GraphRecord(nodes={"h": node_record}), PLAIN).fingerprint
@@ -2389,9 +2419,9 @@ def test_a_constant_given_from_python_is_written_as_json_so_the_record_equals_it
         },
     )
     assert record.nodes["typed"].inputs == {
-        "when": ConstantEntry(constant="2026-01-02"),
-        "color": ConstantEntry(constant="red"),
-        "pair": ConstantEntry(constant=[1, 2]),
+        "when": input_entry({"constant": "2026-01-02"}),
+        "color": input_entry({"constant": "red"}),
+        "pair": input_entry({"constant": [1, 2]}),
     }
     read_back = GraphRecord.model_validate_json(record.model_dump_json())
     assert read_back == record
@@ -2425,7 +2455,7 @@ def test_a_node_record_accepts_only_json_in_its_constants_defaults_and_display()
     with pytest.raises(ValidationError):
         NodeRecord(node="a", display={"x": object()})
     with pytest.raises(ValidationError):
-        ConstantEntry(constant=object())
+        input_entry({"constant": object()})
     with pytest.raises(ValidationError):
         GraphInputRecord(default=object())
 
@@ -2451,7 +2481,7 @@ def test_a_float_that_is_not_finite_as_a_constant_is_refused_where_it_is_written
     with pytest.raises(ValidationError):
         NodeRecord(node="half", display={"z": float("inf")})
     with pytest.raises(ValidationError):
-        ConstantEntry(constant=float("nan"))
+        input_entry({"constant": float("nan")})
 
 
 def test_make_graph_raises_every_problem_of_its_own_and_none_that_compile_finds():
@@ -2781,8 +2811,8 @@ def test_make_graph_inputs_naming_one_input_leaves_the_other_automatic_graph_inp
     graph = Graph.compile(record, REGISTRY)
 
     assert {node_id: n.inputs for node_id, n in record.nodes.items()} == {
-        "a": {"text": GraphInputEntry(graph_input="x")},
-        "b": {"text": GraphInputEntry(graph_input="text")},
+        "a": {"text": input_entry({"graph_input": "x"})},
+        "b": {"text": input_entry({"graph_input": "text"})},
     }
     assert list(graph.inputs) == ["x", "text"] and graph.run({"x": "p", "text": "q"}).outputs == {
         "a_result": "P",
@@ -2830,7 +2860,7 @@ def test_make_graph_refuses_an_output_with_a_field_as_the_record_does():
 def test_make_graph_leaves_an_optional_input_with_no_entry_out_and_it_is_no_graph_input():
     record = make_graph(_shout)
 
-    assert record.nodes["shout"].inputs == {"text": GraphInputEntry(graph_input="text")}
+    assert record.nodes["shout"].inputs == {"text": input_entry({"graph_input": "text"})}
     assert list(Graph.compile(record, PLAIN).inputs) == ["text"]
 
 
@@ -2848,7 +2878,7 @@ def test_make_graph_names_an_optional_input_in_inputs_and_the_graph_input_keeps_
     record = make_graph(_shout, inputs={"n": "shout.times"})
     graph = Graph.compile(record, PLAIN)
 
-    assert record.nodes["shout"].inputs["times"] == GraphInputEntry(graph_input="n")
+    assert record.nodes["shout"].inputs["times"] == input_entry({"graph_input": "n"})
     assert record.inputs["n"] == GraphInputRecord(default=1)
     assert graph.run({"text": "a"}).outputs == {"result": "A!"}
     assert graph.run({"text": "a", "n": 3}).outputs == {"result": "A!!!"}
@@ -2863,7 +2893,7 @@ def test_make_graph_names_an_optional_input_in_inputs_and_the_graph_input_keeps_
             outputs={"a": "a.result", "b": "b.result"},
         )
         assert [both.nodes[node_id].inputs["times"] for node_id in ("a", "b")] == [
-            GraphInputEntry(graph_input="n")
+            input_entry({"graph_input": "n"})
         ] * 2
         return both.inputs["n"]
 
@@ -2907,8 +2937,8 @@ def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_
     graph = Graph.compile(record, registry_of(_hello, both))
 
     assert record.nodes["both"].inputs == {
-        "yes": SourcesEntry(sources=(Source("hello", "result"),)),
-        "no": GraphInputEntry(graph_input="no"),
+        "yes": input_entry({"sources": (Source("hello", "result"),)}),
+        "no": input_entry({"graph_input": "no"}),
     }
     assert list(graph.inputs) == ["name", "no"] and graph.run(
         {"name": "ida", "no": "!"}

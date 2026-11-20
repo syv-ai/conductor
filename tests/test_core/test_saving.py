@@ -28,7 +28,6 @@ from conductor import (
     SKIPPED,
     Ask,
     Graph,
-    GraphInputEntry,
     GraphInputRecord,
     GraphRecord,
     InvalidCallError,
@@ -49,7 +48,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, TypeA
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 @pytest.fixture(autouse=True)
@@ -1851,7 +1850,7 @@ def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_displa
     def with_default(default: str, **display: Any) -> GraphRecord:
         node_record = NodeRecord(
             node="shout",
-            inputs={"text": GraphInputEntry(graph_input="text")},
+            inputs={"text": input_entry({"graph_input": "text"})},
             display=display,
         )
         return GraphRecord(

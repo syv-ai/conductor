@@ -17,10 +17,8 @@ import pytest
 from annotated_types import Ge
 from conductor import (
     Choice,
-    ConstantEntry,
     Deprecation,
     Graph,
-    GraphInputEntry,
     GraphRecord,
     InvalidCallError,
     NodeError,
@@ -39,7 +37,7 @@ from conductor.widgets import Dropdown, Textarea
 from pydantic import AfterValidator, ValidationError, constr
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 class Person(TypedDict):
@@ -367,14 +365,17 @@ def test_a_records_nodes_are_keyed_by_their_ids():
         }
     )
     assert list(record.nodes) == ["u"] and record.nodes["u"] == NodeRecord(
-        node="upper", inputs={"text": GraphInputEntry(graph_input="text")}
+        node="upper", inputs={"text": input_entry({"graph_input": "text"})}
     )
 
 
 def test_what_a_host_saves_reads_back_as_it_was_written():
     saved = [
         NodeRecord(
-            node="upper", version=2, inputs={"text": ConstantEntry(constant="x")}, display={"x": 3}
+            node="upper",
+            version=2,
+            inputs={"text": input_entry({"constant": "x"})},
+            display={"x": 3},
         ),
         GraphRecord.model_validate(
             {
@@ -2137,7 +2138,7 @@ def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
     [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "invalid_record",
-        ("record", "nodes", "u", "inputs", "text", "sources", "sources", 0, "node"),
+        ("record", "nodes", "u", "inputs", "text", "sources", 0, "node"),
         "not_a_name",
     )
 

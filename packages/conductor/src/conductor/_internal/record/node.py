@@ -13,10 +13,8 @@ from typing import Annotated, Any
 from pydantic import (
     AfterValidator,
     ConfigDict,
-    Discriminator,
     Field,
     JsonValue,
-    Tag,
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
@@ -24,6 +22,7 @@ from pydantic import (
 
 from conductor._internal.base import ConductorModel, Name, Source
 from conductor._internal.problem import conductor_error, value_free_errors
+from conductor._internal.validation import KindByKey
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
@@ -123,37 +122,14 @@ class SourcesEntry(ConductorModel):
     sources: Annotated[tuple[Source, ...], AfterValidator(_sorted_once)]
 
 
-#: Each kind of entry, by the one key its JSON has.
-_KIND_OF_KEY: dict[str, type[ConstantEntry | GraphInputEntry | SourcesEntry]] = {
-    "constant": ConstantEntry,
-    "graph_input": GraphInputEntry,
-    "sources": SourcesEntry,
-}
-
-
-def _kind(value: Any) -> str | None:
-    """Returns the key that says which kind of entry ``value`` is, or ``None`` when no one key does.
-
-    ``{"constant": "?"}`` is ``"constant"``. An entry with none of the three keys, or more than one, has no kind.
-    pydantic reads the entry as the kind's class, and puts the key in front of the place of a fault in it, as in
-    ``nodes.shout.inputs.line.graph_input.default`` for a ``default`` beside a ``graph_input``.
-    """
-    if not isinstance(value, Mapping):
-        return next((key for key, kind in _KIND_OF_KEY.items() if isinstance(value, kind)), None)
-    keys = [key for key in _KIND_OF_KEY if key in value]
-    return keys[0] if len(keys) == 1 else None
-
-
 #: What one input of a node gets in a graph record: a constant, a graph input or sources, each a class of its own.
-#: The one key its JSON has says which. An entry of no kind or of two is ``one_of_constant_graph_input_sources``.
+#: The one key its JSON has, the name of its kind's one field, says which. An entry of no kind or of two is
+#: ``one_of_constant_graph_input_sources``.
 type InputEntry = Annotated[
-    Annotated[ConstantEntry, Tag("constant")]
-    | Annotated[GraphInputEntry, Tag("graph_input")]
-    | Annotated[SourcesEntry, Tag("sources")],
-    Discriminator(
-        _kind,
-        custom_error_type="one_of_constant_graph_input_sources",
-        custom_error_message="an input must get exactly one of a constant, a graph input or sources",
+    ConstantEntry | GraphInputEntry | SourcesEntry,
+    KindByKey(
+        "one_of_constant_graph_input_sources",
+        "an input must get exactly one of a constant, a graph input or sources",
     ),
 ]
 

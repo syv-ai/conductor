@@ -84,9 +84,10 @@ the record. The exact shape is in `python -m conductor.about the-graph-record`.
 only when asked.
 
 Each input gets exactly one thing: a `constant`, a `graph_input` (the caller's value), or the `sources` of its edges.
-Each is a class of its own, `ConstantEntry`, `GraphInputEntry` and `SourcesEntry`, and the one key an entry's JSON
-has says which, with no tag of its own. That was chosen over a map per kind of value or a `locked` flag. An input can't be given two things, so no rule has to say which one wins, and a reader
-matches on the kind.
+Inside conductor each is a class of its own, and the one key an entry's JSON has says which, with no tag of its
+own; outside, `InputEntry` is the type of an entry, and a host reads and writes the JSON. That was chosen over a map
+per kind of value or a `locked` flag. An input can't be given two things, so no rule has to say which one wins, and
+the compiler matches on the kind.
 
 A graph input is declared once, under the record's `inputs`, with its `default` if it has one, as the graph's
 outputs are declared under `outputs`. Each entry that takes it only names it. A default written on the entries was

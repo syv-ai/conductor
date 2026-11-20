@@ -6,7 +6,11 @@ from io import StringIO
 from typing import Annotated, Literal, TypedDict
 
 import polars as pl
-from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
+from conductor import SKIPPED, Ask, InputEntry, NodeRegistry, Param, Series, Table
+from pydantic import TypeAdapter
+
+#: Reads an input's entry from its JSON form, as a graph record reads it: ``input_entry({"constant": "?"})``.
+input_entry = TypeAdapter(InputEntry).validate_python
 
 
 class Invoice(TypedDict):

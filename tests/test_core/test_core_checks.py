@@ -28,7 +28,6 @@ from conductor import (
     Run,
     Series,
     Source,
-    SourcesEntry,
     Table,
     Upgrade,
     make_graph,
@@ -37,6 +36,7 @@ from conductor import (
 )
 
 from tests.test_core.nodes import (
+    input_entry,
     join,
     lower,
     mail,
@@ -590,7 +590,7 @@ def test_upgrade_renames():
     )
     assert Graph.compile(stored, reg).run({"text": "ida"}).outputs == {"result": "hello IDA"}
     moved = reg.upgrade(stored, "g")
-    assert moved.nodes["g"].inputs == {"who": SourcesEntry(sources=(Source("u", "result"),))}
+    assert moved.nodes["g"].inputs == {"who": input_entry({"sources": (Source("u", "result"),)})}
     assert Graph.compile(moved, reg).run({"text": "ida"}).outputs == {"result": "hello IDA!"}
 
 
