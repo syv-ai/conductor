@@ -31,7 +31,7 @@ full rules are in the reference: ``python -m conductor.about the-graph-record``.
 
 from .graph import GraphInputRecord, GraphRecord
 from .node import ConstantEntry, GraphInputEntry, InputEntry, NodeRecord, SourcesEntry
-from .validator import RecordValidator, WrittenValuesValidator, read_json
+from .validator import RecordValidator, WrittenValuesValidator, read_json, refused_record
 
 __all__ = [
     "ConstantEntry",
@@ -44,4 +44,5 @@ __all__ = [
     "SourcesEntry",
     "WrittenValuesValidator",
     "read_json",
+    "refused_record",
 ]

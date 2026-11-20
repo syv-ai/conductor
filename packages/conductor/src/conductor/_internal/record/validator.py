@@ -22,7 +22,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import JsonValue, ValidationError
-from pydantic_core import PydanticCustomError, PydanticKnownError
+from pydantic_core import ErrorDetails, PydanticCustomError, PydanticKnownError
 
 from conductor._internal.base import Validator, plain_json
 from conductor._internal.problem import (
@@ -53,7 +53,7 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             # The object may be a constant's value, so the problem doesn't quote the key.
             raise InvalidCallError(
                 [
-                    _refused_text(
+                    refused_record(
                         conductor_error("repeated_key", "a key is written twice in one object")
                     )
                 ]
@@ -82,15 +82,29 @@ def read_json(text: str | bytes) -> Any:
         raise
     except ValueError as not_json:
         raise InvalidCallError(
-            [_refused_text(PydanticKnownError("json_invalid", {"error": str(not_json)}))]
+            [refused_record(PydanticKnownError("json_invalid", {"error": str(not_json)}))]
         ) from None
 
 
-def _refused_text(error: PydanticCustomError | PydanticKnownError) -> Problem:
-    """Returns the ``invalid_record`` problem for record text ``read_json`` refuses as a whole."""
-    fault = shape_error(error)
+def refused_record(
+    fault: ErrorDetails | PydanticCustomError | PydanticKnownError,
+    *where: str | int,
+    written_by: str | None = None,
+) -> Problem:
+    """Returns the ``invalid_record`` problem for one fault in a graph record.
+
+    The one place the problem is put together, for ``read_json``, ``RecordValidator`` and ``make_graph``. ``where``
+    is the steps inside the record to the fault, none for the record as a whole. ``written_by`` is what wrote the
+    record, when it isn't JSON a host sent.
+    """
+    error = shape_error(fault)
     return call_problems.invalid_record(
-        "record", where="the record", reason=fault["msg"], errors=[fault]
+        "record",
+        *where,
+        where=".".join(map(str, where)) or "the record",
+        reason=error["msg"],
+        errors=[error],
+        written_by=written_by,
     )
 
 
@@ -128,14 +142,7 @@ class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], G
             return GraphRecord.model_validate(data)
         except ValidationError as invalid:
             raise InvalidCallError(
-                call_problems.invalid_record(
-                    "record",
-                    *error["loc"],
-                    where=".".join(map(str, error["loc"])) or "the record",
-                    reason=error["msg"],
-                    errors=[shape_error(error)],
-                    written_by=self._written_by,
-                )
+                refused_record(error, *error["loc"], written_by=self._written_by)
                 for error in invalid.errors()
             ) from None
 

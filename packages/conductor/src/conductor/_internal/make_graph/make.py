@@ -33,15 +33,18 @@ from conductor._internal.problem import (
     Problem,
     call_problems,
     conductor_error,
-    shape_error,
 )
 from conductor._internal.record import (
     GraphRecord,
     RecordValidator,
     WrittenValuesValidator,
+    refused_record,
 )
 
 from .validator import ArgumentsValidator
+
+# What a refusal of the record names as having written it.
+_WRITTEN_BY = "make_graph's arguments"
 
 
 def make_graph(
@@ -217,7 +220,7 @@ def make_graph(
         "outputs": _graph_outputs(definitions, arguments["outputs"], led_out, problems),
     }
     try:
-        record = RecordValidator(written_by="make_graph's arguments")(written)
+        record = RecordValidator(written_by=_WRITTEN_BY)(written)
     # such as an edge given twice, or a name that isn't valid
     except InvalidCallError as refused:
         problems += refused.problems
@@ -489,20 +492,14 @@ def _by_id(
             numbered[definition.id] += 1
             node_id = f"{definition.id}-{numbered[definition.id]}"
         if node_id in by_id:
-            fault = shape_error(
-                conductor_error(
-                    "repeated_key", "the id '{id}' is given to two nodes", {"id": node_id}
-                )
-            )
             problems.append(
-                call_problems.invalid_record(
-                    "record",
+                refused_record(
+                    conductor_error(
+                        "repeated_key", "the id '{id}' is given to two nodes", {"id": node_id}
+                    ),
                     "nodes",
                     node_id,
-                    where=f"nodes.{node_id}",
-                    reason=fault["msg"],
-                    errors=[fault],
-                    written_by="make_graph's arguments",
+                    written_by=_WRITTEN_BY,
                 )
             )
         taken.add(node_id)
