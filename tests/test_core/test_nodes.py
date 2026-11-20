@@ -1182,7 +1182,7 @@ def test_a_bool_and_a_date_reach_the_next_node_as_their_own_type():
 
 def test_a_pydantic_model_travels_on_an_edge_and_through_json():
     @host_type("Visit", title="Visit")
-    class Visit(BaseModel):
+    class Visit(BaseModel, frozen=True):
         who: str
         when: datetime.date
 
@@ -1236,7 +1236,7 @@ def test_each_key_a_field_description_writes_is_its_python_name():
 
 def test_describe_writes_each_default_as_its_type_writes_it_as_json():
     @host_type("point", title="Point")
-    @dataclass
+    @dataclass(frozen=True)
     class Point:
         x: int
 
@@ -2964,12 +2964,12 @@ def test_a_secret_an_import_string_or_a_decoding_type_is_refused_at_node(
 
 
 @host_type("tag-holder", title="Tag holder")
-class _TagHolder(BaseModel):
+class _TagHolder(BaseModel, frozen=True):
     tags: set[str]
 
 
 @host_type("number-bag", title="Number bag")
-class _NumberBag(BaseModel):
+class _NumberBag(BaseModel, frozen=True):
     numbers: frozenset[int]
 
 
@@ -2980,7 +2980,7 @@ class _TagRecord:
 
 
 @host_type("tag-shelf", title="Tag shelf")
-class _TagShelf(BaseModel):
+class _TagShelf(BaseModel, frozen=True):
     holders: list[_TagHolder]
 
 
@@ -2989,7 +2989,7 @@ class _TagRow(TypedDict):
 
 
 @host_type("sorted-tags", title="Sorted tags")
-class _SortedTags(BaseModel):
+class _SortedTags(BaseModel, frozen=True):
     tags: set[str]
 
     @field_serializer("tags")
@@ -3062,7 +3062,7 @@ def test_a_fields_default_that_looks_like_a_schema_is_a_value_not_a_schema(
     never read as one."""
 
     @host_type(f"settings-{default['type']}", title="Settings")
-    class Settings(BaseModel):
+    class Settings(BaseModel, frozen=True):
         model_config = ConfigDict(**JSON_CONFIG)
 
         meta: dict[str, Any] = default
@@ -3081,7 +3081,7 @@ _Exclaimed = Annotated[str, AfterValidator(_exclaimed), Param(choices=["calm", "
 
 
 @host_type("mood-card", title="Mood card")
-class _MoodCard(BaseModel):
+class _MoodCard(BaseModel, frozen=True):
     mood: _Exclaimed
 
 
@@ -3125,7 +3125,7 @@ def test_choices_inside_a_type_that_its_checks_keep_are_taken() -> None:
         LARGE = "l"
 
     @host_type("sized-card", title="Sized card")
-    class SizedCard(BaseModel):
+    class SizedCard(BaseModel, frozen=True):
         size: Annotated[Size, Param(choices=[Size.SMALL])]
         weight: Annotated[float, Param(choices=[1, 2.5])]
 

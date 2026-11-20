@@ -73,6 +73,7 @@ assert registry["greet"] is greet
 | Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values` |
 | An email, a web address, a path, an IP address | pydantic's own types and the standard library's need no declaration: `EmailStr`, `HttpUrl`, `AwareDatetime`, `pathlib.Path`, `ipaddress.IPv4Address` |
 | A text or number class of your own | `@host_type("invoice-number", title="Invoice number")` above `class InvoiceNumber(str)` |
+| A model or dataclass of your own | `@host_type("address", title="Address")` above a frozen class: `model_config = ConfigDict(frozen=True)` or `@dataclass(frozen=True)`, or it is refused (`type_not_frozen`). A node never changes a value it is given; it makes a new one with `dataclasses.replace` or `model_copy(update=...)` |
 
 ### Asking a person
 

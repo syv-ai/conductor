@@ -33,7 +33,7 @@ from pydantic import BaseModel
 
 
 @host_type("file", title="File")
-class File(BaseModel):
+class File(BaseModel, frozen=True):
     name: str
     text: str
 

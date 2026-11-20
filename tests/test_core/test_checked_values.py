@@ -141,7 +141,7 @@ def test_a_value_read_as_its_type_is_kept_as_the_type():
     """
 
     @host_type("Point", title="Point")
-    class Point(BaseModel):
+    class Point(BaseModel, frozen=True):
         x: int
 
     @host_type("Text", title="Text")
@@ -1025,12 +1025,12 @@ class Dog(BaseModel):
 
 
 @host_type("Pet", title="Pet")
-class Pet(BaseModel):
+class Pet(BaseModel, frozen=True):
     pet: Annotated[Cat | Dog, Discriminator("kind")]
 
 
 @host_type("Asserting", title="Asserting")
-class Asserting(BaseModel):
+class Asserting(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -1041,12 +1041,12 @@ class Asserting(BaseModel):
 
 
 @host_type("ByPerson", title="By person")
-class ByPerson(BaseModel):
+class ByPerson(BaseModel, frozen=True):
     counts: dict[str, int]
 
 
 @host_type("Bounded", title="Bounded")
-class Bounded(BaseModel):
+class Bounded(BaseModel, frozen=True):
     number: int = Field(ge=5)
 
 
@@ -1601,7 +1601,7 @@ def test_a_bound_default_that_is_a_table_missing_a_column_names_the_column():
 
 
 @host_type("Celsius", title="Celsius")
-@dataclass
+@dataclass(frozen=True)
 class Celsius:
     degrees: float
 
@@ -1643,20 +1643,20 @@ class Priced(TypedDict):
 
 
 @host_type("Gauge", title="Gauge")
-@dataclass
+@dataclass(frozen=True)
 class Gauge:
     level: float
     label: str
 
 
 @host_type("Dial", title="Dial")
-class Dial(BaseModel):
+class Dial(BaseModel, frozen=True):
     level: float
     label: str
 
 
 @host_type("Meter", title="Meter")
-class Meter(BaseModel):
+class Meter(BaseModel, frozen=True):
     """A host's model whose own config writes ``inf`` as ``null``, pydantic's default, into an optional field."""
 
     level: float | None = None
@@ -2047,7 +2047,7 @@ def test_a_set_given_is_refused_as_set_has_no_order(input_type: Any, door: str):
 
 
 @host_type("Tagged", title="Tagged")
-@dataclass
+@dataclass(frozen=True)
 class Tagged:
     tags: list[str]
 

@@ -262,7 +262,7 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_declared_a
     """
 
     @host_type("Point", title="Point")
-    class Point(BaseModel):
+    class Point(BaseModel, frozen=True):
         xy: tuple[float, Any]
 
     @node("pair", title="Pair", description="For a test.")
@@ -297,7 +297,7 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     """
 
     @host_type("Loose", title="Loose")
-    class Loose(BaseModel):
+    class Loose(BaseModel, frozen=True):
         data: Any
 
     @node("loose", title="Loose", description="For a test.")
@@ -361,7 +361,7 @@ def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text
 
 
 @host_type("point", title="Point")
-class Point(BaseModel):
+class Point(BaseModel, frozen=True):
     x: int
     y: int
 
@@ -1269,20 +1269,20 @@ def test_a_call_given_a_binary_column_has_the_same_fingerprint_in_every_process(
 
 
 @host_type("text-attachment", title="Text attachment")
-class _TextAttachment(BaseModel):
+class _TextAttachment(BaseModel, frozen=True):
     """A host's model with pydantic's default config, which reads and writes bytes as text."""
 
     data: bytes
 
 
 @host_type("text-attachment-record", title="Text attachment record")
-@pydantic_dataclass
+@pydantic_dataclass(frozen=True)
 class _TextAttachmentRecord:
     data: bytes
 
 
 @host_type("binary-attachment", title="Binary attachment")
-class _BinaryAttachment(BaseModel):
+class _BinaryAttachment(BaseModel, frozen=True):
     """A host's model whose config reads and writes bytes as base64, as conductor does."""
 
     model_config = ConfigDict(ser_json_bytes="base64", val_json_bytes="base64")
@@ -1294,7 +1294,7 @@ class _Holder(TypedDict):
 
 
 @host_type("binary-folder", title="Binary folder")
-class _BinaryFolder(BaseModel):
+class _BinaryFolder(BaseModel, frozen=True):
     """A model that reads bytes as base64, holding one that reads them as text."""
 
     model_config = ConfigDict(ser_json_bytes="base64", val_json_bytes="base64")
@@ -1373,11 +1373,11 @@ def test_bytes_read_as_text_name_the_class_whose_config_is_at_fault():
         kind: Literal["dog"]
 
     @host_type("text-holds", title="Text holds")
-    class TextHolds(BaseModel):
+    class TextHolds(BaseModel, frozen=True):
         inner: Plain
 
     @host_type("text-union", title="Text union")
-    class TextUnion(BaseModel):
+    class TextUnion(BaseModel, frozen=True):
         pet: Annotated[Cat | Dog, Discriminator("kind")]
 
     for hint, named in (
@@ -2069,7 +2069,7 @@ def test_a_saved_run_read_into_a_graph_missing_a_node_definition_is_refused_with
 
 def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_field():
     @host_type("Reading", title="Reading")
-    class Reading(BaseModel):
+    class Reading(BaseModel, frozen=True):
         value: float
         note: Any
         d: dict
