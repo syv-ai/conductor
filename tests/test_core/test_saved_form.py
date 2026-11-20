@@ -496,6 +496,150 @@ def test_a_saved_run_waiting_on_a_node_still_waits_once_its_code_stops_asking_an
     assert Run.from_json(back.to_json(), _approve_graph(asks=False)).to_json() == back.to_json()
 
 
+def _draft_graph(asks: bool = True) -> Graph[None]:
+    """Returns ``lines -> reply``, where ``reply`` proposes a draft reply to each line and asks a person to pick.
+
+    Without ``asks``, ``reply`` returns its draft. Both versions compile from one record.
+    """
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.splitlines()
+
+    if asks:
+
+        @registry.node("reply", title="Reply", description="For a test.", asks=True)
+        def reply(line: str) -> str:
+            raise Ask(
+                f"Send a reply to {line}?", choices=["Yes", f"Re: {line}"], default=f"Re: {line}"
+            )
+
+    else:
+
+        @registry.node("reply", title="Reply", description="For a test.")
+        def reply(line: str) -> str:  # type: ignore[no-redef]
+            return f"Re: {line}"
+
+    return Graph.compile(make_graph(registry["lines"], registry["reply"]), registry)
+
+
+def _question(line: str) -> dict[str, Any]:
+    """Returns what ``reply`` asks about ``line``, as a saved run writes it."""
+    return {
+        "prompt": f"Send a reply to {line}?",
+        "choices": {
+            "result": [{"id": "Yes", "title": "Yes"}, {"id": f"Re: {line}", "title": f"Re: {line}"}]
+        },
+        "defaults": {"result": f"Re: {line}"},
+    }
+
+
+def test_an_answered_call_keeps_what_its_ask_showed_beside_the_answer_and_reads_back_byte_equal() -> (
+    None
+):
+    """A record of what a person saw when they decided: once a call is answered, its question stays under
+    ``questions`` at the call's number, its state ``done``, its answer under ``outputs``. The default the person took
+    is an answer like any other. A run read back writes the same text, and a question still waiting stays beside."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb\nc"})
+    one, two, _ = first.waiting
+    answered = first.with_answers({one.id: "Yes", two.id: two.questions[0].default})
+
+    saved = answered.to_json()
+    approve = json.loads(saved)["outcomes"]["reply"]
+
+    assert approve["states"] == ["done", "done", None]
+    assert approve["outputs"] == {"result": ["Yes", "Re: b", None]}
+    assert approve["questions"] == {"0": _question("a"), "1": _question("b"), "2": _question("c")}
+    back = Run.from_json(saved, graph)
+    assert back.to_json() == saved
+    assert [waiting.loc for waiting in back.waiting] == [("reply", 2)]
+    assert Run.from_json(_jsonb(saved), graph).to_json() == saved
+
+
+def test_an_answered_call_keeps_its_question_once_its_node_stops_asking_in_a_deploy() -> None:
+    """A deploy leaves what a run did as it is, the questions its answers came from too."""
+    first = _draft_graph().run({"text": "a\nb"})
+    saved = first.with_answers({waiting.id: "Yes" for waiting in first.waiting}).to_json()
+
+    back = Run.from_json(saved, _draft_graph(asks=False))
+
+    assert back.status == "complete" and back.results["reply"]["result"] == ["Yes", "Yes"]
+    assert back.to_json() == saved
+    assert json.loads(back.to_json())["outcomes"]["reply"]["questions"] == {
+        "0": _question("a"),
+        "1": _question("b"),
+    }
+
+
+def test_an_answer_reused_by_a_later_run_keeps_the_question_it_was_given_for() -> None:
+    """A reused answer shows what the person was shown back then, in the next run's save as it waits to be reused
+    and once it is, read back too."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    first = first.with_answers({waiting.id: "Yes" for waiting in first.waiting})
+    edited = first.with_inputs({"text": "b\nnew"})
+
+    reusable = json.loads(edited.to_json())["reusable"]["reply"]
+    reused = Run.from_json(edited.to_json(), graph).resume()
+    outcomes = json.loads(reused.to_json())["outcomes"]["reply"]
+
+    assert reusable["questions"] == {"0": _question("a"), "1": _question("b")}
+    assert outcomes["states"] == ["done", None]
+    assert outcomes["questions"] == {"0": _question("b"), "1": _question("new")}
+    assert json.loads(edited.resume().to_json())["outcomes"]["reply"] == outcomes
+
+
+def test_a_declined_call_keeps_what_its_ask_showed_in_its_problem_and_reads_back_byte_equal() -> (
+    None
+):
+    """A decline drops every waiting question, and its ``answer_declined`` keeps the one declined in ``ctx.asked``,
+    choices and the proposed default included, as ``questions`` writes it. An answer given before keeps its own."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    one, two = first.waiting
+    declined = first.with_answers(one, "Yes").with_decline(two, reason="Not now")
+
+    saved = declined.to_json()
+
+    assert declined.cause.ctx == {"reason": "Not now", "asked": _question("b")}
+    assert json.loads(saved)["ended_early"]["cause"] == declined.cause.model_dump(mode="json")
+    assert json.loads(saved)["outcomes"]["reply"]["questions"] == {"0": _question("a")}
+    back = Run.from_json(saved, graph)
+    assert (back.status, back.cause) == ("declined", declined.cause)
+    assert back.to_json() == saved
+
+
+def test_a_saved_answer_with_no_question_reads_back_as_done() -> None:
+    """A save may leave an answered call's question out: the call reads back done, and is saved without it."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a"})
+    saved = json.loads(first.with_answers(first.waiting[0], "Yes").to_json())
+    del saved["outcomes"]["reply"]["questions"]
+
+    back = Run.from_json(json.dumps(saved), graph)
+
+    assert back.status == "complete" and back.results["reply"]["result"] == ["Yes"]
+    assert "questions" not in json.loads(back.to_json())["outcomes"]["reply"]
+
+
+def test_a_question_saved_at_a_skipped_call_is_refused() -> None:
+    """Only a call that asked has a question: a waiting one, or one a person answered."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a"})
+    saved = json.loads(first.with_answers(first.waiting[0], "Yes").to_json())
+    saved["outcomes"]["reply"]["states"] = ["skipped"]
+    saved["outcomes"]["reply"]["outputs"] = {"result": [None]}
+    saved["outcomes"]["reply"]["fingerprints"] = [None]
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert problem.type == "saved_run_unreadable" and problem.ctx["where"] == "outcomes.reply"
+
+
 def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_and_reuses_them_read_back() -> (
     None
 ):

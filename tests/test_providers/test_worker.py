@@ -1104,6 +1104,26 @@ async def test_an_answer_to_a_complete_run_is_refused_by_conductor_as_not_waitin
     ]
 
 
+async def test_an_answer_given_through_the_worker_keeps_its_question_in_the_rows_saved_run() -> (
+    None
+):
+    """The worker gives the run the answer as ``run.with_answers`` does, so the row's saved run keeps what the
+    person was shown beside the answer, as a run saved in the engine does."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+        assert (await store.ended(run_id)).status == "complete"
+
+    confirm = json.loads(store.rows[run_id].run)["outcomes"]["confirm"]
+    assert (confirm["states"], confirm["outputs"]) == (["done"], {"result": [True]})
+    assert confirm["questions"] == {"0": {"prompt": "Go on?"}}
+
+
 # -- declines -------------------------------------------------------------------------------------
 
 
@@ -1147,7 +1167,7 @@ async def test_a_decline_of_a_waiting_run_ends_it_declined_for_good_with_one_run
         assert (written.status, written.cause.type, written.cause.ctx, written.waiting) == (
             "declined",
             "answer_declined",
-            {"reason": "Over budget"},
+            {"reason": "Over budget", "asked": {"prompt": "Go on?"}},
             [],
         )
         assert (row.status, row.owner, row.lease_until) == ("declined", None, None)
@@ -1338,7 +1358,7 @@ async def test_a_decline_queued_during_a_resume_call_that_raised_ends_the_run_th
     assert (ended.status, ended.cause.type, ended.cause.ctx, ended.waiting) == (
         "declined",
         "answer_declined",
-        {"reason": "No"},
+        {"reason": "No", "asked": {"prompt": "first?"}},
         [],
     )
     assert store.state("left")["queued"] == []

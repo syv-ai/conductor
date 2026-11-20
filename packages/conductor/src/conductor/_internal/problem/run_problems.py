@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import JsonValue
+
 from .type import ProblemCatalogue
 
 #: This module's section of the problems page, with its kinds.
@@ -58,7 +60,7 @@ def ask_not_declared(*loc: str | int) -> str:
 
 
 @RUN_PROBLEMS.problem
-def answer_declined(*loc: str | int, reason: str | None = None) -> str:
+def answer_declined(*loc: str | int, reason: str | None = None, asked: dict[str, JsonValue]) -> str:
     """A person declined to answer a node's question, with ``run.with_decline``, and so ended the run for good.
 
     The run is ``declined``. Every call made before the decline keeps its outcome, so the run's results show what
@@ -70,6 +72,8 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
         loc: The call that asked.
         reason: The reason the host gave to ``run.with_decline``. It is left out when the host gave none. The message
             doesn't quote it.
+        asked: What the person was shown: the question the call asked, its prompt, and its choices and defaults
+            when the ``Ask`` set any, as a saved run writes a question. The message doesn't quote it.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})

@@ -3068,7 +3068,9 @@ def test_pay_failing_after_the_answer_is_retried_and_resumed_and_nothing_is_aske
 # -- declining a question ------------------------------------------------------------------------------
 
 
-def test_a_declined_question_ends_the_run_declined_with_the_reason_in_ctx_and_keeps_what_ran():
+def test_a_declined_question_ends_the_run_declined_with_the_reason_and_the_question_in_ctx_and_keeps_what_ran():
+    """``ctx.asked`` is what the person was shown when they declined, as a saved run writes a question, and the
+    saved run keeps it in ``ended_early``."""
     run = _approve_then_pay().run({"text": "A:100,B:900"})
     calls_made.clear()
     declined = run.with_decline(run.waiting[0], reason="Over budget")
@@ -3076,9 +3078,12 @@ def test_a_declined_question_ends_the_run_declined_with_the_reason_in_ctx_and_ke
     assert (declined.cause.type, declined.cause.loc, declined.cause.ctx) == (
         "answer_declined",
         ("approval", 1),
-        {"reason": "Over budget"},
+        {"reason": "Over budget", "asked": {"prompt": "Pay B?"}},
     )
-    assert "Over budget" not in declined.cause.msg
+    assert "Over budget" not in declined.cause.msg and "Pay B?" not in declined.cause.msg
+    saved = declined.to_json()
+    assert json.loads(saved)["ended_early"]["cause"]["ctx"]["asked"] == {"prompt": "Pay B?"}
+    assert Run.from_json(saved, _approve_then_pay()).to_json() == saved
     # What ran before the decline is kept, and the message says so.
     assert declined.results["pay"]["result"] == ["paid A", None]
     assert "calls made before keep their results" in declined.cause.msg
@@ -3089,7 +3094,7 @@ def test_a_declined_question_ends_the_run_declined_with_the_reason_in_ctx_and_ke
 async def test_a_declined_run_calls_no_node_on_resume_or_stream_and_stays_declined():
     run = _approve_then_pay().run({"text": "B:900"})
     declined = run.with_decline(run.waiting[0].id)
-    assert declined.cause.ctx.get("reason") is None
+    assert declined.cause.ctx == {"asked": {"prompt": "Pay B?"}}
     calls_made.clear()
     resumed = declined.resume()
     assert (resumed.status, resumed.cause, resumed.waiting) == ("declined", declined.cause, [])

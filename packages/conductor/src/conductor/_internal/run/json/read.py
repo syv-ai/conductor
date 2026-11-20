@@ -156,7 +156,8 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
          "fingerprints": ["<fp a>", null, "<fp c>"], "none_inputs": {"1": "line"}}
 
     That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``, each
-    ``Done`` with its fingerprint.
+    ``Done`` with its fingerprint. A question under ``questions`` is a waiting call's ``Unanswered`` where the call
+    has no state, and the ``asked`` of its ``Done`` where a person answered it.
 
     Args:
         node: The node, as compiled.
@@ -195,12 +196,15 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
                 outcomes.append(skipped_outcome)
             else:
                 outcomes.append(None)
-        for call_number, waiting in saved.questions.items():
-            if states[call_number] is not None:
-                raise LookupError(call_number)
-            outcomes[call_number] = dataclasses.replace(
-                waiting, fingerprint=fingerprints[call_number]
-            )
+        for call_number, saved_question in saved.questions.items():
+            asked = dataclasses.replace(saved_question, fingerprint=fingerprints[call_number])
+            match outcomes[call_number]:
+                case Done() as answered:  # a question a person answered
+                    outcomes[call_number] = dataclasses.replace(answered, asked=asked)
+                case None:  # a question still waiting
+                    outcomes[call_number] = asked
+                case _:
+                    raise LookupError(call_number)
         for call_number, input_name in saved.none_inputs.items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)

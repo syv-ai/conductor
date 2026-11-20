@@ -47,7 +47,7 @@ from .events import (
     RunStart,
     with_run,
 )
-from .json import outputs_to_json, run_from_json, run_to_json
+from .json import outputs_to_json, question_to_json, run_from_json, run_to_json
 from .node_events import NodeEvents
 from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from .outcomes import RunOutcomes
@@ -415,7 +415,7 @@ class Run[C]:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
-            answered[(node, item_indexes)] = Done(read, fingerprint=found.fingerprint)
+            answered[(node, item_indexes)] = Done(read, fingerprint=found.fingerprint, asked=found)
         if problems:
             raise InvalidCallError(problems)
         # A cancel or a timeout is dropped only once a call is answered after it.
@@ -436,7 +436,8 @@ class Run[C]:
         as on a complete run. To try again, start a new run with ``again`` or ``with_inputs``, which reuses what this
         one ran and asks again. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
         ``run.with_decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``declined``, and its
-        ``cause.ctx["reason"]`` is ``"Over budget"``.
+        ``cause.ctx["reason"]`` is ``"Over budget"``. ``cause.ctx["asked"]`` keeps what the person was shown, the
+        question as a saved run writes it, such as ``{"prompt": "Approve INV-1?"}``.
 
         Args:
             waiting: The call to decline, as ``run.waiting`` lists it or by its id.
@@ -454,9 +455,9 @@ class Run[C]:
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
-        _, _, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
+        _, _, loc, declined = self._waiting_call(waiting_id, cache(lambda: self.status))
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
-        cause = run_problems.answer_declined(*loc, reason=reason)
+        cause = run_problems.answer_declined(*loc, reason=reason, asked=question_to_json(declined))
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome.
         asked = [(node, item_indexes) for node, item_indexes, _ in self._outcomes.calls(Unanswered)]
         return dataclasses.replace(

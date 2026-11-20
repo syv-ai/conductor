@@ -1,4 +1,5 @@
-"""Writes a run as JSON (``run_to_json``), and a complete run's graph outputs as JSON (``outputs_to_json``).
+"""Writes a run as JSON (``run_to_json``), a complete run's graph outputs (``outputs_to_json``), and one question
+(``question_to_json``).
 
 ``saved_run`` turns the run into an instance of its graph's codec, the subclass of ``SavedRun`` made for the
 graph. That instance then writes itself as text. This package is the run's own JSON form, so it reads every field
@@ -11,6 +12,7 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, assert_never
 
 import pydantic_core
+from pydantic import JsonValue, TypeAdapter
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, place_text
@@ -131,6 +133,22 @@ def saved_run(run: Run) -> SavedRun:
     )
 
 
+#: A question as a saved run writes it under ``questions``. Its choices' ids and its defaults are in their JSON form
+#: already (``AskValidator``), so no setting of ``JSON_CONFIG`` changes what it writes.
+_QUESTION = TypeAdapter(Unanswered)
+
+
+def question_to_json(asked: Unanswered) -> dict[str, JsonValue]:
+    """Returns a question as the JSON data a saved run writes it as under ``questions``.
+
+    ``Unanswered("Approve 'b'?", defaults={"result": True})`` is ``{"prompt": "Approve 'b'?", "defaults": {"result":
+    true}}``: its prompt, and its choices and defaults when the ``Ask`` set any. The fingerprint is left out, as under
+    ``questions``. ``run.with_decline`` keeps the question a person declined so, in its ``answer_declined`` problem.
+    """
+    written: dict[str, JsonValue] = _QUESTION.dump_python(asked, mode="json", exclude_defaults=True)
+    return written
+
+
 def _outcomes_by_call_number(
     outcomes: RunOutcomes, node: BlueprintFunctionNode
 ) -> list[Outcome | None]:
@@ -167,6 +185,8 @@ def saved_outcomes[S: SavedOutcomes](
             case Done():
                 states.append(SAVED_DONE)
                 fingerprints.append(outcome.fingerprint)
+                if outcome.asked is not None:  # an answer keeps what the person was shown
+                    questions[call_number] = outcome.asked
                 for name, values in values_by_output.items():
                     values.append(outcome.outputs[name])
                 continue
