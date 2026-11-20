@@ -47,7 +47,14 @@ from pydantic import (
 )
 from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
-from conductor._internal.base import REQUIRED, SKIPPED, Name, Validator, finite_json_text
+from conductor._internal.base import (
+    READ_BY_NAME,
+    REQUIRED,
+    SKIPPED,
+    Name,
+    Validator,
+    finite_json_text,
+)
 from conductor._internal.port import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
@@ -108,7 +115,9 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
         schemas = {
             name: core_schema.typed_dict_field(
                 core_schema.no_info_plain_validator_function(
-                    functools.partial(port.whole.output_validator.validate_python, strict=True)
+                    functools.partial(
+                        port.whole.output_validator.validate_python, strict=True, **READ_BY_NAME
+                    )
                 ),
                 required=not port.is_branch,
             )

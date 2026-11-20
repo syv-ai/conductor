@@ -81,7 +81,11 @@ def _read(value_type: Type, validator: SchemaValidator, value: Any) -> Any:
             raise ValidationError.from_exception_data(
                 value_type.id, [{"type": "finite_number", "loc": (column,), "input": value}]
             )
-        return _checked(value_type.id, value, lambda: validator.validate_python(value, strict=True))
+        return _checked(
+            value_type.id,
+            value,
+            lambda: validator.validate_python(value, strict=True, **READ_BY_NAME),
+        )
     return read_entering_value(validator, value, title=value_type.id)
 
 

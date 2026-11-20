@@ -491,6 +491,23 @@ def test_a_hosts_own_choice_is_shown_the_same_live_in_a_description_and_read_bac
         ]
 
 
+def test_a_choice_with_a_set_in_a_keyword_is_refused_since_a_set_has_no_order():
+    @node("tag", title="Tag", description="For a test.", asks=True)
+    def tag(ticket: str) -> str:
+        raise Ask(f"Tag {ticket}?", choices=[Choice("a", "A", tags={"x", "y"})])
+
+    _, run = _once(tag, ticket="T-1")
+    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
+    assert [error["type"] for error in run.cause.ctx["errors"]] == ["set_has_no_order"]
+    with pytest.raises(NodeDeclarationError, match="a set has no order"):
+
+        @node("tagged", title="Tagged", description="For a test.")
+        def tagged(
+            x: Annotated[str, Param(choices=[Choice("a", "A", tags=frozenset({1}))])],
+        ) -> str:
+            return x
+
+
 def test_a_choice_is_read_by_the_type_it_is_a_value_of_so_1_on_a_float_is_1_0():
     @node("scale", title="Scale", description="For a test.", asks=True)
     def scale(by: Annotated[float, Param(choices=[1, Choice(2, "Double")])] = 1.0) -> float:

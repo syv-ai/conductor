@@ -2956,6 +2956,55 @@ def test_a_value_with_aliased_fields_enters_at_every_door_and_comes_out_as_itsel
         assert Run.from_json(answered.to_json(), graph).outputs["result"] == value
 
 
+class _AliasedCell(TypedDict):
+    who: _AliasedCamel
+
+
+def test_a_table_cell_with_aliased_fields_round_trips_by_its_field_names():
+    """A table writes a cell of a host's class as JSON under each field's name and reads it back by name, whatever
+    the class's alias config says: a node's return, an edge, a graph input as rows or as a frame of field names, a
+    saved run and ``outputs_to_json()`` given back all take it. A frame of the aliases alone is refused."""
+    who = _AliasedCamel(firstName="Ida", lastName=1.5)
+
+    @node("make", title="Make", description="For a test.")
+    def make(n: int) -> Table[_AliasedCell]:
+        return [{"who": who}] * n  # type: ignore[return-value]
+
+    @node("listed", title="Listed", description="For a test.")
+    def listed(n: int) -> Series[_AliasedCell]:
+        return [{"who": who}] * n
+
+    @node("same", title="Same", description="For a test.")
+    def same(table: Table[_AliasedCell]) -> Table[_AliasedCell]:
+        return table
+
+    as_json = {
+        "columns": [
+            {"name": "who", "type": "json", "values": [{"first_name": "Ida", "last_name": 1.5}]}
+        ]
+    }
+    for nodes in ((make,), (listed,), (make, same)):
+        graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
+        run = graph.run({"n": 1})
+        assert run.status == "complete"
+        written = json.loads(run.outputs_to_json())["result"]
+        assert written in (as_json, [{"who": {"first_name": "Ida", "last_name": 1.5}}])
+        assert Run.from_json(run.to_json(), graph).outputs_to_json() == run.outputs_to_json()
+
+    passing = Graph.compile(make_graph(same), registry_of(same))
+    for given in (
+        [{"who": who}],
+        [{"who": {"first_name": "Ida", "last_name": 1.5}}],
+        pl.DataFrame({"who": [{"first_name": "Ida", "last_name": 1.5}]}),
+        as_json,
+    ):
+        run = passing.run({"table": given})
+        assert json.loads(run.outputs_to_json())["result"] == as_json
+    with pytest.raises(InvalidCallError) as refused:
+        passing.run({"table": pl.DataFrame({"who": [{"firstName": "Ida", "lastName": 1.5}]})})
+    assert [problem.type for problem in refused.value.problems] == ["invalid_input"]
+
+
 def test_a_host_sees_a_value_with_aliased_fields_under_its_field_names_and_gives_it_so():
     """What a host is shown of a host's class, an output's JSON, an input's JSON schema and a waiting call's inputs,
     names each field by its name, never an alias, whatever the class's config says. A value given as JSON data is

@@ -27,7 +27,13 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import WRITE_BY_NAME, ConductorModel, canonical_json, plain_json
+from conductor._internal.base import (
+    WRITE_BY_NAME,
+    ConductorModel,
+    canonical_json,
+    holds_a_set,
+    plain_json,
+)
 from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
@@ -112,7 +118,7 @@ def choices_schema(
     Returns:
         A schema whose errors are pydantic's. An error of one choice has the choice's index first in its ``loc``,
         then the steps of ``read``'s own error: the type's refusal, or ``no_json_form`` if the id can't be written as
-        JSON. An error of the whole list has the ``loc`` ``()``: ``set_has_no_order`` for a set, ``list_type`` for
+        JSON. A ``Choice`` with a set in any of its fields is ``set_has_no_order`` at its index. An error of the whole list has the ``loc`` ``()``: ``set_has_no_order`` for a set, ``list_type`` for
         anything else that isn't a list or a tuple, text included, ``too_short`` for no choices, and
         ``choice_twice`` for an id given twice.
     """
@@ -128,6 +134,9 @@ def choices_schema(
     def one(choice: Any) -> Choice:
         try:
             if isinstance(choice, Choice):
+                # JSON writes a set as a list in no fixed order, so the choice would differ between processes
+                if holds_a_set(choice):
+                    raise set_has_no_order()
                 # a model's fields are a JSON object
                 fields = cast(
                     "dict[str, Any]",
