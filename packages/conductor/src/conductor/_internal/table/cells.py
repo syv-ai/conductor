@@ -16,6 +16,11 @@ A table's row declaring any other column type is refused when its node is declar
 so is a frame returned for a ``Series`` of such rows. A union of two types, a dict, a tuple of different items or a
 value that may leave out a key would come back from polars changed.
 
+A column whose type doesn't say its polars type, like ``Any``, is made from its values, and polars picks one type
+for them all. So ``[1, 1.5]`` would become ``[1.0, 1.5]``, and a model would become the dict of its fields. Such a
+column is kept only if polars gives back every value as it was given, and refused when the table is made
+otherwise (``table_cell_not_kept`` again): ``[1, 2]`` is kept, ``[1, 1.5]`` is not.
+
 A kept cell is written by the fields its column's type declares, as they are, with no host serialization rule: a
 ``field_serializer`` is not applied, a ``computed_field`` is not added, a field marked ``exclude=True`` is kept,
 and an instance of a subclass is written by the declared class's fields. A model or a dataclass is the dict of its
@@ -34,7 +39,9 @@ from types import NoneType
 from typing import Annotated, Any, Literal, NotRequired, get_args, get_origin
 
 import polars as pl
+from pydantic_core import PydanticCustomError
 
+from conductor._internal.problem import conductor_error
 from conductor._internal.types import (
     Type,
     allows_extra,
@@ -204,7 +211,8 @@ class CellType:
         """Returns ``value``, a value of a type a table keeps, as a table keeps it.
 
         A model or a dataclass is the dict of the fields the type declares, each written by its own type, an enum
-        member is its value, a tuple is a list, and anything else is as it is. A ``None`` stays ``None``.
+        member is its value, a tuple is a list, and anything else is as it is. A value of ``Any`` is as it is too,
+        and polars makes what it can of it (``kept_column``). A ``None`` stays ``None``.
         """
         if value is None:
             return None
@@ -214,17 +222,15 @@ class CellType:
             return {name: field.write(getattr(value, name)) for name, field in self.fields.items()}
         if self.items:
             return [self.items[0].write(one) for one in value]
-        if self.bare is Any:
-            return _plain(value)
-        return value.value if isinstance(value, Enum) else value
+        return value.value if isinstance(value, Enum) and self.bare is not Any else value
 
     @functools.cached_property
     def dtype(self) -> Any:
         """The polars type a table keeps a column of the type as, or ``None`` where the cells decide it.
 
         ``Money | None``, with ``Money`` declaring ``amount: float``, is ``Struct({"amount": Float64})``,
-        ``list[int]`` and ``tuple[int, ...]`` are ``List(Int64)``, and a ``Literal`` or an enum whose values are all
-        texts ``String``. A ``datetime`` with a time zone and a ``Decimal`` of a scale other than 0 differ from
+        ``list[int]`` and ``tuple[int, ...]`` are ``List(Int64)``, a subclass of ``str`` and a ``Literal`` or an enum
+        whose values are all texts ``String``. A ``datetime`` with a time zone and a ``Decimal`` of a scale other than 0 differ from
         their class's own polars type, and a type met again inside itself, like a tree of nodes, is ``None``.
         """
         # a type met again inside itself, while its own polars type is worked out, gives None
@@ -239,7 +245,10 @@ class CellType:
             return _one_dtype(
                 get_args(self.bare) if origin is Literal else [member.value for member in origin]
             )
-        return _DTYPES.get(self.bare) if self.kind == "value" else None
+        if self.kind != "value" or not isinstance(self.bare, type):
+            return None
+        # a subclass, like a str of its own, is kept as the nearest of Python's own classes it is one of
+        return next((_DTYPES[kind] for kind in self.bare.__mro__ if kind in _DTYPES), None)
 
 
 def _stripped(hint: Any) -> tuple[Any, str | None]:
@@ -262,22 +271,19 @@ def _one_dtype(values: Any) -> Any:
     return _DTYPES.get(first) if all(type(value) is first for value in values) else None
 
 
-def _plain(value: Any) -> Any:
-    """Writes a value of ``Any`` by its own class: a model or dataclass as the dict of its fields, an enum member as
-    its value, a list or tuple as a list, and a dict with each value so."""
-    kind = type(value)
-    if value is None or kind in CELLS:
-        return value
-    if kind is list or kind is tuple:
-        return [_plain(one) for one in value]
-    if kind is dict:
-        return {key: _plain(one) for key, one in value.items()}
-    if isinstance(value, Enum):
-        return _plain(value.value)
-    if declares_fields(kind):
-        return cell_type(kind).write(value)
-    # any other object stays one, and a saved run refuses its column (``as_saved``)
-    return value
+def cell_not_kept(column: str, cell: str, reason: str) -> PydanticCustomError:
+    """The error for a column of a type a table doesn't keep as it is, or of values polars would change.
+
+    Args:
+        column: The column's name.
+        cell: The type, in the column's type, that a table doesn't keep, such as ``Any``.
+        reason: Why a table doesn't keep it.
+    """
+    return conductor_error(
+        "table_cell_not_kept",
+        "column '{column}' holds {cell}, which a table doesn't keep as it is: {reason}",
+        {"column": column, "cell": cell, "reason": reason},
+    )
 
 
 def kept_column(name: str, cells: list[Any], cell: CellType) -> pl.Series:
@@ -287,19 +293,68 @@ def kept_column(name: str, cells: list[Any], cell: CellType) -> pl.Series:
     A column of a model, a dataclass or a ``TypedDict`` is built field by field, each field a column of its own, so
     no dict is made per cell: ``[Money(amount=1.0), None]`` gives the column ``amount`` ``[1.0, None]``, made into
     the struct column ``[{"amount": 1.0}, None]``. Any other column is written cell by cell (``CellType.write``).
+
+    A column whose type doesn't say its polars type (``CellType.dtype`` is ``None``), like ``Any``, gets the type
+    polars picks for its values. It is kept only if polars has a type for them and gives back each value as it was
+    written, of the same class: ``[1, 2]`` is kept, but ``[1, 1.5]`` would come back as ``[1.0, 1.5]``, a model as a
+    dict, and two dicts with different keys each with the other's keys added.
+
+    Raises:
+        PydanticCustomError: ``table_cell_not_kept`` if polars has no type for a value of a column whose type
+            doesn't say its polars type, or would change one.
     """
-    if cell.kind == "value" and cell.bare is not Any:
-        return pl.Series(name, cells, strict=False)
-    if cell.kind != "fields":
-        return pl.Series(name, [cell.write(one) for one in cells], strict=False)
-    typed_dict = cell.typed_dict
-    parts = [
-        kept_column(field, [_field_of(one, field, typed_dict) for one in cells], field_type)
-        for field, field_type in cell.fields.items()
-    ]
-    column = pl.DataFrame(parts, height=len(cells)).to_struct(name)
-    present = pl.Series([one is not None for one in cells])
-    return pl.select(pl.when(present).then(column)).to_series().alias(name)
+    column, written = _column(name, cells, cell)
+    if cell.dtype is None:
+        written = [cell.write(one) for one in cells] if written is None else written
+        if column.dtype == pl.Object or not _gives_back(written, column):
+            raise cell_not_kept(
+                name, cell.name, "polars has no column type for a value in it, or would change one"
+            )
+    return column
+
+
+def _column(name: str, cells: list[Any], cell: CellType) -> tuple[pl.Series, list[Any] | None]:
+    """Builds the column ``kept_column`` returns, with no check that polars kept its values, and the cells as
+    written (``CellType.write``), or ``None`` for a struct column, which is built field by field."""
+    if cell.kind == "fields":
+        typed_dict = cell.typed_dict
+        parts = [
+            _column(field, [_field_of(one, field, typed_dict) for one in cells], field_type)[0]
+            for field, field_type in cell.fields.items()
+        ]
+        column = pl.DataFrame(parts, height=len(cells)).to_struct(name)
+        present = pl.Series([one is not None for one in cells])
+        return pl.select(pl.when(present).then(column)).to_series().alias(name), None
+    # a value of a type with no items or fields, Any's too, is written as it is
+    written = cells if cell.kind == "value" else [cell.write(one) for one in cells]
+    return pl.Series(name, written, strict=False), written
+
+
+def _gives_back(written: list[Any], column: pl.Series) -> bool:
+    """Says whether ``column``, built from the cells ``written``, gives back each of them, of the same class.
+
+    A column whose cells are all of one of Python's own classes polars has a type for, or ``None``, is kept as it
+    is, which the classes of its cells say without comparing each cell.
+    """
+    classes = {type(one) for one in written} - {NoneType}
+    if len(classes) <= 1 and classes <= set(CELLS):
+        return True
+    return all(map(_same, written, column.to_list()))
+
+
+def _same(given: Any, kept: Any) -> bool:
+    """Says whether ``kept``, a value polars gave back, is ``given``: of the same class, with the same keys, and
+    equal, at any depth. ``1`` and ``1.0`` are equal in Python, but not the same here."""
+    if type(given) is not type(kept):
+        return False
+    if isinstance(given, list):
+        return len(given) == len(kept) and all(map(_same, given, kept))
+    if isinstance(given, dict):
+        return given.keys() == kept.keys() and all(
+            _same(one, kept[key]) for key, one in given.items()
+        )
+    # a nan is no float equal to itself
+    return bool(given == kept) or given != given
 
 
 def _field_of(cell: Any, field: str, typed_dict: bool) -> Any:

@@ -29,6 +29,7 @@ from pydantic import (
     AfterValidator,
     BaseModel,
     ConfigDict,
+    Discriminator,
     GetCoreSchemaHandler,
     JsonValue,
     model_validator,
@@ -483,6 +484,110 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
         _returning_its_input(Annotated[Cat | Dog, Discriminator("kind")])
     )
     assert _run(pet, value={"kind": "dog"}).outputs == {"result": "kind='dog'"}
+
+
+@host_type("tern", title="Tern")
+class _Tern(BaseModel, frozen=True):
+    name: str
+
+
+@host_type("gull", title="Gull")
+class _Gull(BaseModel, frozen=True):
+    name: str
+
+
+@host_type("skua", title="Skua")
+class _Skua(BaseModel, frozen=True):
+    name: str
+    age: int = 0
+
+
+@host_type("plover", title="Plover")
+class _Plover(BaseModel, frozen=True):
+    name: str
+    age: int
+
+
+@host_type("tern-kind", title="Tern kind")
+class _KindTern(BaseModel, frozen=True):
+    kind: Literal["tern"] = "tern"
+    name: str
+
+
+@host_type("gull-kind", title="Gull kind")
+class _KindGull(BaseModel, frozen=True):
+    kind: Literal["gull"] = "gull"
+    name: str
+
+
+@host_type("flock", title="Flock")
+class _Flock(BaseModel, frozen=True):
+    birds: list[_Tern | _Gull]
+
+
+class _BirdRow(TypedDict):
+    bird: _Tern | _Skua
+
+
+@pytest.mark.parametrize(
+    ("hint", "where"),
+    [
+        (_Tern | _Gull, "_Tern | _Gull"),
+        (_Gull | _Tern, "_Gull | _Tern"),
+        (_Tern | _Skua, "_Tern | _Skua"),
+        (_Skua | _Tern, "_Skua | _Tern"),
+        (list[_Tern | _Gull | None], "_Tern | _Gull"),
+        (Series[_BirdRow], "_BirdRow.bird"),
+        (_Flock, "_Flock.birds"),
+    ],
+    ids=[
+        "the same fields",
+        "the same fields the other way round",
+        "one with a default more",
+        "one with a default more, first",
+        "in a list",
+        "in a Series of rows",
+        "in a field of a host's model",
+    ],
+)
+def test_a_union_of_models_json_cant_tell_apart_is_refused_when_the_node_is_declared(
+    hint: Any, where: str
+) -> None:
+    """A model is saved as its fields, so of two models where one has every field of the other and needs no
+    other, a saved value would read back as whichever the union names first."""
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("bird", title="Bird", description="For a test.")(_returning_its_input(hint))
+
+    (problem,) = raised.value.problems
+    assert problem.type == "union_members_alike" and f" in {where} read back alike" in problem.msg
+
+
+@pytest.mark.parametrize(
+    ("hint", "value"),
+    [
+        (Annotated[_KindTern | _KindGull, Discriminator("kind")], _KindGull(name="g")),
+        (_KindTern | _KindGull, _KindGull(name="g")),
+        (_Tern | _Plover, _Tern(name="t")),
+        (_Tern | _Plover, _Plover(name="p", age=1)),
+    ],
+    ids=[
+        "told apart by a discriminator",
+        "told apart by a Literal field",
+        "the one with fewer fields",
+        "the one with a required field more",
+    ],
+)
+def test_a_union_of_models_json_tells_apart_reads_back_as_each_values_own_class(
+    hint: Any, value: Any
+) -> None:
+    @node("bird", title="Bird", description="For a test.")
+    def bird() -> hint:  # type: ignore[valid-type]
+        return value
+
+    graph = Graph.compile(make_graph(bird), registry_of(bird))
+    run = graph.run({})
+
+    assert type(Run.from_json(run.to_json(), graph).outputs["result"]) is type(value)
 
 
 def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:

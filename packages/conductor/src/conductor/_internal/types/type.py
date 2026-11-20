@@ -1000,7 +1000,7 @@ def _check_built(schema: CoreSchema) -> None:
     """Refuses a type, by the schema pydantic built for it, if a node may not declare something inside it.
 
     The schema is what pydantic really checks and writes a value by, so this walk reaches every part of the type, the
-    fields of a host's own model or dataclass included. It walks the schema once and refuses three things:
+    fields of a host's own model or dataclass included. It walks the schema once and refuses four things:
 
     - A set or a frozenset. A set has no order, so its JSON form is a list whose order may differ from one process to
       the next. Its value would then hash differently each time, and a call of it would never be reused.
@@ -1014,6 +1014,7 @@ def _check_built(schema: CoreSchema) -> None:
       ``"!"`` before the choices are compared. Every value would fail at run time. ``Param`` reads its choices by
       the type it is on; this reads them again by the part of the schema it built, on the port, a list's item, a
       dict's value or a model's field.
+    - A union of two models or dataclasses that JSON can't tell apart (``_check_union``).
 
     Say ``class Tags(BaseModel)`` has the field ``tags: set[str]``. Then the schema of ``list[Tags]`` is refused,
     naming ``Tags.tags``.
@@ -1022,8 +1023,8 @@ def _check_built(schema: CoreSchema) -> None:
         schema: The type's core schema.
 
     Raises:
-        NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text`` or
-            ``choices_invalid``.
+        NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text``,
+            ``choices_invalid`` or ``union_members_alike``.
     """
     # the schemas pydantic declared beside the type, by their ref, and the ids of those walked already, so each is
     # walked once
@@ -1064,6 +1065,8 @@ def _check_built(schema: CoreSchema) -> None:
             definitions.update(under_definitions(part)[1])
         if (choices := part.get("metadata", {}).get(CHOICES)) is not None:
             _check_choices(part, choices, definitions)
+        if kind == "union":
+            _check_union(part, held, definitions)
         if kind in _DECLARES_FIELDS and isinstance(cls := part.get("cls"), type):
             held = (cls.__name__, "")
             # a class with no config of its own, and a schema with no config written on it, read by the config they
@@ -1107,6 +1110,104 @@ def _set_written(schema: dict[str, Any]) -> str:
     if isinstance(cls := items.get("cls"), type):
         return f"{schema['type']}[{cls.__name__}]"
     return str(schema["type"])
+
+
+def _check_union(
+    union: CoreSchema, held: tuple[str, str] | None, definitions: dict[str, Any]
+) -> None:
+    """Refuses a union of two models or dataclasses whose values JSON can't tell apart.
+
+    A run keeps a value as JSON, and a model's JSON is its fields, not its class. Pydantic reads it back as the member
+    that takes the most of its fields, and where two take as many, as the one the union names first. So two members
+    read back alike when one has every field the other has and a default for each of its others: in
+    ``Heron | Egret``, where both declare only ``name``, an ``Egret`` comes back as a ``Heron``. A union pydantic
+    tells apart by a ``Discriminator`` is a schema of another kind, and isn't walked here.
+
+    Args:
+        union: The union's schema.
+        held: The class around the union, by name, and its field the union is in, as ``_check_built`` keeps it.
+        definitions: The schemas pydantic declared beside the type, which a member may refer to.
+
+    Raises:
+        NodeDeclarationError: ``union_members_alike``.
+    """
+    classes = [
+        cls
+        for choice in union["choices"]
+        if (
+            cls := _class_checked_by(
+                choice[0] if isinstance(choice, tuple) else choice, definitions
+            )
+        )
+        is not None
+    ]
+    for member in classes:
+        for alike in classes:
+            if member is not alike and _reads_as(member, alike):
+                raise NodeDeclarationError(
+                    declaration_problems.union_members_alike(
+                        type=_field_or(held, " | ".join(cls.__name__ for cls in classes)),
+                        member=member.__name__,
+                        alike=alike.__name__,
+                    )
+                )
+
+
+def _class_checked_by(schema: Any, definitions: dict[str, Any]) -> type | None:
+    """Returns the model or dataclass ``schema`` checks a value as, through a reference and a validator around it,
+    or ``None`` for a schema of any other kind."""
+    while schema is not None:
+        kind = schema["type"]
+        if kind in HOSTS_OWN_CLASSES:
+            cls: type = schema["cls"]
+            return cls
+        if kind == "definition-ref":
+            schema = looked_up(schema, definitions)
+        elif kind.startswith("function-") and "schema" in schema:
+            schema = schema["schema"]
+        else:
+            return None
+    return None
+
+
+def _reads_as(member: type, alike: type) -> bool:
+    """Says whether a value of ``member``, written as JSON, can be read as ``alike`` as readily.
+
+    It can when ``alike`` declares every field ``member`` does, needs no other (each of its others has a default),
+    and no field they share is a ``Literal`` in both with no value in common, which would tell them apart.
+    """
+    fields, alike_fields = field_hints(member), field_hints(alike)
+    return (
+        fields.keys() <= alike_fields.keys()
+        and alike_fields.keys() - fields.keys() <= _with_default(alike)
+        and not any(_told_apart(hint, alike_fields[name]) for name, hint in fields.items())
+    )
+
+
+def _told_apart(hint: Any, other: Any) -> bool:
+    """Says whether two hints are each a ``Literal``, ``Annotated`` taken off, with no value in common."""
+    values = []
+    for one in (hint, other):
+        while get_origin(one) is Annotated:
+            one = get_args(one)[0]
+        if get_origin(one) is not Literal:
+            return False
+        values.append(set(get_args(one)))
+    return not values[0] & values[1]
+
+
+def _with_default(cls: type) -> frozenset[str]:
+    """Returns the fields of a model or dataclass that have a default, so a value read from JSON may leave them
+    out."""
+    infos: dict[str, FieldInfo] | None = getattr(cls, "__pydantic_fields__", None)
+    if infos is not None:
+        return frozenset(name for name, info in infos.items() if not info.is_required())
+    return frozenset(
+        field.name
+        for field in dataclasses.fields(cls)
+        if field.default is not dataclasses.MISSING
+        or field.default_factory is not dataclasses.MISSING
+    )
 
 
 def _check_choices(

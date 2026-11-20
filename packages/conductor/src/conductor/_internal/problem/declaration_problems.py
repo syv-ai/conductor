@@ -1164,10 +1164,13 @@ def table_cell_not_kept(*, row: str, column: str, cell: str, reason: str) -> str
     ``date``, and for lists and structs of them. So a column may be, at any depth: one of those classes; a
     ``Literal`` or an enum whose values are all of one of them; ``list[C]`` or a tuple whose items are all ``C``; a
     model, a dataclass or a ``TypedDict`` of such fields that declares every key a value has; ``C | None``; or
-    ``Any``, which a hook gives for a type it doesn't know yet, and which keeps what polars makes of a value. Any
-    other type would come back from polars changed: a union of two types, a dict, a tuple of different items, a
-    ``NotRequired`` field or a config with ``extra="allow"``. A ``Series`` of the same rows is a list, and keeps each
-    value as it is.
+    ``Any``, which a hook gives for a type it doesn't know yet. Any other type would come back from polars changed: a
+    union of two types, a dict, a tuple of different items, a ``NotRequired`` field or a config with
+    ``extra="allow"``. A ``Series`` of the same rows is a list, and keeps each value as it is.
+
+    A column of ``Any`` is let through here, since its type says nothing of its values. Polars picks one type for
+    them when the table is made from rows, and if it would change one, like ``1`` beside ``1.5``, which would become
+    ``1.0``, or a model, which would become a dict, the run fails there, with this code in its ``ctx.errors``.
 
     To fix it, give the column a type a table keeps, such as a model whose fields are all required.
 
@@ -1284,6 +1287,49 @@ def type_not_supported_set(*, type: str) -> str:
         declaration_refused(lambda: node("label-count", title="Label count", description="Counts the labels.")(label_count))
     """
     return f"a set has no order, so conductor doesn't take one in a declared type, and {type} is or holds one. Declare a list or a tuple in its place."
+
+
+@DECLARATION_PROBLEMS.problem
+def union_members_alike(*, type: str, member: str, alike: str) -> str:
+    """An input's or output's type is or holds a union of two models or dataclasses that JSON can't tell apart, like
+    ``Heron | Egret`` where both declare only ``name``.
+
+    A run keeps every value as JSON, and a model's JSON is its fields, not its class. Pydantic reads a union back as
+    the member that takes the most of the value's fields. Here ``alike`` has every field ``member`` has, and needs
+    no other: each of its others has a default. So a ``member`` and an ``alike`` with the same fields read back alike, as
+    whichever of the two the union names first: an ``Egret`` a node returned would come back as a ``Heron`` from a
+    saved run, or across an edge that reads it again.
+
+    To fix it, give each member a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
+    ``Annotated[Heron | Egret, Discriminator("kind")]``. Or give each a required field the other lacks.
+
+    Args:
+        type: Where the union is: the field of a model, dataclass or ``TypedDict`` that holds it, as
+            ``Sighting.bird``, or else the union, as ``Heron | Egret``.
+        member: The class whose fields ``alike`` has too.
+        alike: The class that has every field of ``member``.
+
+    Example:
+        from pydantic import BaseModel
+
+
+        @host_type("heron", title="Heron")
+        class Heron(BaseModel, frozen=True):
+            name: str
+
+
+        @host_type("egret", title="Egret")
+        class Egret(BaseModel, frozen=True):
+            name: str
+
+
+        def spot_bird(text: str) -> Heron | Egret:
+            return Egret(name=text)
+
+
+        declaration_refused(lambda: node("spot-bird", title="Spot bird", description="Names the bird in a text.")(spot_bird))
+    """
+    return f'{member} and {alike} in {type} read back alike from JSON: {alike} has every field {member} has and needs no other, so a saved value may come back as the other class. Give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator("kind")], or give each a required field the other lacks.'
 
 
 @DECLARATION_PROBLEMS.problem

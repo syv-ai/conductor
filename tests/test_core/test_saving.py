@@ -1512,22 +1512,107 @@ def test_an_input_with_no_json_form_is_refused_where_it_is_given_so_every_run_ca
     )
 
 
-def test_a_returned_table_column_a_saved_run_reads_back_as_text_is_refused_naming_the_column():
-    """Bytes inside a list are written as plain JSON, so they would read back as their base64 text."""
+@host_type("reading", title="Reading")
+class _Reading(BaseModel):
+    model_config = ConfigDict(**JSON_CONFIG, frozen=True)
+    taken: dt.datetime
+    day: dt.date
+    clock: dt.time
+    span: dt.timedelta
+    amount: Decimal
+    raw: bytes
 
-    class Blobs(TypedDict):
-        data: list[bytes]
 
-    @node("blob", title="Blob", description="For a test.")
-    def blob(text: str) -> Table[Blobs]:
-        return pl.DataFrame({"data": [[b"\xff\xfe"]]})
+class _Day(TypedDict):
+    day: dt.date
 
-    run = Graph.compile(make_graph(blob), registry_of(blob)).run({"text": "x"})
 
-    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("blob",))
-    assert "column 'data' is List(Binary)" in run.cause.msg and "\\xff" not in json.dumps(
-        run.cause.model_dump(mode="json")
+class _Readings(TypedDict):
+    reading: _Reading
+    readings: list[_Reading]
+    days: list[dt.date]
+    blobs: list[bytes]
+    amounts: list[Decimal]
+    day: _Day
+
+
+_READING = _Reading(
+    taken=dt.datetime(2026, 1, 2, 3, 4, 5),
+    day=dt.date(2026, 1, 2),
+    clock=dt.time(3, 4, 5, 6),
+    span=dt.timedelta(seconds=90),
+    amount=Decimal("1.50"),
+    raw=b"\xff\xfe",
+)
+_READING_ROW = {
+    "reading": _READING,
+    "readings": [_READING],
+    "days": [dt.date(2026, 1, 2)],
+    "blobs": [b"\xff\xfe"],
+    "amounts": [Decimal("1.50"), Decimal("2.25")],
+    "day": {"day": dt.date(2026, 1, 2)},
+}
+
+
+@pytest.mark.parametrize("returned", ["rows", "frame"])
+def test_a_date_time_decimal_or_bytes_inside_a_declared_tables_struct_or_list_reads_back_unchanged(
+    returned: str,
+):
+    """A list or a struct is saved as plain JSON, and a column the row type declares is read back by its type, so
+    a date inside it comes back as a date, not as its text."""
+    received: list[pl.DataFrame] = []
+
+    @node("readings", title="Readings", description="For a test.")
+    def readings(text: str) -> Table[_Readings]:
+        if returned == "rows":
+            return [_READING_ROW]  # type: ignore[return-value]
+        return pl.DataFrame(
+            [
+                {
+                    **_READING_ROW,
+                    "reading": _READING.model_dump(),
+                    "readings": [_READING.model_dump()],
+                }
+            ]
+        )
+
+    @node("take-readings", title="Take readings", description="For a test.")
+    def take_readings(rows: Table[_Readings]) -> int:
+        received.append(rows)
+        return rows.height
+
+    graph = Graph.compile(
+        make_graph(readings, take_readings, edges=[("readings.result", "take-readings.rows")]),
+        registry_of(readings, take_readings),
     )
+    run = graph.run({"text": "x"})
+    kept, read_back = (
+        run.results["readings"]["result"],
+        _round_trip(run).results["readings"]["result"],
+    )
+
+    assert run.status == "complete"
+    assert kept.schema == read_back.schema == received[0].schema
+    assert read_back.to_dicts() == kept.to_dicts() == received[0].to_dicts()
+    assert read_back.to_dicts()[0]["readings"][0]["clock"] == dt.time(3, 4, 5, 6)
+    assert read_back.to_dicts()[0]["blobs"] == [b"\xff\xfe"]
+
+
+class _Clocks(TypedDict):
+    clocks: list[dt.time]
+
+
+def test_a_time_finer_than_a_microsecond_inside_a_declared_tables_list_is_refused():
+    """A saved run counts in microseconds, so a nanosecond inside a list would be lost."""
+
+    @node("clocks", title="Clocks", description="For a test.")
+    def clocks(text: str) -> Table[_Clocks]:
+        return pl.DataFrame({"clocks": pl.Series([[1]]).cast(pl.List(pl.Time))})
+
+    run = Graph.compile(make_graph(clocks), registry_of(clocks)).run({"text": "x"})
+
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("clocks",))
+    assert "column 'clocks' has a time finer than a microsecond" in run.cause.msg
 
 
 # -- a saved run that does not fit its graph is refused ---------------------------------------
