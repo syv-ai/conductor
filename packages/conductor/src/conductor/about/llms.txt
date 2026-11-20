@@ -920,6 +920,53 @@ Retries live on the node's `Policy`, and are counted per call.
 - There is no `run_end`, since the run didn't end.
 - A `cancel` set as well wins.
 
+**A node that runs a graph.** A node's function may run another graph inside its call, as a host runs an agent's tools. It compiles the graph once, and runs it with its own context, so what the host keeps there, such as a cost so far, is the same object in both runs. The inner graph's registry names the context's class too. A cancel event the host puts in the context goes to the inner run as `cancel=`. Once it is set, the inner run ends `cancelled`, the node raises, and the outer run ends `cancelled` too (above). The inner run is the node's own business: its calls are not in the outer run's events or saved run, and a retry, or a call made again, runs the inner graph again. A node with `concurrency` may be used in both graphs, but not by a node that runs a graph using itself ("Versions and Policies").
+
+```python
+import asyncio
+import threading
+
+from conductor.events import RunEnd
+
+
+@dataclass(frozen=True)
+class Session:
+    cancel: threading.Event
+
+
+tools = NodeRegistry(context_type=Session)
+
+
+@tools.node("look_up", title="Look up", description="Looks a word up.")
+def look_up(ctx: Context[Session], word: str) -> str:
+    return word.upper()
+
+
+look_up_graph = Graph.compile(make_graph(look_up), tools)
+
+
+async def _finished(run: Run[Session], ctx: Session) -> RunEnd:
+    async for event in run.stream(context=ctx, cancel=ctx.cancel):
+        if isinstance(event, RunEnd):
+            return event
+    raise AssertionError("a stream ends with run_end")
+
+
+@tools.node("research", title="Research", description="Looks up each word with a graph.")
+def research(ctx: Context[Session], words: list[str]) -> list[str]:
+    results = []
+    for word in words:
+        end = asyncio.run(_finished(look_up_graph.with_inputs({"word": word}), ctx))
+        if end.status != "complete":
+            raise ExternalError(f"The look-up ended {end.status}.")
+        results.append(end.run.outputs["result"])
+    return results
+
+
+researched = Graph.compile(make_graph(research), tools).run({"words": ["a", "b"]}, context=Session(threading.Event()))
+print(researched.outputs)  # {'result': ['A', 'B']}
+```
+
 ### Errors
 
 The classes are exported from `conductor`. What is wrong is always one model, `Problem(type, loc, msg, ctx)`. It is on `graph.problems`, on `node_failed`, as an ended run's `run.cause`, and in the `problems` of each exception conductor defines: `NodeDeclarationError`, `InvalidCallError` and `NodeError`. Conductor's own check of what a call is given raises `InvalidCallError`, an argument of the wrong type included; Python's own call errors stay Python's, such as the `TypeError` for a keyword a function doesn't take, and so does pydantic's validation error from a model built by hand, such as `Policy(...)`. Those have no problems.
