@@ -5,10 +5,13 @@ node that breaks one.
 """
 
 import logging
-from typing import Annotated, Any
+from dataclasses import dataclass
+from typing import Annotated, Any, TypedDict
 
 import polars as pl
+import pytest
 from conductor import (
+    JSON_CONFIG,
     Ask,
     Context,
     ExternalError,
@@ -16,12 +19,15 @@ from conductor import (
     NodeRegistry,
     Param,
     Series,
+    Table,
     Upgrade,
+    host_type,
     make_graph,
     node,
     subgraph,
 )
 from conductor.testing import REGISTRY_CHECK_PROBLEMS, check_registry
+from pydantic import BaseModel, ConfigDict
 
 
 class Session:
@@ -510,18 +516,120 @@ def test_each_problem_behind_a_check_is_one_problem_with_its_message_and_its_cod
 # -- calling the body ------------------------------------------------------------------------------
 
 
-def test_a_body_that_changes_a_value_it_was_given_is_changed_its_inputs():
-    @node("appends", title="Appends", description="For a test.")
-    def appends(items: Series[int]) -> int:
-        items.append(1)
-        return len(items)
+class Line(TypedDict):
+    amount: int
 
-    [problem] = check_registry(registry_of(appends), examples={"appends": [{"items": [1, 2]}]})
+
+@host_type("basket", title="Basket")
+class Basket(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    items: list[str]
+
+
+@host_type("ledger", title="Ledger")
+class Ledger(BaseModel):
+    model_config = ConfigDict(**JSON_CONFIG, frozen=True)
+    lines: Table[Line]
+
+
+@host_type("folder", title="Folder")
+@dataclass(frozen=True)
+class Folder:
+    lines: Table[Line]
+
+
+def _set_cell(given: pl.DataFrame) -> None:
+    given[0, "amount"] = 99
+
+
+@node("appends", title="Appends", description="For a test.")
+def appends(items: Series[int]) -> int:
+    items.append(1)
+    return len(items)
+
+
+@node("tags", title="Tags", description="For a test.")
+def tags(items: list[str]) -> list[str]:
+    items.append("new")
+    return items
+
+
+@node("sets_key", title="Sets key", description="For a test.")
+def sets_key(counts: dict[str, int]) -> int:
+    counts["new"] = 1
+    return len(counts)
+
+
+@node("sets_cell", title="Sets cell", description="For a test.")
+def sets_cell(lines: Table[Line]) -> int:
+    _set_cell(lines)
+    return lines.height
+
+
+@node("inserts_column", title="Inserts column", description="For a test.")
+def inserts_column(lines: Table[Line]) -> int:
+    lines.insert_column(1, pl.Series("note", ["x"]))
+    return lines.height
+
+
+@node("fills_basket", title="Fills basket", description="For a test.")
+def fills_basket(basket: Basket) -> int:
+    basket.items.append("new")
+    return len(basket.items)
+
+
+@node("edits_ledger", title="Edits ledger", description="For a test.")
+def edits_ledger(ledger: Ledger) -> int:
+    _set_cell(ledger.lines)
+    return ledger.lines.height
+
+
+@node("edits_folder", title="Edits folder", description="For a test.")
+def edits_folder(folder: Folder) -> int:
+    _set_cell(folder.lines)
+    return folder.lines.height
+
+
+@pytest.mark.parametrize(
+    ("changes", "example"),
+    [
+        (appends, {"items": [1, 2]}),
+        (tags, {"items": ["old"]}),
+        (sets_key, {"counts": {"old": 1}}),
+        (sets_cell, {"lines": [{"amount": 1}]}),
+        (inserts_column, {"lines": [{"amount": 1}]}),
+        (fills_basket, {"basket": {"items": ["old"]}}),
+        (edits_ledger, {"ledger": {"lines": [{"amount": 1}]}}),
+        (edits_folder, {"folder": {"lines": [{"amount": 1}]}}),
+    ],
+)
+def test_a_body_that_changes_a_value_it_was_given_is_changed_its_inputs(
+    changes: Any, example: dict[str, Any]
+):
+    """A list, a dict, a frame, and a list or a frame in a field of a frozen model or dataclass, each changed in place."""
+    [problem] = check_registry(registry_of(changes), examples={changes.id: [example]})
+    [name] = example
     assert (problem.type, problem.loc, problem.ctx["input"]) == (
         "changed_its_inputs",
-        ("appends", 1),
-        "items",
+        (changes.id, 1),
+        name,
     )
+    assert problem.msg == (
+        f"The node changed the value of its input {name!r} in place, which every other node that reads it sees."
+        " Make a new value instead, such as [*items, item], dataclasses.replace(...), model_copy(update=...) or"
+        " frame.with_columns(...)."
+    )
+
+
+def test_a_body_that_makes_a_new_value_is_fine():
+    @node("tags_anew", title="Tags anew", description="For a test.")
+    def tags_anew(items: list[str], ledger: Ledger, lines: Table[Line]) -> int:
+        tagged = [*items, "new"]
+        widened = lines.with_columns(note=pl.lit("x"))
+        return len(tagged) + ledger.model_copy(update={"lines": widened}).lines.width
+
+    example = {"items": ["old"], "ledger": {"lines": [{"amount": 1}]}, "lines": [{"amount": 1}]}
+    assert check_registry(registry_of(tags_anew), examples={"tags_anew": [example]}) == []
 
 
 def test_a_body_that_puts_a_frame_where_its_input_had_a_list_is_changed_its_inputs():

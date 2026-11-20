@@ -866,4 +866,4 @@ print(problems)  # []
 print(check_registry(signing, examples={"sign": [{"text": "Done"}]}, context=ida))  # []
 ```
 
-Put it in your test suite as `assert check_registry(registry, examples=...) == []`. A node's body is called only when you give it an example, since a node might send an email. A node with no example is still checked for everything that needs no call, such as its upgrades and its hooks. `python -m conductor.about conductor-testing` lists every check.
+Put it in your test suite as `assert check_registry(registry, examples=...) == []`. A node's body is called only when you give it an example, since a node might send an email. A node with no example is still checked for everything that needs no call, such as its upgrades and its hooks. A run never checks that a node leaves its inputs as they were, so this is where a body that does `items.append(x)` on a list it was given shows up, as [`changed_its_inputs`](problems.md#changed_its_inputs); make a new value instead, such as `[*items, x]`. `python -m conductor.about conductor-testing` lists every check.

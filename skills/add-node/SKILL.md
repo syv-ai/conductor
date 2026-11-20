@@ -101,6 +101,7 @@ assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 ```
 
 - A node's body is only called for a node you give an example (a node may send mail). It's called once per example, through the engine.
+- A body that changes a value it was given, as `items.append(x)` does, is `changed_its_inputs`. Make a new value instead: `[*items, x]`, `dataclasses.replace`, `model_copy(update=...)`, `frame.with_columns(...)`.
 - `("greet", 1)` as a key gives examples for an older version.
 - `context=AppContext(...)` gives the examples the run's context, the same way `graph.run` takes it.
 - A known failure goes in a test of its own, over `registry.filter(...)`, marked `pytest.mark.xfail(strict=True)`. `python -m conductor.about example-run-failed` shows one.
