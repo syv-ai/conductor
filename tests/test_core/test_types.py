@@ -5,7 +5,8 @@ test picks one place where a hint could be read two ways, and checks that it is 
 """
 
 import datetime
-from enum import Enum
+from decimal import Decimal
+from enum import Enum, IntEnum
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import polars as pl
@@ -549,6 +550,12 @@ class _Wader(Enum):
     HERON = "heron"
 
 
+@host_type("clutch", title="Clutch")
+class _Clutch(IntEnum):
+    ONE = 1
+    TWO = 2
+
+
 @pytest.mark.parametrize(
     ("hint", "where"),
     [
@@ -564,6 +571,19 @@ class _Wader(Enum):
         (list[_Tern | _Gull | None], "_Tern | _Gull"),
         (Series[_BirdRow], "_BirdRow.bird"),
         (_Flock, "_Flock.birds"),
+        (int | _Clutch, "int | _Clutch"),
+        (_Clutch | Literal[2, 3], "_Clutch | Literal[2, 3]"),
+        (Literal[1] | float, "Literal[1] | float"),
+        (list[_Tern] | list[_Gull], "list[_Tern] | list[_Gull]"),
+        (tuple[_Tern, int] | tuple[_Gull, int], "tuple[_Tern, int] | tuple[_Gull, int]"),
+        (list[int] | tuple[int, ...], "list[int] | tuple[int]"),
+        (str | datetime.date, "str | date"),
+        (datetime.date | str, "date | str"),
+        (datetime.date | datetime.datetime, "date | datetime"),
+        (str | Decimal, "str | Decimal"),
+        (str | bytes, "str | bytes"),
+        (float | str, "float | str"),
+        (Literal["Infinity"] | float, "Literal['Infinity'] | float"),
     ],
     ids=[
         "two models of the same fields",
@@ -578,6 +598,19 @@ class _Wader(Enum):
         "in a list",
         "in a Series of rows",
         "in a field of a host's model",
+        "a number and an IntEnum",
+        "an IntEnum and a Literal sharing a value",
+        "a Literal of a number and float",
+        "two lists of alike items",
+        "two tuples of alike items",
+        "a list and a tuple",
+        "a text and a date",
+        "a date and a text",
+        "a date and a datetime",
+        "a text and a Decimal",
+        "a text and bytes",
+        "a float, written as text when it isn't finite, and a text",
+        "a Literal of a float's text and float",
     ],
 )
 def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_declared(
@@ -601,6 +634,18 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         (_Tern | str, _Tern(name="t")),
         (_ShoreBird | _Wader, _Wader.HERON),
         (int | str, "1"),
+        (int | float, 1),
+        (int | float, 1.0),
+        (float | int, 1),
+        (_Clutch | Literal[3], _Clutch.TWO),
+        (_ShoreBird | Literal["heron"], _ShoreBird.TERN),
+        (Literal["auto"] | float, "auto"),
+        (Literal["auto"] | float, float("inf")),
+        (Literal["auto"] | str, "x"),
+        (int | Decimal, Decimal("1.5")),
+        (bool | int, 1),
+        (list[int] | list[str], ["a"]),
+        (tuple[_Tern, int] | tuple[_Tern, str], (_Tern(name="t"), "a")),
     ],
     ids=[
         "told apart by a discriminator",
@@ -608,6 +653,18 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         "a model or a text",
         "two enums of no value in common",
         "a number or a text",
+        "a whole number of int or float",
+        "a float of int or float",
+        "a whole number of float or int",
+        "an IntEnum and a Literal of no value in common",
+        "an enum and a Literal of no value in common",
+        "a Literal's text of a Literal or float",
+        "a float that isn't finite of a Literal or float",
+        "a Literal and the type of its values",
+        "a Decimal, written as text, or int",
+        "a number or a yes or no",
+        "lists of items of different kinds",
+        "tuples of alike items only where the class is the same",
     ],
 )
 def test_a_union_whose_members_json_tells_apart_reads_back_as_each_values_own_class(

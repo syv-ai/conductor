@@ -1292,18 +1292,29 @@ def type_not_supported_set(*, type: str) -> str:
 @DECLARATION_PROBLEMS.problem
 def union_members_alike(*, type: str, member: str, alike: str) -> str:
     """An input's or output's type is or holds a union with two members JSON can't tell apart by their class, like
-    ``Heron | Egret``, two models.
+    ``Heron | Egret``, two models, or ``str | date``.
 
     A run keeps every value as JSON, which says nothing of a value's class, and pydantic reads a union back as the
     member that takes the value best, the first where two take it as well. So an ``Egret`` a node returned could come
-    back as a ``Heron`` from a saved run, or across an edge that reads it again. Two members are written alike when
-    both are written as an object (a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``), or when one is an
-    enum and the other an enum, a ``Literal`` or ``str`` that shares a value with it. Such a union is refused even
-    where pydantic might tell its members apart, by their fields or their types. ``X | None``, and members of
-    different JSON kinds, like ``int | str``, are taken.
+    back as a ``Heron`` from a saved run, or across an edge that reads it again, and a ``date`` as a ``str``. Two
+    members are written alike when JSON writes both as the same kind, an object, an array, a text, a number or a
+    yes or no, and they are of different classes, where one could read the other's value:
 
-    To fix it, give each member a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
-    ``Annotated[Heron | Egret, Discriminator("kind")]``. For an enum, give it values the other member doesn't take.
+    - two objects: a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``, generic or not;
+    - two texts: ``str``, ``date``, ``datetime``, ``time``, ``timedelta``, ``Decimal``, ``bytes`` or ``UUID``, and
+      a ``float`` that isn't finite, written ``"Infinity"``;
+    - a number beside an enum or a ``Literal`` of numbers, like ``int | IntEnum``, or ``Literal[1] | float``;
+    - an enum beside another enum, a ``Literal`` or the type of its values that shares a value with it;
+    - a list beside a tuple, and two lists, or two tuples, whose items are alike, like ``list[Heron] |
+      list[Egret]``.
+
+    Such a union is refused even where pydantic might tell its members apart, by their fields or their types.
+    ``X | None``, members of different JSON kinds, like ``int | str``, a ``Literal`` beside the type of its values,
+    like ``Literal["auto"] | str``, and ``int | float``, which JSON tells apart by a float's point, are taken.
+
+    To fix it, give each model a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
+    ``Annotated[Heron | Egret, Discriminator("kind")]``. For other members, declare one type, or types JSON writes
+    as different kinds, like a model holding the value; for an enum, give it values the other member doesn't take.
 
     Args:
         type: Where the union is: the field of a model, dataclass or ``TypedDict`` that holds it, as
@@ -1331,7 +1342,7 @@ def union_members_alike(*, type: str, member: str, alike: str) -> str:
 
         declaration_refused(lambda: node("spot-bird", title="Spot bird", description="Names the bird in a text.")(spot_bird))
     """
-    return f"{member} and {alike} in {type} are written alike as JSON, so a saved value may read back as the other one; such a union is refused even where pydantic might tell them apart. Give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator('kind')], or, for an enum, give it values the other member doesn't take."
+    return f"{member} and {alike} in {type} are written alike as JSON, so a saved value may read back as the other one; such a union is refused even where pydantic might tell them apart. For two models, give each a field of its own Literal and write Annotated[{member} | {alike}, Discriminator('kind')]; else declare one type, or types JSON writes differently, or, for an enum, give it values the other member doesn't take."
 
 
 @DECLARATION_PROBLEMS.problem

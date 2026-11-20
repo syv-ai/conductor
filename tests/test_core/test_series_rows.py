@@ -5,6 +5,7 @@ is. An edge that names a field, such as ``contacts.result.email``, reads that co
 plain rows. And the table is checked column by column when the node returns it.
 """
 
+import datetime
 import json
 from enum import Enum
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
@@ -211,6 +212,62 @@ def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_rows
         "the column 'name' is missing, and the row type needs it",
         ["column_missing"],
     )
+
+
+class _Visit(TypedDict):
+    on: datetime.date
+    days: list[datetime.date]
+
+
+@pytest.mark.parametrize("declared", [Table, Series])
+@pytest.mark.parametrize(
+    ("returned", "error"),
+    [
+        (pl.DataFrame({"on": ["2026-01-02"], "days": [[datetime.date(2026, 1, 2)]]}), "date_type"),
+        (
+            pl.DataFrame(
+                {"on": [datetime.datetime(2026, 1, 2)], "days": [[datetime.date(2026, 1, 2)]]}
+            ),
+            "date_type",
+        ),
+        (pl.DataFrame({"on": [datetime.date(2026, 1, 2)], "days": [["2026-01-02"]]}), "date_type"),
+        ([{"on": "2026-01-02", "days": []}], "date_type"),
+        ([{"on": datetime.datetime(2026, 1, 2), "days": []}], "date_type"),
+        (
+            pl.DataFrame(
+                {"on": [datetime.date(2026, 1, 2)], "days": [[datetime.date(2026, 1, 2)]]}
+            ),
+            None,
+        ),
+    ],
+    ids=[
+        "a frame's text for a date",
+        "a frame's datetime for a date",
+        "a frame's text inside a list of dates",
+        "a row's text for a date",
+        "a row's datetime for a date",
+        "a frame's dates",
+    ],
+)
+def test_a_frames_column_is_read_as_strictly_as_its_rows(
+    declared: Any, returned: Any, error: str | None
+) -> None:
+    """A frame a node returns is read as its rows would be: a text or a datetime is no date in either, unless the
+    column is of the polars type the date is kept as."""
+
+    @node("visits", title="Visits", description="For a test.")
+    def visits(text: str) -> declared[_Visit]:  # type: ignore[valid-type]
+        return returned  # type: ignore[no-any-return]
+
+    run = Graph.compile(make_graph(visits), registry_of(visits)).run({"text": "x"})
+
+    if error is None:
+        assert run.status == "complete"
+    else:
+        assert (run.cause.type, [found["type"] for found in run.cause.ctx["errors"]]) == (
+            "invalid_output",
+            [error],
+        )
 
 
 def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:

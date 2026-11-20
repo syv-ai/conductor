@@ -355,24 +355,6 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     assert results["maybe-mapping"]["result"] == {"v": "NaN"}
 
 
-def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text_it_takes():
-    @node("up", title="Up", description="For a test.")
-    def up(k: int) -> Series[float | str]:
-        return [math.nan, "NaN", 1.5]
-
-    @node("down", title="Down", description="For a test.")
-    def down(x: float | str) -> str:
-        return type(x).__name__
-
-    graph = Graph.compile(
-        make_graph(up, down, edges=[("up.result", "down.x")]), registry_of(up, down)
-    )
-    read_back = _round_trip(graph.run({"k": 1}))
-
-    assert read_back.results["up"]["result"] == ["NaN", "NaN", 1.5]
-    assert read_back.with_forgotten("down").resume().outputs["result"] == ["str", "str", "float"]
-
-
 @host_type("point", title="Point")
 class Point(BaseModel, frozen=True):
     x: int
@@ -1675,7 +1657,8 @@ class _Agreed(TypedDict):
 @pytest.mark.parametrize("returns", [Table, Series])
 def test_a_saved_tables_text_is_no_bool_after_a_deploy_that_makes_its_column_one(returns: Any):
     """A saved table is read strictly, as any saved value is, so ``"Yes"`` saved for a text column doesn't read
-    back as ``true`` once the column is a ``bool``."""
+    back as ``true`` once the column is a ``bool``. A Series of rows saved as a table reports the table's own fault,
+    not that it isn't the list a Series may also be saved as."""
     graphs = []
     for row in (_Answered, _Agreed):
 
@@ -1689,7 +1672,9 @@ def test_a_saved_tables_text_is_no_bool_after_a_deploy_that_makes_its_column_one
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, after)
-    assert [problem.type for problem in refused.value.problems] == ["saved_run_unreadable"]
+    (problem,) = refused.value.problems
+    assert problem.type == "saved_run_unreadable"
+    assert [error["type"] for error in problem.ctx["errors"]] == ["bool_type"]
 
 
 # -- a saved run that does not fit its graph is refused ---------------------------------------

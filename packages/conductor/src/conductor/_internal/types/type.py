@@ -1112,13 +1112,12 @@ def _check_union(
 
     A run keeps a value as JSON, which says nothing of its class, and pydantic reads a union back as the member that
     takes it best, the first where two take it as well. So a union is refused when two of its members are written
-    alike:
-
-    - two whose JSON is an object: a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``, generic or not;
-    - an enum beside another enum, a ``Literal`` or ``str`` that shares a value with it.
+    alike (``_alike``): as the same JSON kind (an object, an array, a text, a number, or a yes or no), by two
+    different classes, where one could read the other's value. ``Heron | Egret``, ``str | date``, ``int | IntEnum``
+    and ``list[Heron] | list[Egret]`` are refused.
 
     That refuses some unions pydantic could tell apart, such as two models with different required fields, since
-    which it can is not one rule a reader can see. ``X | None`` and members whose JSON is of different kinds, like
+    which it can is not one rule a reader can see. ``X | None`` and members of different JSON kinds, like
     ``int | str``, are kept. A union pydantic tells apart by a ``Discriminator`` is a schema of another kind, and
     isn't walked here.
 
@@ -1130,79 +1129,179 @@ def _check_union(
     Raises:
         NodeDeclarationError: ``union_members_alike``.
     """
-    members = [
-        _written_as(choice[0] if isinstance(choice, tuple) else choice, definitions)
-        for choice in union["choices"]
-    ]
-    for at, (name, values) in enumerate(members):
-        for other, other_values in members[at + 1 :]:
-            if values is not None and other_values is not None and _alike(values, other_values):
+    members = [_written_as(choice, definitions, frozenset()) for choice in _choices(union)]
+    for at, member in enumerate(members):
+        for other in members[at + 1 :]:
+            if _alike(member, other):
                 raise NodeDeclarationError(
                     declaration_problems.union_members_alike(
-                        type=_field_or(held, " | ".join(member for member, _ in members)),
-                        member=name,
-                        alike=other,
+                        type=_field_or(held, " | ".join(one.name for one in members)),
+                        member=member.name,
+                        alike=other.name,
                     )
                 )
 
 
-#: The JSON values of a member written as an object, which any other such member's may be.
-_AN_OBJECT = "object"
-
-#: The JSON values of ``str``: any text.
-_ANY_TEXT = "text"
+def _choices(union: Mapping[str, Any]) -> list[Any]:
+    """Returns the member schemas of a union's schema."""
+    return [choice[0] if isinstance(choice, tuple) else choice for choice in union["choices"]]
 
 
-def _written_as(schema: Any, definitions: dict[str, Any]) -> tuple[str, Any]:
-    """Returns a union member's name, and what its JSON may be, as ``_alike`` compares it.
+@dataclasses.dataclass(frozen=True)
+class _Written:
+    """How JSON writes the values of one union member, as ``_alike`` compares two.
 
-    What its JSON may be is ``_AN_OBJECT`` for a model, a dataclass, a ``TypedDict`` or a dict, the values of an enum
-    or a ``Literal`` as a ``frozenset`` with the enum's class, ``_ANY_TEXT`` for ``str``, and ``None`` for any other
-    member, which no other is taken for here. A reference and a validator around the member are looked through.
+    Attributes:
+        name: The member as a problem names it, such as ``Heron`` or ``list[Heron]``.
+        kinds: Each JSON kind its values are written as (``"object"``, ``"array"``, ``"text"``, ``"number"`` or
+            ``"yes or no"``), with the class that reads a value of that kind back and the values a member of named
+            values has there, or ``None`` for any. The class is ``None`` for a dict, which has no class of its own.
+        items: The members of a list's item, or of each of a tuple's items.
     """
-    while schema is not None and schema["type"] in (
-        "definition-ref",
-        "function-before",
-        "function-after",
-        "function-wrap",
+
+    name: str
+    kinds: dict[str, tuple[Any, frozenset[Any] | None]]
+    items: tuple[_Written, ...] = ()
+
+
+#: The core schema types of Python's own classes, by the JSON kind conductor writes their values as. A float is
+#: also written as text when it isn't finite (``_NOT_FINITE``), and an enum or a ``Literal`` by its values.
+_KIND_OF = {
+    "str": "text",
+    "date": "text",
+    "datetime": "text",
+    "time": "text",
+    "timedelta": "text",
+    "decimal": "text",
+    "bytes": "text",
+    "uuid": "text",
+    "url": "text",
+    "multi-host-url": "text",
+    "complex": "text",
+    "int": "number",
+    "float": "number",
+    "bool": "yes or no",
+}
+
+#: The Python names of the core schema types in ``_KIND_OF`` whose name is not the class's own.
+_PYTHON_NAME = {
+    "decimal": "Decimal",
+    "uuid": "UUID",
+    "url": "AnyUrl",
+    "multi-host-url": "MultiHostUrl",
+}
+
+#: The texts a float that isn't finite is written as (``JSON_CONFIG``).
+_NOT_FINITE = frozenset({"Infinity", "-Infinity", "NaN"})
+
+#: The schemas a member is looked through to the schema they wrap: a validator around it, a default, ``None``.
+_WRAPPERS = ("function-before", "function-after", "function-wrap", "nullable", "default")
+
+
+def _written_as(schema: Any, definitions: dict[str, Any], walked: frozenset[str]) -> _Written:
+    """Returns how JSON writes a union member's values (``_Written``).
+
+    A reference and a validator, a default or ``None`` around the member are looked through. A member of any other
+    kind, like ``Any``, ``None`` or a type with a schema of its own, is written as no kind, and no other is taken
+    for it here.
+
+    Args:
+        schema: The member's schema.
+        definitions: The schemas pydantic declared beside the type.
+        walked: The references already followed to here, so a type that holds itself ends.
+    """
+    while schema is not None and (
+        schema["type"] == "definition-ref" or schema["type"] in _WRAPPERS
     ):
-        schema = (
-            looked_up(schema, definitions)
-            if schema["type"] == "definition-ref"
-            else schema["schema"]
-        )
+        if schema["type"] == "definition-ref":
+            if schema["schema_ref"] in walked:
+                return _Written(str(schema["schema_ref"]), {})
+            walked |= {schema["schema_ref"]}
+            schema = looked_up(schema, definitions)
+        else:
+            schema = schema["schema"]
     if schema is None:
-        return "Any", None
+        return _Written("Any", {})
     kind = schema["type"]
     if kind in _DECLARES_FIELDS:
-        return str(schema["cls"].__name__), _AN_OBJECT
+        return _Written(str(schema["cls"].__name__), {"object": (schema["cls"], None)})
     if kind == "dict":
-        return "dict", _AN_OBJECT
+        return _Written("dict", {"object": (None, None)})
+    if kind in ("list", "tuple"):
+        inside = schema.get("items_schema", [])
+        items = tuple(
+            _written_as(member, definitions, walked)
+            for item in (inside if isinstance(inside, list) else [inside])
+            for member in (_choices(item) if item["type"] == "union" else [item])
+        )
+        return _Written(
+            f"{kind}[{', '.join(item.name for item in items)}]",
+            {"array": (kind, None)},
+            items,
+        )
     if kind == "enum":
-        return str(schema["cls"].__name__), (
-            schema["cls"],
-            frozenset(member.value for member in schema["members"]),
+        return _Written(
+            str(schema["cls"].__name__),
+            _named([member.value for member in schema["members"]], schema["cls"]),
         )
     if kind == "literal":
-        return f"Literal{list(schema['expected'])}", (None, frozenset(schema["expected"]))
-    if kind == "str":
-        return "str", _ANY_TEXT
-    return kind, None
+        return _Written(f"Literal{list(schema['expected'])}", _named(list(schema["expected"])))
+    if kind == "float":
+        return _Written("float", {"number": ("float", None), "text": ("float", _NOT_FINITE)})
+    if kind in _KIND_OF:
+        return _Written(_PYTHON_NAME.get(kind, kind), {_KIND_OF[kind]: (kind, None)})
+    return _Written(kind, {})
 
 
-def _alike(one: Any, other: Any) -> bool:
-    """Says whether two union members, by what their JSON may be (``_written_as``), may be written alike: both
-    objects, or an enum and another enum, a ``Literal`` or ``str`` with a value in common."""
-    if one == _AN_OBJECT or other == _AN_OBJECT:
-        return one == other
-    enums = [
-        values for values in (one, other) if isinstance(values, tuple) and values[0] is not None
-    ]
-    if not enums:
-        return False
-    if _ANY_TEXT in (one, other):
-        return any(isinstance(value, str) for value in enums[0][1])
-    return bool(one[1] & other[1])
+def _named(
+    values: list[Any], cls: type | None = None
+) -> dict[str, tuple[Any, frozenset[Any] | None]]:
+    """Returns the JSON kinds named values are written as, an enum's or a ``Literal``'s, each with the class that
+    reads them back and the values of that kind.
+
+    An enum's class is ``cls``. A ``Literal``'s value is a value of its own class, so ``Literal["a"]`` reads back
+    as ``str`` does, and its member of an enum as that enum. Values of one kind of different classes, like ``1``
+    and ``1.5``, are read back by no one class, written ``"Literal"``.
+    """
+    kinds: dict[str, tuple[Any, set[Any]]] = {}
+    for value in values:
+        reader = cls or (type(value) if isinstance(value, Enum) else type(value).__name__)
+        written = value.value if isinstance(value, Enum) else value
+        if isinstance(written, bool):
+            kind = "yes or no"
+        elif isinstance(written, int | float):
+            kind = "number"
+        elif isinstance(written, str):
+            kind = "text"
+        else:
+            continue
+        known, named = kinds.setdefault(kind, (reader, set()))
+        kinds[kind] = (known if known == reader else "Literal", named | {written})
+    return {kind: (reader, frozenset(named)) for kind, (reader, named) in kinds.items()}
+
+
+def _alike(one: _Written, other: _Written) -> bool:
+    """Says whether JSON writes two union members alike, so a value of one may read back as the other.
+
+    They are alike when both are written as one JSON kind, by different classes, and one could read the other's
+    value there: any value of the kind, or one of the named values the other has. Two lists, or two tuples, are
+    alike when their items are, and a dict, which has no class of its own, is alike with every object. ``int`` and
+    ``float`` are the one pair of different classes JSON tells apart: a float is written with its point, which an
+    ``int`` never reads.
+    """
+    for kind in one.kinds.keys() & other.kinds.keys():
+        (cls, values), (other_cls, other_values) = one.kinds[kind], other.kinds[kind]
+        if cls == other_cls and kind == "array":
+            if any(_alike(item, other_item) for item in one.items for other_item in other.items):
+                return True
+            continue
+        if cls == other_cls and cls is not None:
+            continue
+        if {cls, other_cls} == {"int", "float"} and values is None and other_values is None:
+            continue
+        if values is None or other_values is None or values & other_values:
+            return True
+    return False
 
 
 def _check_choices(

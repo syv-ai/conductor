@@ -1773,7 +1773,7 @@ def test_a_value_is_read_strictly_as_its_json_by_every_door_so_a_lax_conversion_
         ({"a": datetime.date(2026, 1, 2)}, Any, {"a": "2026-01-02"}),
         (None, str | None, None),
         ([{"name": "a", "amount": 1}], list[Priced], [{"name": "a", "amount": 1}]),
-        ("Infinity", float | str, "Infinity"),
+        ("Infinity", Any, "Infinity"),
         ({"level": 1.5, "label": "NaN"}, Gauge, Gauge(1.5, "NaN")),
     ],
     ids=[

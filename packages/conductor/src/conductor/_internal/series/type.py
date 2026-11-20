@@ -11,7 +11,7 @@ import functools
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 import polars as pl
-from pydantic import GetCoreSchemaHandler, GetPydanticSchema
+from pydantic import Discriminator, GetCoreSchemaHandler, GetPydanticSchema, Tag
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.table import Table, is_bare_table_row, table_and_cells_schema
@@ -26,6 +26,12 @@ from conductor._internal.types import (
 
 from .read import series_schema
 from .stored import SeriesItems, SeriesRows
+
+
+def _stored_form(value: Any) -> str:
+    """Says which form a stored Series of rows is in, by its class or its saved JSON's shape: a list is its items,
+    and anything else a table."""
+    return SeriesItems.__name__ if isinstance(value, list) else SeriesRows.__name__
 
 
 class _Series[T]:
@@ -129,14 +135,20 @@ class SeriesType(Type, of=_Series):
         """The type hint a saved run uses to write and read back a stored Series of this type.
 
         It is ``SeriesItems[T | None]``. For a Series of rows ``R`` it is ``SeriesItems[R | None] | SeriesRows[R]``,
-        since the node may have returned either a list or a frame.
+        since the node may have returned either a list or a frame. The saved JSON's shape picks the form: a list is
+        the items, and anything else the table, so a saved table that no longer fits its rows reports the table's own
+        fault, such as the column a cell is refused in, rather than that it isn't a list.
         """
         items: Any = SeriesItems
         stored = items[union_of((self.item.closed, type(None)))]
         if self._table is None:
             return stored
         rows: Any = SeriesRows
-        return stored | rows[self.item.bare]
+        return Annotated[
+            Annotated[stored, Tag(SeriesItems.__name__)]
+            | Annotated[rows[self.item.bare], Tag(SeriesRows.__name__)],
+            Discriminator(_stored_form),
+        ]
 
     @functools.cached_property
     def returned_schema(self) -> CoreSchema:
