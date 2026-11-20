@@ -59,6 +59,13 @@ class SavedOutcomes(BaseModel):
         "shout": {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]},
                   "fingerprints": ["<fp a>", null, "<fp c>"], "none_inputs": {"1": "line"}}
 
+    A call of a node that asked keeps what its ``Ask`` said under ``questions``, while it waits and once a person
+    has answered. Here ``approve`` asked about the second line, and the person said no::
+
+        "approve": {"states": ["done", "done", "done"], "outputs": {"result": [true, false, true]},
+                    "fingerprints": ["<fp a>", "<fp b>", "<fp c>"],
+                    "questions": {"1": {"prompt": "Approve 'b'?", "defaults": {"result": true}}}}
+
     A key after ``outputs`` is left out of the JSON when it is empty.
 
     Attributes:
@@ -67,7 +74,9 @@ class SavedOutcomes(BaseModel):
         outputs: By output name, the output's value for each call. ``None`` for a call with no outputs.
         fingerprints: For each call, its call fingerprint: for a done call and a waiting one. ``None`` for any
             other call, and for one whose arguments or items have no JSON form.
-        questions: By call number, what the ``Ask`` of a waiting call said: its prompt, choices and defaults.
+        questions: By call number, what the ``Ask`` of a call that asked said: its prompt, choices and defaults. A
+            waiting call has ``None`` for its state. An answered one is ``"done"``, and keeps what the person was
+            shown beside their answer under ``outputs``.
         none_inputs: By call number, the input that got ``None`` and doesn't take it, so the call wasn't
             made.
         skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for that output.
@@ -140,7 +149,8 @@ class SavedRun(BaseModel):
         graph: The fingerprint of the run's graph. A saved run of another graph is refused by it.
         ended_early: How the last ``resume()`` ended the run early: its status and the problem that ended it.
             ``null`` when it didn't. A resume still going is never saved: a copy made during one is saved with
-            ``null`` here, and when read back its status comes from its outcomes.
+            ``null`` here, and when read back its status comes from its outcomes. A declined run keeps the question
+            declined here too, under ``declined``.
         max_items: The run's item limit.
         inputs: The graph inputs the caller gave, by name.
         outcomes: By node, the outcomes of each node that has any.

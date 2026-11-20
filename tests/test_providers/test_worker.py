@@ -1104,6 +1104,33 @@ async def test_an_answer_to_a_complete_run_is_refused_by_conductor_as_not_waitin
     ]
 
 
+async def test_an_answer_and_a_decline_given_through_the_worker_are_in_the_rows_run_asked() -> None:
+    """The worker gives the run a reply as ``run.with_answers`` and ``run.with_decline`` do, so the row's saved run
+    reads back with what the person was shown and what they replied, as a run saved in the engine does."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
+        assert (await store.ended(run_id)).status == "complete"
+        other = await _started(worker, graph, inputs)
+        await store.ended(other)
+        await worker.decline(other, waiting_id, reason="Not now", allows=EVERY_RUN)
+
+    compiled = Graph.compile(graph, registry)
+    answered = Run.from_json(store.rows[run_id].run, compiled).asked
+    declined = Run.from_json(store.rows[other].run, compiled).asked
+    assert [
+        (a.question.loc, a.question.prompt, a.answer, a.reason) for a in answered + declined
+    ] == [
+        (("confirm",), "Go on?", {"result": True}, None),
+        (("confirm",), "Go on?", None, "Not now"),
+    ]
+
+
 # -- declines -------------------------------------------------------------------------------------
 
 

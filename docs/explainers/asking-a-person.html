@@ -491,7 +491,6 @@ graph = Graph.compile(make_graph(lines, approve, count, edges=[
 print(run.results)</pre><pre class="out">waiting
 {'lines': {'result': ['ok', 'this is long', 'fine']}, 'approve': {'result': [True, None, True]}, 'count': {'result': None}}</pre></template>
   <template id="walk-3"><pre data-lang="py">print(dumps(run.waiting[0].model_dump(mode="json")))  # the series' JSON layout</pre><pre data-lang="json" class="out">{
-  "id": "approve@1~23c82614",
   "loc": ["approve", 1],
   "prompt": "Approve 'this is long'?",
   "questions": [
@@ -514,7 +513,8 @@ print(run.results)</pre><pre class="out">waiting
   ],
   "inputs": {
     "line": "this is long"
-  }
+  },
+  "id": "approve@1~23c82614"
 }</pre></template>
   <template id="walk-4"><pre data-lang="py">answered = run.with_answers(run.waiting[0], True)
 print(answered.status, answered.waiting)
@@ -1035,7 +1035,7 @@ refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre cla
   <div class="section-head prose">
     <p class="eyebrow">Saved and resumed</p>
     <h2 id="s-h">A waiting call is a few bytes of JSON</h2>
-    <p class="muted">A call that asked is saved with its prompt, the choices and defaults the <code>Ask</code> set, and the call's fingerprint, taken when the call was made. It has no outputs yet.</p>
+    <p class="muted">A call that asked is saved with its prompt, the choices and defaults the <code>Ask</code> set, and the call's fingerprint, taken when the call was made. It has no outputs yet. Once a person answers or declines, the run keeps the question for <code>run.asked</code>.</p>
   </div>
   <div class="two labelled">
     <div>
@@ -1063,10 +1063,13 @@ refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre cla
       <p class="eyebrow">Load, answer, resume</p>
       <pre data-lang="py">loaded = Run.from_json(run.to_json(), graph)
 print([w.id for w in loaded.waiting])
-print(loaded.with_answers(loaded.waiting[0].id, False).resume().outputs)</pre>
+answered = loaded.with_answers(loaded.waiting[0].id, False)
+print(answered.resume().outputs)
+print([(a.question.prompt, a.answer) for a in answered.asked])</pre>
       <pre class="out">['approve@1~23c82614']
-{'result': '2 of 3 approved'}</pre>
-      <p class="muted">The call's arguments aren't saved with it, only their fingerprint. <code>run.waiting</code> works the arguments out again from the <a href="running-and-streaming.html#outcomes">outcomes</a> upstream that the call read, and those don't change while it waits. The id is hashed from the saved fingerprint and the node's code fingerprint now. So the question a loaded run shows is the one first asked, id included, while the node's code is the same.</p>
+{'result': '2 of 3 approved'}
+[("Approve 'this is long'?", {'result': False})]</pre>
+      <p class="muted"><code>run.asked</code> lists every call a person answered or declined: the question as they were shown it, and their reply. A host that keeps runs as a record reads it, from a run read back too. The call's arguments aren't saved with it, only their fingerprint. <code>run.waiting</code> works the arguments out again from the <a href="running-and-streaming.html#outcomes">outcomes</a> upstream that the call read, and those don't change while it waits. The id is hashed from the saved fingerprint and the node's code fingerprint now. So the question a loaded run shows is the one first asked, id included, while the node's code is the same.</p>
     </div>
   </div>
 

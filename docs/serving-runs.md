@@ -162,7 +162,7 @@ Start it with `uvicorn app:app`, and drive a run with `curl`:
 curl -X POST localhost:8000/runs -d '{"graph": {...}, "inputs": {"invoice": "A-17"}}'
 # {"id": "8f1c...", "status": "running", "waiting": [], ...}
 curl localhost:8000/runs/8f1c...
-# {"status": "waiting", "waiting": [{"id": "approve~3fa2c0d1", "prompt": "Approve A-17?", ...}], ...}
+# {"status": "waiting", "waiting": [{"loc": ["approve"], "prompt": "Approve A-17?", ..., "id": "approve~3fa2c0d1"}], ...}
 curl -X POST localhost:8000/runs/8f1c.../answers -d '{"approve~3fa2c0d1": true}'
 # {"status": "running", ...}; a moment later GET says "complete", with the run's outputs
 ```

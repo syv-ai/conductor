@@ -36,8 +36,9 @@ from conductor._internal.base import (
     write_waiting_id,
 )
 from conductor._internal.graph import Graph, LimitsValidator
-from conductor._internal.problem import InvalidCallError, Problem, call_problems, run_problems
+from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
+from .asked import Asked, asked_of
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .events import (
     Event,
@@ -55,7 +56,15 @@ from .progress import RunProgress, call_count, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
-from .state import EndedEarly, LastResume, RunStatus, deadline, kept_by_an_answer, status_of
+from .state import (
+    Declined,
+    EndedEarly,
+    LastResume,
+    RunStatus,
+    deadline,
+    kept_by_an_answer,
+    status_of,
+)
 from .stream import stream
 from .validator import ForgetValidator, WaitingIdValidator
 from .waiting import Waiting, question_fingerprint, waiting_of
@@ -415,7 +424,7 @@ class Run[C]:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
-            answered[(node, item_indexes)] = Done(read, fingerprint=found.fingerprint)
+            answered[(node, item_indexes)] = Done(read, fingerprint=found.fingerprint, asked=found)
         if problems:
             raise InvalidCallError(problems)
         # A cancel or a timeout is dropped only once a call is answered after it.
@@ -454,15 +463,26 @@ class Run[C]:
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
-        _, _, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
+        node, item_indexes, loc, declined = self._waiting_call(
+            waiting_id, cache(lambda: self.status)
+        )
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
-        cause = run_problems.answer_declined(*loc, reason=reason)
-        # Nothing waits on a run that has ended: the declined question and every other one lose their outcome.
+        # Nothing waits on a run that has ended: the declined question and every other one lose their outcome. The
+        # declined one is kept where the run says how it ended, for run.asked; with no outcome, nothing reads it as
+        # waiting, and again() calls its node afresh.
         asked = [(node, item_indexes) for node, item_indexes, _ in self._outcomes.calls(Unanswered)]
         return dataclasses.replace(
             self,
             _outcomes=self._outcomes.replacing(removing=asked),
-            _last_resume=EndedEarly(status="declined", cause=cause),
+            _last_resume=EndedEarly(
+                status="declined",
+                declined=Declined(
+                    node.node_path,
+                    item_indexes,
+                    dataclasses.replace(declined, fingerprint=None),
+                    reason,
+                ),
+            ),
         )
 
     @staticmethod
@@ -625,7 +645,10 @@ class Run[C]:
 
     @property
     def waiting(self) -> list[Waiting]:
-        """Every call waiting for a person, in node order and then item order.
+        """Every call waiting for a person.
+
+        They come in the graph's node order, the order a run tries its nodes, each after the nodes upstream of it,
+        then in item order; not in the order the calls asked.
 
         A call inside a subgraph is listed where its subgraph node is.
         """
@@ -633,6 +656,21 @@ class Run[C]:
             waiting_of(node, item_indexes, outcome, self._outcomes)
             for node, item_indexes, outcome in self._outcomes.calls(Unanswered)
         ]
+
+    @property
+    def asked(self) -> list[Asked]:
+        """Every call a person answered or declined: what they were shown, and what they replied.
+
+        A host that keeps runs as a record reads it, whether the run is in memory or read back with
+        ``Run.from_json``. An answer this run reused from a previous one is listed with the question it was given
+        for. The answered calls come in the graph's node order, the order a run tries its nodes, each after the
+        nodes upstream of it, then in item order; not in the order the answers came. A declined one comes last, since
+        it ended the run. A call the function returned for isn't listed, nor one still waiting (``run.waiting`` lists
+        those). A record's ``question`` is a ``Question``, with no id: it is never an answer's target.
+
+        It is provisional: the name and shape may change before 2.0.
+        """
+        return asked_of(self._outcomes, self._last_resume, self.graph._codec)
 
     @property
     def progress(self) -> RunProgress:
