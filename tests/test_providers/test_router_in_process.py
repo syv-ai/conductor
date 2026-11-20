@@ -721,6 +721,29 @@ async def test_a_hosts_own_routes_on_the_route_class_refuse_as_the_routers_do() 
         gate.set()
 
 
+async def test_an_invalid_call_error_from_a_guard_given_to_include_router_is_answered_as_a_refusal() -> (
+    None
+):
+    """A host guards the routes that take any graph with ``include_router(router, dependencies=[...])``, and a guard
+    that refuses with conductor's error is answered with its problems, not a 500."""
+
+    def is_author() -> None:
+        raise InvalidCallError([Problem(type="not_an_author", msg="Only an author may do that.")])
+
+    worker: Worker[Any, Any] = Worker(MemoryStore(), nodes_for=lambda _: NodeRegistry())
+    app = FastAPI()
+    app.include_router(
+        run_router(worker, metadata=_metadata, run_filter=_own_runs),
+        dependencies=[Depends(is_author)],
+    )
+
+    async with _serving(app) as client:
+        refused = await client.get("/nodes")
+
+    assert refused.status_code == 422
+    assert [problem["type"] for problem in refused.json()["detail"]] == ["not_an_author"]
+
+
 @pytest.mark.parametrize("dependencies", ["read a header", "read nothing"])
 def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape(
     dependencies: str,

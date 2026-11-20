@@ -62,16 +62,17 @@ def _body(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 class RefusalRoute(APIRoute):
-    """A FastAPI route class that answers every refusal the way ``run_router``'s routes do.
+    """A FastAPI route class that answers conductor's ``InvalidCallError`` with its problems, and FastAPI's 422
+    without the value it refused.
 
-    Give it to a router of your own, ``APIRouter(route_class=RefusalRoute)``, and a route that calls the ``Worker``
-    or conductor needs no ``try`` of its own. Conductor refuses a call with ``InvalidCallError``. Raised by the route
-    or by one of its dependencies, it is answered with its problems as the ``detail``. The first problem's code picks
-    the status: 404 for ``no_such_run``, 409 for ``run_not_resumable``, and 422 for every other code.
+    An ``InvalidCallError`` raised by the route or by one of its dependencies is answered with its problems as the
+    ``detail``. The first problem's code picks the status: 404 for ``no_such_run``, 409 for ``run_not_resumable``,
+    and 422 for every other code. A request FastAPI refuses, such as a header that isn't a number, is FastAPI's own
+    422, each error without the ``input`` pydantic keeps the refused value in: a refusal never quotes what the
+    request sent (``python -m conductor.about errors``).
 
-    A request FastAPI refuses, such as a header that isn't a number, is FastAPI's own 422. Pydantic keeps the value it
-    refused in each error's ``input``, and FastAPI would write it into the answer, so each error is answered without
-    it: a refusal never quotes what the request sent (``python -m conductor.about errors``).
+    ``run_router``'s routes use it. Give it to a router of your own, ``APIRouter(route_class=RefusalRoute)``, and a
+    route that calls the ``Worker`` or conductor needs no ``try`` of its own.
     """
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
