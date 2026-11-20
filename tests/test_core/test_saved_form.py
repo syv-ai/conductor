@@ -363,7 +363,7 @@ def test_a_run_given_new_inputs_saves_each_outcome_it_may_reuse_once() -> None:
 
     assert saved["outputs"]["result"] == ["a 0", "b 1", "c 2"]
     assert len(saved["fingerprints"]) == 3
-    assert saved["item_indexes"] == {"0": [0], "1": [1], "2": [2]}
+    assert saved["item_indexes"] == [[0], [1], [2]]
 
 
 def test_an_outcome_whose_item_has_a_newer_outcome_is_still_reused_by_its_arguments() -> None:
@@ -381,11 +381,16 @@ def test_an_outcome_whose_item_has_a_newer_outcome_is_still_reused_by_its_argume
     assert in_memory == read_back.results["tag"]["result"] == ["b 1", "a 0"]
 
 
-def test_a_saved_run_reuses_each_call_s_own_outcome_whatever_order_its_fingerprints_are_saved_in() -> (
+def test_a_saved_run_reuses_each_call_s_own_outcome_and_reads_its_order_as_the_order_of_reuse() -> (
     None
 ):
     """The two ``"a"`` calls keep their own outcomes, though their items, ``(0,)`` and ``(1,)``, also have the
-    outcomes for ``"q"`` and ``"z"``. Read back with the fingerprints in the other order, they still do."""
+    outcomes for ``"q"`` and ``"z"``, and read back they still do.
+
+    A run read back keeps its reusable outcomes by the rule a run made in memory keeps them by, in the order the save
+    lists them. Listed the other way round, ``"q"`` comes before the first ``"a"`` at ``(0,)``, so ``(0,)`` no longer
+    has an outcome of its own with ``"a"``, and both calls reuse the first ``"a"`` listed, ``a 3``.
+    """
     graph = _shout_graph(iter(range(100)))
     failed = graph.run({"items": ["q", "z"]}).again({"items": ["a", "a", "boom"]})
     assert failed.status == "failed" and failed.results["tag"]["result"] == ["a 2", "a 3", None]
@@ -398,9 +403,7 @@ def test_a_saved_run_reuses_each_call_s_own_outcome_whatever_order_its_fingerpri
         "states": [tag["states"][p] for p in reversed_places],
         "outputs": {"result": [tag["outputs"]["result"][p] for p in reversed_places]},
         "fingerprints": [tag["fingerprints"][p] for p in reversed_places],
-        "item_indexes": {
-            str(place): tag["item_indexes"][str(p)] for place, p in enumerate(reversed_places)
-        },
+        "item_indexes": [tag["item_indexes"][p] for p in reversed_places],
     }
 
     in_memory = edited.resume().results["tag"]["result"]
@@ -408,13 +411,14 @@ def test_a_saved_run_reuses_each_call_s_own_outcome_whatever_order_its_fingerpri
     saved["reusable"]["tag"] = reversed_saved
     reordered = Run.from_json(json.dumps(saved), graph).resume().results["tag"]["result"]
 
-    assert in_memory == read_back == reordered == ["a 2", "a 3"]
+    assert in_memory == read_back == ["a 2", "a 3"]
+    assert reordered == ["a 3", "a 3"]
 
 
-def test_a_saved_outcome_of_a_node_that_never_asks_without_its_item_indexes_is_refused() -> None:
+def test_a_saved_reusable_entry_without_item_indexes_for_each_outcome_is_refused() -> None:
     graph = _shout_graph(iter(range(100)))
     saved = json.loads(graph.run({"items": ["a", "a"]}).with_inputs({"items": ["a"]}).to_json())
-    del saved["reusable"]["tag"]["item_indexes"]["1"]
+    del saved["reusable"]["tag"]["item_indexes"][1]
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
@@ -422,6 +426,75 @@ def test_a_saved_outcome_of_a_node_that_never_asks_without_its_item_indexes_is_r
     assert [(p.type, p.ctx["where"]) for p in refused.value.problems] == [
         ("saved_run_unreadable", "reusable.tag")
     ]
+
+
+def _approve_graph(asks: bool) -> Graph[None]:
+    """Returns ``lines -> approve``, where ``approve`` asks about each line, or, without ``asks``, approves it.
+
+    Both versions compile from one record, so a saved run of one is a saved run of the other's graph too.
+    """
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.splitlines()
+
+    if asks:
+
+        @registry.node("approve", title="Approve", description="For a test.", asks=True)
+        def approve(line: str) -> bool:
+            raise Ask(f"Approve {line}?")
+
+    else:
+
+        @registry.node("approve", title="Approve", description="For a test.")
+        def approve(line: str) -> bool:  # type: ignore[no-redef]
+            return True
+
+    return Graph.compile(make_graph(registry["lines"], registry["approve"]), registry)
+
+
+@pytest.mark.parametrize("answered", [True, False])
+def test_a_saved_run_with_reusable_outcomes_of_a_node_reads_back_once_the_node_stops_asking(
+    answered: bool,
+) -> None:
+    """A node's code may stop asking between a save and its read. The outcomes it may reuse then can't be reused,
+    since whether a node asks is part of its code fingerprint, so they are dropped, and the run reads back."""
+    asking = _approve_graph(asks=True)
+    first = asking.run({"text": "a\nb"})
+    if answered:
+        first = first.with_answers({waiting.id: False for waiting in first.waiting})
+    saved = json.loads(first.with_inputs({"text": "a"}).to_json())
+    assert saved["reusable"]["approve"]
+
+    not_asking = _approve_graph(asks=False)
+    assert not_asking.fingerprint == asking.fingerprint
+    back = Run.from_json(json.dumps(saved), not_asking).resume()
+
+    assert back.status == "complete" and back.results["approve"]["result"] == [True]
+
+
+def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_and_reuses_them_read_back() -> (
+    None
+):
+    """A saved run writes every node's reusable outcomes the same way, each with its item indexes, whether the node
+    may ask or not. Read back, a node that asks still takes each answer by its line."""
+    graph = _approve_graph(asks=True)
+    first = graph.run({"text": "a\nb"})
+    first = first.with_answers({waiting.id: waiting.loc[-1] == 0 for waiting in first.waiting})
+    edited = first.with_inputs({"text": "b\na"})
+    saved = json.loads(edited.to_json())["reusable"]["approve"]
+
+    in_memory = edited.resume()
+    read_back = Run.from_json(edited.to_json(), graph).resume()
+
+    assert saved["item_indexes"] == [[0], [1]]
+    assert in_memory.status == read_back.status == "complete"
+    assert (
+        in_memory.results["approve"]["result"]
+        == read_back.results["approve"]["result"]
+        == [False, True]
+    )
 
 
 def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() -> None:

@@ -2278,23 +2278,45 @@ def ok_word(word: str) -> bool:
             "reusable.ok",
             lambda s: s["reusable"].__setitem__(
                 "ok",
-                {"states": [None], "outputs": {"result": [None]}, "fingerprints": ["f"]},
+                {
+                    "states": [None],
+                    "outputs": {"result": [None]},
+                    "fingerprints": ["f"],
+                    "item_indexes": [[0]],
+                },
             ),
-        ),  # a reusable entry with no outcome
+        ),  # a call with no outcome keeps a fingerprint
         (
             "reusable.ok",
             lambda s: s["reusable"].__setitem__(
                 "ok",
-                {"states": ["done"], "outputs": {"result": [True]}, "fingerprints": []},
+                {
+                    "states": ["done"],
+                    "outputs": {"result": [True]},
+                    "fingerprints": [],
+                    "item_indexes": [[0]],
+                },
             ),
         ),
         (
             "reusable.ok",
             lambda s: s["reusable"].__setitem__(
                 "ok",
-                {"states": ["done"], "outputs": {"result": [True]}, "fingerprints": [None]},
+                {
+                    "states": ["done"],
+                    "outputs": {"result": [True]},
+                    "fingerprints": ["f"],
+                    "item_indexes": [],
+                },
             ),
-        ),  # a reusable outcome with no fingerprint
+        ),  # not one item indexes per outcome
+        (
+            "reusable.ok.item_indexes",
+            lambda s: s["reusable"].__setitem__(
+                "ok",
+                {"states": ["done"], "outputs": {"result": [True]}, "fingerprints": ["f"]},
+            ),
+        ),
     ],
 )
 def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(
