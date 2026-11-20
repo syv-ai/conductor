@@ -21,6 +21,8 @@ import json
 import time
 import uuid
 
+from conductor import GraphRecord
+
 from conductor_providers.fastapi.state import RunOutcome, RunState
 from conductor_providers.fastapi.store import (
     RunChanges,
@@ -56,7 +58,7 @@ def _new_run(*, owner: str | None, lease_until: float | None, stopped: bool = Fa
     }
     return StoredRun(
         id=f"check-run-store-{uuid.uuid4().hex}",
-        graph='{"nodes": [], "edges": []}',
+        graph=GraphRecord().model_dump_json(),
         metadata='{"user": "Zoë"}',
         rev=0,
         **written,
