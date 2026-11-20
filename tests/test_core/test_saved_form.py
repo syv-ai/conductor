@@ -641,7 +641,7 @@ def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_sh
         ),
         (("reply", 2), "Send a reply to c?", [("Re: c", ["Yes", "Re: c"])], None, "Not now"),
     ]
-    assert [a.question.id for a in declined.asked] == [one.id, two.id, "reply@2"]
+    assert [a.question.id for a in declined.asked] == ["reply@0", "reply@1", "reply@2"]
     assert [a.question.inputs for a in declined.asked] == [
         {"line": "a"},
         {"line": "b"},
@@ -649,8 +649,124 @@ def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_sh
     ]
     assert back.asked == declined.asked
     assert back.to_json() == saved
-    assert json.loads(saved)["ended_early"]["declined"] == _question("c")
+    assert json.loads(saved)["ended_early"]["declined"] == {
+        "node_path": ["reply"],
+        "item_indexes": [2],
+        "question": _question("c"),
+        "reason": "Not now",
+    }
     assert (back.status, back.waiting, back.cause) == ("declined", [], declined.cause)
+
+
+def _declined_save() -> tuple[Graph[None], dict[str, Any]]:
+    """Returns ``_draft_graph`` and its run on two lines, the second declined, as saved JSON data."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    answered = first.with_answers(first.waiting[0], "Yes")
+    return graph, json.loads(answered.with_decline(answered.waiting[0], reason="no").to_json())
+
+
+def _declined_wrong(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["status"] = "failed"
+
+
+def _declined_at_a_node_that_never_asks_and_has_returned(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["node_path"] = ["lines"]
+    saved["ended_early"]["declined"]["item_indexes"] = []
+    saved["ended_early"]["cause"]["loc"] = ["lines"]
+
+
+def _declined_past_its_items(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["item_indexes"] = [7]
+    saved["ended_early"]["cause"]["loc"] = ["reply", 7]
+
+
+def _declined_at_no_node(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["node_path"] = []
+    saved["ended_early"]["declined"]["item_indexes"] = []
+    saved["ended_early"]["cause"]["loc"] = []
+
+
+def _declined_elsewhere_than_its_problem(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["cause"]["loc"] = ["reply", 0]
+
+
+def _declined_with_another_reason(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["reason"] = "yes"
+
+
+def _declined_at_a_call_with_an_outcome(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["item_indexes"] = [0]
+    saved["ended_early"]["cause"]["loc"] = ["reply", 0]
+
+
+def _declined_naming_no_output(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["question"]["defaults"] = {"nope": "x"}
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        _declined_wrong,
+        _declined_at_a_node_that_never_asks_and_has_returned,
+        _declined_past_its_items,
+        _declined_at_no_node,
+        _declined_elsewhere_than_its_problem,
+        _declined_with_another_reason,
+        _declined_at_a_call_with_an_outcome,
+        _declined_naming_no_output,
+    ],
+)
+def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any) -> None:
+    """A saved run says a call was declined only on a ``declined`` run, for a call the graph has with no outcome,
+    the one its problem names with its reason, asking only about the node's outputs. Any other is refused where it
+    is read, not when ``run.asked`` reads it."""
+    graph, saved = _declined_save()
+    assert Run.from_json(json.dumps(saved), graph).asked[-1].reason == "no"
+    damage(saved)
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "ended_early.declined")
+    assert problem.ctx["errors"][0]["type"] == "saved_lists_disagree"
+
+
+@pytest.mark.parametrize("answered", [False, True])
+def test_a_saved_question_that_names_an_output_the_node_does_not_have_is_refused(
+    answered: bool,
+) -> None:
+    """A waiting or an answered call's question gives choices and defaults only to the node's outputs."""
+    graph = _draft_graph()
+    run = graph.run({"text": "a"})
+    if answered:
+        run = run.with_answers(run.waiting[0], "Yes")
+    for key in ("defaults", "choices"):
+        saved = json.loads(run.to_json())
+        saved["outcomes"]["reply"]["questions"]["0"][key] = {
+            "nope": "x" if key == "defaults" else []
+        }
+
+        with pytest.raises(InvalidCallError) as refused:
+            Run.from_json(json.dumps(saved), graph)
+
+        ((problem,),) = [refused.value.problems]
+        assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
+
+
+def test_every_record_of_run_asked_names_its_call_alone_so_a_deploy_keeps_its_id() -> None:
+    """No call ``run.asked`` lists waits, so its id has no ``~`` part, unlike the id it waited under, and a deploy
+    that changes the node's code, so far that it stops asking, leaves the record as it was, the decline too."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    one, two = first.waiting
+    declined = first.with_answers(one, "Yes").with_decline(two)
+
+    redeployed = Run.from_json(declined.to_json(), _draft_graph(asks=False))
+
+    assert "~" in one.id and [a.question.id for a in declined.asked] == ["reply@0", "reply@1"]
+    assert redeployed.asked == declined.asked
 
 
 def test_a_declined_question_waits_on_nothing_and_again_calls_its_node_afresh() -> None:

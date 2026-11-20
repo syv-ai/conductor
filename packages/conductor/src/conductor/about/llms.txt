@@ -746,7 +746,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - On one output, a `default` that is a mapping is read as the default value itself, so `default={"result": 1}` on `-> dict` proposes `{"result": 1}`.
 - Choices on a `Table` output are whole tables.
 
-**A waiting call.** Each entry of `run.waiting` is a `Waiting`:
+**A waiting call.** Each entry of `run.waiting` is a `Waiting`. They come in the graph's node order, the order a run tries its nodes, each after the nodes upstream of it, then item order; not the order the calls asked or were answered in.
 
 - `id`, such as `approve@1~3fa2c0d1`: the node's id, then `@` and a number for each item it was called for, from the outside in, then `~` and a fingerprint of the call. A node that runs once is `approve` alone before the `~`. Inside a subgraph, the nodes are joined by `/`, each with the item index of its own loop: `review@0/approve@1~...`. The fingerprint is a hash of the call's fingerprint, the one reuse matches calls by (see "Running again"), and of the node's code fingerprint now. The call's fingerprint is taken once, when the call is made, from the node's code fingerprint, the call's inputs and the call's item in every loop it is inside, and the run keeps it with the call. So an id follows its item when items move, and stays the same on every run of the same graph and code, a saved run read back too. A call whose inputs or items JSON can't write has no fingerprint: its id is the call alone, with no `~` part, and it is never reused. The code fingerprint covers the node's `@node` id and version, its code, the name and type of each input and output (limits and choices included), which outputs are branches, the loops it runs in (inside a subgraph, the loops around the subgraph node too) and `asks`. So a new version, or a field of another type, gives a new id even when the code is the same. The `Ask`'s prompt, choices and default are not in it.
 - `loc`: the node, then its item, as a problem's `loc`.
@@ -784,7 +784,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 
 **What a person was shown, and what they replied.** `run.asked` lists every call a person answered or declined, as a host keeps it for its records, such as an audit of who decided what on which proposal. Each entry is an `Asked`:
 
-- `question`: the call as `run.waiting` listed it while it waited, a `Waiting` with the `Ask`'s prompt, its choices and default (a proposal, such as an LLM's draft) in `questions`, and the call's `inputs`. Its `id` is the one it waited under for the node's code now. A declined call's is the call alone, such as `approve@1`, since it waits on nothing.
+- `question`: the call as a `Waiting`, with the `Ask`'s prompt, its choices and default (a proposal, such as an LLM's draft) in `questions`, and the call's `inputs`. Its `id` is the call alone, with no `~` part, such as `approve@1`, answered and declined alike: no call here waits, so the id stays the same after a deploy and is never taken for a waiting id.
 - `answer`: the outputs the answer gave, by output name, as JSON, the way a saved run writes them: `{"result": true}` for a node of one output. A branch the answer left out isn't named. `None` for a decline.
 - `reason`: a decline's reason, else `None`.
 
@@ -795,7 +795,7 @@ replies = Run.from_json(answered.to_json(), approving).asked      # reads the sa
 assert [(one.question.prompt, one.answer) for one in replies] == [("Approve INV-1?", {"result": True})]
 ```
 
-- Answered calls come in node order, then item order, and a declined call last, since it ended the run. A call its function returned for isn't listed, nor one still waiting.
+- Answered calls come in the graph's node order, the order a run tries its nodes, each after the nodes upstream of it, then item order; not the order the calls asked or were answered in. A declined call comes last, since it ended the run. A call its function returned for isn't listed, nor one still waiting.
 - Every way an answer comes counts the same: `run.with_answers`, a default taken, a queued answer, the providers' worker.
 - An answer a later run reuses is listed in that run with the question it was given for.
 - A run read back lists the same. The saved run keeps each question, so a long loop of answered calls saves one per call.
@@ -1015,6 +1015,7 @@ assert GraphRecord.model_validate_json(text) == record
 
 - A saved run of another graph is refused as `saved_run_of_another_graph`, with this graph's fingerprint in `ctx.graph` and the saved one in `ctx.saved` when it has a fingerprint's form (a hand-edited save's other value is left out). An edited graph starts a new run, and `edited.with_inputs(..., previous=old_run)` reuses the old run's outcomes for the nodes the edit left as they were.
 - Then it reads the saved run back and checks it against the graph. A saved run that doesn't fit, or isn't a saved run at all, is `saved_run_unreadable`. `ctx.where` says where (`outcomes.upper.outputs.result.1`), `ctx.reason` says why, and `ctx.errors` has the one error: pydantic's code without the value, or `saved_lists_disagree` where a node's saved lists don't agree with each other or with the graph.
+- A saved question, waiting or answered, gives choices and defaults only to outputs its node has, or the save is refused. So is a declined call no decline could have left: one on a run that isn't `declined`, at a call the graph doesn't have or one with an outcome, or other than the call and reason its `answer_declined` names (`ctx.where` is `ended_early.declined`). Whether the node still asks isn't checked, so a deploy that makes it stop asking keeps the record.
 - That can happen when the text was changed, when another version of conductor, or of a node or a type in it, wrote it, or when a value doesn't read back from its JSON. The remedy is a new run.
 - Every value is read back by its declared type. A float that isn't finite is written as its text (`"NaN"`, `"Infinity"`, `"-Infinity"`), in a field of a host's own pydantic model too, whatever its `ser_json_inf_nan` says. A `float` reads the float back. `Any`, a `dict` or `float | str` reads the text, the way a date under `Any` comes back as its ISO text.
 - A saved `null` for an output, or for an item of a `Series`, is refused where the type refuses `None` (see "Types"), unless the save lists it as skipped. So a save takes a `None` exactly where a node's return does.

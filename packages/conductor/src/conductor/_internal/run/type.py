@@ -56,7 +56,15 @@ from .progress import RunProgress, call_count, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
-from .state import EndedEarly, LastResume, RunStatus, deadline, kept_by_an_answer, status_of
+from .state import (
+    Declined,
+    EndedEarly,
+    LastResume,
+    RunStatus,
+    deadline,
+    kept_by_an_answer,
+    status_of,
+)
 from .stream import stream
 from .validator import ForgetValidator, WaitingIdValidator
 from .waiting import Waiting, question_fingerprint, waiting_of
@@ -455,7 +463,9 @@ class Run[C]:
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
-        _, _, loc, declined = self._waiting_call(waiting_id, cache(lambda: self.status))
+        node, item_indexes, loc, declined = self._waiting_call(
+            waiting_id, cache(lambda: self.status)
+        )
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         cause = run_problems.answer_declined(*loc, reason=reason)
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome. The
@@ -468,7 +478,12 @@ class Run[C]:
             _last_resume=EndedEarly(
                 status="declined",
                 cause=cause,
-                declined=dataclasses.replace(declined, fingerprint=None),
+                declined=Declined(
+                    node.node_path,
+                    item_indexes,
+                    dataclasses.replace(declined, fingerprint=None),
+                    reason,
+                ),
             ),
         )
 
@@ -632,7 +647,10 @@ class Run[C]:
 
     @property
     def waiting(self) -> list[Waiting]:
-        """Every call waiting for a person, in node order and then item order.
+        """Every call waiting for a person.
+
+        They come in the graph's node order, the order a run tries its nodes, each after the nodes upstream of it,
+        then in item order; not in the order the calls asked.
 
         A call inside a subgraph is listed where its subgraph node is.
         """
@@ -647,8 +665,10 @@ class Run[C]:
 
         A host that keeps runs as a record reads it, whether the run is in memory or read back with
         ``Run.from_json``. An answer this run reused from a previous one is listed with the question it was given
-        for. The answered calls come in node order and then item order, and a declined one last, since it ended the
-        run. A call the function returned for isn't listed, nor one still waiting (``run.waiting`` lists those).
+        for. The answered calls come in the graph's node order, the order a run tries its nodes, each after the
+        nodes upstream of it, then in item order; not in the order the answers came. A declined one comes last, since
+        it ended the run. A call the function returned for isn't listed, nor one still waiting (``run.waiting`` lists
+        those). Each names its call alone, with no ``~`` part, since none of them waits.
 
         It is provisional: the name and shape may change before 2.0.
         """

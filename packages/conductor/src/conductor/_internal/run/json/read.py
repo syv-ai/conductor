@@ -27,9 +27,11 @@ from conductor._internal.problem import (
 )
 from conductor._internal.series import SeriesItems
 
+from ..blueprint import outcome_loc
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
+from ..state import Declined, EndedEarly
 from .codec import where_in
 from .type import SAVED_DONE, SAVED_SKIPPED, SavedOutcomes
 
@@ -122,6 +124,11 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
                 if outcome is not None:
                     outcomes.record(node, item_indexes, outcome)
+    if read.ended_early is not None and (declined := read.ended_early.declined) is not None:
+        try:
+            _check_declined(read.ended_early, declined, outcomes)
+        except ValueError as wrong:
+            raise InvalidCallError([_lists_disagree("ended_early.declined", str(wrong))]) from None
     return run_type(
         graph,
         read.max_items,
@@ -130,6 +137,47 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         _last_resume=read.ended_early,
         _complete_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
+
+
+def _check_declined(ended_early: EndedEarly, declined: Declined, outcomes: RunOutcomes) -> None:
+    """Checks that the call a saved run says a person declined is one a decline could have left.
+
+    ``run.with_decline`` writes it only on a ``declined`` run, for a call the graph has, with no outcome of its own
+    any more. Its loc and reason are its problem's, and its question names only outputs of the node. Whether the
+    node asks isn't checked: a deploy may make it stop asking, and a run read back keeps what it did, as it keeps an
+    answered call's question.
+
+    Raises:
+        ValueError: Any of that doesn't hold. The message names no value.
+    """
+    if ended_early.status != "declined":
+        raise ValueError(f"a run that is {ended_early.status} has no declined call")
+    node = outcomes.blueprint.function_nodes.get(declined.node_path)
+    if node is None:
+        raise ValueError("the declined call is not of a node of the graph")
+    if declined.item_indexes not in outcomes.item_indexes(node.loops)[0]:
+        raise ValueError("the node has no call at the declined call's item indexes")
+    if outcomes.of(declined.node_path).get(declined.item_indexes) is not None:
+        raise ValueError("the declined call has an outcome")
+    cause = ended_early.cause
+    if (
+        cause.loc != outcome_loc(node, declined.item_indexes)
+        or cause.ctx.get("reason") != declined.reason
+    ):
+        raise ValueError(
+            "the declined call is not the one its problem names, or has another reason"
+        )
+    _check_question(node.compiled_node, declined.question)
+
+
+def _check_question(node: CompiledFunctionNode, question: Unanswered) -> None:
+    """Checks that a saved question gives choices and defaults only to outputs the node has.
+
+    Raises:
+        ValueError: It names another output. The message names no value.
+    """
+    if not {*question.choices, *question.defaults} <= node.outputs.keys():
+        raise ValueError("a question names an output the node does not have")
 
 
 def _lists_disagree(where: str, reason: str) -> Problem:
@@ -197,6 +245,7 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
             else:
                 outcomes.append(None)
         for call_number, saved_question in saved.questions.items():
+            _check_question(node, saved_question)
             asked = dataclasses.replace(saved_question, fingerprint=fingerprints[call_number])
             match outcomes[call_number]:
                 case Done() as answered:  # a question a person answered
