@@ -1164,8 +1164,10 @@ class _Written:
     items: tuple[_Written, ...] = ()
 
 
-#: The core schema types of Python's own classes, by the JSON kind conductor writes their values as. A float is
-#: also written as text when it isn't finite (``_NOT_FINITE``), and an enum or a ``Literal`` by its values.
+#: The core schema types of Python's own classes, by the JSON kind conductor writes their values as. An enum or a
+#: ``Literal`` is written by its values. A float that isn't finite is written as text (``"Infinity"``), which is
+#: left out here: under ``float | str`` it reads back as its text, a limit the reference names, rather than a
+#: reason to refuse a common union.
 _KIND_OF = {
     "str": "text",
     "date": "text",
@@ -1190,9 +1192,6 @@ _PYTHON_NAME = {
     "url": "AnyUrl",
     "multi-host-url": "MultiHostUrl",
 }
-
-#: The texts a float that isn't finite is written as (``JSON_CONFIG``).
-_NOT_FINITE = frozenset({"Infinity", "-Infinity", "NaN"})
 
 #: The schemas a member is looked through to the schema they wrap: a validator around it, a default, ``None``.
 _WRAPPERS = ("function-before", "function-after", "function-wrap", "nullable", "default")
@@ -1246,8 +1245,6 @@ def _written_as(schema: Any, definitions: dict[str, Any], walked: frozenset[str]
         )
     if kind == "literal":
         return _Written(f"Literal{list(schema['expected'])}", _named(list(schema["expected"])))
-    if kind == "float":
-        return _Written("float", {"number": ("float", None), "text": ("float", _NOT_FINITE)})
     if kind in _KIND_OF:
         return _Written(_PYTHON_NAME.get(kind, kind), {_KIND_OF[kind]: (kind, None)})
     return _Written(kind, {})

@@ -550,6 +550,11 @@ class _Wader(Enum):
     HERON = "heron"
 
 
+@host_type("half", title="Half")
+class _Half(float, Enum):
+    HALF = 0.5
+
+
 @host_type("clutch", title="Clutch")
 class _Clutch(IntEnum):
     ONE = 1
@@ -582,8 +587,7 @@ class _Clutch(IntEnum):
         (datetime.date | datetime.datetime, "date | datetime"),
         (str | Decimal, "str | Decimal"),
         (str | bytes, "str | bytes"),
-        (float | str, "float | str"),
-        (Literal["Infinity"] | float, "Literal['Infinity'] | float"),
+        (_Half | float, "_Half | float"),
     ],
     ids=[
         "two models of the same fields",
@@ -609,8 +613,7 @@ class _Clutch(IntEnum):
         "a date and a datetime",
         "a text and a Decimal",
         "a text and bytes",
-        "a float, written as text when it isn't finite, and a text",
-        "a Literal of a float's text and float",
+        "a float enum and float",
     ],
 )
 def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_declared(
@@ -646,6 +649,10 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         (bool | int, 1),
         (list[int] | list[str], ["a"]),
         (tuple[_Tern, int] | tuple[_Tern, str], (_Tern(name="t"), "a")),
+        (float | str, 1.5),
+        (float | str, "1.5"),
+        (float | Decimal, Decimal("1.5")),
+        (Literal["Infinity"] | float, 1.5),
     ],
     ids=[
         "told apart by a discriminator",
@@ -665,6 +672,10 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         "a number or a yes or no",
         "lists of items of different kinds",
         "tuples of alike items only where the class is the same",
+        "a float of a float or text",
+        "a text of a float or text",
+        "a Decimal, written as text, or float",
+        "a float of a Literal of a float's text or float",
     ],
 )
 def test_a_union_whose_members_json_tells_apart_reads_back_as_each_values_own_class(

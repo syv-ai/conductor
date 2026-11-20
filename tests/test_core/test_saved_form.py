@@ -116,9 +116,16 @@ def loose(text: str) -> dict[str, Any]:
     return {"nan": math.nan, "when": datetime.date(2026, 1, 1), "text": text}
 
 
+@node("float-or-text", title="Float or text", description="For a test.")
+def float_or_text(text: str) -> float | str:
+    return math.inf
+
+
 def _registry() -> NodeRegistry:
     registry = NodeRegistry()
-    registry.add(lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose)
+    registry.add(
+        lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text
+    )
     inner = GraphRecord.model_validate(
         {
             "inputs": {"text": {}},
@@ -1088,7 +1095,7 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
-    names = ("lines", "reading", "loose", "typed-frame", "frame")
+    names = ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")
     registry = _registry()
     graph = Graph.compile(
         _record(
@@ -1105,6 +1112,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
             "lines": "ab",
             "reading": "inf",
             "loose": "x",
+            "float-or-text": "x",
             "typed-frame": "x",
             "frame": "p",
         }
@@ -1122,6 +1130,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
         "when": "2026-01-01",
         "text": "x",
     }  # under Any, each value gets its JSON form, as a date does
+    assert results["float-or-text"]["result"] == "Infinity"  # a type that takes text gets it
     assert results["typed-frame"]["result"]["size"].to_list() == [
         1.5,
         math.inf,

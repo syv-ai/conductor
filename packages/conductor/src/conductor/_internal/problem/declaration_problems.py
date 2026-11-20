@@ -1301,8 +1301,7 @@ def union_members_alike(*, type: str, member: str, alike: str) -> str:
     yes or no, and they are of different classes, where one could read the other's value:
 
     - two objects: a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``, generic or not;
-    - two texts: ``str``, ``date``, ``datetime``, ``time``, ``timedelta``, ``Decimal``, ``bytes`` or ``UUID``, and
-      a ``float`` that isn't finite, written ``"Infinity"``;
+    - two texts: ``str``, ``date``, ``datetime``, ``time``, ``timedelta``, ``Decimal``, ``bytes`` or ``UUID``;
     - a number beside an enum or a ``Literal`` of numbers, like ``int | IntEnum``, or ``Literal[1] | float``;
     - an enum beside another enum, a ``Literal`` or the type of its values that shares a value with it;
     - a list beside a tuple, and two lists, or two tuples, whose items are alike, like ``list[Heron] |
@@ -1310,7 +1309,8 @@ def union_members_alike(*, type: str, member: str, alike: str) -> str:
 
     Such a union is refused even where pydantic might tell its members apart, by their fields or their types.
     ``X | None``, members of different JSON kinds, like ``int | str``, a ``Literal`` beside the type of its values,
-    like ``Literal["auto"] | str``, and ``int | float``, which JSON tells apart by a float's point, are taken.
+    like ``Literal["auto"] | str``, ``int | float``, which JSON tells apart by a float's point, and ``float | str``
+    are taken. A float that isn't finite is written as text, so under ``float | str`` it reads back as its text.
 
     To fix it, give each model a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
     ``Annotated[Heron | Egret, Discriminator("kind")]``. For other members, declare one type, or types JSON writes

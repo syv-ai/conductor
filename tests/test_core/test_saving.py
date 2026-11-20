@@ -355,6 +355,24 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     assert results["maybe-mapping"]["result"] == {"v": "NaN"}
 
 
+def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text_it_takes():
+    @node("up", title="Up", description="For a test.")
+    def up(k: int) -> Series[float | str]:
+        return [math.nan, "NaN", 1.5]
+
+    @node("down", title="Down", description="For a test.")
+    def down(x: float | str) -> str:
+        return type(x).__name__
+
+    graph = Graph.compile(
+        make_graph(up, down, edges=[("up.result", "down.x")]), registry_of(up, down)
+    )
+    read_back = _round_trip(graph.run({"k": 1}))
+
+    assert read_back.results["up"]["result"] == ["NaN", "NaN", 1.5]
+    assert read_back.with_forgotten("down").resume().outputs["result"] == ["str", "str", "float"]
+
+
 @host_type("point", title="Point")
 class Point(BaseModel, frozen=True):
     x: int
