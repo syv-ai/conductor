@@ -45,7 +45,7 @@ _JSON_COLUMNS = frozenset({"graph", "metadata", "run", "state", "outcome"})
 
 def _new_run(*, owner: str | None, lease_until: float | None, stopped: bool = False) -> StoredRun:
     """A run like one the worker creates, under an id that starts ``check-run-store-``; ``stopped``, one that waits."""
-    state = RunState.started().model_copy(update={"status": "waiting" if stopped else "running"})
+    state = RunState.new().model_copy(update={"status": "waiting" if stopped else "running"})
     written: RunChanges = {
         "run": '{"outcomes": {}}',
         "status": state.status,
@@ -143,7 +143,7 @@ async def _updates_are_compared_and_set(store: RunStore) -> list[str]:
         {
             "run": json.dumps({"outcomes": {"y": "ü" * 200_000}}),
             "status": "waiting",
-            "state": RunState.started().model_copy(update={"status": "waiting"}).model_dump_json(),
+            "state": RunState.new().model_copy(update={"status": "waiting"}).model_dump_json(),
             "outcome": '{"waiting": [], "outputs": null}',
             "owner": None,
             "lease_until": None,
@@ -187,7 +187,7 @@ async def _updates_are_compared_and_set(store: RunStore) -> list[str]:
 
 
 async def _expired_gives_the_runs_whose_lease_ran_out(store: RunStore) -> list[str]:
-    """Of four runs, ``expired`` gives the one whose lease ran out and the one no worker holds, created as ``begin``
+    """Of four runs, ``expired`` gives the one whose lease ran out and the one no worker holds, created as ``create``
     creates it (``0.0``). It gives neither the one whose lease holds nor the one that isn't running. Runs that aren't
     the check's own are ignored."""
     now = time.time()

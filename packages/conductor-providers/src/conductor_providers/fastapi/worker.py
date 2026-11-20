@@ -26,7 +26,7 @@ from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
-from conductor_providers.fastapi.held_run import HANDED_BACK, HeldRun, ResumeSettings
+from conductor_providers.fastapi.held_run import UNCLAIMED, HeldRun, ResumeSettings
 from conductor_providers.fastapi.problems import (
     RESUMABLE,
     no_such_run,
@@ -45,7 +45,7 @@ class Worker(Generic[M, X]):
     """Starts, answers, declines, resumes and cancels the runs kept in one store, on as many processes as share it.
 
     ``run_router`` is a thin layer of routes over one worker. With routes of your own, you call the worker as the
-    routes do: ``begin`` a run (or ``estimate`` one first) and ``resume`` it to start it, ``read`` it, ``answer``,
+    routes do: ``create`` a run (or ``estimate`` one first) and ``resume`` it to start it, ``read`` it, ``answer``,
     ``decline``, ``resume`` or ``cancel`` it, follow its ``events``, or store it ``again`` with some inputs changed and
     ``resume`` that. Each method that acts on a run takes its id, reads the run itself, and returns the run as it is
     after the call. When another call writes the run between this call's read and its write, the run is read again,
@@ -146,7 +146,7 @@ class Worker(Generic[M, X]):
         """
         return self._view(await self._row(run_id, allows))
 
-    async def begin(
+    async def create(
         self,
         graph: Any,
         inputs: Mapping[str, Any],
@@ -185,7 +185,7 @@ class Worker(Generic[M, X]):
         """
         metadata = self._checked(metadata)
         run = await self._ready(graph, inputs, metadata, previous, allows)
-        return await self._create(run.graph.record.model_dump_json(), metadata, run)
+        return await self._store_new(run.graph.record.model_dump_json(), metadata, run)
 
     async def estimate(
         self,
@@ -196,7 +196,7 @@ class Worker(Generic[M, X]):
         previous: str | None = None,
         allows: Callable[[M], bool],
     ) -> RunProgress:
-        """How many calls the run ``begin`` would start will make, from ``run.resume(only_costs_nothing=True)``,
+        """How many calls the run ``create`` would start will make, from ``run.resume(only_costs_nothing=True)``,
         which calls only the nodes that cost nothing; nothing is stored.
 
         The call is made as a stored run's is: with the metadata's context and this worker's ``resume_timeout`` and
@@ -206,14 +206,14 @@ class Worker(Generic[M, X]):
             graph: The graph record, as a ``GraphRecord``, as its JSON text or as the plain data a caller sent.
             inputs: Values for the graph's inputs, by name.
             metadata: The metadata the run would have, on whose nodes the graph is compiled.
-            previous: The id of a run whose work the run would reuse, as ``begin`` takes it.
-            allows: The run filter ``previous`` must pass, as ``begin`` takes it.
+            previous: The id of a run whose work the run would reuse, as ``create`` takes it.
+            allows: The run filter ``previous`` must pass, as ``create`` takes it.
 
         Returns:
             The run's progress after that call.
 
         Raises:
-            InvalidCallError: As ``begin`` refuses the same call.
+            InvalidCallError: As ``create`` refuses the same call.
         """
         metadata = self._checked(metadata)
         run = await self._ready(graph, inputs, metadata, previous, allows)
@@ -235,10 +235,10 @@ class Worker(Generic[M, X]):
         allows: Callable[[M], bool],
     ) -> RunView:
         """Store a run of a run's graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
-        receives what it received before isn't made again. ``resume`` starts it, as it starts a run ``begin`` stores.
+        receives what it received before isn't made again. ``resume`` starts it, as it starts a run ``create`` stores.
 
         The new run has the run's graph, the inputs it had except those given, and its ceiling on items, a raised
-        one included. To start another graph, such as an edited one, from a run's work, ``begin`` with
+        one included. To start another graph, such as an edited one, from a run's work, ``create`` with
         ``previous``.
 
         Args:
@@ -258,7 +258,7 @@ class Worker(Generic[M, X]):
         row = await self._row(run_id, allows)
         loaded = await self._settings.load(row, metadata)
         again = await asyncio.to_thread(loaded.with_inputs, inputs)
-        return await self._create(row.stored.graph, metadata, again)
+        return await self._store_new(row.stored.graph, metadata, again)
 
     async def answer(
         self,
@@ -346,19 +346,20 @@ class Worker(Generic[M, X]):
         *,
         allows: Callable[[M], bool],
     ) -> RunView:
-        """Start a run ``begin`` or ``again`` stored, or resume one that ended early; no node call that finished is
+        """Start a run ``create`` or ``again`` stored, or resume one that ended early; no node call that finished is
         made again.
 
-        A ``running`` run that no worker holds, one just stored or handed back, is taken by this worker and resumed.
-        One that a worker holds is left as it is, so a resume that comes after a sweep took the run changes nothing.
-        A ``waiting`` or ``complete`` run didn't end early, and a ``declined`` one has ended for good, so each is
-        refused.
+        A ``running`` run is taken by this worker and resumed only when no worker holds it: its ``owner`` is ``None``,
+        since it was just stored or handed back. Any other ``running`` run is left as it is. That covers a run a sweep
+        took after it was stored, so a late resume changes nothing. It covers a run whose worker died too: that run
+        still names its owner, and the sweep takes it once its lease runs out. A ``waiting`` or ``complete`` run
+        didn't end early, and a ``declined`` one has ended for good, so each is refused.
 
         Args:
             run_id: The run's id.
             max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling. The
                 run is stored with it as the run is claimed, so every later resume call has it. A ``running`` run
-                hasn't stopped, so it is refused with it.
+                hasn't stopped, so it takes no new limit.
             allows: The request's run filter.
 
         Returns:
@@ -493,9 +494,11 @@ class Worker(Generic[M, X]):
         hands back every run it is resuming: no more nodes are started, the calls going on are waited for and kept,
         and another worker that serves goes on with the run. A run taken while it leaves is handed back too.
 
-        A worker that has never served raises ``RuntimeError`` from any call that would make a run running, since it
-        would hand no run back and take over none. One that served and left takes such a call and hands the run back
-        at once. A server with ``run_router`` starts serving when FastAPI starts it, and FastAPI's ``TestClient``
+        A worker that has never served raises ``RuntimeError`` from any call that would resume a run here, since it
+        would hand no run back and take over none: a ``resume``, an ``answer`` to a run that isn't running, or a
+        ``cancel`` of a waiting one. ``create`` and ``again`` only store a run, so they don't raise, and a serving
+        worker's sweep starts the run later. One that served and left takes such a call and hands the run back at
+        once. A server with ``run_router`` starts serving when FastAPI starts it, and FastAPI's ``TestClient``
         starts it only inside ``with TestClient(app) as client:``.
 
         Yields:
@@ -549,7 +552,7 @@ class Worker(Generic[M, X]):
         previous: str | None,
         allows: Callable[[M], bool],
     ) -> Run[Any]:
-        """The run ``begin`` starts and ``estimate`` counts: the graph compiled on the metadata's nodes, with its
+        """The run ``create`` starts and ``estimate`` counts: the graph compiled on the metadata's nodes, with its
         inputs, and the work of ``previous`` lent to it.
 
         The graph's own problems and the inputs' are refused before the previous run is loaded.
@@ -615,7 +618,7 @@ class Worker(Generic[M, X]):
         """
         return self._metadata.validate_python(metadata)
 
-    async def _create(self, graph: str, metadata: M, run: Run[Any]) -> RunView:
+    async def _store_new(self, graph: str, metadata: M, run: Run[Any]) -> RunView:
         """Store a new run as a run handed back is stored: ``running``, held by no worker, its lease already out.
 
         The store's ``create`` is all that happens, so a host's transaction around it leaves nothing behind when it
@@ -629,7 +632,7 @@ class Worker(Generic[M, X]):
         Returns:
             The run, as written.
         """
-        state = RunState.started()
+        state = RunState.new()
         saved, outcome = await asyncio.to_thread(
             lambda: (run.to_json(), RunOutcome.of(run, state.status))
         )
@@ -637,7 +640,7 @@ class Worker(Generic[M, X]):
             uuid.uuid4().hex,
             graph,
             metadata,
-            HANDED_BACK,
+            UNCLAIMED,
             state=state,
             run=saved,
             outcome=outcome,
