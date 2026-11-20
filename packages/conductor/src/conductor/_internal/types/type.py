@@ -383,7 +383,7 @@ class Type:
 
         A saved run's values are read by it too, so the rules reach every door.
         """
-        return with_rules(self.schema)
+        return with_rules(self.schema, read_strictly=False)
 
     @functools.cached_property
     def argument_validator(self) -> SchemaValidator:
@@ -398,10 +398,12 @@ class Type:
     def output_schema(self) -> CoreSchema:
         """The schema an output of the type is checked by, strictly: what a node returns, or a person's answer.
 
-        It is ``returned_schema`` with conductor's rules added (``with_rules``). A value is what the type's own check
-        gives, whatever its class: pydantic's ``EmailStr`` gives a ``str``, and ``AwareDatetime`` a ``datetime``.
+        It is ``returned_schema`` with conductor's rules added for a check that only reads strictly (``with_rules``),
+        so an ``int`` or a ``float`` is left to pydantic's strict check to refuse a ``bool``. A value is what the
+        type's own check gives, whatever its class: pydantic's ``EmailStr`` gives a ``str``, and ``AwareDatetime`` a
+        ``datetime``.
         """
-        return with_rules(self.returned_schema)
+        return with_rules(self.returned_schema, read_strictly=True)
 
     @functools.cached_property
     def output_validator(self) -> SchemaValidator:
@@ -824,7 +826,7 @@ class Type:
             if column is not None:
                 columns.append(column)
                 value_free_error["type"], value_free_error["msg"] = owner._fault_in(
-                    column, raw["type"], value_free_error["msg"], in_cell
+                    column, value_free_error["type"], value_free_error["msg"], in_cell
                 )
             # an error conductor raised about a whole column of a frame; a host's error may put anything in its ctx
             elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
@@ -894,10 +896,10 @@ class Type:
     ) -> tuple[str, str]:
         """Returns the error's type and message, reworded to name the column ``part`` that ``_walked`` returned.
 
-        ``kind`` is pydantic's error type and ``msg`` its message. ``in_cell`` is the rest of the error's ``loc``
-        after the column, such as ``("money", "cents")`` for a field missing from a value inside a cell. It is
-        ``()`` when the error is about the column itself. Only a table rewords the error. Any other type returns
-        ``kind`` and ``msg`` as they are.
+        ``kind`` is the error's type and ``msg`` its message, as ``value_free_errors`` wrote them. ``in_cell`` is the
+        rest of the error's ``loc`` after the column, such as ``("money", "cents")`` for a field missing from a value
+        inside a cell. It is ``()`` when the error is about the column itself. Only a table rewords the error. Any
+        other type returns ``kind`` and ``msg`` as they are.
         """
         return kind, msg
 
