@@ -43,21 +43,33 @@ class RequiredBranch(NamedTuple):
     Then ``shout`` is called only where ``route`` gave ``long`` a value, so it needs
     ``RequiredBranch(("route",), "long", depth=0)``.
 
+    A node switched off (``NodeRecord.off``) needs one more: that it is switched on, which a run never finds it.
+    ``RequiredBranch.switch_of(("route",))`` is that need, with no output. So every output of a node switched off,
+    and everything that reads only from one, is described as an output that may be skipped, as one on a branch is.
+
     The compiler uses these in two checks. Two edges may share an input when they need different branches of one
     node drawn in the same graph, since those never both have a value. And two lists collected on different
     branches of one node are refused (``series_from_different_branches``), wherever that node is, a subgraph included.
+    A switch is no branch of its node, so it never makes two edges exclusive: switching a node off changes neither
+    check.
 
     Attributes:
         node: The path of the function node the branch belongs to, from the graph being compiled. That's
-            ``("route",)``, or ``("e", "route")`` for a node inside the subgraph node ``e``.
-        output: The branch that must be taken.
+            ``("route",)``, or ``("e", "route")`` for a node inside the subgraph node ``e``. For a switch, the node
+            switched off, a subgraph node included.
+        output: The branch that must be taken. ``None`` for a switch.
         depth: How many loops that node is in. A node inside the loop over ``lines.result`` takes a branch once
-            per line.
+            per line. A switch is set once for the whole run, outside every loop, so its depth is 0 in any graph.
     """
 
     node: NodePath
-    output: str
+    output: str | None
     depth: int
+
+    @classmethod
+    def switch_of(cls, node: NodePath) -> RequiredBranch:
+        """Returns the need that the node at ``node``, which the record switches off, be switched on."""
+        return cls(node, None, 0)
 
     def in_outer_graph(
         self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
@@ -65,7 +77,7 @@ class RequiredBranch(NamedTuple):
         """Returns this branch of a subgraph's graph, named from the graph the subgraph node is in.
 
         Its node is named as ``path_in_outer_graph`` names it, and the loops the subgraph node is in count toward
-        its depth, as ``loops_in_outer_graph`` puts them first.
+        its depth, as ``loops_in_outer_graph`` puts them first. A switch keeps the depth 0.
 
         Args:
             subgraph_path: The subgraph node's path in the graph it is in.
@@ -73,7 +85,7 @@ class RequiredBranch(NamedTuple):
         """
         return self._replace(
             node=path_in_outer_graph(subgraph_path, self.node),
-            depth=len(subgraph_loops) + self.depth,
+            depth=0 if self.output is None else len(subgraph_loops) + self.depth,
         )
 
 

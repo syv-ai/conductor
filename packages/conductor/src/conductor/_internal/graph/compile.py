@@ -387,7 +387,7 @@ class Compiler:
                 loops=planned.loops,
                 inputs=planned.inputs,
                 outputs=outputs,
-                required_branches=planned.required_branches,
+                required_branches=_with_switch(node_id, node_record, planned.required_branches),
                 off=node_record.off,
                 definition=definition,
             )
@@ -444,7 +444,7 @@ class Compiler:
             loops=planned.loops,
             inputs=planned.inputs,
             outputs=inner._outputs,
-            required_branches=planned.required_branches,
+            required_branches=_with_switch(node_id, node_record, planned.required_branches),
             off=node_record.off,
             definition=definition,
             inner=inner,
@@ -525,7 +525,9 @@ class Compiler:
                 case None if name in refused_defaults:
                     inputs[name] = MissingInput(field)
                 case None if field.default is REQUIRED:
-                    self.problems.append(compile_problems.input_has_no_value(node_id, name))
+                    # a node switched off reads no input, so it needs no value
+                    if not node_record.off:
+                        self.problems.append(compile_problems.input_has_no_value(node_id, name))
                     inputs[name] = MissingInput(field)
                 case None:
                     inputs[name] = ConstantInput(field, field.default)
@@ -1224,6 +1226,16 @@ def _field_type(value_type: Type, name: str) -> Type | None:
     return Type(value_type.fields[name]) if name in value_type.fields else None
 
 
+def _with_switch(
+    node_id: str, node_record: NodeRecord, required_branches: frozenset[RequiredBranch]
+) -> frozenset[RequiredBranch]:
+    """Returns the branches a node needs to be called: those its inputs need, and its switch if the record switches
+    it off (``RequiredBranch.switch_of``)."""
+    if node_record.off:
+        return required_branches | {RequiredBranch.switch_of((node_id,))}
+    return required_branches
+
+
 def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch]:
     """Returns the branches of nodes drawn in the graph being compiled, leaving out those inside subgraph nodes."""
     return frozenset(branch for branch in branches if not inside_a_subgraph_node(branch.node))
@@ -1232,9 +1244,14 @@ def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
     """Whether two sets of required branches can never both be taken.
 
-    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node.
+    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node. A switch
+    (``RequiredBranch.switch_of``) is no branch, so it counts for neither.
     """
-    return any(x.node == y.node and x.output != y.output for x in a for y in b)
+    return any(
+        x.node == y.node and x.output != y.output and None not in (x.output, y.output)
+        for x in a
+        for y in b
+    )
 
 
 def _reaches(start: str, goal: str, downstream: Mapping[str, list[str]], within: set[str]) -> bool:

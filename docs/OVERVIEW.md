@@ -69,7 +69,7 @@ When an argument is `None` and its input doesn't take `None`, the node isn't cal
 
 A node with branches returns `SKIPPED` for the ones it doesn't take. Nodes wired only to a skipped branch are skipped. Inside a loop, that's for that one item. Outside a loop, they're skipped altogether.
 
-A node switched off in the record (`"off": true`) is skipped the same way, on every call. It still compiles, so its problems still show, but it is never called, and the nodes wired only to it are skipped. The graph inputs only it takes, and its own outputs, drop out of the graph's inputs and outputs.
+A node switched off in the record (`"off": true`) is skipped the same way, on every call. It still compiles, so its problems still show, though its inputs need no value. It is never called, and the nodes wired only to it are skipped, and are shown as ones that may be skipped. The graph inputs only it takes, and its own outputs, drop out of the graph's inputs and outputs.
 
 A node raises `Ask` when a person has to answer. That call waits, and so does every call after it. The rest of the graph runs on, and the run ends `waiting`. `run.with_answers(...)` gives the answers, and each one is checked before anything runs. Then `run.resume()` carries on. No call that finished is made again. A person who won't answer is declined with `run.with_decline(waiting, reason=...)`: the run ends `declined`, for good. What ran before keeps its results, and nothing more is called. A decline is not an answer. To reject one item and let the run go on, answer it.
 
