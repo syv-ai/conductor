@@ -23,6 +23,7 @@ from .hint import (
     is_alias,
     is_typed_dict,
     literal_classes,
+    revalidates_instances,
     types_and_left_out,
     union_members,
     union_of,
@@ -51,7 +52,8 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
             in two places, it is bound to the union of what arrives at each.
         exact: Ask a stricter question instead: is every ``source`` value already a ``target`` value as it is, so
             that it needs no checking or converting? A ``TypedDict`` read by a pydantic config of its own holds
-            no other type, since the config may change a value, as ``str_to_lower`` does.
+            no other type, since the config may change a value, as ``str_to_lower`` does; so does a model or
+            pydantic dataclass that revalidates instances (``revalidate_instances``).
     """
     if target == source:
         return True
@@ -191,6 +193,9 @@ def _fit(
         or issubclass(source_class, accepted_classes(target_class))
     )
     if not (issubclass(source_class, target_class) or widened):
+        return False
+    if exact and source_class is not target_class and revalidates_instances(target_class):
+        # pydantic reads a subclass's instance again by the target's own config, which may change it
         return False
     expected_args, given_args = get_args(target), get_args(source)
     if not given_args:  # a bare generic like ``list`` says nothing about its items
