@@ -22,7 +22,15 @@ from .choice import (
 )
 from .fields import UnreadableFieldError, field_of
 from .fit import fit
-from .hint import a_number, field_hints, hint_parts, is_typed_dict, union_members, union_of
+from .hint import (
+    a_number,
+    field_hints,
+    hint_parts,
+    is_typed_dict,
+    type_fields,
+    union_members,
+    union_of,
+)
 from .host_type import NAMES, NotBlank, host_type, is_declared
 from .kind_by_key import KindByKey
 from .param import SIZED, Param, as_written, split_hint
@@ -57,6 +65,7 @@ __all__ = [
     "read_as_argument",
     "read_as_output",
     "split_hint",
+    "type_fields",
     "union_members",
     "union_of",
     "written_as_json",

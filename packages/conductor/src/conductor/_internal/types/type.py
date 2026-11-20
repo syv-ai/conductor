@@ -82,13 +82,12 @@ from .fit import fit
 from .hint import (
     READ_AS,
     declares_fields,
-    field_hints,
     hint_parts,
     is_alias,
     is_typed_dict,
     literal_classes,
     substituted,
-    types_and_left_out,
+    type_fields,
     union_members,
     union_of,
 )
@@ -725,10 +724,9 @@ class Type:
         """The type hint of each field, by name, for a type that declares its fields: a model, a dataclass or a
         ``TypedDict``, a generic one's with its arguments filled in. Empty for any other type.
 
-        ``field_hints`` reads them. A field a value may leave out is given as its type, without ``NotRequired``.
+        ``type_fields`` reads them, so a field a value may leave out is given as its type, without ``NotRequired``.
         """
-        one = self.options[0] if len(self.options) == 1 else None
-        return {name: hint for name, (hint, _) in types_and_left_out(field_hints(one)).items()}
+        return type_fields(self.options[0]) if len(self.options) == 1 else {}
 
     @property
     def returned_schema(self) -> CoreSchema:

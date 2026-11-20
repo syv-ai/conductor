@@ -449,10 +449,12 @@ def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
 
-def test_collect_types_its_table_by_a_generic_rows_filled_in_columns_with_their_limits():
+@pytest.mark.parametrize("split", [False, True], ids=["whole", "split"])
+def test_collect_types_its_table_by_a_generic_rows_filled_in_columns_with_their_limits(split):
     """A generic row, ``Line[int]``, gives the result its columns with ``T`` filled in, and a column keeps its
-    ``Param`` limits. The hook reads the row with the reader conductor reads every row with, so it sees what the
-    table it was given has."""
+    ``Param`` limits, whether the rows arrive as the whole ``Table[Line[int]]`` or as the ``Series[Line[int]]``
+    that ``series-split`` gives. The hook reads the row as conductor reads every row, so the result's columns are
+    the columns the rows have."""
 
     class Line[T](TypedDict):
         value: T
@@ -465,16 +467,19 @@ def test_collect_types_its_table_by_a_generic_rows_filled_in_columns_with_their_
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
+    into_rows = (
+        [("lines.result", "series-split.value"), ("series-split.result", "table-collect.rows")]
+        if split
+        else [("lines.result", "table-collect.rows")]
+    )
     graph = Graph.compile(
         make_graph(
             lines,
+            *([series.split] if split else []),
             sentence,
             tables.collect,
             outputs=COLLECTED,
-            edges=[
-                ("lines.result", "table-collect.rows"),
-                ("sentence.result", "table-collect.team"),
-            ],
+            edges=[*into_rows, ("sentence.result", "table-collect.team")],
             constants={"table-collect.constant_columns": ["team"]},
         ),
         registry,
@@ -487,6 +492,9 @@ def test_collect_types_its_table_by_a_generic_rows_filled_in_columns_with_their_
         "count": {"minimum": 0, "type": "integer"},
         "team": {"type": "string"},
     }
+    assert graph.run().results["table-collect"]["result"].to_dicts() == [
+        {"value": 7, "count": 1, "team": "one two"}
+    ]
 
 
 def test_collect_refuses_a_new_column_the_rows_already_have_naming_it():

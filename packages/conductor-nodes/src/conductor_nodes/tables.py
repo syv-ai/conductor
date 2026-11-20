@@ -22,7 +22,7 @@ import typing
 from typing import Any, TypedDict
 
 import polars as pl
-from conductor import NodeError, NodeRegistry, Policy, Series, Table, field_hints
+from conductor import NodeError, NodeRegistry, Policy, Series, Table, type_fields
 
 registry = NodeRegistry(category="table")
 
@@ -78,16 +78,16 @@ def _table(rows: type, columns: list[str], **added: type) -> dict[str, Any]:
 
     Say ``R`` is a ``TypedDict`` ``Contact`` with ``name: str``, and ``greeting`` is in ``columns``, wired from a
     ``str``. The table's rows then have ``name: str`` and ``greeting: str | None``. A ``greeting`` may be ``None``,
-    since a row gets ``None`` when ``greet`` wasn't called for it. ``R``'s columns are read with ``field_hints``, so a
-    generic row ``Row[int]`` has its type argument filled in, and a column keeps its ``Annotated`` limits and its
-    ``NotRequired``. If ``R`` declares no columns, as for a bare ``Table``, the result is a ``Table`` of any columns.
+    since a row gets ``None`` when ``greet`` wasn't called for it. ``R``'s columns are read with ``type_fields``, so a
+    generic row ``Row[int]`` has its type argument filled in, and a column keeps its ``Annotated`` limits. If ``R``
+    declares no columns, as for a bare ``Table``, the result is a ``Table`` of any columns.
 
     Raises:
         NodeError: ``column_taken`` if a new column has the name of a column the rows already have.
     """
     if typing.get_origin(rows) is Table:
         rows = typing.get_args(rows)[0]
-    known = field_hints(rows)
+    known = type_fields(rows)
     if not known:
         return {"result": Table}
     _refuse_taken(list(added), list(known))

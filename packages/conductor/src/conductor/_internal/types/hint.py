@@ -126,20 +126,17 @@ def is_typed_dict(hint: Any) -> bool:
 
 
 def field_hints(hint: Any) -> dict[str, Any]:
-    """Returns the type hint of each field a pydantic model, a dataclass or a ``TypedDict`` declares, by name.
+    """Returns the type hint of each field ``hint`` declares, by name. It is empty for a hint that declares none.
 
-    It is empty for a type that declares no fields, such as ``str`` or ``dict[str, int]``. Conductor reads every
-    type's fields with it, and a ``compute_outputs`` hook calls it to read the fields of a type arriving on an
-    input: ``field_hints(Contact)`` is ``{"name": str, "email": str | None}``. It is provisional.
-
-    A generic type has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
+    A pydantic model, a dataclass and a ``TypedDict`` declare their fields. This is the one place they are read.
+    A generic one has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
     ``value: T`` is ``int``, and so is a generic pydantic model's, ``Box[int]``. A type variable left open, as in a
     bare ``Row``, becomes its bound, or ``Any``.
 
     Each hint is the one its author wrote, with its ``Annotated`` metadata, so a field's limits and choices stay
     on it. A ``TypedDict``'s ``Required`` and ``ReadOnly`` are taken off. A field a value may leave out, written
     ``NotRequired`` or in a class declared ``total=False``, is always given as ``NotRequired[...]``, so one test
-    finds it. A ``ClassVar`` is no field.
+    finds it (``types_and_left_out``). A ``ClassVar`` is no field.
 
     Raises:
         NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can
@@ -189,6 +186,28 @@ def types_and_left_out(fields: Mapping[str, Any]) -> dict[str, tuple[Any, bool]]
         name: (get_args(hint)[0], True) if get_origin(hint) is NotRequired else (hint, False)
         for name, hint in fields.items()
     }
+
+
+def type_fields(hint: Any) -> dict[str, Any]:
+    """Returns the type of each field a pydantic model, a dataclass or a ``TypedDict`` declares, by name.
+
+    It is empty for any other type, such as ``str`` or ``dict[str, int]``. A ``compute_outputs`` hook calls it on a
+    type arriving on an input: ``type_fields(Contact)`` is ``{"name": str, "email": str | None}``. Conductor reads a
+    type's fields the same way. It is provisional.
+
+    A generic type has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
+    ``value: T`` is ``int``. A type variable left open, as in a bare ``Row``, becomes its bound, or ``Any``. Each
+    type is the one its author wrote, with its ``Annotated`` limits. A field a value may leave out is given as its
+    type, without ``NotRequired``.
+
+    Every annotation in the class's body is a field, except a ``ClassVar``. So a model's private attribute, like
+    ``_secret``, is given, and so are a dataclass's ``InitVar`` and a field declared ``field(init=False)``.
+
+    Raises:
+        NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can
+            find.
+    """
+    return {name: field for name, (field, _) in types_and_left_out(field_hints(hint)).items()}
 
 
 def a_number(cls: type) -> bool:
