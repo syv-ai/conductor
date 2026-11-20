@@ -10,7 +10,7 @@ checks them all at once.
 import json
 from dataclasses import InitVar, dataclass, field
 from io import StringIO
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -869,6 +869,103 @@ def test_a_subtype_output_fits_an_input_of_its_parent_type_and_not_the_other_way
     ) == [
         ("type_mismatch", ("n", "text")),
     ]
+
+
+class _Tally(TypedDict):
+    n: int
+
+
+class _MaybeTally(TypedDict):
+    n: int | None
+
+
+class _Tallies(TypedDict):
+    n: list[int | None]
+
+
+_T = TypeVar("_T")
+
+
+def _wiring(gives: Any, takes: Any, field: str = "", returned: Any = None) -> Graph:
+    """Compiles ``give``, which returns ``returned`` as a ``gives``, wired into ``take(value: takes)``.
+
+    The edge reads the field ``field`` of the value, or the whole value if ``field`` is empty.
+    """
+
+    def give() -> gives:  # type: ignore[valid-type]
+        return returned
+
+    def take(value: takes) -> str:  # type: ignore[valid-type]
+        return repr(value)
+
+    giver = node("give", title="Give", description="For a test.")(give)
+    taker = node("take", title="Take", description="For a test.")(take)
+    edge = ("give.result" + (f".{field}" if field else ""), "take.value")
+    return Graph.compile(make_graph(giver, taker, edges=[edge]), registry_of(giver, taker))
+
+
+@pytest.mark.parametrize(
+    ("gives", "takes", "field"),
+    [
+        (list[int | None], list[int], ""),
+        (dict[str, int | None], dict[str, int], ""),
+        (tuple[int | None, str], tuple[int, str], ""),
+        (_Tallies, list[int], "n"),
+        (Series[_MaybeTally], Series[_Tally], ""),
+        (Series[_MaybeTally], Table[_Tally], ""),
+        (Table[_MaybeTally], Table[_Tally], ""),
+    ],
+    ids=[
+        "list-item",
+        "dict-value",
+        "tuple-item",
+        "field",
+        "series-row",
+        "rows-into-table",
+        "table",
+    ],
+)
+def test_a_none_inside_a_value_must_be_taken_by_the_input_or_the_edge_is_a_type_mismatch(
+    gives: Any, takes: Any, field: str
+) -> None:
+    """A node is never called for a ``None`` that is the whole value, but a ``None`` inside a value reaches it."""
+    assert [(p.type, p.loc) for p in _wiring(gives, takes, field).problems] == [
+        ("type_mismatch", ("take", "value"))
+    ]
+
+
+def test_a_type_variable_fed_a_list_with_none_items_binds_to_its_items_with_none():
+    @node("give_maybe", title="Give maybe", description="For a test.")
+    def give_maybe() -> list[int | None]:
+        return [None]
+
+    @node("same_list", title="Same list", description="For a test.")
+    def same_list(values: list[_T]) -> list[_T]:
+        return values
+
+    @node("take_ints", title="Take ints", description="For a test.")
+    def take_ints(values: list[int]) -> str:
+        return repr(values)
+
+    graph = Graph.compile(
+        make_graph(give_maybe, same_list, take_ints),
+        registry_of(give_maybe, same_list, take_ints),
+    )
+    assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("take_ints", "values"))]
+
+
+@pytest.mark.parametrize(
+    ("gives", "field", "returned"),
+    [(int | None, "", None), (_MaybeTally, "n", {"n": None})],
+    ids=["whole", "field"],
+)
+def test_a_none_that_is_the_whole_value_fits_an_input_that_takes_no_none_and_the_node_isnt_called(
+    gives: Any, field: str, returned: Any
+) -> None:
+    graph = _wiring(gives, int, field, returned)
+    assert graph.problems == []
+    run = graph.run()
+    assert (run.status, run.results["take"]) == ("complete", {"result": None})
 
 
 def test_a_series_of_any_an_output_hook_declares_compiles_into_a_str_input_and_a_table_input():
