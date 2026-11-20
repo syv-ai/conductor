@@ -625,6 +625,7 @@ async def main():
                                   allows=lambda m: True)
         print("begin  -&gt;", view.status, view.waiting)
         print("compiles after begin:", compiles)
+        view = await worker.resume(view.id, allows=lambda m: True)
         view = await until_stopped(worker, view.id)
         print("read   -&gt;", view.status, [w.id for w in view.waiting], view.waiting[0].prompt)
         print("compiles after the first resume call:", compiles)
@@ -645,7 +646,7 @@ Graph.compile = staticmethod(real)  # as it was</pre>
     </div>
     <div class="sample">
       <p class="label">What it printed · the <code>row.state</code> lines <span class="lvl int">Internal</span></p>
-      <p class="muted"><code>begin</code> answers at once with the run as written, <code>running</code>, and makes the first resume call in the background. Each resume call here stores its own <a href="running-and-streaming.html#stream">events</a>, from <code>run_start</code> to <code>run_end</code>, and a follower reads them all with <code>worker.events</code>. A run that stopped running has no owner and no lease.</p>
+      <p class="muted"><code>begin</code> only stores the run, <code>running</code> and held by no worker, and answers with it. <code>resume</code> takes it and makes the first resume call in the background; had nobody resumed it, the next sweep of a serving worker would have. Each resume call here stores its own <a href="running-and-streaming.html#stream">events</a>, from <code>run_start</code> to <code>run_end</code>, and a follower reads them all with <code>worker.events</code>. A run that stopped running has no owner and no lease.</p>
       <pre class="out">begin  -&gt; running []
 compiles after begin: 1
 read   -&gt; waiting ['approve~60a01e27'] Approve 5000 kr.?
@@ -731,7 +732,7 @@ events:
   <div class="two">
     <figure>
       <div class="fig">
-        <svg viewBox="0 0 560 300" role="img" aria-label="Two workers read a waiting run at rev 1. Both try to claim it at rev 1. One claim is written and the row moves to rev 2. The other is refused, reads the row again, finds it running, and queues its answer at rev 2.">
+        <svg viewBox="0 0 560 300" role="img" aria-label="Two workers read a waiting run at rev 2. Both try to claim it at rev 2. One claim is written and the row moves to rev 3. The other is refused, reads the row again, finds it running, and queues its answer at rev 3.">
           <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker></defs>
           <text class="s-label" x="80" y="26" text-anchor="middle">worker one</text>
           <text class="s-label" x="280" y="26" text-anchor="middle">the row</text>
@@ -739,12 +740,12 @@ events:
           <line x1="80" y1="36" x2="80" y2="290" stroke="var(--rule)" stroke-width="2"/>
           <line x1="280" y1="36" x2="280" y2="290" stroke="var(--rule)" stroke-width="2"/>
           <line x1="480" y1="36" x2="480" y2="290" stroke="var(--rule)" stroke-width="2"/>
-          <rect class="s-box" x="236" y="46" width="88" height="26" rx="6"/><text class="s-label" x="280" y="64" text-anchor="middle">rev 1 waiting</text>
+          <rect class="s-box" x="236" y="46" width="88" height="26" rx="6"/><text class="s-label" x="280" y="64" text-anchor="middle">rev 2 waiting</text>
           <path class="s-line" d="M84 92 H270" marker-end="url(#ah3)"/>
-          <text class="s-tiny" x="176" y="86" text-anchor="middle">claim at rev 1</text>
+          <text class="s-tiny" x="176" y="86" text-anchor="middle">claim at rev 2</text>
           <path class="s-line" d="M476 102 H290" marker-end="url(#ah3)"/>
-          <text class="s-tiny" x="384" y="96" text-anchor="middle">claim at rev 1</text>
-          <rect class="s-ours" x="236" y="118" width="88" height="26" rx="6"/><text class="s-label" x="280" y="136" text-anchor="middle">rev 2 running</text>
+          <text class="s-tiny" x="384" y="96" text-anchor="middle">claim at rev 2</text>
+          <rect class="s-ours" x="236" y="118" width="88" height="26" rx="6"/><text class="s-label" x="280" y="136" text-anchor="middle">rev 3 running</text>
           <text class="s-sub" x="176" y="134" text-anchor="middle" fill="var(--ok)">written</text>
           <text class="s-sub" x="384" y="134" text-anchor="middle">refused</text>
           <path class="s-line" d="M84 166 H120" />
@@ -752,7 +753,7 @@ events:
           <path class="s-line" d="M290 200 H476" marker-end="url(#ah3)" style="stroke-dasharray:3 3"/>
           <text class="s-tiny" x="384" y="194" text-anchor="middle">reads again: running</text>
           <path class="s-line" d="M476 236 H290" marker-end="url(#ah3)"/>
-          <text class="s-tiny" x="384" y="230" text-anchor="middle">queue its answer at rev 2</text>
+          <text class="s-tiny" x="384" y="230" text-anchor="middle">queue its answer at rev 3</text>
           <rect class="s-ours" x="236" y="252" width="88" height="26" rx="6"/><text class="s-label" x="280" y="270" text-anchor="middle">rev 3 running</text>
         </svg>
       </div>
@@ -782,6 +783,7 @@ other = Worker(store, nodes_for=lambda metadata: registry)
 async def race():
     async with one.serving(), other.serving():
         view = await one.begin(make_graph(approve), {"amount": 5000}, {"user": "anna"}, allows=every)
+        await one.resume(view.id, allows=every)
         waiting_id = (view := await until_stopped(one, view.id)).waiting[0].id
         store.log = log  # from here on, the store prints what it is asked to write
         a, b = await asyncio.gather(
@@ -795,9 +797,9 @@ async def race():
         print("refused:", {k: [p.type for p in v] for k, v in view.refused.items()})
 
 asyncio.run(race())</pre>
-      <pre class="out">  claim at rev 1 by one: written
-  claim at rev 1 by other: refused, the row had moved on
-  write of state at rev 2: written -&gt; queued:
+      <pre class="out">  claim at rev 2 by one: written
+  claim at rev 2 by other: refused, the row had moved on
+  write of state at rev 3: written -&gt; queued:
 [{"kind": "answer", "waiting_id": "approve~60a01e27", "answer": false}]
 both answered: running running
 ended: complete {'result': True}
@@ -908,6 +910,7 @@ async with a.serving():
     view = await a.begin(make_graph(many, slow), {"n": 40}, {"user": "anna"},
                          allows=lambda m: True)
     print("begun, owner", who(store.rows[view.id].owner))
+    await a.resume(view.id, allows=lambda m: True)
     while len(calls) &lt; 10:
         await asyncio.sleep(0.01)
     print("A shuts down")
@@ -923,7 +926,8 @@ print("run_start events:", events.count("run_start"), " run_end events:", events
     <div class="sample">
       <p class="label">What it printed</p>
       <p class="muted">Each item was called once. A <code>run_start</code> is stored per resume call, and only the last has a <code>run_end</code>, since a run <a href="running-and-streaming.html#stream">handed back</a> stores none. The log leaves out each update's rev, which depends on timing.</p>
-      <pre class="out">begun, owner A
+      <pre class="out">begun, owner None
+  update: owner=A, lease_until=now + lease, status=running, written=True
 A shuts down
   update: owner=None, lease_until=0.0 (handed back), status=running, written=True
 after A left: status running owner None lease_until 0.0
@@ -1189,7 +1193,7 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
   const COLS = [
     { id: "id", g: "acts", what: "The run's id, a uuid hex the worker makes in `begin` and `again`.", writes: "`create` only.", reads: "Every worker method that acts on a run, by id." },
     { id: "rev", g: "acts", what: "Moved one on by every `update`. A write is made only while the row is still at the rev its writer read.", writes: "The store, on each `update` it lets through.", reads: "Every writer, to write at the rev it read." },
-    { id: "owner", g: "acts", what: "The worker resuming the run. `add_event` appends only while the owner given is the row's owner.", writes: "`create` (the worker that begins it), a claim (this worker's id), the end of a resume call (`None`, or this worker's id again when the run goes on at once), a [hand-back](running-and-streaming.html#stream) (`None`), and a decline given with no resume call.", reads: "`add_event`, and a held run, which stops when it reads another owner." },
+    { id: "owner", g: "acts", what: "The worker resuming the run. `add_event` appends only while the owner given is the row's owner.", writes: "`create` (`None`: no worker holds a run just begun), a claim (this worker's id), the end of a resume call (`None`, or this worker's id again when the run goes on at once), a [hand-back](running-and-streaming.html#stream) (`None`), and a decline given with no resume call.", reads: "`add_event`, and a held run, which stops when it reads another owner." },
     { id: "lease_until", g: "acts", what: "Until when the owner's lease holds, in seconds since the epoch. `0.0` for a run handed back. `None` when the run isn't running.", writes: "`create` and a claim (now + `lease`), each renewal, a hand-back (`0.0`), the end of a resume call (`None`, or a new lease when the run goes on at once), and a decline given with no resume call.", reads: "`expired(now)`, which gives the rows whose lease_until is before now, for the sweep." },
     { id: "status", g: "query", what: "`running` while a worker resumes the run or is about to, else how the run was left. Written in the same `update` as `state`, from it.", writes: "With every write of `state`.", reads: "Your own queries only. The worker and the routes read `state`. A test has a store that drops this column, and the worker still works." },
     { id: "metadata", g: "query", what: "What you keep on the run, such as who started it, as JSON written by alias. Written once by `create`.", writes: "`create` only.", reads: "The run filter, `nodes_for` and `context` on every resume, and your own queries." },
@@ -1217,7 +1221,7 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
   pick("rev");
 
   /* ======================= THE LEASE WALK-THROUGH ======================= */
-  const BEGIN = { t: "A begins the run", cap: "`begin` compiles the graph on the metadata's nodes, creates the row with A as owner and a lease from now, and starts a `HeldRun` that makes the first resume call in the background. B serves too, and sweeps the store three times a lease.",
+  const BEGIN = { t: "A begins the run", cap: "`begin` compiles the graph on the metadata's nodes and creates the row with no owner and `lease_until = 0.0`, as a run handed back is stored. The host's `resume` on A then claims it, with A as owner and a lease from now, and starts a `HeldRun` that makes the first resume call in the background; had nobody resumed it, the next sweep of A or B would have. B serves too, and sweeps the store three times a lease.",
     row: { owner: "A", lease: "now + lease", rev: "0", status: "running", run: "the run as begun", state: "running" },
     a: ["holds the run", "resume call 1"], b: ["serving", "sweeps: nothing due"], A: "holds", B: "", lA: "create", lB: "" };
   const WORK = { t: "A works, and keeps its lease", cap: "The held run renews `lease_until` three times a lease and stores a [checkpoint](running-and-streaming.html#checkpoint) of the run at most every `checkpoint_every` seconds. Each event is appended only while A is the owner. Every renewal and checkpoint is an update at the rev A last knew.",
