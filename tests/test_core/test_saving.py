@@ -24,6 +24,7 @@ from typing import Annotated, Any, Literal, Optional, TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    JSON_CONFIG,
     SKIPPED,
     Ask,
     Graph,
@@ -544,7 +545,7 @@ def test_a_returned_table_column_is_kept_as_the_type_a_saved_run_reads_it_back_a
             pl.Series([{"amount": Decimal("1.5")}], dtype=pl.Struct({"amount": pl.Decimal(10, 1)})),
             "Struct({'amount': String})",
         ),
-        (pl.Series([b"ab"]), "String"),
+        (pl.Series([[b"ab"]]), "List(String)"),
     ],
 )
 def test_a_returned_table_column_a_saved_run_reads_back_changed_is_refused(
@@ -1077,6 +1078,158 @@ def test_binary_choices_are_written_and_compared_as_base64():
     assert refused.value.problems[0].type == "invalid_input"
 
 
+# -- a table's bytes column is base64 in JSON, as every bytes value is -------------------------
+
+
+class _Blob(TypedDict):
+    name: str
+    data: bytes
+
+
+#: A frame with a ``Binary`` column, as a node returns it, and the column as ``JSON_CONFIG`` writes each cell.
+_BLOBS = {"name": ["a", "b"], "data": [_BINARY, b"hi"]}
+_BLOBS_WRITTEN = [
+    {"name": "name", "type": "str", "values": ["a", "b"]},
+    {
+        "name": "data",
+        "type": "bytes",
+        "values": [
+            json.loads(TypeAdapter(bytes, config=JSON_CONFIG).dump_json(one))
+            for one in _BLOBS["data"]
+        ],
+    },
+]
+
+
+@node("blobs", title="Blobs", description="For a test.")
+def blobs(text: str) -> Table[_Blob]:
+    return pl.DataFrame(_BLOBS)
+
+
+@node("blob-rows", title="Blob rows", description="For a test.")
+def blob_rows(text: str) -> Series[_Blob]:
+    return pl.DataFrame(_BLOBS)  # type: ignore[return-value]  a table may stand for a Series of its rows
+
+
+@node("blob-sizes", title="Blob sizes", description="For a test.")
+def blob_sizes(table: Table[_Blob]) -> list[int]:
+    assert table.schema["data"] == pl.Binary
+    return [len(cell) for cell in table["data"]]
+
+
+@node("blob-size", title="Blob size", description="For a test.")
+def blob_size(blob: _Blob) -> int:
+    return len(blob["data"])
+
+
+def test_a_binary_column_a_node_returns_is_saved_as_base64_and_reads_back_as_bytes():
+    """Each cell is the base64 text ``JSON_CONFIG`` writes for the same bytes alone, ``"__4AQfs="`` for ``_BINARY``."""
+    graph = Graph.compile(make_graph(blobs, blob_sizes), registry_of(blobs, blob_sizes))
+    run = graph.run({"text": "x"})
+
+    stored = run.results["blobs"]["result"]
+    assert (stored.schema["data"], stored.to_dict(as_series=False)) == (pl.Binary, _BLOBS)
+    assert _BLOBS_WRITTEN[1]["values"] == [_BINARY_TEXT, "aGk="]
+    saved = json.loads(run.to_json())["outcomes"]
+    assert saved["blobs"]["outputs"]["result"] == [{"columns": _BLOBS_WRITTEN}]
+    read_back = _round_trip(run).results
+    assert read_back["blobs"]["result"].schema["data"] == pl.Binary
+    assert read_back["blobs"]["result"].to_dict(as_series=False) == _BLOBS
+    assert read_back["blob-sizes"]["result"] == run.results["blob-sizes"]["result"] == [5, 2]
+
+
+def test_a_table_with_a_bytes_field_is_given_as_base64_by_a_caller_and_a_person():
+    """Rows, the JSON of a table and a frame each read the field into a ``Binary`` column of the bytes."""
+
+    @node("pick-blobs", title="Pick blobs", description="For a test.", asks=True)
+    def pick_blobs(text: str) -> Table[_Blob]:
+        raise Ask("Which files?")
+
+    given = Graph.compile(make_graph(blob_sizes), registry_of(blob_sizes))
+    rows = [{"name": "a", "data": _BINARY_TEXT}, {"name": "b", "data": "aGk="}]
+    for table in (rows, {"columns": _BLOBS_WRITTEN}, pl.DataFrame(_BLOBS)):
+        run = given.run({"table": table})
+        assert run.results["blob-sizes"]["result"] == [5, 2], table
+        assert run.inputs["table"].to_dict(as_series=False) == _BLOBS
+        assert json.loads(run.to_json())["inputs"] == {"table": {"columns": _BLOBS_WRITTEN}}
+
+    asked = Graph.compile(make_graph(pick_blobs), registry_of(pick_blobs)).run({"text": "x"})
+    (waiting,) = asked.waiting
+    assert Run.queued_as_json({waiting.id: pl.DataFrame(_BLOBS)})[0] == {
+        waiting.id: {"columns": _BLOBS_WRITTEN}
+    }
+    for answer in (rows, pl.DataFrame(_BLOBS)):
+        answered = asked.with_answers(waiting, answer).resume()
+        assert answered.results["pick-blobs"]["result"].to_dict(as_series=False) == _BLOBS
+        assert (
+            _round_trip(answered).results["pick-blobs"]["result"].to_dict(as_series=False) == _BLOBS
+        )
+
+
+def test_a_table_with_a_bytes_field_is_described_as_base64url_cells():
+    (described,) = blob_sizes.describe().inputs
+    assert described.type == "Table[name: str, data: bytes]"
+    assert described.json_schema["properties"]["columns"]["prefixItems"][1] == {
+        "type": "object",
+        "properties": {
+            "name": {"const": "data"},
+            "values": {"type": "array", "items": {"type": "string", "format": "base64url"}},
+        },
+    }
+
+
+def test_a_series_of_rows_with_a_bytes_field_returned_as_a_frame_is_saved_as_base64():
+    graph = Graph.compile(make_graph(blob_rows, blob_size), registry_of(blob_rows, blob_size))
+    run = graph.run({"text": "x"})
+
+    assert run.results["blob-size"]["result"] == [5, 2]
+    saved = json.loads(run.to_json())["outcomes"]
+    assert saved["blob-rows"]["outputs"]["result"] == [{"columns": _BLOBS_WRITTEN}]
+    read_back = _round_trip(run).results
+    assert read_back["blob-rows"]["result"] == [
+        dict(zip(_BLOBS, row)) for row in zip(*_BLOBS.values())
+    ]
+    assert read_back["blob-size"]["result"] == [5, 2]
+
+
+_BLOBS_IN_ANOTHER_PROCESS = """
+import polars as pl
+from typing import TypedDict
+from conductor import Graph, NodeRegistry, Table, make_graph, node
+
+class Blob(TypedDict):
+    data: bytes
+
+@node("blobs", title="Blobs", description="For a test.")
+def blobs(text: str) -> Table[Blob]:
+    return pl.DataFrame({"data": [b"\\xff\\xfe\\x00A\\xfb", b"hi"]})
+
+@node("count", title="Count", description="For a test.")
+def count(table: Table[Blob]) -> int:
+    return table.height
+
+registry = NodeRegistry()
+registry.add(blobs, count)
+print(Graph.compile(make_graph(blobs, count), registry).run({"text": "x"}).to_json())
+"""
+
+
+def test_a_call_given_a_binary_column_has_the_same_fingerprint_in_every_process():
+    """The table's digest, which the fingerprint of ``count``'s call is made from, hashes the column's base64 text."""
+    saved = {
+        subprocess.run(
+            [sys.executable, "-c", _BLOBS_IN_ANOTHER_PROCESS],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for seed in ("1", "2", "3")
+    }
+    (one,) = saved
+    assert json.loads(one)["outcomes"]["count"]["fingerprints"]
+
+
 @host_type("text-attachment", title="Text attachment")
 class _TextAttachment(BaseModel):
     """A host's model with pydantic's default config, which reads and writes bytes as text."""
@@ -1329,18 +1482,20 @@ def test_an_input_with_no_json_form_is_refused_where_it_is_given_so_every_run_ca
     )
 
 
-def test_a_returned_table_column_json_cannot_write_is_refused_naming_the_column():
-    class Blob(TypedDict):
-        data: bytes
+def test_a_returned_table_column_a_saved_run_reads_back_as_text_is_refused_naming_the_column():
+    """Bytes inside a list are written as plain JSON, so they would read back as their base64 text."""
+
+    class Blobs(TypedDict):
+        data: list[bytes]
 
     @node("blob", title="Blob", description="For a test.")
-    def blob(text: str) -> Table[Blob]:
-        return pl.DataFrame({"data": [b"\xff\xfe"]})
+    def blob(text: str) -> Table[Blobs]:
+        return pl.DataFrame({"data": [[b"\xff\xfe"]]})
 
     run = Graph.compile(make_graph(blob), registry_of(blob)).run({"text": "x"})
 
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("blob",))
-    assert "column 'data' is Binary" in run.cause.msg and "\\xff" not in json.dumps(
+    assert "column 'data' is List(Binary)" in run.cause.msg and "\\xff" not in json.dumps(
         run.cause.model_dump(mode="json")
     )
 
