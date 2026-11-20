@@ -51,6 +51,7 @@ from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
     Field,
+    ReturnShape,
     outputs_schema,
 )
 from conductor._internal.problem import (
@@ -67,7 +68,6 @@ from conductor._internal.problem import (
 )
 from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.types import NotBlank
-from conductor._internal.utils import comma_separated
 
 from .policy import Deprecation, Policy
 from .type import (
@@ -93,30 +93,14 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             quotes the value.
     """
 
-    def __init__(
-        self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]
-    ) -> None:
+    def __init__(self, returns: ReturnShape, outputs: Mapping[str, Field]) -> None:
         """Builds the validator for one node.
 
-        A function returns its outputs in one of four shapes. It returns a dataclass if it declares one with
-        no ``@host_type``, a mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none.
-        Otherwise it returns one value, the output ``result``.
-
         Args:
-            outputs_dataclass: The dataclass the function returns its outputs in, or ``None``.
-            computes_outputs: Whether the node's ``compute_outputs`` hook gave its outputs.
+            returns: How the node's function returns its outputs, as ``@node`` read it from its return type.
             outputs: The node's outputs, by name.
         """
         self._outputs = outputs
-        by_name: Callable[[Any], dict[str, Any]]
-        if outputs_dataclass is not None:
-            by_name = _dataclass_fields(outputs_dataclass, outputs)
-        elif computes_outputs:
-            by_name = _mapping_items(outputs)
-        elif not outputs:
-            by_name = _no_outputs
-        else:
-            by_name = _one_output
         # an output a node can't return SKIPPED on must be returned; a branch may be left out of a mapping
         fields = {
             name: core_schema.typed_dict_field(
@@ -124,7 +108,7 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             )
             for name, field in outputs.items()
         }
-        self._validate = SchemaValidator(outputs_schema(outputs, fields, by_name)).validate_python
+        self._validate = SchemaValidator(outputs_schema(outputs, fields, returns)).validate_python
 
     def __call__(self, returned: Any) -> dict[str, Any]:
         """Checks what the function returned, and returns the node's outputs by name.
@@ -139,76 +123,6 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
         except ValidationError as error:
             raise _first_fault(self._outputs, error, returned) from None
         return read
-
-
-def _one_output(returned: Any) -> dict[str, Any]:
-    """Splits the return of a node with one output, ``result``: the value it returns is that output's."""
-    return {"result": returned}
-
-
-def _no_outputs(returned: Any) -> dict[str, Any]:
-    """Splits the return of a node declared ``-> None``, which must be ``None``, into no outputs."""
-    if returned is not None:
-        raise conductor_error(
-            "none_required",
-            "the node declares no outputs, but returned a {got}",
-            {"got": type(returned).__name__},
-        )
-    return {}
-
-
-def _dataclass_fields(cls: type, outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
-    """Builds the function that splits a returned dataclass into its outputs, by name."""
-
-    def by_name(returned: Any) -> dict[str, Any]:
-        if not isinstance(returned, cls):
-            raise conductor_error(
-                "not_the_class",
-                "the node must return a {cls}, not a {got}",
-                {"cls": cls.__name__, "got": type(returned).__name__},
-            )
-        return _given(outputs, {name: getattr(returned, name) for name in outputs})
-
-    return by_name
-
-
-def _mapping_items(outputs: Mapping[str, Field]) -> Callable[[Any], dict[str, Any]]:
-    """Builds the function that splits a returned mapping of outputs, from a node whose ``compute_outputs`` hook gave
-    its outputs."""
-    listed = comma_separated(outputs, empty="nothing")
-
-    def by_name(returned: Any) -> dict[str, Any]:
-        if not isinstance(returned, Mapping):
-            raise conductor_error(
-                "not_a_mapping",
-                "the node must return a mapping with one key per output ({names}), not a {got}",
-                {"names": listed, "got": type(returned).__name__},
-            )
-        return _given(outputs, returned)
-
-    return by_name
-
-
-def _given(outputs: Mapping[str, Field], returned: Mapping[Any, Any]) -> dict[str, Any]:
-    """Returns the outputs a return gives a value, by name, leaving out each branch that is ``SKIPPED``.
-
-    Only a branch may be ``SKIPPED``. A name that isn't an output is kept, for the schema to refuse.
-
-    Raises:
-        PydanticCustomError: ``skipped_not_a_branch`` for the first output that is ``SKIPPED`` but isn't a branch.
-    """
-    given: dict[str, Any] = {}
-    for name, value in returned.items():
-        field = outputs.get(name)
-        if value is not SKIPPED or field is None:
-            given[name] = value
-        elif not field.is_branch:
-            raise conductor_error(
-                "skipped_not_a_branch",
-                "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
-                {"name": name},
-            )
-    return given
 
 
 def _refused_shape(
@@ -252,11 +166,14 @@ def _first_fault(
         return None
 
     faults = error.errors()
+    skipped = next((fault for fault in faults if fault["type"] == "skipped_not_a_branch"), None)
+    if skipped is not None:
+        return _refused_shape(skipped, str(skipped["loc"][0]))
     first = next((fault for fault in faults if not fault["loc"] or about_a_name(fault)), faults[0])
     if not first["loc"]:
         ctx = first.get("ctx", {})
         return _refused_shape(
-            first, ctx["given"][1] if first["type"] == "several_branches_given" else ctx.get("name")
+            first, ctx["given"][1] if first["type"] == "several_branches_given" else None
         )
     name = str(first["loc"][0])
     if reason := about_a_name(first):

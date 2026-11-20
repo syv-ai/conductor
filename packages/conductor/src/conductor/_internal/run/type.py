@@ -467,6 +467,7 @@ class Run[C]:
 
     @staticmethod
     def queued_as_json(
+        graph: Graph[Any],
         answers: Mapping[str, Any] = MappingProxyType({}),
         /,
         *,
@@ -476,14 +477,17 @@ class Run[C]:
 
         A server can't give a running run an answer or a decline, so it queues them as JSON until the run stops.
         Each answer becomes the JSON data ``run.with_answers`` reads it from, and each reason the text
-        ``run.with_decline`` keeps. What JSON can't write is refused now: a reason with the very problem
-        ``run.with_decline`` gives it, and an answer as a whole, since its questions aren't known here
-        (``run.with_answers`` refuses the same value at its question). What depends on the question, such as an
-        answer of the wrong type, is checked when the run is given the data.
+        ``run.with_decline`` keeps. The node a waiting id names is looked up in the graph, whether its call waits
+        yet or not, so ``SKIPPED`` in an answer is read as the run reads it: a branch not chosen is left out, and
+        ``SKIPPED`` on an output that isn't a branch is refused at its question. What JSON can't write is refused
+        now too: a reason with the very problem ``run.with_decline`` gives it, and an answer as a whole, since its
+        question isn't read here (``run.with_answers`` refuses the same value at its question). What depends on
+        the call's question, such as an answer of the wrong type, is checked when the run is given the data.
 
         It is provisional: the name and shape may change before 2.0.
 
         Args:
+            graph: The graph of the run the answers are for.
             answers: Answers by waiting id, as ``run.with_answers`` takes them.
             declines: Reasons by waiting id, as ``run.with_decline`` takes them.
 
@@ -492,17 +496,27 @@ class Run[C]:
             ``{"approve~3fa2c0d1": "2026-11-15"}`` for an answer of ``date(2026, 11, 15)``.
 
         Raises:
-            InvalidCallError: Every refusal at once, each at the call its waiting id names. ``invalid_answer`` for
-                an answer JSON can't write, such as a ``str`` with a lone surrogate. ``invalid_decline_reason``
-                for a reason that isn't a ``str`` JSON can write, or ``None``.
+            InvalidCallError: The graph's own problems, if it has any, before anything else is read. Else every
+                refusal at once, each at the call its waiting id names. ``invalid_answer`` for ``SKIPPED`` on an output that isn't a branch, and for an answer JSON can't write, such as a ``str``
+                with a lone surrogate. ``invalid_decline_reason`` for a reason that isn't a ``str`` JSON can write,
+                or ``None``.
         """
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
         problems: list[Problem] = []
         queued: dict[str, Any] = {}
         reasons: dict[str, str | None] = {}
         for waiting_id, answer in answers.items():
+            loc = parse_waiting_id(waiting_id)[0]
+            # None when the id names a subgraph, a node the graph doesn't have, or no node at all
+            node = graph._blueprint.function_nodes.get(
+                tuple(part for part in loc if isinstance(part, str))
+            )
             try:
                 queued[waiting_id] = AnswerAsJsonValidator(
-                    loc=parse_waiting_id(waiting_id)[0], waiting_id=waiting_id
+                    node.compiled_node.outputs if node is not None else None,
+                    loc=loc,
+                    waiting_id=waiting_id,
                 )(answer)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)

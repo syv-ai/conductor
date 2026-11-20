@@ -23,21 +23,22 @@ rules as a value the node returns, since the answer stands in for that value.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 
-from pydantic import MISSING, BaseModel, JsonValue, ValidationError
+from pydantic import MISSING, JsonValue, ValidationError
 from pydantic_core import (
     CoreSchema,
+    InitErrorDetails,
+    PydanticCustomError,
     SchemaValidator,
     core_schema,
 )
 from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, Validator, validate_as_json
-from conductor._internal.field import Field, outputs_schema
+from conductor._internal.field import Field, answer_by_output, outputs_schema, read_skipped
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
@@ -95,12 +96,19 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
     def _choices(self) -> SchemaValidator:
         """Checks an ``Ask``'s choices, by output name. Built when the node first asks.
 
-        A node of one output is given its list alone, a node of several a mapping by output name. On a ``Series``
-        output the choices are for its items, so each id is read as one item.
+        A node of one output is given its list alone, a node of several a mapping by output name. A dataclass of
+        the outputs is no mapping of choices, so it is refused as a whole. On a ``Series`` output the choices are
+        for its items, so each id is read as one item.
         """
+        outputs = self._outputs
+        by_output: Callable[[Any], Any] = (
+            (lambda choices: {next(iter(outputs)): choices})
+            if len(outputs) == 1
+            else (lambda choices: choices)
+        )
         return SchemaValidator(
             core_schema.no_info_before_validator_function(
-                _by_output(self._outputs, lambda choices: choices),
+                by_output,
                 core_schema.typed_dict_schema(
                     {
                         name: core_schema.typed_dict_field(
@@ -152,7 +160,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 )
                 for name, field in outputs.items()
             }
-            proposed = SchemaValidator(outputs_schema(outputs, fields, _answered(outputs)))
+            proposed = SchemaValidator(outputs_schema(outputs, fields, "answer"))
             try:
                 read: dict[str, Any] = proposed.validate_python(ask.default)
             except ValidationError as error:
@@ -241,7 +249,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         """
         self._outputs = outputs
         self._schema = SchemaValidator(
-            outputs_schema(outputs, _answer_fields(outputs, choices, defaults), _answered(outputs))
+            outputs_schema(outputs, _answer_fields(outputs, choices, defaults), "answer")
         )
         self._loc = loc
         self._waiting_id = waiting_id
@@ -261,17 +269,31 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         try:
             read: dict[str, Any] = self._schema.validate_python(answer)
         except ValidationError as error:
-            several = len(self._outputs) != 1
-            raise InvalidCallError(
-                call_problems.invalid_answer(
-                    *self._loc,
-                    waiting_id=self._waiting_id,
-                    question=str(place[0]) if place and several else None,
-                    **refusal,
-                )
-                for place, refusal in _refusals(error, self._outputs)
-            ) from None
+            raise _refused_answer(error, self._outputs, self._loc, self._waiting_id) from None
         return read
+
+
+def _refused_answer(
+    error: ValidationError, outputs: Mapping[str, Field], loc: Loc, waiting_id: str
+) -> InvalidCallError:
+    """Turns what an answer's schema refused into one ``invalid_answer`` per place, as ``AnswerValidator`` raises it.
+
+    Args:
+        error: What the schema raised, each ``loc`` starting with an output's name.
+        outputs: The node's outputs, by name.
+        loc: Where the waiting call is in the run.
+        waiting_id: The id of the waiting call being answered.
+    """
+    several = len(outputs) != 1
+    return InvalidCallError(
+        call_problems.invalid_answer(
+            *loc,
+            waiting_id=waiting_id,
+            question=str(place[0]) if place and several else None,
+            **refusal,
+        )
+        for place, refusal in _refusals(error, outputs)
+    )
 
 
 def _answer_fields(
@@ -302,33 +324,6 @@ def _answer_fields(
             )
         fields[name] = core_schema.typed_dict_field(schema, required=required)
     return fields
-
-
-def _answered(outputs: Mapping[str, Field]) -> Callable[[Any], Any]:
-    """Returns the function that splits a person's answer, or an ``Ask``'s default, by output name.
-
-    A node of several outputs is answered with a mapping by output name, or a dataclass or a model of them
-    (``_as_mapping``). A node with no outputs is answered with nothing: the person only says to go on.
-    """
-
-    def by_name(answer: Any) -> Any:
-        if answer is None and not outputs:
-            return {}
-        return _as_mapping(answer)
-
-    return _by_output(outputs, by_name)
-
-
-def _by_output(outputs: Mapping[str, Field], several: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    """Returns the function that gives what an ``Ask`` sets, or a person answers, by output name.
-
-    A node of one output is given its one value, never a mapping, so the value is put under the output's name. A
-    node of several is given a mapping by output name, which ``several`` returns.
-    """
-    if len(outputs) == 1:
-        (name,) = outputs
-        return lambda value: {name: value}
-    return several
 
 
 def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
@@ -390,22 +385,6 @@ def _check_picks(field: Field, answer: Any, choices: tuple[Choice, ...] | None) 
         raise conductor_error("picked_twice", "a choice is picked twice")
 
 
-def _as_mapping(answer: Any) -> Any:
-    """Returns a dataclass or a pydantic model given as an answer as the mapping of its fields, leaving out each
-    field that is ``SKIPPED``. Any other answer is returned as it is.
-
-    A dataclass of outputs can't leave a field out, so a branch not chosen is ``SKIPPED`` in it, the default it
-    declares. That is a branch left out of a mapping, and the answer is read as that mapping.
-    """
-    if dataclasses.is_dataclass(answer) and not isinstance(answer, type):
-        names = [field.name for field in dataclasses.fields(answer)]
-    elif isinstance(answer, BaseModel):
-        names = list(type(answer).model_fields)
-    else:
-        return answer
-    return {name: value for name in names if (value := getattr(answer, name)) is not SKIPPED}
-
-
 def _refusals(
     error: ValidationError, outputs: Mapping[str, Field], *, items: bool = False
 ) -> list[tuple[tuple[str | int, ...], TypeRefusal]]:
@@ -452,25 +431,30 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
 
     An answer is read from its JSON form. A host that keeps an answer to give a run later keeps what this returns
     (``Run.queued_as_json``): a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
-    fields, a field that is ``SKIPPED`` left out as a branch not chosen, and a ``polars.DataFrame`` its columns
-    (``json_fallback``), since the answer's type isn't known here to read the frame as it is. So a kept answer reads
-    as the answer itself, but for a frame with a column a saved run can't keep, which is refused here even where the
-    question's table doesn't name it. ``inf`` stays a float, so the answer is refused where the run reads it
+    fields, and a ``polars.DataFrame`` its columns (``json_fallback``), since the question isn't known here to read
+    the frame as it is. ``SKIPPED`` on an output is read by the rule a run reads it by (``read_skipped``): a branch
+    not chosen is left out, and on an output that isn't a branch it is refused. So a kept answer reads as the answer
+    itself, but for a frame with a column a saved run can't keep, which is refused here even where the question's
+    table doesn't name it. ``inf`` stays a float, so the answer is refused where the run reads it
     (``finite_number``), as the answer itself is.
 
     Raises (when called):
-        InvalidCallError: One ``invalid_answer`` for the whole answer when it can't be written as JSON, such as a
-            ``str`` with a lone surrogate, or has a set in it (``set_has_no_order``). The questions aren't known
-            here, so it names none.
+        InvalidCallError: ``invalid_answer`` for ``SKIPPED`` on an output that isn't a branch, at its question, as
+            ``run.with_answers`` refuses it. One ``invalid_answer`` for the whole answer when it can't be written as
+            JSON, such as a ``str`` with a lone surrogate, or has a set in it (``set_has_no_order``). Its question
+            isn't read here, so it names none.
     """
 
-    def __init__(self, *, loc: Loc, waiting_id: str) -> None:
+    def __init__(self, outputs: Mapping[str, Field] | None, *, loc: Loc, waiting_id: str) -> None:
         """Builds the validator for an answer to one waiting call.
 
         Args:
+            outputs: The outputs of the node the waiting id names, by name, or ``None`` when the graph has no such
+                node. Then the run refuses the answer as ``not_waiting``, and it is only written as JSON here.
             loc: The call the waiting id names. The problem names it.
             waiting_id: The id the answer was given for. The problem names it too.
         """
+        self._outputs = outputs
         self._loc = loc
         self._waiting_id = waiting_id
 
@@ -480,12 +464,13 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
         Raises:
             InvalidCallError: See the class.
         """
-        fields = _as_mapping(answer)
+        if self._outputs is not None:
+            answer = self._without_skipped(self._outputs, answer)
         try:
             return written_as_json(
                 _ANY.id,
-                fields,
-                lambda: validate_as_json(_ANY.output_validator, fields, fallback=json_fallback),
+                answer,
+                lambda: validate_as_json(_ANY.output_validator, answer, fallback=json_fallback),
             )
         except ValidationError as error:
             raise InvalidCallError(
@@ -495,6 +480,38 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
                     )
                 ]
             ) from None
+
+    def _without_skipped(self, outputs: Mapping[str, Field], answer: Any) -> Any:
+        """Returns the answer with each branch that is ``SKIPPED`` left out, by the rule the run reads it by.
+
+        Raises:
+            InvalidCallError: ``invalid_answer`` for each output that is ``SKIPPED`` but isn't a branch.
+        """
+        given = answer_by_output(outputs, answer)
+        if not isinstance(given, Mapping):
+            return answer
+        faults: list[InitErrorDetails] = []
+        for name, value in given.items():
+            if value is SKIPPED and name in outputs:
+                try:
+                    read_skipped(outputs[name])
+                except PydanticCustomError as fault:
+                    faults.append({"type": fault, "loc": (name,), "input": value})
+        if faults:
+            raise _refused_answer(
+                ValidationError.from_exception_data("answer", faults),
+                outputs,
+                self._loc,
+                self._waiting_id,
+            )
+        # a node of one output is answered with its value, and a node of none with None
+        if len(outputs) < 2:
+            return answer
+        return {
+            name: value
+            for name, value in given.items()
+            if value is not SKIPPED or name not in outputs
+        }
 
 
 #: The type of a decline's reason: a ``str``, or ``None``.
