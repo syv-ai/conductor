@@ -384,31 +384,36 @@ class Run[C]:
 
         Raises:
             TypeError: A call is named without its answer, or a mapping is given with one.
-            InvalidCallError: Every fault at once, and the run is left as it was. ``answer_given_twice`` for a call
+            InvalidCallError: ``invalid_argument`` first, if a waiting id isn't text, with every such id in
+                ``ctx.errors``. Else every fault at once, and the run is left as it was. ``answer_given_twice`` for a call
                 answered twice in one ``with_answers``, and ``invalid_answer`` for an answer its question refuses. ``not_waiting`` for an id
                 that names no waiting call. ``answer_stale`` for an id whose call now asks another question, with
                 ``ctx.moved_to`` when that question now waits on another call.
         """
         match waiting, value:
             case Mapping(), ():
-                given: list[tuple[Any, Any]] = list(waiting.items())
+                given: Mapping[str, Any] = waiting
+                parts = WaitingIdValidator(
+                    function="run.with_answers", argument="answers", keyed=True
+                )(waiting)
             case _, (one,) if not isinstance(waiting, Mapping):
-                given = [(waiting.id if isinstance(waiting, Waiting) else waiting, one)]
+                waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
+                parts = WaitingIdValidator(
+                    function="run.with_answers", argument="waiting", keyed=False
+                )(waiting_id)
+                given = {waiting_id: one}
             case _:
                 raise TypeError(
                     "run.with_answers takes a waiting call and its answer, or a mapping of waiting ids to answers"
                 )
-        read_id = WaitingIdValidator(
-            function="run.with_answers", argument="waiting", keyed=isinstance(waiting, Mapping)
-        )
         problems: list[Problem] = []
         answered: dict[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = {}
         # Working out the status looks at every outcome, so it is only done when a refusal needs it.
         status = cache(lambda: self.status)
-        for waiting_id, one in given:
+        for waiting_id, one in given.items():
             try:
                 node, item_indexes, loc, found = self._waiting_call(
-                    waiting_id, read_id(waiting_id), status
+                    waiting_id, parts[waiting_id], status
                 )
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
@@ -460,16 +465,19 @@ class Run[C]:
             A new run, ``declined``. The run you called it on is left as it was, so keep this one.
 
         Raises:
-            InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
-                whose call now asks another question, as ``with_answers`` refuses them. ``invalid_decline_reason``
+            InvalidCallError: ``invalid_argument`` for an id that isn't text. ``not_waiting`` for an id that names
+                no waiting call, and ``answer_stale`` for an id whose call now asks another question, as
+                ``with_answers`` refuses them. ``invalid_decline_reason``
                 for a reason that isn't text JSON can write, or ``None``. It is checked as its JSON text
                 would be, so ``bytes`` are taken as their base64 text and a ``str`` enum member as its text, and ``1.5`` and a ``str``
                 with a lone surrogate are refused. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
-        read_id = WaitingIdValidator(function="run.with_decline", argument="waiting", keyed=False)
+        parts = WaitingIdValidator(function="run.with_decline", argument="waiting", keyed=False)(
+            waiting_id
+        )
         node, item_indexes, loc, declined = self._waiting_call(
-            waiting_id, read_id(waiting_id), cache(lambda: self.status)
+            waiting_id, parts[waiting_id], cache(lambda: self.status)
         )
         reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         # Nothing waits on a run that has ended: the declined question and every other one lose their outcome. The
@@ -507,18 +515,19 @@ class Run[C]:
             The reasons by waiting id, as the run is to be given them.
 
         Raises:
-            InvalidCallError: Every refusal at once, each at the call its waiting id names: ``invalid_decline_reason``
-                for a reason that isn't a ``str`` JSON can write, or ``None``.
+            InvalidCallError: ``invalid_argument`` first, if a waiting id isn't text, with every such key in
+                ``ctx.errors``. Else every refusal at once, each at the call its waiting id names:
+                ``invalid_decline_reason`` for a reason that isn't a ``str`` JSON can write, or ``None``.
         """
-        read_id = WaitingIdValidator(
+        parts = WaitingIdValidator(
             function="Run.declines_as_json", argument="declines", keyed=True
-        )
+        )(declines)
         problems: list[Problem] = []
         reasons: dict[str, str | None] = {}
         for waiting_id, reason in declines.items():
             try:
                 reasons[waiting_id] = DeclineValidator(
-                    loc=read_id(waiting_id)[0], waiting_id=waiting_id
+                    loc=parts[waiting_id][0], waiting_id=waiting_id
                 )(reason)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)

@@ -103,22 +103,34 @@ def _read_strictly(schema: Mapping[str, Any]) -> Any:
     (``with_rules``).
 
     Read strictly, a ``float`` takes only a number, but the codec writes ``inf`` as ``"Infinity"``. So each
-    ``float`` here also takes ``"NaN"``, ``"Infinity"`` and ``"-Infinity"``, read by the same ``float`` laxly, so a
-    limit like ``ge=0`` still refuses ``"-Infinity"``. Any other text is refused: ``"3"`` is no ``float``. A number
-    is read by the strict ``float`` first. A lax read is a weaker match than a strict one, so beside ``str`` in a
-    union, ``"NaN"`` is the text, as a node returned it.
+    ``float`` here first reads a number strictly, or one of ``"NaN"``, ``"Infinity"`` and ``"-Infinity"`` laxly, as
+    the float it stands for. Any other text is refused: ``"3"`` is no ``float``. Then the float is checked by the
+    ``float`` as declared, so a limit names itself: ``"-Infinity"`` under ``ge=0`` is ``greater_than_equal``. A lax
+    read is a weaker match than a strict one, so beside ``str`` in a union, ``"NaN"`` is the text, as a node
+    returned it.
+
+    A table's cells, and a ``Series`` of rows saved as a table, are read by the table's own reader, which doesn't
+    read them strictly yet: once a deploy makes a column a ``bool``, a saved ``"Yes"`` there still reads as ``True``.
     """
     kind = schema["type"]
     if kind in HOSTS_OWN_CLASSES:
         return schema
     if kind == "float":
-        # the union stands for the float in the rest of the schema: it takes the float's ref and how it is written
-        number: Any = {key: value for key, value in schema.items() if key != "ref"}
-        its_text = core_schema.chain_schema(
-            [core_schema.literal_schema(_NOT_FINITE), {**number, "strict": False}]
+        # the chain stands for the float in the rest of the schema: it takes the float's ref and how it is written
+        as_declared: Any = {key: value for key, value in schema.items() if key != "ref"}
+        a_float = core_schema.union_schema(
+            [
+                core_schema.float_schema(),
+                core_schema.chain_schema(
+                    [
+                        core_schema.literal_schema(_NOT_FINITE),
+                        core_schema.float_schema(strict=False),
+                    ]
+                ),
+            ]
         )
-        return core_schema.union_schema(
-            [number, its_text],
+        return core_schema.chain_schema(
+            [a_float, as_declared],
             ref=schema.get("ref"),
             serialization=schema.get("serialization", core_schema.simple_ser_schema("float")),
         )

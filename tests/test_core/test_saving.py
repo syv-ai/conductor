@@ -2594,3 +2594,34 @@ def test_a_saved_value_is_read_strictly_by_the_type_a_deploy_gives_its_output(
 
     problem = _refused(graph_returning(after), json.loads(saved))
     assert problem.ctx["where"] == "outcomes.verdict.outputs.result.0"
+
+
+@pytest.mark.parametrize(
+    ("value", "limit", "code"),
+    [
+        (-math.inf, Param(ge=0), "greater_than_equal"),
+        (math.nan, Param(le=0), "less_than_equal"),
+        (math.inf, Param(lt=5), "less_than"),
+        (-1.0, Param(ge=0), "greater_than_equal"),
+    ],
+)
+def test_a_saved_float_a_deploy_s_limit_refuses_is_refused_by_that_limit(
+    value: float, limit: Param, code: str
+):
+    """A float the codec saved as text, or as a number, is held to the limit a deploy gives its output, and the
+    refusal names the limit, as it does for any value."""
+
+    def graph_returning(returns: Any) -> Graph:
+        @node("measure", title="Measure", description="For a test.")
+        def measure(text: str) -> returns:  # type: ignore[valid-type]
+            return value
+
+        return Graph.compile(make_graph(measure), registry_of(measure))
+
+    saved = graph_returning(float).run({"text": "a"}).to_json()
+
+    problem = _refused(graph_returning(Annotated[float, limit]), json.loads(saved))
+    assert (problem.ctx["where"], problem.ctx["errors"][0]["type"]) == (
+        "outcomes.measure.outputs.result.0",
+        code,
+    )

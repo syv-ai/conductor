@@ -1912,7 +1912,7 @@ def test_a_waiting_id_that_is_not_text_is_refused_as_invalid_argument_by_every_c
     for call, function, argument, loc in [
         (lambda: run.with_decline(not_text), "run.with_decline", "waiting", []),
         (lambda: run.with_answers(not_text, "B"), "run.with_answers", "waiting", []),
-        (lambda: run.with_answers({not_text: "B"}), "run.with_answers", "waiting", ["[key]"]),
+        (lambda: run.with_answers({not_text: "B"}), "run.with_answers", "answers", ["[key]"]),
         (
             lambda: run.graph.answers_as_json({not_text: "B"}),
             "graph.answers_as_json",
@@ -1935,9 +1935,17 @@ def test_a_waiting_id_that_is_not_text_is_refused_as_invalid_argument_by_every_c
         )
         assert [(e["type"], e["loc"]) for e in problem.ctx["errors"]] == [("string_type", loc)]
         assert "5" not in problem.msg
-    # the faults of a mapping come together, the ids that are text read as before
-    faults = _refused(lambda: run.with_answers({not_text: "B", "nope": "B"}))
-    assert [f.type for f in faults] == ["invalid_argument", "not_waiting"]
+    # As make_graph refuses an argument: one problem for the argument, with every fault in it, before anything else.
+    for call in (
+        lambda: run.with_answers({not_text: "B", 6.5: "B", "nope": "B"}),
+        lambda: run.graph.answers_as_json({not_text: "B", 6.5: "B", "nope": "B"}),
+        lambda: Run.declines_as_json({not_text: None, 6.5: None, "nope": None}),
+    ):
+        (problem,) = _refused(call)
+        assert problem.type == "invalid_argument"
+        assert [(e["type"], e["loc"]) for e in problem.ctx["errors"]] == [
+            ("string_type", ["[key]"])
+        ] * 2
 
 
 def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():

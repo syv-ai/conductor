@@ -367,7 +367,8 @@ class Graph[C]:
             "2026-11-15"}`` for an answer of ``date(2026, 11, 15)``.
 
         Raises:
-            InvalidCallError: The graph's own problems, if it has any, before any answer is read. Else every
+            InvalidCallError: The graph's own problems, if it has any, before any answer is read. Then
+                ``invalid_argument`` if a waiting id isn't text, with every such key in ``ctx.errors``. Else every
                 refusal at once, each an ``invalid_answer`` at the call its waiting id names: for ``SKIPPED`` on an
                 output that isn't a branch, and for an answer JSON can't write, such as a ``str`` with a lone
                 surrogate. An id that names no node of the graph has its answer written as JSON as it is, and the
@@ -378,16 +379,16 @@ class Graph[C]:
         # run/ imports graph/, so it is imported here
         from conductor._internal.run import WaitingIdValidator
 
-        read_id = WaitingIdValidator(
+        parts = WaitingIdValidator(
             function="graph.answers_as_json", argument="answers", keyed=True
-        )
+        )(answers)
         problems: list[Problem] = []
         queued: dict[str, Any] = {}
         for waiting_id, answer in answers.items():
+            loc, node_path, _, _ = parts[waiting_id]
+            # None when the id names a subgraph, a node the graph doesn't have, or no node at all
+            node = self._blueprint.function_nodes.get(node_path)
             try:
-                loc, node_path, _, _ = read_id(waiting_id)
-                # None when the id names a subgraph, a node the graph doesn't have, or no node at all
-                node = self._blueprint.function_nodes.get(node_path)
                 queued[waiting_id] = AnswerAsJsonValidator(
                     node.compiled_node.outputs if node is not None else None,
                     loc=loc,
