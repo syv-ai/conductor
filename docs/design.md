@@ -77,7 +77,9 @@ print(sorted(d.id for d in free))  # ['join', 'upper', 'words']
 
 A record is `{"nodes": {id: node, ...}, "outputs": {name: output, ...}}` and nothing more. A node is
 `{"node", "version", "inputs", "off", "display"}`, where `node` is the id of the definition it uses, and `off` switches
-it off: a run skips each of its calls, as on a branch not taken, so it needs no rule of its own. Separate fields need no
+it off. A run skips each of its calls, so what reads it is skipped as on a branch not taken. Compiling adds three
+rules: its inputs need no value, a graph input or output only it serves is none of the graph's, and what reads only
+from it is described as an output that may be skipped. Separate fields need no
 parsing, unlike one combined string. Anything a host keeps about the whole graph, like a canvas viewport, goes beside
 the record. The exact shape is in `python -m conductor.about the-graph-record`.
 

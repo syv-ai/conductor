@@ -90,6 +90,7 @@ from .node import (
     CompiledNode,
     CompiledSubgraphNode,
     RequiredBranch,
+    Switch,
 )
 from .type import Definitions, Graph
 from .validator import ConstantValidator
@@ -103,14 +104,15 @@ class _InputPlans:
         inputs: The compiled input of each input, by name.
         loops: The loops the node is in, outermost first. In the example, ``shout`` is in the loop over
             ``lines.result``.
-        required_branches: The branches that must be taken upstream for the node to be called.
+        required_branches: What the node needs to be called: the branches that must be taken upstream, and a
+            ``Switch`` for each node switched off it reads only from. ``_with_switch`` adds its own.
         bound: The type each type variable (like ``T``) of the node's inputs gets from the edges into the node.
             ``None`` for a node with no type variables, which is nearly every node.
     """
 
     inputs: dict[str, Input]
     loops: tuple[tuple[NodePath, str], ...]
-    required_branches: frozenset[RequiredBranch]
+    required_branches: frozenset[RequiredBranch | Switch]
     bound: Mapping[TypeVar, Any] | None
 
 
@@ -923,7 +925,7 @@ class Compiler:
 
     # -- branches ---------------------------------------------------------------
 
-    def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
+    def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch | Switch]:
         """Returns the branches that must be taken for the output ``edge`` reads to have a value."""
         return self.nodes[edge.wired_to.node].branches_required_for(edge.wired_to.output)
 
@@ -985,7 +987,7 @@ class Compiler:
                     refused.update((a, b))
         return refused
 
-    def _required_branches(self, inputs: Mapping[str, Input]) -> frozenset[RequiredBranch]:
+    def _required_branches(self, inputs: Mapping[str, Input]) -> frozenset[RequiredBranch | Switch]:
         """Returns the branches that must be taken for a node with these ``inputs`` to be called.
 
         For each input, those are the branches that every edge into it needs.
@@ -993,7 +995,7 @@ class Compiler:
         A collecting input needs only the branches taken outside the loop it collects. A branch taken per item
         inside the loop just leaves items out of the list. The node is still called.
         """
-        required_branches: set[RequiredBranch] = set()
+        required_branches: set[RequiredBranch | Switch] = set()
         for node_input in inputs.values():
             if not node_input.sources:
                 continue
@@ -1227,30 +1229,34 @@ def _field_type(value_type: Type, name: str) -> Type | None:
 
 
 def _with_switch(
-    node_id: str, node_record: NodeRecord, required_branches: frozenset[RequiredBranch]
-) -> frozenset[RequiredBranch]:
-    """Returns the branches a node needs to be called: those its inputs need, and its switch if the record switches
-    it off (``RequiredBranch.switch_of``)."""
+    node_id: str, node_record: NodeRecord, required_branches: frozenset[RequiredBranch | Switch]
+) -> frozenset[RequiredBranch | Switch]:
+    """Returns what a node needs to be called: what its inputs need, and its own ``Switch`` if the record switches
+    it off."""
     if node_record.off:
-        return required_branches | {RequiredBranch.switch_of((node_id,))}
+        return required_branches | {Switch((node_id,))}
     return required_branches
 
 
-def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch]:
+def _drawn_here(branches: frozenset[RequiredBranch | Switch]) -> frozenset[RequiredBranch | Switch]:
     """Returns the branches of nodes drawn in the graph being compiled, leaving out those inside subgraph nodes."""
     return frozenset(branch for branch in branches if not inside_a_subgraph_node(branch.node))
 
 
-def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
+def _never_together(
+    a: frozenset[RequiredBranch | Switch], b: frozenset[RequiredBranch | Switch]
+) -> bool:
     """Whether two sets of required branches can never both be taken.
 
-    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node. A switch
-    (``RequiredBranch.switch_of``) is no branch, so it counts for neither.
+    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node. A ``Switch`` is
+    no branch, so only the branches are compared.
     """
     return any(
-        x.node == y.node and x.output != y.output and None not in (x.output, y.output)
+        x.node == y.node and x.output != y.output
         for x in a
+        if isinstance(x, RequiredBranch)
         for y in b
+        if isinstance(y, RequiredBranch)
     )
 
 
