@@ -1,15 +1,15 @@
 """The rules conductor adds to every type's own check, beyond pydantic's.
 
-``with_rules`` and ``with_strict_rules`` return a type's core schema with them, wherever a value sits in it: on the value itself, an item of a
-list or a ``Series``, a field of a ``TypedDict``, a value of a dict and a cell of a table. A dict's key is left as
-pydantic reads it, from its text. The fields of a host's own
-model or dataclass are left to the host's rules.
+``with_rules`` and ``with_strict_rules`` return a type's core schema with them, wherever a value sits in it: on the
+value itself, an item of a list or a ``Series``, a field of a ``TypedDict``, a value of a dict and a cell of a table.
+A dict's key is left as pydantic reads it, from its text. The fields of a host's own model or dataclass are left to
+the host's rules.
 
 - A yes or no is not a number. Pydantic takes ``True`` as the number 1 when it reads laxly, so the schema of
   ``list[int]`` turns ``[1, True]`` into ``[1, 1]``; with the rule it is refused with ``bool_is_not_a_number`` at
   ``loc`` ``(1,)``. Read strictly, pydantic refuses a ``bool`` for an ``int`` or a ``float`` itself. So a schema
-  that is never read laxly (``with_strict_rules``) has its ``int`` and ``float`` set strict instead, with no call
-  into Python per number, and guards only a ``Literal`` and an enum of numbers. Pydantic's strict refusal,
+  that is never read laxly (``with_strict_rules``) leaves its ``int`` and ``float`` to pydantic, with no call into
+  Python per number, and guards only a ``Literal`` and an enum of numbers. Pydantic's strict refusal,
   ``int_type`` or ``float_type``, is named ``bool_is_not_a_number`` in a problem (``value_free_errors``), so both
   schemas report the same code.
 - A named value, a ``Literal``'s value or an enum's member, reads back from its own JSON as itself, so a run of it
@@ -18,8 +18,9 @@ model or dataclass are left to the host's rules.
 
 ``Type.argument_validator`` is built with ``with_rules``, since it is read laxly as well as strictly: an edge's value
 and a saved run are read laxly, a graph input and a constant strictly, and ``Type.takes_value`` asks it.
-``Type.output_validator`` is built with ``with_strict_rules``, since what a node returns and a person's answer are
-never read laxly.
+``Type.output_validator`` is built with ``with_strict_rules``, since every caller of it reads strictly: what a node
+returns, a person's answer, and an ``Ask``'s choices and default. Each door's test pins that a ``bool`` is refused
+there.
 """
 
 from __future__ import annotations
@@ -83,9 +84,10 @@ def with_strict_rules(schema: CoreSchema) -> CoreSchema:
     """Returns a copy of a pydantic core schema with conductor's rules added, at any depth, for a schema that is
     never read laxly.
 
-    Each ``int`` and ``float`` in it is set strict, so pydantic itself refuses a ``bool`` for it, as ``int_type`` or
-    ``float_type``, with no call into Python per number. A ``Literal`` of numbers and an enum of numbers are wrapped
-    in the guard, as ``with_rules`` wraps them. ``schema`` itself is left unchanged.
+    Each ``int`` and ``float`` in it is left as it is, since every caller reads it strictly, and pydantic's strict
+    check refuses a ``bool`` for it itself, as ``int_type`` or ``float_type``, with no call into Python per number.
+    Read laxly, it would take ``True`` as 1, so it must never be. A ``Literal`` of numbers and an enum of numbers
+    are wrapped in the guard, as ``with_rules`` wraps them. ``schema`` itself is left unchanged.
 
     Raises:
         NodeDeclarationError: As ``with_rules`` raises it.
@@ -97,8 +99,8 @@ def with_strict_rules(schema: CoreSchema) -> CoreSchema:
 def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any], *, strict: bool) -> Any:
     """Returns a core schema with every number in it set to refuse a ``bool``.
 
-    It walks down through the schema, sets each ``int`` and ``float`` it finds strict (``_set_strict``) when ``strict``
-    and wraps any other number schema with ``_guarded``, and checks each ``literal`` and ``enum`` schema's named values
+    It walks down through the schema, wraps each number schema it finds with ``_guarded``, but for an ``int`` and a
+    ``float`` when ``strict``, and checks each ``literal`` and ``enum`` schema's named values
     (``_check_named_values``).
 
     Args:
@@ -106,7 +108,7 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any], *, strict
         definitions: The schemas pydantic declared beside the schema, such as a ``TypedDict``'s or an enum's, by
             their ``ref``. The walk looks a reference up here to see what it points to.
         strict: Whether the schema is never read laxly, as ``with_strict_rules`` builds it. Then an ``int`` and a
-            ``float`` are set strict, and only a ``Literal`` and an enum of numbers are guarded.
+            ``float`` are left to pydantic, and only a ``Literal`` and an enum of numbers are guarded.
 
     Raises:
         NodeDeclarationError: ``named_value_invalid``, from ``_check_named_values``.
@@ -114,7 +116,8 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any], *, strict
     kind = schema["type"]
     if kind in HOSTS_OWN_CLASSES or _walked_already(schema):
         return schema
-    # Walk each declared schema once, here (_declared).
+    # Walk each declared schema once, here. A declared number is kept as it is: each reference to it gets the rule. A
+    # declared host's class is kept as it is too, as anywhere else.
     if kind == "definitions":
         inner, declared_here = under_definitions(schema)
         declared = {**definitions, **declared_here}
@@ -127,7 +130,9 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any], *, strict
             **schema,
             "schema": _walked(inner, declared, strict=strict),
             "definitions": [
-                _declared(definition, declared, strict=strict)
+                definition
+                if _a_number_schema(definition) or definition["type"] in HOSTS_OWN_CLASSES
+                else _walked_inside(definition, declared, strict=strict)
                 for definition in declared_here.values()
             ],
         }
@@ -138,27 +143,8 @@ def _walked(schema: Mapping[str, Any], definitions: Mapping[str, Any], *, strict
         return _guarded(schema)
     _check_named_values(schema)
     if _a_number_schema(schema):
-        return (
-            _set_strict(schema) if strict and _strict_refuses_a_bool(schema) else _guarded(schema)
-        )
+        return schema if strict and _strict_refuses_a_bool(schema) else _guarded(schema)
     return _walked_inside(schema, definitions, strict=strict)
-
-
-def _declared(
-    definition: Mapping[str, Any], declared: Mapping[str, Any], *, strict: bool
-) -> Mapping[str, Any]:
-    """Returns one schema declared in a ``definitions`` schema with the rules ``_walked`` gives it.
-
-    A declared ``int`` or ``float`` is set strict where it is declared when ``strict``. Any other declared number is
-    kept as it is, since each reference to it is wrapped. A host's class is kept as it is, as anywhere else.
-    """
-    if _a_number_schema(definition):
-        return (
-            _set_strict(definition) if strict and _strict_refuses_a_bool(definition) else definition
-        )
-    if definition["type"] in HOSTS_OWN_CLASSES:
-        return definition
-    return _walked_inside(definition, declared, strict=strict)
 
 
 def _check_named_values(schema: Mapping[str, Any]) -> None:
@@ -271,11 +257,6 @@ def _strict_refuses_a_bool(number: Any) -> bool:
     both keep the guard, which refuses either with ``bool_is_not_a_number``.
     """
     return number["type"] in ("int", "float")
-
-
-def _set_strict(number: Mapping[str, Any]) -> dict[str, Any]:
-    """Returns a copy of an ``int`` or ``float`` schema that is checked strictly however it is called."""
-    return {**number, "strict": True}
 
 
 def _guarded(number: Any) -> CoreSchema:

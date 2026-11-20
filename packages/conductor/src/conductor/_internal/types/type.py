@@ -399,7 +399,7 @@ class Type:
         """The schema an output of the type is checked by, strictly: what a node returns, or a person's answer.
 
         It is ``returned_schema`` with conductor's rules for a schema never read laxly (``with_strict_rules``), so an
-        ``int`` or a ``float`` is set strict and pydantic itself refuses a ``bool`` for it. A value is what the
+        ``int`` or a ``float`` is left to pydantic's strict check to refuse a ``bool``. A value is what the
         type's own check gives, whatever its class: pydantic's ``EmailStr`` gives a ``str``, and ``AwareDatetime`` a
         ``datetime``.
         """
@@ -409,8 +409,9 @@ class Type:
     def output_validator(self) -> SchemaValidator:
         """Pydantic's validator built from ``output_schema``, once per type.
 
-        Validators call it with ``strict=True``, so ``"12"`` is never an ``int`` and ``"no"`` is never a ``bool``. A
-        ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``SeriesRows``).
+        Every caller reads with ``strict=True``, which ``output_schema`` relies on, so ``"12"`` is never an ``int``,
+        ``"no"`` is never a ``bool`` and ``True`` is never a number. Each door's test pins that a ``bool`` is refused
+        there. A ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``SeriesRows``).
         """
         return SchemaValidator(self.output_schema, config=JSON_CORE_CONFIG)
 
