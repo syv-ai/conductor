@@ -9,20 +9,27 @@ A cell is written by the fields its column's type declares, as they are, with no
 ``field_serializer`` is not applied, a ``computed_field`` is not added, a field marked ``exclude=True`` is kept,
 and an instance of a subclass is written by the declared class's fields. So reading the kept cell back by the same
 type gives the same value.
+
+``CellType`` is the one walk over a column's type. It takes off what doesn't change how a cell is kept (a type
+alias, ``Annotated`` and ``None``) and says what the type is: a type with fields, a list of items, a union, named
+values, or a plain value. Writing a cell (``CellType.write``), the polars type a column is kept as
+(``CellType.dtype``) and the declaration check of a table's row (``CellType.keys_left_out``) all read it.
 """
 
 from __future__ import annotations
 
-import datetime
-from collections.abc import Callable
+import functools
+from collections.abc import Mapping
 from enum import Enum
 from types import NoneType
-from typing import Annotated, Any, Literal, get_args, get_origin
+from typing import Annotated, Any, Literal, NotRequired, get_args, get_origin
 
 import polars as pl
+from pydantic import BaseModel
 
 from conductor._internal.types import (
     declares_fields,
+    field_hints,
     is_alias,
     is_typed_dict,
     type_fields,
@@ -31,147 +38,228 @@ from conductor._internal.types import (
 
 from .write import CELLS
 
-#: The polars type of a cell of each of Python's own classes, as a saved table keeps it. A ``datetime`` and a
-#: ``Decimal`` are left out, since their polars type depends on the cells (a time zone, a scale).
-_DTYPES: dict[Any, Any] = {
-    bool: pl.Boolean,
-    int: pl.Int64,
-    float: pl.Float64,
-    str: pl.String,
-    bytes: pl.Binary,
-    datetime.date: pl.Date,
-    datetime.time: pl.Time,
-    datetime.timedelta: pl.Duration("us"),
-}
+#: The polars type a table keeps a cell of each of Python's own classes as: the type ``CELLS`` names, with polars'
+#: own defaults, which are a saved table's (microseconds, and no time zone).
+_DTYPES = {kind: dtype() for kind, (dtype, _) in CELLS.items()}
 
 
-def kept_column(name: str, cells: list[Any], hint: Any) -> pl.Series:
-    """Returns the cells of the column ``name``, each a value of ``hint``, as a table keeps them (``cell_writer``).
-
-    A column of a model, a dataclass or a ``TypedDict`` is built field by field, each field a column of its own, so
-    no dict is made per cell: ``[Money(amount=1.0), None]`` gives the column ``amount`` ``[1.0, None]``, made into
-    the struct column ``[{"amount": 1.0}, None]``. Any other column is written cell by cell.
-    """
-    fields = _fields_of(hint)
-    if fields is None:
-        write = cell_writer(hint)
-        return pl.Series(name, [write(cell) for cell in cells], strict=False)
-    typed_dict, declared = fields
-    parts = [
-        kept_column(field, [_field_of(cell, field, typed_dict) for cell in cells], field_hint)
-        for field, field_hint in declared.items()
-        # a TypedDict's key no cell has, one a NotRequired field lets it leave out, is no field of the struct
-        if not typed_dict or any(cell is not None and field in cell for cell in cells)
-    ]
-    column = pl.DataFrame(parts, height=len(cells)).to_struct(name)
-    if None not in cells:
-        return column
-    present = pl.Series([cell is not None for cell in cells])
-    return pl.select(pl.when(present).then(column)).to_series().alias(name)
+def cell_type(hint: Any) -> CellType:
+    """Returns the ``CellType`` of ``hint``, made once per hint. A hint that can't be hashed, like one with a
+    ``Param`` whose choices hold a dict, gets a new one each time."""
+    try:
+        return _cached_cell_type(hint)
+    except TypeError:
+        return CellType(hint)
 
 
-def _field_of(cell: Any, field: str, typed_dict: bool) -> Any:
-    """Returns the field ``field`` of ``cell``, or ``None`` for a cell that is. A ``TypedDict``'s field is read by
-    its key, and is ``None`` where the dict leaves it out."""
-    if cell is None:
-        return None
-    return cell.get(field) if typed_dict else getattr(cell, field)
+@functools.lru_cache(maxsize=4096)  # a server meets many column types
+def _cached_cell_type(hint: Any) -> CellType:
+    return CellType(hint)
 
 
-def _fields_of(hint: Any) -> tuple[bool, dict[str, Any]] | None:
-    """Returns whether ``hint``, with ``None`` and ``Annotated`` taken off, is a ``TypedDict``, and the fields it
-    declares, or ``None`` if it is no model, dataclass or ``TypedDict``."""
-    if get_origin(hint) is Annotated:
-        return _fields_of(get_args(hint)[0])
-    members = [member for member in union_members(hint) if member is not NoneType]
-    if len(members) != 1:
-        return None
-    if members[0] is not hint:
-        return _fields_of(members[0])
-    if not declares_fields(get_origin(hint) or hint):
-        return None
-    return is_typed_dict(hint), type_fields(hint)
-
-
-def cell_writer(hint: Any) -> Callable[[Any], Any]:
-    """Returns the function that writes a value of ``hint`` as a table keeps it.
-
-    A ``None`` stays ``None`` at any depth. The writers of what a type holds are made when the first value is
-    written, so a type that holds itself, like a tree of nodes, is written as deep as its value goes.
-    """
-    if is_alias(hint):
-        return _once(lambda: cell_writer(hint.__value__))
-    origin = get_origin(hint)
-    if origin is Annotated:
-        return cell_writer(get_args(hint)[0])
-    members = [member for member in union_members(hint) if member is not NoneType]
-    if len(members) > 1:
-        return _union_writer(members)
-    if len(members) == 1 and members[0] is not hint:
-        return cell_writer(members[0])
-    origin = origin or hint
+def _kind_of(bare: Any, members: int) -> str:
+    """Says what kind of ``CellType`` a type is, from its bare hint and its number of members other than ``None``."""
+    origin = get_origin(bare) or bare
+    if members > 1:
+        return "union"
     if declares_fields(origin):
-        return _fields_writer(hint)
-    arguments = get_args(hint)
-    # a table keeps a tuple as a list, of one polars type, so each item is written by the first item's type
-    if isinstance(origin, type) and issubclass(origin, (list, tuple, set, frozenset)) and arguments:
-        write_item = cell_writer(arguments[0])
-        return lambda value: None if value is None else [write_item(one) for one in value]
-    return _plain
+        return "fields"
+    if origin is Literal or (isinstance(origin, type) and issubclass(origin, Enum)):
+        return "named"
+    if (
+        isinstance(origin, type)
+        and issubclass(origin, (list, tuple, set, frozenset))
+        and get_args(bare)
+    ):
+        return "items"
+    return "value"
 
 
-def _once(make: Callable[[], Callable[[Any], Any]]) -> Callable[[Any], Any]:
-    """Returns a writer that makes the writer it calls when it first writes a value, with ``make``."""
-    made: list[Callable[[Any], Any]] = []
+class CellType:
+    """A column's type, as a table keeps its cells.
 
-    def write(value: Any) -> Any:
-        if not made:
-            made.append(make())
-        return made[0](value)
+    It is one of five kinds, read from the hint with a type alias, ``Annotated`` and ``None`` taken off:
 
-    return write
+    - ``"fields"``: a model, a dataclass or a ``TypedDict``, kept as a struct of its declared fields;
+    - ``"items"``: a list, tuple or set, kept as a list of its items' type;
+    - ``"union"``: two types or more, like ``Cat | Dog``;
+    - ``"named"``: an enum or a ``Literal``, kept as its values;
+    - ``"value"``: anything else, like ``int`` or ``Any``, kept as it is.
 
+    What a type holds (its fields, its items, its members) is made the first time it is asked for, so a type that
+    holds itself, like ``type Deep = list[Deep]`` or a tree of nodes, is walked only as deep as a value goes.
 
-def _fields_writer(hint: Any) -> Callable[[Any], Any]:
-    """Writes a value of a model, a dataclass or a ``TypedDict`` as the dict of the fields ``hint`` declares, each
-    written by its own type, so an instance of a subclass is written by the declared class's fields. A
-    ``TypedDict``'s key the value leaves out stays out."""
-    typed_dict = is_typed_dict(hint)
-    fields: dict[str, Callable[[Any], Any]] = {}
+    Attributes:
+        alias: The name of the type alias the hint was written as, such as ``JsonValue``, or ``None``.
+        bare: The one type left once the alias, ``Annotated`` and ``None`` are taken off, or the union.
+        kind: What the type is, as above.
+    """
 
-    def write(value: Any) -> Any:
+    def __init__(self, hint: Any) -> None:
+        hint, self.alias = _stripped(hint)
+        members = [_stripped(member) for member in union_members(hint)]
+        self._members = [member for member, _ in members if member is not NoneType]
+        if len(self._members) == 1:
+            # ``Alias | None`` is the alias, by its name
+            hint, alias = next(
+                (member, alias) for member, alias in members if member is not NoneType
+            )
+            self.alias = self.alias or alias
+        self.bare = hint
+        self.kind = _kind_of(self.bare, len(self._members))
+
+    @functools.cached_property
+    def members(self) -> tuple[CellType, ...]:
+        """The ``CellType`` of each member of a union, without ``None``."""
+        return tuple(cell_type(member) for member in self._members) if self.kind == "union" else ()
+
+    @functools.cached_property
+    def _declared(self) -> dict[str, Any]:
+        """Each field a type with fields declares, as written, ``NotRequired`` kept."""
+        return dict(field_hints(self.bare)) if self.kind == "fields" else {}
+
+    @functools.cached_property
+    def fields(self) -> dict[str, CellType]:
+        """The ``CellType`` of each field of a model, a dataclass or a ``TypedDict``, by name."""
+        return (
+            {name: cell_type(field) for name, field in type_fields(self.bare).items()}
+            if self.kind == "fields"
+            else {}
+        )
+
+    @functools.cached_property
+    def item(self) -> CellType | None:
+        """The ``CellType`` of a list's items. A tuple's items are all kept as its first item's type, since a
+        table keeps a tuple as a list of one polars type."""
+        return cell_type(get_args(self.bare)[0]) if self.kind == "items" else None
+
+    @functools.cached_property
+    def typed_dict(self) -> bool:
+        """Whether the type is a ``TypedDict``, whose value is a dict that may leave out a ``NotRequired`` key."""
+        return self.kind == "fields" and is_typed_dict(self.bare)
+
+    def write(self, value: Any) -> Any:
+        """Returns ``value``, a value of the type, as a table keeps it.
+
+        A model or a dataclass is the dict of the fields the type declares, each written by its own type, and a
+        ``TypedDict``'s key the dict leaves out stays out. A value of a union is written by the member whose class
+        it is. Anything else is written by its own class (``_plain``). A ``None`` stays ``None`` at any depth.
+        """
         if value is None:
             return None
-        if not fields:
-            fields.update({name: cell_writer(field) for name, field in type_fields(hint).items()})
-        if typed_dict:
-            # a key a NotRequired field lets the dict leave out stays out
+        if self.typed_dict:
             return {
-                name: write_field(value[name])
-                for name, write_field in fields.items()
+                name: field.write(value[name])
+                for name, field in self.fields.items()
                 if name in value
             }
-        return {name: write_field(getattr(value, name)) for name, write_field in fields.items()}
-
-    return write
-
-
-def _union_writer(members: list[Any]) -> Callable[[Any], Any]:
-    """Writes a value of a union of models or dataclasses by the member whose class it is, and anything else as it
-    is (``_plain``)."""
-    classes = [
-        (member, cell_writer(member))
-        for member in members
-        if isinstance(member, type) and declares_fields(member) and not is_typed_dict(member)
-    ]
-
-    def write(value: Any) -> Any:
-        for cls, write_member in classes:
-            if isinstance(value, cls):
-                return write_member(value)
+        if self.kind == "fields":
+            return {name: field.write(getattr(value, name)) for name, field in self.fields.items()}
+        if self.item is not None:
+            return [self.item.write(one) for one in value]
+        for member in self.members:
+            if member.kind == "fields" and not member.typed_dict and isinstance(value, member.bare):
+                return member.write(value)
         return _plain(value)
 
-    return write
+    @functools.cached_property
+    def dtype(self) -> Any:
+        """The polars type a table keeps a column of the type as, or ``None`` where the cells decide it.
+
+        ``Money | None``, with ``Money`` declaring ``amount: float``, is ``Struct({"amount": Float64})``,
+        ``list[int]`` and ``tuple[int, ...]`` are ``List(Int64)``, and a ``Literal`` or an enum whose values are all
+        texts ``String``. Any other type is ``None``, such as a dict, ``Any``, a union of two types, and a type met
+        again inside itself, like a tree of nodes.
+        """
+        # a type met again inside itself, while its own polars type is worked out, gives None
+        self.__dict__["dtype"] = None
+        if self.kind == "fields":
+            fields = {name: field.dtype for name, field in self.fields.items()}
+            return None if None in fields.values() else pl.Struct(fields)
+        if self.item is not None:
+            return None if self.item.dtype is None else pl.List(self.item.dtype)
+        if self.kind == "named":
+            origin = get_origin(self.bare) or self.bare
+            return _one_dtype(
+                get_args(self.bare) if origin is Literal else [member.value for member in origin]
+            )
+        return _DTYPES.get(self.bare) if self.kind == "value" else None
+
+    @functools.cached_property
+    def keys_left_out(self) -> str | None:
+        """Names the type, in this one, whose values may leave out a key, or ``None`` if none may.
+
+        A table keeps a value that has keys as a struct, and a struct gives every row every key, a ``None`` for a
+        key a row's value leaves out. So such a value would read back changed. These types' values may leave out a
+        key, at any depth:
+
+        - a dict with open keys, like ``dict[str, int]``;
+        - a ``TypedDict`` with a ``NotRequired`` field;
+        - a model that takes extra keys (``extra="allow"``);
+        - a union of models, dataclasses or ``TypedDict``s whose fields differ, like ``Cat | Dog``.
+
+        A type alias is named by its name, as ``JsonValue``. ``Any`` says nothing, so it lets nothing.
+        """
+        return self._keys_left_out_within(set())
+
+    def _keys_left_out_within(self, walked: set[int]) -> str | None:
+        """``keys_left_out``, walking only the types not in ``walked`` yet, so a type that holds itself ends."""
+        walked.add(id(self))
+        found = self._own_keys_left_out() or next(
+            (
+                found
+                for part in self._parts()
+                if id(part) not in walked
+                and (found := part._keys_left_out_within(walked)) is not None
+            ),
+            None,
+        )
+        return self.alias if found is not None and self.alias is not None else found
+
+    def _own_keys_left_out(self) -> str | None:
+        """Names this type, if its own values may leave out a key, as ``keys_left_out`` lists them."""
+        origin = get_origin(self.bare) or self.bare
+        if self.kind == "value" and isinstance(origin, type) and issubclass(origin, Mapping):
+            return origin.__name__ if self.bare is origin else str(self.bare).replace("typing.", "")
+        if self.kind == "fields" and (
+            any(get_origin(field) is NotRequired for field in self._declared.values())
+            or (issubclass(origin, BaseModel) and origin.model_config.get("extra") == "allow")
+        ):
+            return str(origin.__qualname__)
+        with_fields = [member for member in self.members if member.kind == "fields"]
+        if len({tuple(member.fields) for member in with_fields}) > 1:
+            return " | ".join(
+                (get_origin(member.bare) or member.bare).__qualname__ for member in with_fields
+            )
+        return None
+
+    def _parts(self) -> list[CellType]:
+        """The types directly inside this one: its fields, its members and its items."""
+        return [
+            *self.fields.values(),
+            *self.members,
+            *([self.item] if self.item is not None else []),
+        ]
+
+
+def _stripped(hint: Any) -> tuple[Any, str | None]:
+    """Returns ``hint`` with ``Annotated`` and any type alias taken off, and the name of the first alias, if any."""
+    alias = None
+    while get_origin(hint) is Annotated or is_alias(hint):
+        if is_alias(hint):
+            alias = alias or str(hint.__name__)
+            hint = hint.__value__
+        else:
+            hint = get_args(hint)[0]
+    return hint, alias
+
+
+def _one_dtype(values: Any) -> Any:
+    """Returns the polars type of ``values``, a ``Literal``'s or an enum's, when they are all of the first one's
+    class and it is one of Python's own, or ``None``. ``Literal["a", "b"]`` is ``String``, and ``Literal["a", 1]``
+    is ``None``."""
+    first = type(values[0])
+    return _DTYPES.get(first) if all(type(value) is first for value in values) else None
 
 
 def _plain(value: Any) -> Any:
@@ -187,52 +275,35 @@ def _plain(value: Any) -> Any:
     if isinstance(value, Enum):
         return _plain(value.value)
     if declares_fields(kind):
-        return cell_writer(kind)(value)
+        return cell_type(kind).write(value)
     # any other object stays one, and a saved run refuses its column (``as_saved``)
     return value
 
 
-def kept_dtype(hint: Any, walked: frozenset[int] = frozenset()) -> Any:
-    """Returns the polars type a table keeps a column of ``hint`` as, or ``None`` where the cells decide it.
+def kept_column(name: str, cells: list[Any], cell: CellType) -> pl.Series:
+    """Returns the cells of the column ``name``, each a value of ``cell``, as a table keeps them.
 
-    ``Money | None``, with ``Money`` declaring ``amount: float``, is ``Struct({"amount": Float64})``, and
-    ``list[int]`` is ``List(Int64)``, and a ``Literal`` or an enum of texts ``String``. Any other type is ``None``,
-    such as a ``datetime``, a ``Decimal``, a tuple, ``Any``, a union of two types and a type that holds itself, like
-    a tree of nodes.
-    ``walked`` is the types with fields on the way down.
+    A column of a model, a dataclass or a ``TypedDict`` is built field by field, each field a column of its own, so
+    no dict is made per cell: ``[Money(amount=1.0), None]`` gives the column ``amount`` ``[1.0, None]``, made into
+    the struct column ``[{"amount": 1.0}, None]``. Any other column is written cell by cell (``CellType.write``).
     """
-    if is_alias(hint):
-        return None
-    origin = get_origin(hint)
-    if origin is Annotated:
-        return kept_dtype(get_args(hint)[0], walked)
-    members = [member for member in union_members(hint) if member is not NoneType]
-    if len(members) != 1:
-        return None
-    if members[0] is not hint:
-        return kept_dtype(members[0], walked)
-    if origin is Literal:
-        return _one_dtype(get_args(hint))
-    origin = origin or hint
-    if isinstance(origin, type) and issubclass(origin, Enum):
-        return _one_dtype([member.value for member in origin])
-    if declares_fields(origin):
-        if id(origin) in walked:
-            return None
-        fields = {
-            name: kept_dtype(field, walked | {id(origin)})
-            for name, field in type_fields(hint).items()
-        }
-        return None if None in fields.values() else pl.Struct(fields)
-    arguments = get_args(hint)
-    if isinstance(origin, type) and issubclass(origin, (list, set, frozenset)) and arguments:
-        inner = kept_dtype(arguments[0], walked)
-        return None if inner is None else pl.List(inner)
-    return _DTYPES.get(origin) if isinstance(origin, type) else None
+    if cell.kind != "fields":
+        # a type with nothing in it to write by is written by each value's own class, with no step through the type
+        write = cell.write if cell.kind in ("items", "union") else _plain
+        return pl.Series(name, [write(one) for one in cells], strict=False)
+    typed_dict = cell.typed_dict
+    parts = [
+        kept_column(field, [_field_of(one, field, typed_dict) for one in cells], field_type)
+        for field, field_type in cell.fields.items()
+    ]
+    column = pl.DataFrame(parts, height=len(cells)).to_struct(name)
+    present = pl.Series([one is not None for one in cells])
+    return pl.select(pl.when(present).then(column)).to_series().alias(name)
 
 
-def _one_dtype(values: Any) -> Any:
-    """Returns the polars type of ``values``, a ``Literal``'s or an enum's, when they are all of one class it names,
-    or ``None``."""
-    kinds = {type(value) for value in values}
-    return _DTYPES.get(kinds.pop()) if len(kinds) == 1 else None
+def _field_of(cell: Any, field: str, typed_dict: bool) -> Any:
+    """Returns the field ``field`` of ``cell``, or ``None`` for a cell that is. A ``TypedDict``'s field is read by
+    its key, and is ``None`` where the dict leaves it out."""
+    if cell is None:
+        return None
+    return cell.get(field) if typed_dict else getattr(cell, field)

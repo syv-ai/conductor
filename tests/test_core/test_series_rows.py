@@ -883,3 +883,53 @@ def test_a_frame_of_named_values_collected_into_a_table_is_not_read_again() -> N
     run = graph.run({"k": 2})
 
     assert (run.status, run.outputs["result"], len(NAMED_CHECKS)) == ("complete", 2, 4)
+
+
+def _same(table: pl.DataFrame) -> pl.DataFrame:
+    return table
+
+
+@node("counted-frame", title="Counted frame", description="For a test.")
+def counted_frame(k: int) -> Series[Counted]:
+    return pl.DataFrame({"name": [str(i) for i in range(k)], "amount": list(range(k))})  # type: ignore[return-value]
+
+
+@node("checked-height", title="Checked height", description="For a test.")
+def checked_height(table: Annotated[Table[Counted], AfterValidator(_same)]) -> int:
+    return table.height
+
+
+@pytest.mark.parametrize("source", [counted_rows, counted_frame], ids=["a list", "a frame"])
+def test_rows_collected_into_a_table_with_a_check_of_its_own_are_checked_once(source) -> None:
+    """A table input with a check of its own on the whole table still takes the rows its source checked as they
+    are: each cell is checked once, where the source returned it. This only saves the second check."""
+    graph = Graph.compile(make_graph(source, checked_height), registry_of(source, checked_height))
+    CHECKED.clear()
+    run = graph.run({"k": 3})
+
+    assert (run.status, run.outputs["result"], CHECKED) == ("complete", 3, [0, 1, 2])
+
+
+class Mixed(TypedDict):
+    tag: Annotated[Literal["a", 1], AfterValidator(_noted)]
+
+
+def test_a_frame_of_a_literal_of_two_classes_collected_into_a_table_is_read_again() -> None:
+    """A ``Literal`` of values of two classes names no one polars type for its column, so a table input reads a
+    frame of it again, where it keeps one of a ``Literal`` of texts as it is."""
+
+    @node("mixed-rows", title="Mixed rows", description="For a test.")
+    def mixed_rows(k: int) -> Series[Mixed]:
+        return pl.DataFrame({"tag": ["a"] * k})  # type: ignore[return-value]
+
+    @node("mixed-height", title="Mixed height", description="For a test.")
+    def mixed_height(table: Table[Mixed]) -> int:
+        return table.height
+
+    graph = Graph.compile(
+        make_graph(mixed_rows, mixed_height), registry_of(mixed_rows, mixed_height)
+    )
+    NAMED_CHECKS.clear()
+    run = graph.run({"k": 2})
+
+    assert (run.status, len(NAMED_CHECKS)) == ("complete", 4)

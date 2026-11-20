@@ -13,7 +13,7 @@ from http import HTTPStatus
 from ipaddress import IPv4Address
 from pathlib import Path
 from re import Pattern
-from typing import Any, Generic, Literal, NotRequired, TypedDict, TypeVar
+from typing import Annotated, Any, Generic, Literal, NotRequired, TypedDict, TypeVar
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -847,8 +847,22 @@ _CELL_IDS = [
 ]
 
 
-@pytest.mark.parametrize(("row", "value", "kept"), _HOSTS_CLASS_CELLS, ids=_CELL_IDS)
-@pytest.mark.parametrize("returned", ["list", "frame"])
+@pytest.mark.parametrize(
+    ("row", "value", "kept", "returned"),
+    [
+        (*cells, returned)
+        for cells in _HOSTS_CLASS_CELLS
+        for returned in ("list", "frame")
+        # a frame gives every row every key, so a dict's can't be kept in one
+        if returned == "list" or cells[0] is not PurseRow
+    ],
+    ids=[
+        f"{returned}-{name}"
+        for name in _CELL_IDS
+        for returned in ("list", "frame")
+        if returned == "list" or name != "dict of models"
+    ],
+)
 def test_a_series_of_rows_gives_a_hosts_class_in_a_cell_whether_the_node_returned_a_list_or_a_frame(
     row: Any, value: dict[str, Any], kept: dict[str, Any], returned: str
 ) -> None:
@@ -1256,32 +1270,138 @@ class PartsRow(TypedDict):
 
 
 @pytest.mark.parametrize(
-    ("row", "value", "returned"),
+    ("row", "rows"),
     [
-        (PartRow, {"part": {"a": 1}}, "list"),
-        (PartRow, {"part": {"a": 1}}, "frame"),
-        (PartsRow, {"parts": [{"a": 1}]}, "list"),
-        (PartsRow, {"parts": [{"a": 1}]}, "frame"),
+        (PartRow, [{"part": {"a": 1}}, {"part": {"a": 2, "b": 3}}]),
+        (PartsRow, [{"parts": [{"a": 1}, {"a": 2, "b": 3}]}]),
     ],
-    ids=["a row of rows", "a frame", "a list in a row", "a list in a frame"],
+    ids=["a row", "a list in a row"],
 )
 def test_a_series_of_rows_whose_cell_leaves_out_a_not_required_key_reads_back(
-    row: Any, value: dict[str, Any], returned: str
+    row: Any, rows: list[dict[str, Any]]
 ) -> None:
-    """A Series of rows may hold a ``TypedDict`` with a ``NotRequired`` field. A key the value leaves out stays out,
-    so the saved run reads back as it was."""
+    """A Series of rows given as a list may hold a ``TypedDict`` with a ``NotRequired`` field, which one value has
+    and another leaves out. Each keeps its keys, so the saved run reads back as it was."""
 
     def returns() -> Series[row]:  # type: ignore[valid-type]
-        return pl.DataFrame([value]) if returned == "frame" else [value]  # type: ignore[return-value]
+        return rows  # type: ignore[return-value]
 
-    rows = node("rows", title="Rows", description="For a test.")(returns)
+    node_rows = node("rows", title="Rows", description="For a test.")(returns)
     registry = NodeRegistry()
-    registry.add(rows)
-    graph = Graph.compile(make_graph(rows), registry)
+    registry.add(node_rows)
+    graph = Graph.compile(make_graph(node_rows), registry)
     run = graph.run({})
 
-    assert run.outputs == {"result": [value]}
+    assert run.outputs == {"result": rows}
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+@host_type("meowing", title="Meowing")
+class Meowing(BaseModel, frozen=True):
+    meow: str | None = None
+
+
+@host_type("barking", title="Barking")
+class Barking(BaseModel, frozen=True):
+    bark: int
+
+
+class PetRow(TypedDict):
+    pet: Meowing | Barking
+
+
+class ScoresRow(TypedDict):
+    points: dict[str, int]
+
+
+@pytest.mark.parametrize(
+    ("row", "rows", "cell"),
+    [
+        (PetRow, [{"pet": Meowing(meow="m")}, {"pet": Barking(bark=1)}], "Meowing | Barking"),
+        (ScoresRow, [{"points": {"x": 1}}, {"points": {"y": 2}}], "dict[str, int]"),
+    ],
+    ids=["a union of models whose fields differ", "a dict"],
+)
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_series_of_rows_whose_cells_keys_may_vary_is_taken_as_a_list_and_refused_as_a_frame(
+    row: Any, rows: list[Any], cell: str, returned: str
+) -> None:
+    """A Series of rows is a list, so its cells keep their keys. A frame gives every row every key, so a frame for
+    such rows is refused, naming the column, rather than read as other values."""
+
+    def returns() -> Series[row]:  # type: ignore[valid-type]
+        if returned == "frame":
+            return pl.DataFrame(  # type: ignore[return-value]
+                [
+                    {
+                        name: value.model_dump() if isinstance(value, BaseModel) else value
+                        for name, value in one.items()
+                    }
+                    for one in rows
+                ]
+            )
+        return rows  # type: ignore[return-value]
+
+    node_rows = node("rows", title="Rows", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(node_rows)
+    graph = Graph.compile(make_graph(node_rows), registry)
+    run = graph.run({})
+
+    if returned == "list":
+        assert run.outputs == {"result": rows}
+        assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+    else:
+        assert run.cause is not None
+        assert (run.cause.type, [error["type"] for error in run.cause.ctx["errors"]]) == (
+            "invalid_output",
+            ["table_cell_keys_vary"],
+        )
+        assert cell in run.cause.ctx["reason"]
+
+
+type _Deep = list[_Deep]
+
+
+class DeepRow(TypedDict):
+    deep: _Deep
+
+
+@pytest.mark.parametrize("returned", ["list", "frame"])
+def test_a_table_cell_whose_type_holds_itself_is_kept_as_deep_as_its_value(returned: str) -> None:
+    """``type Deep = list[Deep]`` holds itself. A cell of it is kept as deep as the value goes."""
+
+    def returns() -> Table[DeepRow]:
+        value = [[[]]]
+        return pl.DataFrame({"deep": [value]}) if returned == "frame" else [{"deep": value}]  # type: ignore[return-value]
+
+    table = node("table", title="Table", description="For a test.")(returns)
+    registry = NodeRegistry()
+    registry.add(table)
+    graph = Graph.compile(make_graph(table), registry)
+    run = graph.run({})
+
+    assert run.outputs["result"].to_dicts() == [{"deep": [[[]]]}]
+    assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
+
+
+class NotedRow(TypedDict):
+    text: Annotated[str, {"note": "a dict can't be hashed"}]
+
+
+def test_a_table_column_whose_type_can_not_be_hashed_is_kept() -> None:
+    """A column's type may hold what can't be hashed, such as a dict in its ``Annotated``. It is kept as any is."""
+
+    @node("table", title="Table", description="For a test.")
+    def table() -> Table[NotedRow]:
+        return [{"text": "a"}]  # type: ignore[return-value]
+
+    registry = NodeRegistry()
+    registry.add(table)
+    graph = Graph.compile(make_graph(table), registry)
+    run = graph.run({})
+
+    assert run.outputs["result"].to_dicts() == [{"text": "a"}]
 
 
 class NotedMoneyRow(TypedDict):

@@ -19,8 +19,6 @@ from conductor._internal.types import (
     Type,
     is_typed_dict,
     json_by_its_class,
-    union_members,
-    union_of,
 )
 
 from .read import as_saved, check_table_row, column_missing, table_schema
@@ -65,7 +63,8 @@ class _RowsChecked[T]:
 
 
 def with_rows_checked(hint: Any) -> Any:
-    """Returns ``hint`` with each ``Table[R]`` in it read as rows already ``R``'s values (``_RowsChecked``).
+    """Returns ``hint``, a ``Table[R]`` or an ``Annotated`` one, read as rows already ``R``'s values
+    (``_RowsChecked``).
 
     The rest of the hint is kept, so a host's own check on the table, like
     ``Annotated[Table[R], AfterValidator(look)]``, still runs, and is called as for any table.
@@ -76,8 +75,8 @@ def with_rows_checked(hint: Any) -> Any:
         return Annotated[with_rows_checked(inner), *metadata]
     if origin is _Table:
         return _RowsChecked[get_args(hint)]  # type: ignore[misc]
-    members = union_members(hint)
-    return union_of(with_rows_checked(member) for member in members) if len(members) > 1 else hint
+    # any other hint, such as a union, is kept, and its rows are checked again
+    return hint
 
 
 if TYPE_CHECKING:  # a type checker sees a Table as the frame a node gets, with its row type kept

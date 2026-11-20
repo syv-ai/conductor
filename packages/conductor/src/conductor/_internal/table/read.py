@@ -26,7 +26,6 @@ from typing import Any, NotRequired, TypeVar, get_args, get_origin
 import polars as pl
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import (
-    BaseModel,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
     ValidatorFunctionWrapHandler,
@@ -44,16 +43,13 @@ from conductor._internal.problem import (
 from conductor._internal.types import (
     SIZED,
     Type,
-    declares_fields,
     field_hints,
-    is_alias,
     is_typed_dict,
     json_by_its_class,
     type_fields,
-    union_members,
 )
 
-from .cells import kept_column, kept_dtype
+from .cells import cell_type, kept_column
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
 
@@ -394,57 +390,6 @@ def is_bare_table_row(hint: Any) -> bool:
     return hint is Any or hint is dict or hint == dict[str, Any]
 
 
-def _keys_left_out(hint: Any, walked: frozenset[int] = frozenset()) -> str | None:
-    """Returns the type, in the type of a table's cell, whose values may leave out a key, or ``None`` if none may.
-
-    A table keeps a cell that has keys as a struct, and a struct gives every row every key, a ``None`` for a key the
-    row's value leaves out. So such a value would read back changed. These types' values may leave out a key, at
-    any depth: in a list, a union, or a field of a model, a dataclass or a ``TypedDict``.
-
-    - a dict with open keys, like ``dict[str, int]`` (and so pydantic's ``JsonValue``);
-    - a ``TypedDict`` with a ``NotRequired`` field;
-    - a model that takes extra keys (``extra="allow"``);
-    - a union of models, dataclasses or ``TypedDict``s whose fields differ, like ``Cat | Dog``.
-
-    ``Any`` says nothing, so it lets nothing. ``walked`` is the types on the way down, so one that holds itself ends.
-    """
-    # a type alias is named for what it holds, as ``JsonValue``
-    if is_alias(hint):
-        if id(hint) in walked or _keys_left_out(hint.__value__, walked | {id(hint)}) is None:
-            return None
-        return str(hint.__name__)
-    origin = get_origin(hint) or hint
-    if isinstance(origin, type) and issubclass(origin, Mapping) and not is_typed_dict(hint):
-        return origin.__name__ if hint is origin else str(hint).replace("typing.", "")
-    if declares_fields(origin):
-        if id(origin) in walked:
-            return None
-        fields = field_hints(hint)
-        if any(get_origin(field) is NotRequired for field in fields.values()) or (
-            isinstance(origin, type)
-            and issubclass(origin, BaseModel)
-            and origin.model_config.get("extra") == "allow"
-        ):
-            return origin.__qualname__
-        return next(
-            (
-                found
-                for field in fields.values()
-                if (found := _keys_left_out(field, walked | {id(origin)})) is not None
-            ),
-            None,
-        )
-    with_fields = [
-        member for member in union_members(hint) if declares_fields(get_origin(member) or member)
-    ]
-    if len({tuple(type_fields(member)) for member in with_fields}) > 1:
-        return " | ".join((get_origin(member) or member).__qualname__ for member in with_fields)
-    return next(
-        (found for part in get_args(hint) if (found := _keys_left_out(part, walked)) is not None),
-        None,
-    )
-
-
 def check_table_row(row: Any) -> None:
     """Refuses ``row``, the row type ``R`` of a ``Table[R]`` a node declares, if it names no columns.
 
@@ -454,7 +399,7 @@ def check_table_row(row: Any) -> None:
     it is let through. A graph that fills in ``T`` in ``Table[T] | list[T]`` with ``str`` is no declaration, so its
     ``Table[str]`` is read as a bare table.
 
-    A column whose cell may leave out a key is refused too (``_keys_left_out``).
+    A column whose values may leave out a key is refused too (``CellType.keys_left_out``).
 
     Raises:
         NodeDeclarationError: ``table_row_not_a_typed_dict``, or ``table_cell_keys_vary``.
@@ -463,7 +408,7 @@ def check_table_row(row: Any) -> None:
         return
     if is_typed_dict(row):
         for name, hint in type_fields(row).items():
-            if (keys := _keys_left_out(hint)) is not None:
+            if (keys := cell_type(hint).keys_left_out) is not None:
                 raise NodeDeclarationError(
                     declaration_problems.table_cell_keys_vary(
                         row=(get_origin(row) or row).__qualname__, column=name, cell=keys
@@ -590,7 +535,13 @@ def _table_schemas(
     fields = handler.resolve_ref_schema(handler.generate_schema(row))["fields"] if declared else {}
     cells = {name: fields[name]["schema"] for name in columns}
     # the polars type of each column a frame of R's own values has, where its type says it
-    kept_schema = {name: kept_dtype(column.hint) for name, column in columns.items()}
+    kept_schema = {name: cell_type(column.hint).dtype for name, column in columns.items()}
+    # the columns whose values may leave out a key, which a frame can't hold: a Series of rows may declare one
+    keys_vary = {
+        name: found
+        for name, column in columns.items()
+        if (found := cell_type(column.hint).keys_left_out) is not None
+    }
     dtypes = {
         name: CELLS[column.options[0]][0]
         if column.options[0] in CELLS and len(column.options) == 1
@@ -604,7 +555,9 @@ def _table_schemas(
             (
                 (
                     name,
-                    kept_column(name, [one.get(name) for one in rows], columns[name].hint)
+                    kept_column(
+                        name, [one.get(name) for one in rows], cell_type(columns[name].hint)
+                    )
                     if declared and dtypes[name] is None
                     else [one.get(name) for one in rows],
                     dtypes.get(name),
@@ -627,6 +580,13 @@ def _table_schemas(
                     for name in columns
                 ]
             ), {}
+        if keys_vary:
+            name, cell = next(iter(keys_vary.items()))
+            raise conductor_error(
+                "table_cell_keys_vary",
+                "column '{column}' holds {cell}, whose values may leave out a key, and a frame gives every row every key",
+                {"column": name, "cell": cell},
+            )
         for name, column in columns.items():
             if name not in frame.columns:
                 raise column_missing(name)
@@ -647,7 +607,8 @@ def _table_schemas(
         # the same in the table, in a Series of its rows and in a saved run
         if cells:
             frame = frame.with_columns(
-                kept_column(name, values, columns[name].hint) for name, values in cells.items()
+                kept_column(name, values, cell_type(columns[name].hint))
+                for name, values in cells.items()
             )
         return frame if frame.columns == list(columns) else frame.select(list(columns)), cells
 
