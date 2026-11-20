@@ -17,7 +17,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from collections.abc import Mapping, Set
+from collections.abc import Mapping
 from enum import Enum
 from types import FunctionType, MethodType, UnionType
 from typing import (
@@ -359,7 +359,7 @@ class Type:
         # part of the schema a node may not declare, the id of a class with no @host_type, named values that don't
         # read back, and choices that can't be read
         self.returned_schema  # noqa: B018
-        _check_built(self.schema, self.closed)
+        _check_built(self.schema)
         self.id  # noqa: B018
         self.argument_schema  # noqa: B018
         self.choices  # noqa: B018
@@ -542,9 +542,8 @@ class Type:
         )
 
     @functools.cached_property
-    def _built(self) -> tuple[Any, TypeAdapter[Any], Any]:
-        """The hint pydantic is given for the type, pydantic's adapter for it, and the hint under its metadata, which
-        pydantic hands a ``Param`` as the type it is on.
+    def _built(self) -> tuple[Any, TypeAdapter[Any]]:
+        """The hint pydantic is given for the type, and pydantic's adapter for it.
 
         The type's schema and serializer come from the adapter. The arguments of a container, like the ``int`` of
         ``list[int]``, are each built as a ``Type`` of their own first, so conductor's rules reach them too.
@@ -567,7 +566,7 @@ class Type:
             elif get_origin(option) is Annotated:  # a union's member, built as a type of its own
                 option = Type(option).carried
             options.append(option)
-        under = read = union_of(options)
+        read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
         # Every type writes and reads by JSON_CONFIG: a float that isn't finite as text, and bytes as base64. Pydantic
@@ -605,7 +604,7 @@ class Type:
                         unknown_limits=unknown, type=as_written(bare)
                     )
                 )
-        return read, adapter, under
+        return read, adapter
 
     @property
     def carried(self) -> Any:
@@ -641,9 +640,9 @@ class Type:
     def choices(self) -> tuple[Choice, ...] | None:
         """The choices the type takes, if it names any, or ``None``.
 
-        They come from ``Param(choices=...)``, as ``Param.read_choices`` reads them, so ``Param(choices=[1])`` on a
-        ``float`` has the id ``1.0``. ``Type.check_declared`` reads them again by every other check on the hint, at
-        any depth. Without a ``Param``, they are a ``Literal``'s values or an enum's members, each checked and
+        They come from ``Param(choices=...)``, as the ``Param`` read them into the type's schema (``CHOICES``), so
+        ``Param(choices=[1])`` on a ``float`` has the id ``1.0``. ``Type.check_declared`` reads them again by every
+        other check on the hint, at any depth. Without a ``Param``, they are a ``Literal``'s values or an enum's members, each checked and
         converted by the type's argument check (``declared_choices``), so the enum ``Color``'s are its values, like
         ``"red"``.
 
@@ -654,7 +653,12 @@ class Type:
         """
         _, param, _ = self._parts
         if param.choices is not None:
-            return param.read_choices(self._built[2])
+            # the Param is the hint's last metadata, so its schema is the type's own, maybe under its definitions
+            schema = self.schema
+            read: tuple[Choice, ...] = (
+                schema["schema"] if schema["type"] == "definitions" else schema
+            )["metadata"][CHOICES][1]
+            return read
         given = None
         if len(self.options) == 1:
             (option,) = self.options
@@ -994,7 +998,7 @@ _DECLARES_FIELDS = frozenset({"model", "dataclass", "typed-dict"})
 _SCHEMA_KEYS = frozenset({"schema", "steps", "choices", "fields"})
 
 
-def _check_built(schema: CoreSchema, hint: Any) -> None:
+def _check_built(schema: CoreSchema) -> None:
     """Refuses a type, by the schema pydantic built for it, if a node may not declare something inside it.
 
     The schema is what pydantic really checks and writes a value by, so this walk reaches every part of the type, the
@@ -1018,7 +1022,6 @@ def _check_built(schema: CoreSchema, hint: Any) -> None:
 
     Args:
         schema: The type's core schema.
-        hint: The type's hint, with its type variables closed, which names a set or choices no class holds.
 
     Raises:
         NodeDeclarationError: ``type_not_supported_set``, ``type_not_supported_bytes_as_text`` or
@@ -1052,7 +1055,9 @@ def _check_built(schema: CoreSchema, hint: Any) -> None:
             return
         if kind in ("set", "frozenset"):
             raise NodeDeclarationError(
-                declaration_problems.type_not_supported_set(type=_named(held, _set_in(hint)))
+                declaration_problems.type_not_supported_set(
+                    type=_field_or(held, _set_written(part))
+                )
             )
         if kind == "bytes" and as_text is not None:
             raise NodeDeclarationError(
@@ -1068,7 +1073,7 @@ def _check_built(schema: CoreSchema, hint: Any) -> None:
         if kind == "definitions":
             definitions.update({one["ref"]: one for one in part["definitions"]})
         if (choices := part.get("metadata", {}).get(CHOICES)) is not None:
-            _check_choices(part, choices, definitions, _named(held, Type(hint).text))
+            _check_choices(part, choices, definitions)
         if kind in _DECLARES_FIELDS and isinstance(cls := part.get("cls"), type):
             held = (cls.__name__, "")
             # a class with no config of its own, and a schema with no config written on it, like a table's, read
@@ -1093,24 +1098,36 @@ def _check_built(schema: CoreSchema, hint: Any) -> None:
     walk(schema, None, None)
 
 
-def _named(held: tuple[str, str] | None, otherwise: str) -> str:
+def _field_or(held: tuple[str, str] | None, otherwise: str) -> str:
     """Names a place in a type: the field of the class that holds it, as Python names one (``Tags.tags``), or
     ``otherwise`` when no class holds it."""
     return otherwise if held is None else ".".join(name for name in held if name)
 
 
-def _set_in(hint: Any) -> str:
-    """Returns the first set in ``hint`` as its developer wrote it, like ``set[str]`` in ``list[set[str]]``, or
-    ``hint`` itself when no set is written in it, as when a host's class makes one."""
-    for part in hint_parts(hint):
-        origin = get_origin(part) or part
-        if isinstance(origin, type) and issubclass(origin, Set):
-            return as_written(part)
-    return as_written(hint)
+#: The core schema types whose name is the name of the Python class they check, so a set of them is named the way
+#: its developer wrote it: ``set[str]``.
+_NAMED_AS_PYTHON = frozenset(
+    {"str", "int", "float", "bool", "bytes", "date", "datetime", "time", "timedelta"}
+)
+
+
+def _set_written(schema: dict[str, Any]) -> str:
+    """Writes a ``set`` or ``frozenset`` schema as its developer wrote the set: ``set[str]``, ``frozenset[Money]``.
+
+    The schema keeps no hint, so its items are named by their schema: one of Python's own classes by its name, a
+    class that declares its fields by the class's name. Items of any other kind, like a list, are left out, and the
+    set is named bare: ``set``.
+    """
+    items = schema.get("items_schema", {})
+    if items.get("type") in _NAMED_AS_PYTHON:
+        return f"{schema['type']}[{items['type']}]"
+    if isinstance(cls := items.get("cls"), type):
+        return f"{schema['type']}[{cls.__name__}]"
+    return str(schema["type"])
 
 
 def _check_choices(
-    checked: CoreSchema, choices: tuple[Choice, ...], definitions: dict[str, Any], where: str
+    checked: CoreSchema, choices: tuple[Type, tuple[Choice, ...]], definitions: dict[str, Any]
 ) -> None:
     """Refuses a ``Param``'s choices that the part of a schema it built refuses.
 
@@ -1121,10 +1138,11 @@ def _check_choices(
 
     Args:
         checked: The schema ``Param`` built, with its choices in its metadata (``CHOICES``).
-        choices: Those choices.
+        choices: What the metadata keeps: the type the ``Param`` is on, with its limits, which the problem names,
+            and the choices as it read them.
         definitions: The schemas pydantic declared beside the type, which ``checked`` may refer to.
-        where: Where the choices are, which the problem names.
     """
+    on, read = choices
     whole = (
         core_schema.definitions_schema(checked, list(definitions.values()))
         if definitions
@@ -1132,10 +1150,10 @@ def _check_choices(
     )
     serializer = SchemaSerializer(whole, config=JSON_CORE_CONFIG)
     declared_choices(
-        choices,
+        read,
         SchemaValidator(whole, config=JSON_CORE_CONFIG),
         lambda value: plain_json(serializer.to_python(value, mode="json")),
-        where=where,
+        where=as_written(on.bare),
     )
 
 

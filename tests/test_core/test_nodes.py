@@ -3089,9 +3089,9 @@ class _MoodCard(BaseModel):
     ("hint", "where"),
     [
         (_Exclaimed, "str"),
-        (list[_Exclaimed], "list[str]"),
-        (dict[str, _Exclaimed], "dict[str, str]"),
-        (_MoodCard, "_MoodCard.mood"),
+        (list[_Exclaimed], "str"),
+        (dict[str, _Exclaimed], "str"),
+        (_MoodCard, "str"),
     ],
     ids=["the-field", "a-lists-item", "a-dicts-value", "a-models-field"],
 )

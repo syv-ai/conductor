@@ -32,7 +32,7 @@ from conductor._internal.base import canonical_json, plain_json, value_parts
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
-from .choice import Choice, check_one_of, declared_choices, pick_texts
+from .choice import check_one_of, declared_choices, pick_texts
 from .hint import READ_AS, literal_classes, union_members, union_of
 
 #: The limits ``Param`` takes: by the keyword that writes each, the class pydantic is handed it as, whose attribute
@@ -56,9 +56,10 @@ _KEYWORDS = {kind: keyword for keyword, kind in LIMITS.items()}
 #: ``max_length``, which count them with ``len()``: a table's schema sets it, and a table's length is its rows.
 SIZED = "conductor_sized"
 
-#: The key of a core schema's metadata that keeps the choices a ``Param`` checks its values against, as
-#: ``Param.read_choices`` read them. ``Type.check_declared`` reads them back at every depth of a type's schema, by
-#: every check on the same hint, and the JSON schema's ``enum`` is written from them.
+#: The key of a core schema's metadata where a ``Param`` keeps its choices: the ``Type`` they are values of (the
+#: type the ``Param`` is on, with its limits) and the choices as that type read them, into their JSON form.
+#: ``Type.choices`` returns them, ``Type.check_declared`` reads them back at every depth of a type's schema, by every
+#: check on the same hint, and the JSON schema's ``enum`` is written from them.
 CHOICES = "conductor_choices"
 
 #: What a bound like ``ge`` may be: a number, a date, a time or a duration.
@@ -204,58 +205,56 @@ class Param:
             raise NodeDeclarationError(
                 declaration_problems.choices_on_a_literal_beside_another_type()
             )
-        value_type = _value_type(source, self.limits)
-        read = self.read_choices(source)
+        # Type is built on Param, so it is imported here
+        from .type import Type
+
+        # the choices are read by the type's own argument check, limits included, as an answer is; the hint's other
+        # checks are not in it, and Type.check_declared reads the choices by them, at any depth
+        value_type = Type(Annotated[(source, *self.limits)] if self.limits else source)
+
+        def as_json(value: Any) -> JsonValue:
+            """Returns ``value`` as plain JSON data.
+
+            A float that is not finite stays a float, and ``canonical_json`` writes it as text.
+            """
+            written: JsonValue = value_type.serializer.to_python(value, mode="json")
+            return written
+
+        read = declared_choices(
+            self.choices, value_type.argument_validator, as_json, where=as_written(source)
+        )
 
         def one_of_the_choices(value: Any) -> Any:
-            check_one_of(read, pick_texts(_as_json(value_type, value), several=False))
+            check_one_of(read, pick_texts(as_json(value), several=False))
             return value
 
         checked = core_schema.no_info_after_validator_function(one_of_the_choices, limited)
-        # kept for Type.check_declared, which reads them back by every check on the hint, and for
+        # kept for Type.choices, for Type.check_declared, which reads them back by every check on the hint, and for
         # __get_pydantic_json_schema__, which pydantic calls with this schema
-        return {**checked, "metadata": {**checked.get("metadata", {}), CHOICES: read}}  # type: ignore[typeddict-unknown-key]
-
-    def read_choices(self, source: Any) -> tuple[Choice, ...]:
-        """Reads these choices as values of ``source``, with these limits, into their JSON form.
-
-        Each choice is read by the type's own argument check, limits included, as an answer is
-        (``declared_choices``). So ``Param(choices=[1])`` on a ``float`` has the id ``1.0``. The hint's other checks
-        are not in it: ``Type.check_declared`` reads the choices by them, at any depth.
-
-        Args:
-            source: The type the ``Param`` is on, as pydantic hands it over.
-
-        Raises:
-            NodeDeclarationError: ``choices_invalid`` if the choices aren't each a value of ``source``, given once.
-        """
-        value_type = _value_type(source, self.limits)
-        return declared_choices(
-            self.choices,
-            value_type.argument_validator,
-            lambda value: _as_json(value_type, value),
-            where=as_written(source),
-        )
+        metadata = {**checked.get("metadata", {}), CHOICES: (value_type, read)}
+        return {**checked, "metadata": metadata}  # type: ignore[typeddict-unknown-key]
 
     def __get_pydantic_json_schema__(
         self, schema: CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
         """Returns the JSON schema of the limited type, with this ``title``, ``description`` and choices added.
 
-        The choices are the schema's ``enum``: their ids, with ``None`` when the schema takes ``null``, since ``None``
-        is taken beside them. A choice is finite (``declared_choices``), so JSON Schema reads each as the run does.
-        This matters at any depth: on a list's item, on a field of a ``TypedDict`` or of a host's own model, and on a
-        table's column, the JSON schema is where they show up.
+        The choices are the schema's ``enum``: their ids, with ``None`` when the type the ``Param`` is on takes it,
+        since ``None`` is taken beside them. A choice is finite (``declared_choices``), so JSON Schema reads each as
+        the run does. This matters at any depth: on a list's item, on a field of a ``TypedDict`` or of a host's own
+        model, and on a table's column, the JSON schema is where they show up.
 
         A schema that is a ``$ref``, like an enum's, is put in an ``allOf`` before anything is added beside it. JSON
         Schema draft-07 ignores every key beside a ``$ref``, so a form reading ``{"$ref": ..., "enum": ["red"]}`` that
         way would offer every member; ``{"allOf": [{"$ref": ...}], "enum": ["red"]}`` means the same in every draft.
         """
         written = handler(schema)
-        choices = schema.get("metadata", {}).get(CHOICES)
-        enum = None if choices is None else [choice.id for choice in choices]
-        if enum is not None and None not in enum and _takes_null(written, handler):
-            enum.append(None)
+        enum = None
+        if (choices := schema.get("metadata", {}).get(CHOICES)) is not None:
+            value_type, read = choices
+            enum = [choice.id for choice in read]
+            if value_type.optional and None not in enum:
+                enum.append(None)
         added = {
             **({} if enum is None else {"enum": enum}),
             **{
@@ -267,43 +266,6 @@ class Param:
         if added and "$ref" in written:
             written = {"allOf": [{"$ref": written.pop("$ref")}], **written}
         return {**written, **added}
-
-
-def _value_type(source: Any, limits: tuple[Any, ...]) -> Any:
-    """Returns the ``Type`` of ``source`` with ``limits``, which a ``Param``'s choices are read by."""
-    # Type is built on Param, so it is imported here
-    from .type import Type
-
-    return Type(Annotated[(source, *limits)] if limits else source)
-
-
-def _as_json(value_type: Any, value: Any) -> JsonValue:
-    """Returns ``value``, a value of ``value_type``, as plain JSON data.
-
-    A float that is not finite stays a float, and ``canonical_json`` writes it as text.
-    """
-    written: JsonValue = value_type.serializer.to_python(value, mode="json")
-    return written
-
-
-def _takes_null(written: JsonSchemaValue, handler: GetJsonSchemaHandler) -> bool:
-    """Whether the JSON schema ``written`` takes ``null``: it says nothing of the type, its type is or lists
-    ``"null"``, or one of its options takes it.
-
-    ``Annotated[str | None, Param(choices=["a"])]`` is written ``{"anyOf": [{"type": "string"}, {"type": "null"}]}``,
-    which takes it, and an ``Any``'s ``{}`` takes it too.
-    """
-    if "$ref" in written:
-        return _takes_null(handler.resolve_ref_schema(written), handler)
-    if "enum" in written or "const" in written:
-        return None in written.get("enum", [written.get("const", 0)])
-    options = written.get("anyOf", []) + written.get("oneOf", [])
-    if options:
-        return any(_takes_null(option, handler) for option in options)
-    kind = written.get("type")
-    if kind is None:
-        return "allOf" not in written and "not" not in written
-    return kind == "null" or (isinstance(kind, list) and "null" in kind)
 
 
 _NO_PARAM = Param()

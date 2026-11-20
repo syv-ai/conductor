@@ -189,9 +189,8 @@ def choices_invalid(*, type: str, reason: str, errors: list[dict[str, Any]], ins
     node. ``ctx.instead`` is the one that fits.
 
     Args:
-        type: Where the choices are: the field of a model, dataclass or ``TypedDict`` that holds them, as
-            ``Mood.pick``, when a check on a field inside the type moves them, or else the type the ``Param`` is on,
-            as its developer wrote it.
+        type: The type the ``Param`` is on, as pydantic hands it over: the hint under its metadata, like ``str`` for
+            ``Annotated[str, AfterValidator(f), Param(choices=["a"])]``, wherever that hint sits.
         reason: The first fault.
         errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
         instead: The fix, as a sentence: for ``not_a_choice``, to give choices every check keeps; for any other
