@@ -2861,8 +2861,16 @@ def test_a_default_or_a_choice_that_is_not_finite_is_refused_where_the_node_is_d
     def picked_on_output() -> Annotated[float, Param(choices=[float("nan")])]:
         return 1.0
 
+    def keyed(limits: dict[float, str] = {float("inf"): "top"}) -> str:  # noqa: B006
+        return str(limits)
+
+    def picked_by_key(
+        limits: Annotated[dict[float, str], Param(choices=[{float("inf"): "top"}])],
+    ) -> str:
+        return str(limits)
+
     refused = []
-    for wrong in (capped, capped_in_a_list, picked, picked_on_output):
+    for wrong in (capped, capped_in_a_list, picked, picked_on_output, keyed, picked_by_key):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         refused.append(raised.value.problems[0].type)
@@ -2871,7 +2879,45 @@ def test_a_default_or_a_choice_that_is_not_finite_is_refused_where_the_node_is_d
         "default_invalid",
         "choices_invalid",
         "choices_invalid",
+        "default_invalid",
+        "choices_invalid",
     ]
+
+
+@host_type("Shade", title="Shade")
+class Shade:
+    """A host's value pydantic can write only by its own class's schema, as pydantic-extra-types' ``Color`` is."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        from_text = core_schema.no_info_after_validator_function(cls, core_schema.str_schema())
+        return core_schema.json_or_python_schema(
+            json_schema=from_text,
+            python_schema=core_schema.union_schema(
+                [core_schema.is_instance_schema(cls), from_text]
+            ),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda shade: shade.name
+            ),
+        )
+
+
+def test_a_choice_of_a_hosts_class_is_written_by_its_own_schema_as_its_default_is() -> None:
+    """A choice is read from its JSON form, as a default and an answer are, so a value pydantic can write only by
+    its class's own schema is written by it there too."""
+
+    def tinted(
+        shade: Annotated[Shade, Param(choices=[Shade("red"), Shade("blue")])] = Shade("red"),
+    ) -> str:
+        return shade.name
+
+    definition = declared(tinted)
+    (described,) = definition.describe().inputs
+    assert [choice.id for choice in described.choices or ()] == ["red", "blue"]
+    assert compiled_graph(definition).run().outputs == {"result": "red"}
 
 
 @pytest.mark.parametrize(

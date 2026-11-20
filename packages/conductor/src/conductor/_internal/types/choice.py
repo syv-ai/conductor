@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Sequence, Set
 from enum import Enum
 from typing import Any
 
-from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import ConfigDict, JsonValue, ValidationError
 from pydantic_core import (
     CoreSchema,
     PydanticKnownError,
@@ -27,12 +27,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import (
-    ConductorModel,
-    canonical_json,
-    finite_json_text,
-    holds_a_set,
-)
+from conductor._internal.base import ConductorModel, canonical_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     conductor_error,
@@ -175,7 +170,7 @@ def read_choices(
 
 def declared_choices(
     given: Any,
-    reader: SchemaValidator | TypeAdapter[Any],
+    reader: SchemaValidator,
     write: Callable[[Any], JsonValue],
     *,
     where: str,
@@ -193,19 +188,21 @@ def declared_choices(
         write: Converts a value ``reader`` gave back to JSON.
         where: Where the choices are, which the problem names: a field of a class, as ``Order.size``, or a type.
 
-    A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
-    A choice with a set in it is refused too (``set_has_no_order``), since its JSON form would be a list.
+    A choice is read from its JSON form, as an answer is (``read_as_json_text``). So ``inf`` and ``nan`` are
+    refused, a dict's key included: no one could pick them. A choice with a set in it is refused too
+    (``set_has_no_order``), since its JSON form would be a list. A host's object is written by its own class's
+    schema, as its default is.
 
     Raises:
         NodeDeclarationError: ``choices_invalid``, with the fault of each choice that doesn't read in
             ``ctx.errors``, or the fault of the whole list once every choice reads.
     """
 
+    # Type is built on choices, so the reader is imported here
+    from .read import read_as_json_text
+
     def read(value: Any) -> Any:
-        # a choice is given as an answer is, from its JSON form, so one that isn't finite could never be picked
-        if holds_a_set(value):
-            raise set_has_no_order()
-        return reader.validate_json(finite_json_text(value, "choice"), strict=True)
+        return read_as_json_text(reader, value, title="choice")
 
     try:
         return read_choices(given, read, write)
