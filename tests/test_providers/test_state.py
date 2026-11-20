@@ -32,7 +32,7 @@ def _waiting() -> tuple[Any, str]:
 
 def _ended_with(state: RunState, run: Any) -> tuple[RunState, dict[str, Any]]:
     """The new state, and the row's ``run`` and ``outcome`` written with it."""
-    new, saved, outcome = state.ended_with(run, saved=run.to_json())
+    new, saved, outcome = state.ended_with(run, run.to_json())
     return new, {"run": saved, "outcome": outcome}
 
 
@@ -100,11 +100,9 @@ def test_a_failed_resume_call_gives_the_run_its_queue_then_and_there_and_clears_
     cause = Problem(type="raised_outside_a_node", msg="It raised.", ctx={"error": "KeyError"})
 
     answered, given, _ = (
-        RunState.new().with_queued({waiting_id: True}).asked_to_stop().ended_with(run, cause=cause)
+        RunState.new().with_queued({waiting_id: True}).asked_to_stop().failed(cause, run)
     )
-    declined, ended, _ = (
-        RunState.new().with_queued(declines={waiting_id: "No"}).ended_with(run, cause=cause)
-    )
+    declined, ended, _ = RunState.new().with_queued(declines={waiting_id: "No"}).failed(cause, run)
 
     assert (answered.status, answered.cause, answered.cancel_asked, answered.queued) == (
         "failed",
@@ -131,7 +129,7 @@ def test_a_failed_resume_call_whose_run_cant_be_loaded_refuses_each_queued_reply
         RunState.new()
         .with_queued({"a~1": True})
         .with_queued(declines={"b~2": None})
-        .ended_with(None, cause=cause)
+        .failed(cause, None)
     )
 
     assert (state.status, state.cause, state.queued, given) == ("failed", cause, [], None)

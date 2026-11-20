@@ -7,7 +7,8 @@ person, the outputs, and how far the run is. It can be megabytes, so it is writt
 each checkpoint. A store keeps both as text and never reads them.
 
 Every change of a state is a method here that returns a new state, so a test can call it on a ``Run`` with no store
-at all. The one that takes a run, ``ended_with``, also returns the row's ``run`` and ``outcome`` to write with it.
+at all. The two that take a run, ``ended_with`` and ``failed``, also return the row's ``run`` and ``outcome`` to write
+with it.
 ``RunView`` is what a reader sees: the run's status and outcome, without the worker's own bookkeeping.
 """
 
@@ -200,21 +201,57 @@ class RunState(BaseModel):
         refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
         return self.model_copy(update={"refused": refused})
 
-    def ended_with(
-        self, run: Run[Any] | None, *, saved: str | None = None, cause: Problem | None = None
+    def ended_with(self, run: Run[Any], saved: str) -> tuple[RunState, str | None, RunOutcome]:
+        """This state once a resume call ends, or a run that isn't running takes a person's decline.
+
+        The run is given what was queued meanwhile, as ``_stopped`` says.
+
+        Args:
+            run: The run the resume call returned, or the run that took the decline.
+            saved: ``run``, as JSON.
+
+        Returns:
+            The new state, and the row's ``run`` (as JSON) and ``outcome`` to write with it.
+        """
+        return self._stopped(run, saved, None)
+
+    def failed(
+        self, cause: Problem, run: Run[Any] | None
+    ) -> tuple[RunState, str | None, RunOutcome]:
+        """This state once a resume call raised, or conductor refused it, so it returned no run.
+
+        The run as the row has it, its last checkpoint, is given what was queued meanwhile, as ``_stopped`` says.
+        When the row's run can't be loaded, there is no run to give the queue to, so each queued reply is refused
+        with ``cause``, in ``refused`` by its waiting id.
+
+        Args:
+            cause: Why the resume call failed.
+            run: The run as the row has it, or ``None`` when it couldn't be loaded.
+
+        Returns:
+            The new state, the row's ``run`` (as JSON) to write with it, ``None`` to keep the row's, and its
+            ``outcome``, with nothing waiting when the run couldn't be loaded.
+        """
+        if run is None:
+            refused = {**self.refused, **{reply.waiting_id: [cause] for reply in self.queued}}
+            return self.model_copy(update={"queued": [], "refused": refused})._stopped(
+                None, None, cause
+            )
+        return self._stopped(run, None, cause)
+
+    def _stopped(
+        self, run: Run[Any] | None, saved: str | None, cause: Problem | None
     ) -> tuple[RunState, str | None, RunOutcome]:
         """This state once the run has stopped, given what was queued meanwhile, in the order it came.
 
-        A run stops when its resume call ends or raises. A run that isn't running also stops here once it takes a
-        person's decline, with nothing queued. Either way the row that stops holds no queue.
         ``python -m conductor.about answers-and-declines`` has the queue's rules. A reply whose check raises
         something other than a refusal (a fault in a host's type) is logged and refused as ``raised_outside_a_node``.
+        So a row that stops never holds a queue.
 
         A run that takes a decline has ended for good: it is ``declined``, and a reply queued after the decline is
         refused, as the run refuses it. Else a call that raised leaves the run ``failed`` with ``cause``. An answer
         to a question the run asked after its last checkpoint is then refused as ``not_waiting``, and that question
-        waits again on the next resume. When the row's run couldn't be loaded, there is no run to give the queue
-        to, so each queued reply is refused with ``cause``.
+        waits again on the next resume.
 
         Else a run that takes any answer is running again, for the worker to resume at once. A cancel asked that the
         run didn't end on then stays asked, and ends the next resume call before any node call. So does one asked of
@@ -229,10 +266,8 @@ class RunState(BaseModel):
         the run stops again.
 
         Args:
-            run: The run that stopped: the run a resume call returned, the run as the row has it (its last
-                checkpoint) for a call that raised, or a run that took a decline. ``None`` when the row's run
-                couldn't be loaded.
-            saved: ``run`` as JSON, when the row doesn't keep it yet; ``None`` when it does.
+            run: The run that stopped; ``None`` when the row's run couldn't be loaded, for ``failed``.
+            saved: ``run`` as JSON when the row doesn't keep it yet; ``None`` when it does.
             cause: Why the resume call raised; ``None`` for one that didn't.
 
         Returns:
@@ -248,12 +283,8 @@ class RunState(BaseModel):
         status: RunStatus
         if given is not None and given.status == "declined":
             status, why, cancel_asked = given.status, given.cause, False
-        elif cause is not None:
+        elif cause is not None or given is None:
             status, why, cancel_asked = "failed", cause, False
-            if given is None:
-                refused |= {reply.waiting_id: [cause] for reply in self.queued}
-        elif given is None:
-            raise ValueError("ended_with takes the cause when the row's run couldn't be loaded")
         elif taken or (unheard and given.status == "waiting"):
             status, why, cancel_asked = "running", None, unheard
         elif unheard and given.status == "complete":
