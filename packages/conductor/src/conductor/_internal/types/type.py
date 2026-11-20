@@ -56,14 +56,17 @@ from pydantic_core import (
     SchemaError,
     SchemaSerializer,
     SchemaValidator,
-    core_schema,
 )
 
 from conductor._internal.base import (
+    HOSTS_OWN_CLASSES,
     JSON_CONFIG,
     JSON_CORE_CONFIG,
     canonical_json,
     plain_json,
+    schemas_in,
+    under_definitions,
+    with_definitions,
 )
 from conductor._internal.problem import (
     NodeDeclarationError,
@@ -655,10 +658,7 @@ class Type:
         _, param, _ = self._parts
         if param.choices is not None:
             # the Param is the hint's last metadata, so its schema is the type's own, maybe under its definitions
-            schema = self.schema
-            read: tuple[Choice, ...] = (
-                schema["schema"] if schema["type"] == "definitions" else schema
-            )["metadata"][CHOICES][1]
+            read: tuple[Choice, ...] = under_definitions(self.schema)[0]["metadata"][CHOICES][1]
             return read
         given = None
         if len(self.options) == 1:
@@ -985,13 +985,7 @@ def _marked(hint: Any, classes: tuple[type, ...]) -> bool:
 
 #: The core schema types of a class that declares its fields: a model, a pydantic or plain dataclass, and a
 #: ``TypedDict``. Pydantic writes on each its class, and the config it really reads that class's fields by.
-_DECLARES_FIELDS = frozenset({"model", "dataclass", "typed-dict"})
-
-#: The keys of a core schema whose values are schemas, besides each key that ends in ``_schema``, like
-#: ``items_schema``: a wrapped schema, a chain's steps, a union's choices and a class's fields. Every other key, a
-#: field's ``default``, its ``serialization`` or its ``metadata``, holds values, not schemas, so the walk never reads
-#: it as one.
-_SCHEMA_KEYS = frozenset({"schema", "steps", "choices", "fields"})
+_DECLARES_FIELDS = HOSTS_OWN_CLASSES | {"typed-dict"}
 
 
 def _check_built(schema: CoreSchema) -> None:
@@ -1028,27 +1022,16 @@ def _check_built(schema: CoreSchema) -> None:
     walked: set[str] = set()
 
     def walk(part: Any, held: tuple[str, str] | None, as_text: tuple[str, str] | None) -> None:
-        """Walks one schema, or a list or mapping of them, and every schema inside it.
+        """Walks one schema and every schema inside it.
 
         Args:
-            part: A core schema, a list or tuple of them, or a mapping of them, such as a tagged union's choices.
+            part: A core schema.
             held: The nearest class around ``part`` that declares fields, by name, and its field ``part`` is in, or
                 ``""`` until the walk reaches one of its fields.
             as_text: The nearest class around ``part`` with a config of its own, when that config reads bytes as
                 text, and its field, as for ``held``.
         """
-        if isinstance(part, (list, tuple)):
-            for one in part:
-                walk(one, held, as_text)
-            return
-        if not isinstance(part, dict):
-            return
-        kind = part.get("type")
-        if not isinstance(kind, str):
-            # a mapping of schemas by a tag, not a schema, and one tag may be "type"
-            for one in part.values():
-                walk(one, held, as_text)
-            return
+        kind = part["type"]
         if kind in ("set", "frozenset"):
             raise NodeDeclarationError(
                 declaration_problems.type_not_supported_set(
@@ -1062,12 +1045,12 @@ def _check_built(schema: CoreSchema) -> None:
                 )
             )
         if kind == "definition-ref":
-            if (ref := part["schema_ref"]) not in walked:
+            if (ref := part["schema_ref"]) not in walked and ref in definitions:
                 walked.add(ref)
-                walk(definitions.get(ref), held, as_text)
+                walk(definitions[ref], held, as_text)
             return
         if kind == "definitions":
-            definitions.update({one["ref"]: one for one in part["definitions"]})
+            definitions.update(under_definitions(part)[1])
         if (choices := part.get("metadata", {}).get(CHOICES)) is not None:
             _check_choices(part, choices, definitions)
         if kind in _DECLARES_FIELDS and isinstance(cls := part.get("cls"), type):
@@ -1081,15 +1064,8 @@ def _check_built(schema: CoreSchema) -> None:
                     or config.get("val_json_bytes") != "base64"
                 )
                 as_text = (cls.__name__, "") if reads_text else None
-        if kind == "dataclass-field":
-            held, as_text = _in_field(held, part["name"]), _in_field(as_text, part["name"])
-        for key, one in part.items():
-            if key == "fields" and isinstance(one, dict):
-                # a class's fields by name, and one may be named "type"
-                for name, field in one.items():
-                    walk(field, _in_field(held, name), _in_field(as_text, name))
-            elif key in _SCHEMA_KEYS or key.endswith("_schema"):
-                walk(one, held, as_text)
+        for one, field in schemas_in(part):
+            walk(one, _in_field(held, field), _in_field(as_text, field))
 
     walk(schema, None, None)
 
@@ -1139,11 +1115,7 @@ def _check_choices(
         definitions: The schemas pydantic declared beside the type, which ``checked`` may refer to.
     """
     on, read = choices
-    whole = (
-        core_schema.definitions_schema(checked, list(definitions.values()))
-        if definitions
-        else checked
-    )
+    whole = with_definitions(checked, definitions)
     serializer = SchemaSerializer(whole, config=JSON_CORE_CONFIG)
     declared_choices(
         read,
@@ -1161,12 +1133,15 @@ def _has_own_config(cls: Any) -> bool:
     )
 
 
-def _in_field(owner: tuple[str, str] | None, name: str) -> tuple[str, str] | None:
+def _in_field(owner: tuple[str, str] | None, name: str | None) -> tuple[str, str] | None:
     """Returns ``owner`` inside its field ``name``, when the walk has not yet reached one of its fields.
 
-    A field further down, of a class with no config of its own, keeps the owner's field, which is the one to fix.
+    ``owner`` is kept as it is for a ``name`` of ``None``, a schema that is no field. A field further down, of a
+    class with no config of its own, keeps the owner's field, which is the one to fix.
     """
-    return (owner[0], name) if owner is not None and not owner[1] else owner
+    if name is None or owner is None or owner[1]:
+        return owner
+    return owner[0], name
 
 
 def _check_is_type(hint: Any) -> None:

@@ -7,12 +7,20 @@ so this one imports nothing from conductor except ``utils``.
 - ``model.py``: ``ConductorModel``, the base class of every model a host saves or sends as JSON.
 - ``place.py``: how a node, an output or one call of a node is named, as a tuple and as text, and the id of
   a waiting call.
+- ``core_schema.py``: which parts of a pydantic core schema are the schemas inside it, and its ``definitions``.
 - ``json.py``: how any value is written as JSON, compared by its JSON, and checked as if it came in as JSON, and
   the one walk over a value and everything inside it.
 - ``hashing.py``: short hashes, of bytes and of a value's JSON text.
 - ``sentinels.py``: ``REQUIRED`` and ``SKIPPED``, two values that each mean a different kind of "no value".
 """
 
+from .core_schema import (
+    HOSTS_OWN_CLASSES,
+    schemas_in,
+    under_definitions,
+    with_definitions,
+    with_schemas_in,
+)
 from .hashing import json_hash, short_hash
 from .json import (
     JSON_CONFIG,
@@ -47,6 +55,7 @@ from .sentinels import REQUIRED, SKIPPED
 
 __all__ = [
     "FIELD_SEPARATOR",
+    "HOSTS_OWN_CLASSES",
     "JSON_CONFIG",
     "JSON_CORE_CONFIG",
     "REQUIRED",
@@ -72,7 +81,11 @@ __all__ = [
     "place_text",
     "write_waiting_id",
     "plain_json",
+    "schemas_in",
     "short_hash",
+    "under_definitions",
     "validate_as_json",
     "value_parts",
+    "with_definitions",
+    "with_schemas_in",
 ]

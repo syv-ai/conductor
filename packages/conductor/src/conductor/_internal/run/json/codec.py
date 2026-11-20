@@ -21,7 +21,14 @@ from pydantic import BaseModel, GetCoreSchemaHandler, NonNegativeInt, create_mod
 from pydantic import Field as PydanticField
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.base import json_typed_dict_schema, place_text
+from conductor._internal.base import (
+    HOSTS_OWN_CLASSES,
+    json_typed_dict_schema,
+    place_text,
+    schemas_in,
+    under_definitions,
+    with_definitions,
+)
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.types import Type, union_of
@@ -67,13 +74,10 @@ class _SavedValue:
                 functools.partial(value_type.serializer.to_python, mode="json")
             )
             # what pydantic defined beside the type stays beside it
-            if schema["type"] == "definitions":
-                schema = core_schema.definitions_schema(
-                    core_schema.chain_schema([schema["schema"]], serialization=as_json),
-                    schema["definitions"],
-                )
-            else:
-                schema = core_schema.chain_schema([schema], serialization=as_json)
+            inner, definitions = under_definitions(schema)
+            schema = with_definitions(
+                core_schema.chain_schema([inner], serialization=as_json), definitions
+            )
         self.schema = schema
 
     def __get_pydantic_core_schema__(
@@ -82,13 +86,20 @@ class _SavedValue:
         return self.schema
 
 
-def _holds_a_model(schema: Any) -> bool:
-    """Returns whether a core schema has a pydantic model or a dataclass anywhere inside it."""
-    if isinstance(schema, dict):
-        return schema.get("type") in ("model", "dataclass") or any(
-            map(_holds_a_model, schema.values())
-        )
-    return isinstance(schema, list) and any(map(_holds_a_model, schema))
+def _holds_a_model(schema: CoreSchema) -> bool:
+    """Returns whether a core schema has a pydantic model or a dataclass anywhere inside it.
+
+    A value is written by its ``serialization`` schema where it has one, so a model there counts too, as in a
+    ``PlainSerializer`` whose ``return_type`` is a model.
+    """
+    inner, definitions = under_definitions(schema)
+    parts = [inner, *definitions.values()]
+    return any(
+        part["type"] in HOSTS_OWN_CLASSES
+        or any(_holds_a_model(one) for one, _ in schemas_in(part))
+        or ("serialization" in part and _holds_a_model(part["serialization"]))
+        for part in parts
+    )
 
 
 class _ExactKeys:
