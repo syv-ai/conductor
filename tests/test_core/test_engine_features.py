@@ -1297,7 +1297,7 @@ class _PlainTint(Enum):
 
 
 @host_type("tint-model", title="Tint model")
-class _TintModel(BaseModel):
+class _TintModel(BaseModel, frozen=True):
     tint: Literal[_PlainTint.RED]
 
 

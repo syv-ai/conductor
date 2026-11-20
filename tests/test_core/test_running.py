@@ -1832,7 +1832,7 @@ def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run
     writes: list[Callable[[], None]] = []
 
     @host_type("Line", title="Line")
-    class Line(BaseModel):
+    class Line(BaseModel, frozen=True):
         text: str
 
         @model_serializer
@@ -2121,7 +2121,7 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
 
 def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_that_then_resumes():
     @host_type("Reading", title="Reading")
-    class Reading(BaseModel):
+    class Reading(BaseModel, frozen=True):
         value: float
         low: float
         high: float

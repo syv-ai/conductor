@@ -677,12 +677,13 @@ print([(f.name, f.type, f.required) for f in log.describe().outputs])</pre>
     <div>
       <pre data-lang="py">@host_type("celsius", title="Celsius")
 class Celsius(BaseModel):
+    model_config = ConfigDict(frozen=True)
     degrees: float
 
 
 @host_type("temperature", title="Temperature", accepts=[Celsius])
 class Temperature(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(frozen=True, from_attributes=True)
     degrees: float
 
 
@@ -734,7 +735,7 @@ unnamed Unnamed</pre>
     </div>
     <div>
       <p class="label">What <code>@host_type</code> checks</p>
-      <p class="muted">It checks its arguments when the class statement ends, and a class it can't take raises a <code>NodeDeclarationError</code>. What it checks, and which classes <code>registry.types</code> holds, is in the reference: <code>python -m conductor.about types</code>.</p>
+      <p class="muted">It checks its arguments when the class statement ends, and a class it can't take raises a <code>NodeDeclarationError</code>. A dataclass or a pydantic model is declared frozen, as the two above are, since a node never changes a value it is given: every node that reads a value gets the same object. What it checks, the rule, and which classes <code>registry.types</code> holds, is in the reference: <code>python -m conductor.about types</code>.</p>
     </div>
   </div>
 </section>
@@ -1166,7 +1167,19 @@ except NodeDeclarationError as error:
       <pre class="out">type_variable_only_in_return
 make (version 1).result: the type variable T is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs.</pre>
     </div>
-    <div class="fault-view" id="fault-view-13" hidden data-label="a dot in the id">
+    <div class="fault-view" id="fault-view-13" hidden data-label="a model that isn't frozen">
+      <pre data-lang="py">try:
+    @host_type("reading", title="Reading")
+    class Reading(BaseModel):
+        value: float
+except NodeDeclarationError as error:
+    print(error.problems[0].ctx["errors"][0]["type"])
+    print(error)</pre>
+      <p class="label">raised at import</p>
+      <pre class="out">type_not_frozen
+@host_type can't take its arguments: cls: Reading isn't frozen, so a node could change a value that every node reading it shares; declare it with @dataclass(frozen=True), or with model_config = ConfigDict(frozen=True) on a pydantic model, and make a changed value with dataclasses.replace or model_copy(update=...). Fix each argument as its fault says.</pre>
+    </div>
+    <div class="fault-view" id="fault-view-14" hidden data-label="a dot in the id">
       <pre data-lang="py">try:
     @node("a.b", title="Echo", description="Hands the text back.")
     def echo(text: str) -&gt; str: ...

@@ -42,12 +42,12 @@ class _Dog(BaseModel):
 
 
 @host_type("QuotedPet", title="Pet")
-class _Pet(BaseModel):
+class _Pet(BaseModel, frozen=True):
     pet: Annotated[_Cat | _Dog, Discriminator("kind")]
 
 
 @host_type("QuotedCode", title="Code")
-class _Code(BaseModel):
+class _Code(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -59,7 +59,7 @@ class _Code(BaseModel):
 
 
 @host_type("QuotedAsserted", title="Asserted")
-class _Asserted(BaseModel):
+class _Asserted(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -70,7 +70,7 @@ class _Asserted(BaseModel):
 
 
 @host_type("QuotedByContext", title="Quoted by context")
-class _QuotedByContext(BaseModel):
+class _QuotedByContext(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -82,7 +82,7 @@ class _QuotedByContext(BaseModel):
 
 
 @host_type("QuotedByText", title="Quoted by text")
-class _QuotedByText(BaseModel):
+class _QuotedByText(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -94,7 +94,7 @@ class _QuotedByText(BaseModel):
 
 
 @host_type("QuotedUnderPydanticsType", title="Quoted under pydantic's type")
-class _QuotedUnderPydanticsType(BaseModel):
+class _QuotedUnderPydanticsType(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -106,7 +106,7 @@ class _QuotedUnderPydanticsType(BaseModel):
 
 
 @host_type("QuotedUnderALimitsType", title="Quoted under a limit's type")
-class _QuotedUnderALimitsType(BaseModel):
+class _QuotedUnderALimitsType(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -118,7 +118,7 @@ class _QuotedUnderALimitsType(BaseModel):
 
 
 @host_type("QuotedAsAColumn", title="Quoted as a column")
-class _QuotedAsAColumn(BaseModel):
+class _QuotedAsAColumn(BaseModel, frozen=True):
     code: str
 
     @field_validator("code")
@@ -130,7 +130,7 @@ class _QuotedAsAColumn(BaseModel):
 
 
 @host_type("QuotedCounts", title="Counts")
-class _Counts(BaseModel):
+class _Counts(BaseModel, frozen=True):
     counts: dict[str, int]
 
 

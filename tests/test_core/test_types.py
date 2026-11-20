@@ -41,7 +41,7 @@ class Text(str):
 
 
 @host_type("money", title="Money")
-class Money(BaseModel):
+class Money(BaseModel, frozen=True):
     """A host's own record."""
 
     amount: float = 0
@@ -137,7 +137,7 @@ def test_a_model_output_cannot_be_wired_into_a_json_value_input() -> None:
 
 def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
     @host_type("offer", title="Offer")
-    class Offer(BaseModel):
+    class Offer(BaseModel, frozen=True):
         price: float = 0
 
         def accepts(self, counter: float) -> bool:
@@ -371,11 +371,11 @@ def test_a_field_of_a_bare_typed_dict_is_held_to_the_rules_a_column_of_a_table_r
     from pydantic import Field
 
     @host_type("tabby", title="Tabby")
-    class Tabby(BaseModel):
+    class Tabby(BaseModel, frozen=True):
         kind: Literal["tabby"]
 
     @host_type("siamese", title="Siamese")
-    class Siamese(BaseModel):
+    class Siamese(BaseModel, frozen=True):
         kind: Literal["siamese"]
 
     faults = {
@@ -451,11 +451,11 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
     from pydantic import Discriminator, Field
 
     @host_type("cat", title="Cat")
-    class Cat(BaseModel):
+    class Cat(BaseModel, frozen=True):
         kind: Literal["cat"] = "cat"
 
     @host_type("dog", title="Dog")
-    class Dog(BaseModel):
+    class Dog(BaseModel, frozen=True):
         kind: Literal["dog"] = "dog"
 
     with pytest.raises(
@@ -479,7 +479,7 @@ def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
     from pydantic import Field
 
     @host_type("stock", title="Stock")
-    class Stock(BaseModel):
+    class Stock(BaseModel, frozen=True):
         count: int = Field(ge=0)
         name: Annotated[str, Field(min_length=1)] = "a"
 
@@ -628,7 +628,7 @@ def test_a_record_with_a_date_is_no_json_value() -> None:
 
 def test_a_models_class_variables_are_not_its_fields() -> None:
     @host_type("address", title="Address")
-    class Address(BaseModel):
+    class Address(BaseModel, frozen=True):
         city: str = "Aarhus"
 
     @node("address", title="Address", description="For a test.")
@@ -668,11 +668,11 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
 
 def test_a_host_type_names_the_other_classes_it_takes() -> None:
     @host_type("celsius", title="Celsius")
-    class Celsius(BaseModel):
+    class Celsius(BaseModel, frozen=True):
         degrees: float
 
     @host_type("kelvin", title="Kelvin", accepts=[Celsius])
-    class Kelvin(BaseModel):
+    class Kelvin(BaseModel, frozen=True):
         degrees: float
 
         @model_validator(mode="before")

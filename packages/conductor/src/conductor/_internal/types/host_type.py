@@ -7,14 +7,17 @@ host names a class of its own with ``@host_type``::
 
     @host_type("money", title="Money")
     class Money(BaseModel):
+        model_config = ConfigDict(frozen=True)
         amount: float
 
 A field typed ``Money`` then has the id ``"money"`` in ``describe()``, and an editor shows "Money". The decorator
-checks the declaration right away and stores it on the class, where ``declaration_of`` finds it.
+checks the declaration right away and stores it on the class, where ``declaration_of`` finds it. A dataclass or a
+pydantic model is declared frozen, since a node never changes a value it is given.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import re
 from collections import deque
@@ -42,6 +45,7 @@ from pydantic import (
     AnyHttpUrl,
     AnyUrl,
     AnyWebsocketUrl,
+    BaseModel,
     ByteSize,
     ClickHouseDsn,
     CockroachDsn,
@@ -63,7 +67,7 @@ from pydantic import (
 )
 from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
-from pydantic_core import MultiHostUrl, Url, core_schema
+from pydantic_core import MultiHostUrl, PydanticCustomError, Url, core_schema
 
 from conductor._internal.problem import (
     NodeDeclarationError,
@@ -237,6 +241,10 @@ def host_type[C: type](
     stored on the class and would rename it for every registry. Declare a subclass of it instead, which is a type of
     your own.
 
+    A dataclass is declared with ``@dataclass(frozen=True)``, and a pydantic model with
+    ``model_config = ConfigDict(frozen=True)``, since a node never changes a value it is given. A node that needs a
+    changed value makes one with ``dataclasses.replace`` or ``model_copy(update=...)``.
+
     A subclass of ``str``, ``int`` or another class conductor names needs nothing more. A value is checked as the
     parent class, then made into the subclass. A subclass doesn't inherit its parent's declaration, so declare it
     too.
@@ -257,7 +265,8 @@ def host_type[C: type](
             fault in ``ctx.errors``, if the id isn't one word (``type_id_not_one_word``) or is one of conductor's own
             (``conductors_own_type_id``), the title is blank (``blank_text``), either isn't text, or ``accepts`` has something that isn't a
             class. Then, once the class is given, ``invalid_declaration_argument`` if it is one conductor names
-            itself, ``type_declaration_not_on_a_class`` if it isn't a class it can name,
+            itself (``conductors_own_type``) or a dataclass or pydantic model that isn't frozen (``type_not_frozen``),
+            ``type_declaration_not_on_a_class`` if it isn't a class it can name,
             ``type_declaration_not_writable`` if it can't take a new attribute, and ``host_type_not_supported`` if
             pydantic can't check its values.
     """
@@ -280,19 +289,12 @@ def host_type[C: type](
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_not_on_a_class(id=id, given=repr(cls))
             )
-        # a declaration is stored on the class, so on one of conductor's own it would rename it for every registry
-        if cls in NAMES or cls in READ_AS:
-            own = shape_error(
-                conductor_error(
-                    "conductors_own_type",
-                    "{cls} is one of conductor's own types; declare a subclass of it to give it an id of your own",
-                    {"cls": cls.__qualname__},
-                ),
-                ["cls"],
-            )
+        fault = _class_fault(cls)
+        if fault is not None:
+            refused = shape_error(fault, ["cls"])
             raise NodeDeclarationError(
                 declaration_problems.invalid_declaration_argument(
-                    declared_with="@host_type", reason=arguments_reason([own]), errors=[own]
+                    declared_with="@host_type", reason=arguments_reason([refused]), errors=[refused]
                 )
             )
         try:
@@ -318,6 +320,40 @@ def host_type[C: type](
         return cls
 
     return declare
+
+
+def _class_fault(cls: type) -> PydanticCustomError | None:
+    """Returns why ``@host_type`` can't be put on ``cls`` itself, or ``None`` if it can.
+
+    A class conductor names itself is ``conductors_own_type``. The declaration is stored on the class, so it would
+    rename the class for every registry.
+
+    A dataclass that isn't ``frozen=True``, or a pydantic model whose config isn't, is ``type_not_frozen``. Every
+    node that reads a value gets the same object, and so does the run that keeps it, so a node never changes a value
+    it is given. A frozen class refuses a new value for a field. It is shallow: a list in a field can still change.
+    """
+    if cls in NAMES or cls in READ_AS:
+        return conductor_error(
+            "conductors_own_type",
+            "{cls} is one of conductor's own types; declare a subclass of it to give it an id of your own",
+            {"cls": cls.__qualname__},
+        )
+    if dataclasses.is_dataclass(cls):
+        # every dataclass has it, and a subclass that isn't a dataclass inherits its parent's
+        frozen: bool = cls.__dataclass_params__.frozen  # type: ignore[attr-defined]
+    elif issubclass(cls, BaseModel):
+        frozen = cls.model_config.get("frozen") is True
+    else:
+        return None
+    if frozen:
+        return None
+    return conductor_error(
+        "type_not_frozen",
+        "{cls} isn't frozen, so a node could change a value that every node reading it shares; declare it with "
+        "@dataclass(frozen=True), or with model_config = ConfigDict(frozen=True) on a pydantic model, and make a "
+        "changed value with dataclasses.replace or model_copy(update=...)",
+        {"cls": cls.__qualname__},
+    )
 
 
 def declaration_of(cls: type) -> TypeDeclaration:

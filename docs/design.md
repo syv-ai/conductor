@@ -453,6 +453,12 @@ print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 
 **Worth questioning:** `@host_type` is a decorator, not a base class. A base class's hook runs before `@dataclass`
 has made the class, so it can't check a dataclass, and a library's class can't be given a base class at all.
 
+**Worth questioning:** `@host_type` refuses a dataclass or pydantic model that isn't frozen, since a node never
+changes a value it is given (`python -m conductor.about types`): every node that reads a value gets the same object.
+Frozen is shallow, though, so a list in a field of a frozen class can still change, and nothing guards a plain list,
+dict or frame. The refusal teaches the rule where a type can carry it; it doesn't enforce it. Conductor never freezes a
+class itself, since that would change the host's class for the whole process or hand a node a type it didn't declare.
+
 **Worth questioning:** `@host_type(..., accepts=[...])` takes a list of classes whose values may be wired into the
 type, so a rule that isn't a list can't be said. But a list is data an editor can show before anything runs.
 

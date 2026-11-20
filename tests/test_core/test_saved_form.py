@@ -46,7 +46,7 @@ class Length:
 
 
 @host_type("Reading", title="Reading")
-class Reading(BaseModel):
+class Reading(BaseModel, frozen=True):
     value: float
     note: Any = None
 
