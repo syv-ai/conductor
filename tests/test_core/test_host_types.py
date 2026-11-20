@@ -13,7 +13,7 @@ from http import HTTPStatus
 from ipaddress import IPv4Address
 from pathlib import Path
 from re import Pattern
-from typing import Any, Generic, TypedDict, TypeVar
+from typing import Any, Generic, Literal, TypedDict, TypeVar
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -795,6 +795,7 @@ def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs_and_k
     graph = Graph.compile(make_graph(rows), registry)
     run = graph.run({})
 
+    # the cell is a dict until a frame's model cells are read by the row's type
     assert run.outputs == {"result": [{"money": {"amount": 1.0}}]}
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
@@ -820,6 +821,42 @@ def test_a_node_whose_two_outputs_hold_the_same_model_returns_both() -> None:
         "paid": row,
         "owed": row,
     }
+
+
+class ColourRow(TypedDict):
+    colour: Colour
+
+
+class SizeRow(TypedDict):
+    size: Literal["s", "m"]
+
+
+@pytest.mark.parametrize(
+    ("row", "returned", "rows"),
+    [
+        (ColourRow, [{"colour": Colour.RED}], [{"colour": Colour.RED}]),
+        (SizeRow, [{"size": "s"}], [{"size": "s"}]),
+        (SizeRow, pl.DataFrame({"size": ["s"]}), [{"size": "s"}]),
+    ],
+    ids=["enum", "literal", "literal from a table"],
+)
+def test_a_series_of_rows_with_named_values_in_a_cell_is_declared_and_runs(
+    row: Any, returned: Any, rows: list[Any]
+) -> None:
+    """A row's cell may be an enum or a Literal. Both forms of a Series of rows are built in one build, so the cell's
+    schema is built once."""
+
+    @node("named", title="Named", description="For a test.")
+    def named() -> Series[row]:  # type: ignore[valid-type]
+        return returned  # type: ignore[no-any-return]
+
+    registry = NodeRegistry()
+    registry.add(named)
+    graph = Graph.compile(make_graph(named), registry)
+    run = graph.run({})
+
+    assert run.outputs == {"result": rows}
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
 @host_type("label", title="Label")
