@@ -34,8 +34,9 @@ log = logging.getLogger("conductor_providers.fastapi")
 #: The owner and lease of a row whose run isn't running.
 _UNHELD: RunChanges = {"owner": None, "lease_until": None}
 
-#: The owner and lease of a row handed back: its lease has already run out, so the next sweep of any worker takes it.
-_HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
+#: The owner and lease of a row whose run is to go on and that no worker holds: handed back, or just begun. Its lease
+#: has already run out, so the next sweep of any worker takes it, and ``Worker.resume`` takes it at once.
+HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
 
 
 @dataclass(frozen=True)
@@ -259,7 +260,7 @@ class HeldRun:
             if goes_on:
                 holder = settings.holder()
             elif state.is_running:
-                holder = _HANDED_BACK
+                holder = HANDED_BACK
             else:
                 holder = _UNHELD
             written = await self._store.update(

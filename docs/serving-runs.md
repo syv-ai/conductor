@@ -225,7 +225,7 @@ Every route under `/runs` but the events route answers with the run as it is aft
 | `GET /runs/{id}/events` | The run's events, as server-sent events, from whichever worker runs it. |
 | `POST /runs/{id}/answers` | Answers what waits, as `{waiting_id: value}`, and goes on with the run. |
 | `POST /runs/{id}/declines` | Declines one question, as `{"waiting_id": ..., "reason": ...}`. The run ends `declined` with `answer_declined`, for good: a later answer, decline or resume is refused. |
-| `POST /runs/{id}/resume` | Goes on with a run that ended early. `{"max_items": n}` raises its item limit. |
+| `POST /runs/{id}/resume` | Goes on with a run that ended early, or starts one that was stored and not started yet. A run already running is left as it is. `{"max_items": n}` raises the item limit of a run that ended early. |
 | `POST /runs/{id}/again` | A new run of the same graph with some inputs changed. What didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Asks the run to stop before its next node call. A run that answers `running` here ends `cancelled`, unless it ends early first (`failed`, say). Sent to another worker, a cancel is heard at the holding worker's next checkpoint or lease renewal, so calls may still be made until then. A run that completes before then still ends `cancelled`, with every call's outcome kept, and a resume completes it with no call. |
 
@@ -334,13 +334,16 @@ async def start_saved_graph(
     if name not in saved_graphs:
         raise HTTPException(404, "There is no saved graph by that name.")
     try:
-        return await worker.begin(saved_graphs[name], inputs, metadata, allows=allows)
+        begun = await worker.begin(saved_graphs[name], inputs, metadata, allows=allows)
+        return await worker.resume(begun.id, allows=allows)
     except InvalidCallError as refused:
         raise HTTPException(422, [problem.model_dump(mode="json") for problem in refused.problems]) from None
 
 
 app.include_router(own_routes)
 ```
+
+Starting a run takes two calls. `worker.begin` only stores the run, and `worker.resume` starts it. `POST /runs` makes both. The split is there for a route that stores the run inside a database transaction of its own, with other rows of yours: call `begin` inside the transaction and `resume` after it commits. If the transaction is rolled back and tried again, the first try leaves nothing behind and starts nothing. A run you store and never resume still starts: the next sweep of any serving worker picks it up, within a third of the `lease` (10 seconds by default). `worker.again` stores a run the same way, for `resume` to start.
 
 The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. An `InvalidCallError` is also pydantic's `ValidationError`, so a route that catches pydantic's errors too catches `InvalidCallError` first. The run this route starts is read, answered and followed through the router's routes.
 
@@ -352,4 +355,4 @@ async def print_events(run_id: str) -> None:
         print(number, body)
 ```
 
-Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to start a run, since nothing of its own would ever pick the run up. In a test, that means FastAPI's `TestClient` goes in a `with` block: `with TestClient(app) as client:` starts the app, and a `TestClient` without `with` never does.
+Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to resume a run, since nothing of its own would ever pick the run up. In a test, that means FastAPI's `TestClient` goes in a `with` block: `with TestClient(app) as client:` starts the app, and a `TestClient` without `with` never does.

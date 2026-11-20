@@ -187,10 +187,14 @@ async def _updates_are_compared_and_set(store: RunStore) -> list[str]:
 
 
 async def _expired_gives_the_runs_whose_lease_ran_out(store: RunStore) -> list[str]:
-    """Of four runs, ``expired`` gives the one whose lease ran out and the one handed back (``0.0``). It gives neither
-    the one whose lease holds nor the one that isn't running. Runs that aren't the check's own are ignored."""
+    """Of four runs, ``expired`` gives the one whose lease ran out and the one no worker holds, created as ``begin``
+    creates it (``0.0``). It gives neither the one whose lease holds nor the one that isn't running. Runs that aren't
+    the check's own are ignored."""
     now = time.time()
-    due = {lease: _new_run(owner="worker-a", lease_until=lease) for lease in (now - 60, 0.0)}
+    due = {
+        now - 60: _new_run(owner="worker-a", lease_until=now - 60),
+        0.0: _new_run(owner=None, lease_until=0.0),
+    }
     held_until = now + 60
     held, not_running = (
         _new_run(owner="worker-a", lease_until=held_until),

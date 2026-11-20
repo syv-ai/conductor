@@ -629,10 +629,9 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
         for answer in (True, False):  # the second is queued too, and refused once the run stops
             queued = await client.post(f"/runs/{run_id}/answers", json={waiting_id: answer})
             assert _status(queued) == (202, "running")
-        assert refusal(await client.post(f"/runs/{run_id}/resume")) == (
-            409,
-            [("run_not_resumable", {"status": "running"})],
-        )
+        assert _status(await client.post(f"/runs/{run_id}/resume")) == (202, "running")
+        raised = await client.post(f"/runs/{run_id}/resume", json={"max_items": 5})
+        assert refusal(raised) == (409, [("run_not_resumable", {"status": "running"})])
         gate.set()
         assert (await store.ended(run_id)).status == "complete"
         late = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
