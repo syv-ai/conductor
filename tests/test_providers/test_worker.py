@@ -1491,6 +1491,45 @@ async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_ends_the_ru
     assert await _resume_calls(store, run_id) == 1
 
 
+async def test_a_decline_to_a_running_run_needs_no_graph_while_an_answer_is_read_by_the_rows_graph() -> (
+    None
+):
+    """An answer is read by the node its waiting id names, so a row whose graph no longer compiles on its nodes refuses
+    it. A decline reads only its reason, so it is queued whatever the graph."""
+    registry, gate, started = NodeRegistry(), ThreadEvent(), ThreadEvent()
+
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(amount: int) -> bool:
+        raise Ask("Approve?")
+
+    @registry.node("busy", title="Busy", description="For a test.")
+    def busy(text: str) -> str:
+        started.set()
+        gate.wait(5)
+        return text
+
+    graph = make_graph(
+        approve, busy, edges=[], outputs={"ok": "approve.result", "text": "busy.result"}
+    )
+    nodes = {"now": registry}
+    store = MemoryStore()
+    worker: Worker[Any, Any] = Worker(store, nodes_for=lambda metadata: nodes["now"])
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"amount": 5, "text": "x"})
+        await asyncio.to_thread(started.wait, 5)
+        nodes["now"] = NodeRegistry()
+
+        with pytest.raises(InvalidCallError) as refused:
+            await worker.answer(run_id, {"approve": True}, allows=EVERY_RUN)
+        declined = await worker.decline(run_id, "approve", allows=EVERY_RUN)
+        nodes["now"] = registry
+        gate.set()
+        ended = await store.ended(run_id)
+
+    assert {problem.type for problem in refused.value.problems} == {"unknown_node"}
+    assert (declined.status, ended.status) == ("running", "declined")
+
+
 @pytest.mark.parametrize("cancel", [False, True], ids=["alone", "with-a-cancel"])
 async def test_a_decline_sent_while_another_call_runs_ends_the_runs_events_declined(
     cancel: bool,

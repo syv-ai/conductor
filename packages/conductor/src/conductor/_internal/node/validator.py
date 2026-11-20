@@ -93,11 +93,11 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             quotes the value.
     """
 
-    def __init__(self, returns: ReturnShape, outputs: Mapping[str, Field]) -> None:
+    def __init__(self, return_shape: ReturnShape, outputs: Mapping[str, Field]) -> None:
         """Builds the validator for one node.
 
         Args:
-            returns: How the node's function returns its outputs, as ``@node`` read it from its return type.
+            return_shape: How the node's function returns its outputs, as ``@node`` read it from its return type.
             outputs: The node's outputs, by name.
         """
         self._outputs = outputs
@@ -108,7 +108,9 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             )
             for name, field in outputs.items()
         }
-        self._validate = SchemaValidator(outputs_schema(outputs, fields, returns)).validate_python
+        self._validate = SchemaValidator(
+            outputs_schema(outputs, fields, return_shape)
+        ).validate_python
 
     def __call__(self, returned: Any) -> dict[str, Any]:
         """Checks what the function returned, and returns the node's outputs by name.

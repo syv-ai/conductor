@@ -137,7 +137,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 def json_fallback(value: Any) -> Any:
     """Writes an object pydantic can't write by itself as JSON, where no type says what the value is.
 
-    That happens for a person's answer a host queues for later (``Run.queued_as_json``), and for the inputs a waiting
+    That happens for a person's answer a host queues for later (``graph.answers_as_json``), and for the inputs a waiting
     call shows. A frame is written as a table, its columns first converted the way a run stores them (``as_saved``).
     Any other object is written by its own class's schema (``json_by_its_class``). Pydantic's ``to_json`` calls it as
     its ``fallback``.

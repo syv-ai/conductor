@@ -215,7 +215,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
         For ``shout`` returning ``"B!"``, it gives ``{"result": "B!"}``. Built on the node's first call.
         """
-        return ReturnValidator(self.definition.returns, self.outputs)
+        return ReturnValidator(self.definition.return_shape, self.outputs)
 
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:

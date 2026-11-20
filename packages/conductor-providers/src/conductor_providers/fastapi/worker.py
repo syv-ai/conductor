@@ -286,6 +286,9 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or an answer is refused, and nothing is written.
+                An answer is read by the row's graph, running or not, so ``SKIPPED`` on an output that isn't a branch
+                is refused (``invalid_answer``, ``skipped_not_a_branch``), and so is every answer when the row's graph
+                no longer compiles on its metadata's nodes, with the problems it has.
             RuntimeError: The answers would resume the run, and the worker has never served.
             StoreFailedError: A method of the host's store raised.
         """
@@ -324,17 +327,16 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), ``reason`` can't be written as JSON
                 (``invalid_decline_reason``), a run that isn't running refuses the decline (``not_waiting``,
-                ``answer_stale``), or it can't be loaded on its metadata's nodes. Nothing is written then.
+                ``answer_stale``), or it can't be loaded on its metadata's nodes. Nothing is written then. A decline
+                to a running run is queued without its graph, so it is refused only for its reason.
             StoreFailedError: A method of the host's store raised.
         """
 
         async def declined(row: RunRow[M]) -> RunRow[M] | None:
             state = row.state
             if state.is_running:
-                graph = await self._settings.graph(row, row.metadata)
-                return await self._store.update(
-                    row, state=state.with_queued(graph, declines={waiting_id: reason})
-                )
+                reasons = Run.declines_as_json({waiting_id: reason})
+                return await self._store.update(row, state=state.with_queued(declines=reasons))
             run = await self._settings.load(row, row.metadata)
 
             def ended() -> tuple[RunState, str | None, RunOutcome]:
@@ -698,13 +700,14 @@ class Worker(Generic[M, X]):
             The row as written; ``None`` when another call wrote it first.
 
         Raises:
-            InvalidCallError: The run refuses an answer of this call, with every problem it gave them. Or the run
-                can't be loaded on its metadata's nodes.
+            InvalidCallError: The run refuses an answer of this call, with every problem it gave them, such as
+                ``skipped_not_a_branch``. Or the row's graph no longer compiles on its metadata's nodes, running or
+                not, since an answer is read by it, or the run can't be loaded on them.
             RuntimeError: The run would be resumed, and the worker has never served.
         """
         state = row.state
         graph = await self._settings.graph(row, row.metadata) if answers else None
-        queued = state if graph is None else state.with_queued(graph, answers)
+        queued = state if graph is None else state.with_queued(graph.answers_as_json(answers))
         if state.is_running:
             return await self._store.update(row, state=queued)
         changed = None

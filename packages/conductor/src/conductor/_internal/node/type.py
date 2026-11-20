@@ -187,7 +187,7 @@ class FunctionDefinition[**P, R](_Version):
             ``context``. An input a hook adds isn't here either. It exists only on the node in a compiled graph.
         outputs: Each output by name: ``result`` for one value, or one per field of a returned dataclass
             with no ``@host_type``.
-        returns: How the function returns its outputs: the dataclass of outputs it declares, ``"mapping"`` when
+        return_shape: How the function returns its outputs: the dataclass of outputs it declares, ``"mapping"`` when
             its ``compute_outputs`` hook gives them, ``"nothing"`` for ``-> None``, and ``"value"`` for one value,
             the output ``result`` (a dataclass declared with ``@host_type`` is one value).
         policy: How the engine calls the node: how many calls at once, retries, a time limit, and whether it
@@ -216,7 +216,7 @@ class FunctionDefinition[**P, R](_Version):
     function: NodeFunction[P, R]
     inputs: Mapping[str, Field]
     outputs: Mapping[str, Field]
-    returns: ReturnShape
+    return_shape: ReturnShape
     code_text: str
     policy: Policy = Policy()
     compute_added_inputs: Hook | None = None

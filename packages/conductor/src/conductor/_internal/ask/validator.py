@@ -24,21 +24,19 @@ rules as a value the node returns, since the answer stands in for that value.
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any, cast
 
 from pydantic import MISSING, JsonValue, ValidationError
 from pydantic_core import (
     CoreSchema,
-    InitErrorDetails,
-    PydanticCustomError,
     SchemaValidator,
     core_schema,
 )
 from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, Validator, validate_as_json
-from conductor._internal.field import Field, answer_by_output, outputs_schema, read_skipped
+from conductor._internal.field import Field, answer_by_output, outputs_schema, without_skipped
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
@@ -96,19 +94,13 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
     def _choices(self) -> SchemaValidator:
         """Checks an ``Ask``'s choices, by output name. Built when the node first asks.
 
-        A node of one output is given its list alone, a node of several a mapping by output name. A dataclass of
-        the outputs is no mapping of choices, so it is refused as a whole. On a ``Series`` output the choices are
-        for its items, so each id is read as one item.
+        They have the answer's shape (``answer_by_output``): a node of one output is given its list alone, a node
+        of several a mapping by output name, or a dataclass or a model of the outputs. On a ``Series`` output the
+        choices are for its items, so each id is read as one item.
         """
-        outputs = self._outputs
-        by_output: Callable[[Any], Any] = (
-            (lambda choices: {next(iter(outputs)): choices})
-            if len(outputs) == 1
-            else (lambda choices: choices)
-        )
         return SchemaValidator(
             core_schema.no_info_before_validator_function(
-                by_output,
+                functools.partial(answer_by_output, self._outputs),
                 core_schema.typed_dict_schema(
                     {
                         name: core_schema.typed_dict_field(
@@ -430,9 +422,9 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
     """A validator that turns a person's answer into the JSON data it is read from.
 
     An answer is read from its JSON form. A host that keeps an answer to give a run later keeps what this returns
-    (``Run.queued_as_json``): a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
+    (``graph.answers_as_json``): a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
     fields, and a ``polars.DataFrame`` its columns (``json_fallback``), since the question isn't known here to read
-    the frame as it is. ``SKIPPED`` on an output is read by the rule a run reads it by (``read_skipped``): a branch
+    the frame as it is. ``SKIPPED`` on an output is read by the rule a run reads it by (``without_skipped``): a branch
     not chosen is left out, and on an output that isn't a branch it is refused. So a kept answer reads as the answer
     itself, but for a frame with a column a saved run can't keep, which is refused here even where the question's
     table doesn't name it. ``inf`` stays a float, so the answer is refused where the run reads it
@@ -490,28 +482,16 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
         given = answer_by_output(outputs, answer)
         if not isinstance(given, Mapping):
             return answer
-        faults: list[InitErrorDetails] = []
-        for name, value in given.items():
-            if value is SKIPPED and name in outputs:
-                try:
-                    read_skipped(outputs[name])
-                except PydanticCustomError as fault:
-                    faults.append({"type": fault, "loc": (name,), "input": value})
-        if faults:
+        kept, refused = without_skipped(outputs, given)
+        if refused:
             raise _refused_answer(
-                ValidationError.from_exception_data("answer", faults),
+                ValidationError.from_exception_data("answer", refused),
                 outputs,
                 self._loc,
                 self._waiting_id,
             )
         # a node of one output is answered with its value, and a node of none with None
-        if len(outputs) < 2:
-            return answer
-        return {
-            name: value
-            for name, value in given.items()
-            if value is not SKIPPED or name not in outputs
-        }
+        return answer if len(outputs) < 2 else kept
 
 
 #: The type of a decline's reason: a ``str``, or ``None``.

@@ -7,16 +7,17 @@ are both read into ``{"long": "hi", "short": SKIPPED, "note": "n"}``.
 
 ``outputs_schema`` holds what is the same for all three. The whole value is split into a value per output name, as
 the node returns its outputs or as a person answers them. Every name must be an output. Every output that must be
-given is there. ``SKIPPED`` is taken only on a branch, an output whose default is ``SKIPPED`` (``read_skipped``).
-Each output not given is ``SKIPPED``. And at most one branch has a value. The reference has the rule for branches,
-under "Branches" (``python -m conductor.about the-node-contract``). How each output's value is read belongs to the
-caller: a return is checked by ``ReturnValidator``, and an answer and an ``Ask``'s default by the validators of
+given is there. ``SKIPPED`` on a branch, an output whose default is ``SKIPPED``, is a branch not chosen, as if it
+were left out, and on any other output it is refused (``without_skipped``). Each output not given is ``SKIPPED``.
+And at most one branch has a value. The reference has the rule for branches, under "Branches" (``python -m
+conductor.about the-node-contract``). How each output's value is read belongs to the caller: a return is checked by ``ReturnValidator``, and an answer and an ``Ask``'s default by the validators of
 ``ask/``.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import functools
 from collections.abc import Container, Mapping
 from typing import Any, Literal
 
@@ -67,28 +68,39 @@ def outputs_schema(
         output's name; a fault of the whole value has the ``loc`` ``()``.
     """
 
-    def split(given: Any) -> Any:
-        if given_as == "answer":
-            return answer_by_output(outputs, given)
-        return _returned_by_output(given_as, outputs, given)
+    split = (
+        functools.partial(answer_by_output, outputs)
+        if given_as == "answer"
+        else functools.partial(_returned_by_output, given_as, outputs)
+    )
 
     def all_at_once(given: Any, read_by_name: ValidatorFunctionWrapHandler) -> dict[str, Any]:
         errors: list[InitErrorDetails] = []
+        refused: list[InitErrorDetails] = []
         read: dict[str, Any] = {}
         branches: list[str] = []
+        by_name = isinstance(given, Mapping)
+        if by_name:
+            given, refused = without_skipped(outputs, given)
         try:
             read = read_by_name(given)
         except ValidationError as error:
-            errors = [_raised_again(fault) for fault in error.errors()]
-        if isinstance(given, Mapping):
+            # an output refused for SKIPPED isn't also missing
+            skipped = {fault["loc"] for fault in refused}
+            errors = [
+                _raised_again(fault)
+                for fault in error.errors()
+                if not (fault["type"] == "missing" and fault["loc"] in skipped)
+            ]
+        if by_name:
             try:
-                branches = _check_branches(
-                    outputs, [name for name, value in given.items() if value is not SKIPPED]
-                )
+                branches = _check_branches(outputs, given)
             except PydanticCustomError as fault:
                 errors.append({"type": fault, "loc": (), "input": given})
-        if errors:
-            raise ValidationError.from_exception_data("outputs", errors)
+        if refused or errors:
+            raise ValidationError.from_exception_data(
+                "outputs", _in_order(outputs, [*refused, *errors])
+            )
         filled: dict[str, Any] = {}
         for name, field in outputs.items():
             if field.is_branch and branches and name not in branches:
@@ -101,36 +113,46 @@ def outputs_schema(
         split,
         core_schema.no_info_wrap_validator_function(
             all_at_once,
-            core_schema.typed_dict_schema(
-                {
-                    name: {**field, "schema": _taking_skipped(outputs[name], field["schema"])}
-                    for name, field in fields.items()
-                },
-                extra_behavior="forbid",
-            ),
+            core_schema.typed_dict_schema(dict(fields), extra_behavior="forbid"),
         ),
     )
 
 
-def read_skipped(output: Field) -> Any:
-    """Reads ``SKIPPED`` given as the value of one output: a branch not taken.
+def without_skipped(
+    outputs: Mapping[str, Field], given: Mapping[Any, Any]
+) -> tuple[Mapping[Any, Any], list[InitErrorDetails]]:
+    """Reads ``SKIPPED`` in a value given for each output: the one rule for a return, an answer, an ``Ask``'s default,
+    and an answer a host queues for later.
 
-    It is the one rule for ``SKIPPED`` in a return, an answer and an ``Ask``'s default, and in an answer a host
-    queues for later. Only a branch, an output whose default is ``SKIPPED``, may be ``SKIPPED``.
+    ``SKIPPED`` on a branch, an output whose default is ``SKIPPED``, is a branch not chosen, so it is left out, as if
+    it weren't given. On any other output it is refused. A name that isn't an output is kept, for the caller to
+    refuse.
+
+    Args:
+        outputs: The node's outputs, by name.
+        given: The value given for each output, by name.
 
     Returns:
-        ``SKIPPED``.
-
-    Raises:
-        PydanticCustomError: ``skipped_not_a_branch``, with ``ctx.name`` the output, when it isn't a branch.
+        The values given without ``SKIPPED``, and a ``skipped_not_a_branch`` fault at ``(name,)`` for each output
+        that isn't a branch and is ``SKIPPED``, with ``ctx.name`` the output.
     """
-    if not output.is_branch:
-        raise conductor_error(
-            "skipped_not_a_branch",
-            "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
-            {"name": output.name},
-        )
-    return SKIPPED
+    # every value a node returns is given here, so a value with no SKIPPED in it is kept as it is
+    if not [name for name, value in given.items() if value is SKIPPED]:
+        return given, []
+    kept: dict[Any, Any] = {}
+    refused: list[InitErrorDetails] = []
+    for name, value in given.items():
+        output = outputs.get(name) if isinstance(name, str) else None
+        if value is not SKIPPED or output is None:
+            kept[name] = value
+        elif not output.is_branch:
+            fault = conductor_error(
+                "skipped_not_a_branch",
+                "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
+                {"name": name},
+            )
+            refused.append({"type": fault, "loc": (name,), "input": value})
+    return kept, refused
 
 
 def answer_by_output(outputs: Mapping[str, Field], answer: Any) -> Any:
@@ -192,16 +214,20 @@ def _returned_by_output(shape: ReturnShape, outputs: Mapping[str, Field], return
             return {name: getattr(returned, name) for name in outputs}
 
 
-def _taking_skipped(output: Field, schema: CoreSchema) -> CoreSchema:
-    """Wraps the schema of one output's value, so that ``SKIPPED`` is read by ``read_skipped`` and not by the type.
+def _in_order(
+    outputs: Mapping[str, Field], errors: list[InitErrorDetails]
+) -> list[InitErrorDetails]:
+    """Puts the faults in the order of the outputs they are at, then those at a name that isn't an output, then those
+    of the whole value, keeping the order of the faults at one place."""
+    order = {name: index for index, name in enumerate(outputs)}
 
-    A default stays outside, where pydantic looks for it.
-    """
-    if schema["type"] == "default":
-        return {**schema, "schema": _taking_skipped(output, schema["schema"])}
-    return core_schema.no_info_wrap_validator_function(
-        lambda value, read: read_skipped(output) if value is SKIPPED else read(value), schema
-    )
+    def place(error: InitErrorDetails) -> int:
+        loc = error["loc"]
+        if not loc:
+            return len(order) + 1
+        return order.get(str(loc[0]), len(order))
+
+    return sorted(errors, key=place)
 
 
 def _check_branches(outputs: Mapping[str, Field], given: Container[str]) -> list[str]:
@@ -212,7 +238,7 @@ def _check_branches(outputs: Mapping[str, Field], given: Container[str]) -> list
 
     Args:
         outputs: The node's outputs, by name.
-        given: The names of the outputs that got a value on the call: each one named whose value isn't ``SKIPPED``.
+        given: The names of the outputs that got a value on the call.
 
     Returns:
         The branch given a value, in a list, or an empty list when none is.

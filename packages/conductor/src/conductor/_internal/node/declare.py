@@ -154,7 +154,9 @@ def node(
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError(declaration_problems.async_run())
-            inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
+            inputs, context, outputs, return_shape = _read_signature(
+                target, compute_outputs is not None
+            )
             code_text, raises_ask = read_code(target)
             if not asks and raises_ask:
                 raise NodeDeclarationError(declaration_problems.ask_not_declared_in_source())
@@ -204,7 +206,7 @@ def node(
                 function=target,
                 inputs=inputs,
                 outputs=outputs,
-                returns=returns,
+                return_shape=return_shape,
                 code_text=code_text,
                 context=context,
                 id=id,
