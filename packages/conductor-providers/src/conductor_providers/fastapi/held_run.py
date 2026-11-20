@@ -97,12 +97,11 @@ class HeldRun:
         # set to end the resume call before its next node call: a cancel was asked, another worker took the run, or
         # the store failed. The same event goes to the host's ``context``, so a node can stop a slow call too.
         self._stop = Event()
-        if row.state.cancel_asked:
-            self._stop.set()
         # held for each write to the row, so this worker's writes land one at a time
         self._lock = Lock()
-        # whether the run was let go or taken by another worker; nothing more is written then
-        self._released = False
+        # sets whether the run was let go or taken by another worker (nothing more
+        # is written then), and the stop event when a cancel was asked
+        self._take_in(row)
 
     async def run(self) -> None:
         """Make one resume call after another, renewing the lease, until the run is let go or taken.
