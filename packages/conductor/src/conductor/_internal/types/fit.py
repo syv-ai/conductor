@@ -5,10 +5,14 @@ type? An ``int`` output may go to a ``float`` input, but a ``str`` output may no
 Pydantic checks values, not pairs of types, so this check is written here.
 
 A type with a limit, choices or another check, at any depth, follows one rule. A value of the right class may go
-to it, and each value is checked on its call. A ``Literal`` source names its values, so one more rule holds for it,
-whatever the target: it lands when the target's own check takes one of its values and their classes fit the
-target. So ``Literal["x"]`` doesn't land on ``Literal["ida", "bo"]``, and ``Literal[1]`` doesn't land on
-``Literal[True]``, though pydantic takes ``1`` as ``True``.
+to it, and each value is checked on its call.
+
+One more rule holds where a side names its values: a ``Literal`` source, or a target with choices. The edge lands
+only on a value both sides take. A ``Literal`` source lands when the target's own check takes one of its values and
+their classes fit the target. So ``Literal["x"]`` doesn't land on ``Literal["ida", "bo"]``, and ``Literal[1]``
+doesn't land on ``Literal[True]``, though pydantic takes ``1`` as ``True``. Any other source lands on a target with
+choices when its own check takes one of them. So ``int`` doesn't land on ``int | Annotated[str,
+Param(choices=["a"])]``, whose one value is text, but does on ``Annotated[float, Param(choices=[1, 2.5])]``.
 """
 
 from __future__ import annotations
@@ -117,7 +121,14 @@ def _fit(
             return False
         return not exact or all(checks.takes_value(value, as_it_is=True) for value in values)
     if checked:
-        # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call
+        # A limit, a choice or a validator may refuse a value of the right class, so it is checked on each call. A
+        # target's choices name its values, so a source lands only when its own check takes one of them.
+        from .type import Type  # Type is built on fit, so it is imported here
+
+        if param.choices is not None and not any(
+            Type(source).takes_value(choice.id) for choice in Type(target).choices or ()
+        ):
+            return False
         return not exact and _fit(bare, source, bound, False)
     target = bare
     if target == source:

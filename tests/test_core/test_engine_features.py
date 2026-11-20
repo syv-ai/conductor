@@ -1243,6 +1243,53 @@ def test_a_literal_source_whose_values_classes_dont_fit_is_a_type_mismatch(sourc
     assert problem.type == "type_mismatch"
 
 
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (int, 1, int | Annotated[str, Param(choices=["a"])]),
+        (int, 2, Annotated[float, Param(choices=[2.5])]),
+        (list[int], [1], list[int | Annotated[str, Param(choices=["a"])]]),
+    ],
+)
+def test_a_source_that_can_give_none_of_the_inputs_choices_is_a_type_mismatch(
+    source, value, target
+):
+    """An input's choices name its values, as a ``Literal`` source names its own, so an edge lands only on a value
+    both sides take. An ``int`` can't be ``"a"`` or ``2.5``, so every call would fail: compiling says so first."""
+    (problem,) = _wired(source, value, target).problems
+
+    assert problem.type == "type_mismatch"
+
+
+@host_type("crate-size", title="Crate size")
+class _CrateSize(BaseModel, frozen=True):
+    litres: int
+
+
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (str, "a", Annotated[str, Param(choices=["a", "b"])]),
+        (float, 2.5, Annotated[float, Param(choices=[1, 2.5])]),
+        (int, 1, Annotated[float, Param(choices=[1, 2.5])]),
+        (int | str, "a", int | Annotated[str, Param(choices=["a"])]),
+        (Any, "a", Annotated[str, Param(choices=["a"])]),
+        (
+            _CrateSize,
+            _CrateSize(litres=5),
+            Annotated[_CrateSize, Param(choices=[_CrateSize(litres=5)])],
+        ),
+    ],
+)
+def test_a_source_that_can_give_one_of_the_inputs_choices_compiles_and_runs(source, value, target):
+    """A source lands on an input with choices when its own check takes one of them, so a float may be the choice
+    ``2.5``, an ``int`` the float choice ``1.0``, and a host's model one of its own."""
+    graph = _wired(source, value, target)
+
+    assert graph.problems == []
+    assert graph.run({"text": "x"}).status == "complete"
+
+
 type _Team = Literal["ida", "bo"]
 
 

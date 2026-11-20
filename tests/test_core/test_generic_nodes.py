@@ -323,8 +323,13 @@ def just_b() -> Literal["b"]:
 
 @pytest.mark.parametrize(
     ("given", "problems", "bound"),
-    [(just_a, [], "Any"), (text, [], "Any"), (just_b, ["type_mismatch"], None)],
-    ids=["choice", "text", "not-a-choice"],
+    [
+        (just_a, [], "Any"),
+        (text, [], "Any"),
+        (just_b, ["type_mismatch"], None),
+        (number, ["type_mismatch"], None),
+    ],
+    ids=["choice", "text", "not-a-choice", "no-choice-of-its-class"],
 )
 def test_choices_on_a_member_of_a_union_are_the_fields_so_text_goes_to_that_member(
     given: Any, problems: list[str], bound: str | None

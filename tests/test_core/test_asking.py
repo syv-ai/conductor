@@ -1057,6 +1057,45 @@ def _lines_graph() -> Any:
     )
 
 
+@pytest.mark.parametrize(
+    "given",
+    [
+        [[{"sku": "A", "qty": 1}], [{"sku": "B", "qty": 2}]],
+        [pl.DataFrame({"sku": ["A"], "qty": [1]}), pl.DataFrame({"sku": ["B"], "qty": [2]})],
+    ],
+    ids=["rows", "frames"],
+)
+def test_an_asks_choices_on_a_table_are_whole_tables_shown_and_picked(given: list[Any]):
+    """An ``Ask`` on a ``Table`` output offers whole tables, given as lists of rows or as frames.
+
+    Each choice is shown by its table's JSON form. A person picks one by giving that table, and a table that is no
+    choice is refused.
+    """
+
+    @node("pick-lines", title="Pick lines", description="For a test.", asks=True)
+    def pick_lines(order: str) -> Table[Line]:
+        raise Ask(f"Which lines for {order}?", choices=given)
+
+    graph = Graph.compile(
+        make_graph(pick_lines, constants={"pick-lines.order": "O-1"}), registry_of(pick_lines)
+    )
+    run = graph.run()
+    (waiting,) = run.waiting
+    (question,) = waiting.questions
+    b = {
+        "columns": [
+            {"name": "sku", "type": "str", "values": ["B"]},
+            {"name": "qty", "type": "int", "values": [2]},
+        ]
+    }
+    assert question.choices is not None and question.choices[1].id == b
+    assert question.json_schema["enum"][1] == b
+    done = run.with_answers(waiting, [{"sku": "B", "qty": 2}]).resume()
+    assert done.outputs["result"].to_dicts() == [{"sku": "B", "qty": 2}]
+    refused = _refused(lambda: run.with_answers(waiting, [{"sku": "C", "qty": 3}]))
+    assert [problem.type for problem in refused] == ["invalid_answer"]
+
+
 def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json():
     graph = _lines_graph()
     run = graph.run()

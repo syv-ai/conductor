@@ -61,7 +61,6 @@ from conductor._internal.base import (
     HOSTS_OWN_CLASSES,
     JSON_CONFIG,
     JSON_CORE_CONFIG,
-    canonical_json,
     looked_up,
     plain_json,
     schemas_in,
@@ -288,7 +287,8 @@ class Type:
         This is the very check a value an edge gives gets on its call, laxly, so a question asked at compile of a
         type's values is answered by the run's own rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is
         taken by ``Annotated[float, Param(choices=[1.0])]``, ``None`` by any type that takes ``None`` beside its
-        choices, and ``True`` is not taken by ``Literal[1]``.
+        choices, and ``True`` is not taken by ``Literal[1]``. It asks a source's type the same of a target's choices,
+        in their JSON form: ``int`` takes the float choice ``1.0``, but not ``2.5`` or ``"a"``.
 
         Args:
             value: The value to check.
@@ -693,19 +693,13 @@ class Type:
         that converts a value, like one that adds ``"!"``, would convert them again, so its own choice would be
         refused. It changes nothing in the schema, which is what a narrowed type is for.
 
+        The ``Param`` reads each id from its JSON form, as an answer is read, so a table's choice is a table again.
+
         Args:
             choices: Some of the type's values, each id in its JSON form, as ``read_choices`` gives them.
         """
         bare, param, _ = self._parts
-        classes = Type(literal_classes(bare))
-        # each id back as the value its classes read it as, so a float's "Infinity" is inf again
-        values = [
-            choice.model_copy(
-                update={"id": classes.argument_validator.validate_json(canonical_json(choice.id))}
-            )
-            for choice in choices
-        ]
-        return Type(Annotated[(classes.hint, *param.limits, Param(choices=values))])
+        return Type(Annotated[(literal_classes(bare), *param.limits, Param(choices=choices))])
 
     @property
     def item(self) -> Type | None:
