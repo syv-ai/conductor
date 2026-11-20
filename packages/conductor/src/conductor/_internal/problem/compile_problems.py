@@ -369,10 +369,9 @@ def invalid_value(
     """A constant in the graph record, or a graph input's default, isn't a value of its input's type.
 
     The value is read strictly from its JSON form, as a caller's graph input is, so ``"3"`` is no ``int``. For an
-    input typed by a type variable, it is read by the type the edges bind: in ``first(one: T, other: T)``, wired
-    from a ``str`` output, the constant ``5`` for ``other`` is this problem. A value ``make_graph`` or an upgrade's
-    rewrite can't write as JSON is this problem too, at the call, with ``no_json_form`` or ``set_has_no_order`` in
-    ``ctx.errors``.
+    input typed by a type variable, it is read by the type the edges bind (``python -m conductor.about
+    a-node-for-any-type``). A value ``make_graph`` or an upgrade's rewrite can't write as JSON is this problem too, at the
+    call, with ``no_json_form`` or ``set_has_no_order`` in ``ctx.errors``.
 
     A problem may be shown to anyone, so it never quotes the value. ``ctx.reason`` says what the type refused.
     ``ctx.errors`` is pydantic's list of what it refused, each with a ``type``, a ``loc`` and a ``msg``. A host can key
@@ -410,8 +409,8 @@ def invalid_value_bound_default(
     """A default an input declares doesn't fit the type its edges give a type variable.
 
     Take ``first(one: T, other: T = 0)``. Wired from a ``str`` output, ``T`` becomes ``str``, and ``0`` isn't a ``str``.
-    This only matters for an input that uses its default. An input that gets a value from an edge never uses its
-    default, so its default isn't checked. An output's default is ``output_default_bound_invalid``.
+    This only matters for an input that uses its default. The default of an input the record gives a constant, a
+    graph input or edges is checked too, but it is never used, so no problem is reported for it. An output's default is ``output_default_bound_invalid``.
 
     To fix it, give the input a default that fits every type its edges may give ``T``. Or give it a constant or an edge
     in the graph, or declare it with no default.

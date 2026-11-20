@@ -373,8 +373,9 @@ class Compiler:
                 for name, node_input in planned.inputs.items()
                 if node_input.sources
             }
+            # compute_outputs runs once the edges have bound the type variables, so it reads what the node gets
             outputs = self._hook(
-                node_id, definition.compute_outputs, fields, constants, arriving, tuple(added)
+                node_id, definition.compute_outputs, fields, planned.inputs, arriving, tuple(added)
             )
         if outputs is not None:
             self.nodes[node_id] = CompiledFunctionNode(
@@ -735,12 +736,12 @@ class Compiler:
         """Returns ``made``, the compiled input ``_constant_inputs`` made, with its type variables bound in ``field``.
 
         A constant the record gives an input typed by a type variable is read again by the type the edges bound,
-        as a graph input's default is. In ``first(one: T, other: T)``, with ``one`` wired from a ``str`` output, the
+        as a graph input's default is. Where binding left the type as it was, the first read stands. In ``first(one: T, other: T)``, with ``one`` wired from a ``str`` output, the
         constant ``5`` for ``other`` is ``invalid_value``. Wired from a ``float``, the constant ``2`` becomes ``2.0``.
         """
         match made, node_record.inputs.get(field.name):
             case ConstantInput(field=unbound), ConstantEntry(constant=value) if (
-                unbound.whole.variables
+                field.hint != unbound.hint
             ):
                 return self._constant_input(node_id, field, value)
             case _:
@@ -765,33 +766,40 @@ class Compiler:
         node_id: str,
         hook: Hook,
         fields: Mapping[str, Field],
-        constants: Mapping[str, ConstantInput | MissingInput],
+        inputs: Mapping[str, Input],
         arriving: Mapping[str, Any] = MappingProxyType({}),
         added: tuple[str, ...] = (),
     ) -> dict[str, Field] | None:
         """Calls one of a node's hooks, and returns the fields it gives, by name.
 
-        Each input the hook reads gets its constant, else its default. Returns ``None``, and adds a problem, when the
-        hook fails or returns something that isn't fields. Returns ``None`` without calling it when an input it reads
-        has no value, since a problem of ``_constant_inputs`` already says why.
+        Each input the hook reads gets the value of its compiled input, else its declared default. Returns ``None``,
+        and adds a problem, when the hook fails or returns something that isn't fields. Returns ``None`` without
+        calling it when an input it reads has no value, since a problem already says why.
+
+        ``compute_added_inputs`` runs before the edges bind the node's type variables, so it gets what
+        ``_constant_inputs`` made, read by the unbound types. ``compute_outputs`` runs after, so it gets every
+        compiled input, read by the bound types, as the node will.
 
         Args:
             node_id: The node's id.
             hook: The hook.
             fields: The node's inputs, by name.
-            constants: The compiled input that ``_constant_inputs`` made for each input it decides, by name.
+            inputs: The compiled inputs known so far, by name.
             arriving: The type the edges into each input carry, by input name.
             added: The inputs ``compute_added_inputs`` added.
         """
         values: dict[str, Any] = {}
         for name in hook.values_of:
-            match constants.get(name):
+            match inputs.get(name):
                 case MissingInput():
                     return None
                 case ConstantInput(value=value):
                     values[name] = value
                 case None:
                     values[name] = fields[name].default
+                case GraphInput() | EdgeInput() | CollectingInput():
+                    # an input a hook reads takes only a constant, so _constant_inputs refused any other entry
+                    raise AssertionError(f"the input {name!r} a hook reads got no constant")
         try:
             return hook.call(node_id, values, arriving, added)
         except InvalidCallError as failed:

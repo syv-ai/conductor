@@ -447,3 +447,29 @@ def test_a_constant_for_a_type_variable_inside_a_subgraph_is_checked_by_the_boun
     assert [(problem.type, problem.loc) for problem in graph.problems] == [
         ("invalid_value", ("inside", kind.id, "extra"))
     ]
+
+
+@pytest.mark.parametrize("constants", [{"extra": 2}, {}])
+def test_compute_outputs_reads_a_constant_or_default_by_the_type_the_edge_bound(
+    constants: dict[str, Any],
+) -> None:
+    @node(
+        "typed-by-extra",
+        title="Typed by extra",
+        description="For a test.",
+        compute_outputs=lambda extra: {"result": type(extra)},
+    )
+    def typed_by_extra[T](value: T, extra: T = 3) -> dict[str, Any]:  # type: ignore[assignment]
+        return {"result": extra}
+
+    record = make_graph(
+        fraction,
+        typed_by_extra,
+        edges=[("fraction.result", "typed-by-extra.value")],
+        constants={f"typed-by-extra.{name}": value for name, value in constants.items()},
+        outputs={"result": "typed-by-extra.result"},
+    )
+    graph = Graph.compile(record, registry_of(fraction, typed_by_extra))
+    assert graph.problems == []
+    assert _types(graph, "typed-by-extra")["result"] == (False, "float")
+    assert graph.run().outputs == {"result": float(constants.get("extra", 3))}
