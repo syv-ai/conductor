@@ -61,32 +61,17 @@ def _body(schema: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _refused_as_responses() -> AsyncIterator[None]:
-    """Answers every call a route's worker refuses with the problems.
+class RefusalRoute(APIRoute):
+    """A FastAPI route class that answers every refusal the way ``run_router``'s routes do.
 
-    The worker raises conductor's ``InvalidCallError`` for every refusal. Its first problem's code picks the status
-    from ``STATUS`` (404 or 409), and any other code is a 422.
+    Give it to a router of your own, ``APIRouter(route_class=RefusalRoute)``, and a route that calls the ``Worker``
+    or conductor needs no ``try`` of its own. Conductor refuses a call with ``InvalidCallError``. Raised by the route
+    or by one of its dependencies, it is answered with its problems as the ``detail``. The first problem's code picks
+    the status: 404 for ``no_such_run``, 409 for ``run_not_resumable``, and 422 for every other code.
 
-    Yields:
-        Nothing; the route runs inside it.
-
-    Raises:
-        HTTPException: For a refused call, with the problems as its ``detail``.
-    """
-    try:
-        yield
-    except InvalidCallError as refused:
-        status = STATUS.get(refused.problems[0].type, 422)
-        detail = [problem.model_dump(mode="json") for problem in refused.problems]
-        raise HTTPException(status, detail) from None
-
-
-class _ValueFreeRoute(APIRoute):
-    """A route whose 422 for a request FastAPI or a body's reader refuses quotes nothing the request sent.
-
-    Pydantic keeps the refused value in each error's ``input``, and FastAPI writes it into the 422: the whole body
-    for a body that isn't an object, or a header's text. A refusal never quotes a value
-    (``python -m conductor.about errors``), so every error is answered without it, on every route.
+    A request FastAPI refuses, such as a header that isn't a number, is FastAPI's own 422. Pydantic keeps the value it
+    refused in each error's ``input``, and FastAPI would write it into the answer, so each error is answered without
+    it: a refusal never quotes what the request sent (``python -m conductor.about errors``).
     """
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
@@ -101,6 +86,10 @@ class _ValueFreeRoute(APIRoute):
                     for error in refused.errors()
                 ]
                 raise RequestValidationError(errors) from None
+            except InvalidCallError as refused:
+                status = STATUS.get(refused.problems[0].type, 422)
+                detail = [problem.model_dump(mode="json") for problem in refused.problems]
+                raise HTTPException(status, detail) from None
 
         return handled
 
@@ -133,9 +122,8 @@ def run_router(
     """
     router = APIRouter(
         lifespan=lambda _: worker.serving(),
-        dependencies=[Depends(_refused_as_responses)],
         generate_unique_id_function=attrgetter("name"),
-        route_class=_ValueFreeRoute,
+        route_class=RefusalRoute,
     )
     start_body = _body(declared(StartRun))
 

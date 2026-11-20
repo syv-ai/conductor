@@ -517,7 +517,8 @@ them. It has no types of its own. A graph record names a node by its id, so an i
 `Worker(store, nodes_for=)`. Compiling, starting, estimating, reading, following, answering, resuming,
 running again and cancelling are routes, and any worker can serve them. Every route but `/compile`, `POST /runs`,
 `/estimate` and `/nodes` has a run id in its path. The routes are a thin layer over `Worker`, which holds the
-leases, checkpoints and takeovers, so a host with its own routes calls it directly.
+leases, checkpoints and takeovers, so a host with its own routes calls it directly. Those routes take the
+router's own route class, `APIRouter(route_class=RefusalRoute)`, and refuse a call as the router does.
 
 The host owns storage and login. `RunStore` is six async methods over one row per run, each change a compare-and-set
 on a revision. Each run keeps the host's metadata, and which runs a request may see is the host's `run_filter`, a test of that

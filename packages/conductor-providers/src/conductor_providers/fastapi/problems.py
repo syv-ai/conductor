@@ -75,6 +75,6 @@ def raised_outside_a_node(*, error: str) -> str:
     )
 
 
-#: The HTTP status a route answers with when the worker refuses a call, by the code of the first problem. Every other
-#: code, conductor's own among them, is a 422.
+#: The HTTP status a ``RefusalRoute`` answers a refused call with, by the code of the first problem. Every other code,
+#: conductor's own among them, is a 422.
 STATUS: dict[str, int] = {"no_such_run": 404, "run_not_resumable": 409}

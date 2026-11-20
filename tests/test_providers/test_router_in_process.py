@@ -32,8 +32,14 @@ from conductor import (  # noqa: E402
     Series,
     make_graph,
 )
-from conductor_providers.fastapi import RunView, StoredRun, Worker, run_router  # noqa: E402
-from fastapi import FastAPI, Header  # noqa: E402
+from conductor_providers.fastapi import (  # noqa: E402
+    RefusalRoute,
+    RunView,
+    StoredRun,
+    Worker,
+    run_router,
+)
+from fastapi import APIRouter, Depends, FastAPI, Header  # noqa: E402
 from pydantic import BaseModel, Field, ValidationError  # noqa: E402
 
 from tests.test_providers.in_memory import (  # noqa: E402
@@ -666,6 +672,53 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
             409,
             [("run_not_resumable", {"status": "declined"})],
         )
+
+
+async def test_a_hosts_own_routes_on_the_route_class_refuse_as_the_routers_do() -> None:
+    """A run the filter hides is a 404 on the host's route as on the router's, whether the route or its dependency
+    asks the worker, and a header FastAPI refuses is a 422 that doesn't quote it."""
+    registry, graph, gate, inputs, _ = asking()
+    worker: Worker[Any, Any] = Worker(MemoryStore(), nodes_for=lambda _: registry)
+    own_routes = APIRouter(prefix="/mine", route_class=RefusalRoute)
+
+    async def run_of(
+        run_id: str, allows: Annotated[Callable[[Any], bool], Depends(_own_runs)]
+    ) -> RunView:
+        return await worker.read(run_id, allows=allows)
+
+    @own_routes.get("/{run_id}")
+    async def read_mine(
+        run_id: str, allows: Annotated[Callable[[Any], bool], Depends(_own_runs)]
+    ) -> RunView:
+        return await worker.read(run_id, allows=allows)
+
+    # a default, not ``Annotated``: under ``from __future__ import annotations`` FastAPI can't resolve a local name
+    @own_routes.get("/{run_id}/through-a-dependency")
+    async def read_mine_through_a_dependency(run: RunView = Depends(run_of)) -> RunView:
+        return run
+
+    @own_routes.get("/{run_id}/counted")
+    async def read_counted(run_id: str, count: Annotated[int, Header()]) -> int:
+        return count
+
+    app = FastAPI()
+    app.include_router(run_router(worker, metadata=_metadata, run_filter=_own_runs))
+    app.include_router(own_routes)
+
+    async with _serving(app) as client:
+        started = await client.post(
+            "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
+        )
+        run_id = started.json()["id"]
+        for path in (f"/runs/{run_id}", f"/mine/{run_id}", f"/mine/{run_id}/through-a-dependency"):
+            assert (await client.get(path)).status_code == 200, path
+            hidden = await client.get(path, headers={"x-user": "bo"})
+            assert hidden.status_code == 404, path
+            assert [problem["type"] for problem in hidden.json()["detail"]] == ["no_such_run"]
+        refused = await client.get(f"/mine/{run_id}/counted", headers={"count": "secret-123"})
+        assert refused.status_code == 422
+        assert "secret-123" not in refused.text
+        gate.set()
 
 
 @pytest.mark.parametrize("dependencies", ["read a header", "read nothing"])
