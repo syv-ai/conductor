@@ -1,0 +1,1293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conductor Standard Nodes</title>
+<style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
+<style>
+/* =====================================================================
+   DESIGN TOKENS: the look of the conductor series.
+   Layout: one reading column (about 76ch) that widens to 1360px for the
+   palette, the pickers and the diagrams; sections are separated by space
+   and a faint staff of rules, never by boxes.
+   ===================================================================== */
+:root {
+  --paper: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #142033;
+  --ink-2: #48566a;
+  --ink-3: #75839a;
+  --rule: #dbe1ea;
+  --accent: #2a4fd6;
+  --accent-soft: #e3e9fc;
+  --old: #a3adbb;
+  --slow: #b1530b;
+  --slow-soft: #fbeadb;
+  --ok: #1d7a4e;
+  --code-bg: #f8f9fb;
+  --code-key: #2a4fd6;
+  --code-str: #1d7a4e;
+  --code-com: #7b8798;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
+  --pkg-nodes-soft: #dcf1ef;
+
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+  --step-4: clamp(2.75rem, 7vw, 4.75rem);
+
+  --col: 76ch;
+  --wide: 1360px;
+  --gap: 1.25rem;
+  --section: clamp(4.5rem, 10vw, 8rem);
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20, 32, 51, .05), 0 6px 24px rgba(20, 32, 51, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+    --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+    --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+    --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+    --pkg-nodes-soft: #12302e;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+  --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+  --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+  --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+  --pkg-nodes-soft: #12302e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+/* ===================== end of design tokens ===================== */
+:root { --int: #6b7689; --int-soft: #eef1f5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --int: #9aa5b8; --int-soft: #1d2533; } }
+:root[data-theme="dark"] { --int: #9aa5b8; --int-soft: #1d2533; }
+.lvl { display: inline-block; font-family: var(--font-body); font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 4px; vertical-align: .15em; margin-left: .5rem; }
+.lvl.pub { background: var(--accent-soft); color: var(--ink); }
+.lvl.int { background: var(--int-soft); color: var(--int); }
+code.int { color: var(--int); text-decoration: underline dotted; text-underline-offset: .2em; }
+.legend { display: flex; flex-wrap: wrap; gap: .5rem 2rem; font-size: .9375rem; color: var(--ink-2); }
+.legend .lvl { margin-left: 0; margin-right: .5rem; }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  -webkit-font-smoothing: antialiased; margin: 0;
+}
+/* a grid's one column never grows past its box, so long code wraps inside it */
+.stack, .sample, .picker-side, .detail, .facts > div, .wlist > div, .use, .choice, .idea > div { grid-template-columns: minmax(0, 1fr); }
+.page { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 4rem; }
+.wrap { max-width: var(--wide); margin-inline: auto; }
+.prose { max-width: var(--col); }
+.stack { display: grid; gap: 1rem; }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 400; }
+h1 { font-family: var(--font-display); font-size: var(--step-4); line-height: 1.02; letter-spacing: -0.01em; }
+h2 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.1; }
+h3 { font-family: var(--font-body); font-size: var(--step-1); font-weight: 600; line-height: 1.3; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.eyebrow { font-size: var(--step--1); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: var(--step-1); color: var(--ink-2); line-height: 1.55; }
+.muted { color: var(--ink-2); }
+.small { font-size: var(--step--1); color: var(--ink-3); }
+section { padding-top: var(--section); }
+.section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; }
+.staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
+.crumbs { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: var(--step--1); }
+
+/* ---------- hero ---------- */
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero h1 em { font-style: italic; color: var(--pkg-nodes); }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
+.idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
+.idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
+.idea .term b { font-weight: 400; color: var(--pkg-nodes); }
+@media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- code ---------- */
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
+.ln { display: block; }
+pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var(--ok); border-radius: 0; color: var(--ink-2); }
+.tk-k { color: var(--code-key); }
+.tk-s { color: var(--code-str); }
+.tk-c { color: var(--code-com); font-style: italic; }
+.tk-d { color: var(--ink-2); }
+.sample { display: grid; gap: .5rem; min-width: 0; }
+.sample .cap { font-size: var(--step--1); color: var(--ink-3); }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; align-items: start; }
+@media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.two > * { min-width: 0; }
+
+/* ---------- diagram ---------- */
+.diagram { min-width: 0; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; overflow-x: auto; }
+.diagram svg { width: 100%; height: auto; display: block; }
+@media (max-width: 900px) { .diagram svg { min-width: 560px; } }
+.d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
+.d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
+.d-title { font: 600 11px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+.d-box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; transition: fill .3s, stroke .3s, opacity .3s; }
+.d-box.on { fill: var(--pkg-nodes-soft); stroke: var(--pkg-nodes); }
+.d-box.big { fill: var(--accent-soft); stroke: var(--accent); }
+.d-box.off { opacity: .4; }
+.d-edge { stroke: var(--ink-3); stroke-width: 1.5; fill: none; transition: stroke .3s, opacity .3s; }
+.d-edge.on { stroke: var(--pkg-nodes); stroke-width: 2; stroke-dasharray: 5 5; animation: flow 1s linear infinite; }
+.d-edge.off { opacity: .25; }
+@keyframes flow { to { stroke-dashoffset: -10; } }
+.d-val { font: 600 11px var(--font-mono); fill: var(--pkg-nodes); }
+.d-skip { font: 600 10px var(--font-mono); fill: var(--ink-3); letter-spacing: .04em; }
+.d-tag { font: 500 11px var(--font-mono); fill: var(--ink-2); }
+
+/* ---------- module picker ---------- */
+.picker { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 2rem; align-items: start; }
+@media (max-width: 900px) { .picker { grid-template-columns: minmax(0, 1fr); } }
+.mods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+@media (max-width: 460px) { .mods { grid-template-columns: minmax(0, 1fr); } }
+.mod { text-align: left; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: .7rem .85rem; cursor: pointer; display: grid; gap: .15rem; transition: background .2s, border-color .2s; min-width: 0; }
+.mod:hover { border-color: var(--ink-3); }
+.mod b { font: 500 .9rem var(--font-mono); display: flex; justify-content: space-between; gap: .5rem; }
+.mod b span { color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.mod small { color: var(--ink-3); font-size: .78rem; line-height: 1.35; }
+.mod[aria-pressed="true"] { background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
+.picker-side { display: grid; gap: .9rem; min-width: 0; }
+.tally { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.tally .n { font-family: var(--font-display); font-size: var(--step-3); line-height: 1; font-variant-numeric: tabular-nums; }
+.quick { display: flex; flex-wrap: wrap; gap: .5rem; }
+.btn { font: 600 .875rem/1 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .6rem 1rem; cursor: pointer; display: inline-flex; align-items: center; gap: .45rem; }
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn[aria-pressed="true"] { background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
+.btn svg { width: 14px; height: 14px; fill: currentColor; }
+.seg { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
+
+/* ---------- palette ---------- */
+.pal { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 2rem; align-items: start; }
+@media (max-width: 980px) { .pal { grid-template-columns: minmax(0, 1fr); } }
+.pal-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.25rem; }
+.chipbtn { font: 500 .8125rem/1 var(--font-mono); color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .75rem; cursor: pointer; }
+.chipbtn[aria-pressed="true"] { color: var(--ink); background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
+.search { font: inherit; font-size: .875rem; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .9rem; min-width: 0; flex: 1 1 12rem; max-width: 18rem; }
+.groups { display: grid; gap: 1.5rem; }
+.group h3 { font-size: .8125rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: .55rem; display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
+.group h3 code { text-transform: none; letter-spacing: 0; color: var(--ink-2); font-weight: 500; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); gap: .5rem; }
+.ntile { text-align: left; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: .55rem .75rem; cursor: pointer; display: grid; gap: .1rem; min-width: 0; }
+.ntile:hover { border-color: var(--ink-3); }
+.ntile b { font: 500 .8125rem var(--font-mono); overflow-wrap: anywhere; }
+.ntile small { color: var(--ink-3); font-size: .78rem; }
+.ntile .flags { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .2rem; }
+.flag { font: 500 .68rem/1 var(--font-mono); color: var(--ink-2); background: var(--paper); padding: .2rem .35rem; border-radius: 4px; }
+.ntile[aria-pressed="true"] { background: var(--pkg-nodes-soft); border-color: var(--pkg-nodes); }
+.ntile[aria-pressed="true"] .flag { background: var(--surface); }
+.detail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--bar-h, 0px) + 1rem); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.4rem; display: grid; gap: 1rem; min-width: 0; max-height: calc(100vh - 2rem); overflow-y: auto; }
+@media (max-width: 980px) { .detail { position: static; max-height: none; } }
+.detail .nid { font: 500 1.125rem var(--font-mono); overflow-wrap: anywhere; }
+.detail .ttl { color: var(--ink-3); font-size: var(--step--1); }
+.detail .desc { font-size: 1rem; line-height: 1.5; }
+.detail h4 { margin: 0 0 .35rem; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.ftab { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+.ftab td { padding: .35rem .5rem .35rem 0; vertical-align: top; border-top: 1px solid var(--rule); }
+.ftab tr:first-child td { border-top: 0; }
+.ftab td:first-child { font-family: var(--font-mono); white-space: nowrap; }
+.ftab .ty { font-family: var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.ftab .nt { color: var(--ink-3); font-size: .75rem; }
+.note { font-size: .875rem; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: .75rem; }
+.runbox { background: var(--code-bg); border-radius: 8px; padding: .8rem .9rem; display: grid; gap: .35rem; font-family: var(--font-mono); font-size: .78rem; overflow-x: visible; overflow-wrap: anywhere; }
+.runbox > div { padding-left: 2ch; text-indent: -2ch; }
+.runbox .k { color: var(--ink-3); }
+.runbox .v { color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.runbox .res { color: var(--ok); }
+
+/* ---------- surface ---------- */
+.uses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+@media (max-width: 820px) { .uses { grid-template-columns: minmax(0, 1fr); } }
+.use { padding-block: 1.1rem; border-top: 1px solid var(--rule); display: grid; gap: .4rem; min-width: 0; }
+.use h3 { font-family: var(--font-mono); font-size: 1rem; font-weight: 500; }
+.use h3 span { font-family: var(--font-body); color: var(--ink-3); font-size: .8125rem; font-weight: 400; margin-left: .4rem; }
+.use p { color: var(--ink-2); font-size: .9375rem; }
+
+/* ---------- control ---------- */
+.ctrl { display: grid; gap: 3.5rem; }
+.ctrl-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 2rem; align-items: start; }
+@media (max-width: 900px) { .ctrl-row { grid-template-columns: minmax(0, 1fr); } }
+.ctrl-row > * { min-width: 0; }
+.ctrl-row h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
+.ctrl-row code.id { color: var(--pkg-nodes); }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.count { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-3); margin-left: .25rem; }
+.results { font-family: var(--font-mono); font-size: .8rem; display: grid; gap: .2rem; }
+.results div { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .5rem; }
+.results span:first-child { color: var(--ink-3); }
+
+/* ---------- widgets ---------- */
+.wlist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; }
+@media (max-width: 760px) { .wlist { grid-template-columns: minmax(0, 1fr); } }
+.wlist > div { min-width: 0; display: grid; gap: .6rem; align-content: start; }
+.pills { display: flex; flex-wrap: wrap; gap: .35rem; }
+.pill { font: 500 .75rem/1 var(--font-mono); padding: .35rem .5rem; border-radius: 5px; background: var(--surface); color: var(--ink); }
+.pill.tx { background: var(--pkg-nodes-soft); }
+
+/* ---------- facts ---------- */
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.25rem 3rem; }
+@media (max-width: 860px) { .facts { grid-template-columns: minmax(0, 1fr); } }
+.facts > div { min-width: 0; display: grid; gap: .6rem; align-content: start; }
+
+/* ---------- choices ---------- */
+.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+@media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
+.choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
+.choice h3 { font-size: 1.125rem; }
+.choice p { color: var(--ink-2); }
+.cost { font-size: .875rem; color: var(--ink); background: var(--slow-soft); padding: .55rem .75rem; border-radius: 6px; }
+.cost b { font-weight: 600; }
+
+/* ---------- next ---------- */
+.series { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .5rem 1.5rem; margin-top: 1rem; padding: 0; margin-bottom: 0; }
+.series li { list-style: none; padding: .6rem 0; border-bottom: 1px dashed var(--rule); display: flex; justify-content: space-between; gap: 1rem; font-size: .9375rem; }
+.series li span { color: var(--ink-3); font-size: .8125rem; white-space: nowrap; }
+.series li.here { color: var(--pkg-nodes); font-weight: 600; }
+.series li a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .2em; }
+.series li a:hover { color: var(--accent); text-decoration-color: currentColor; }
+footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; }
+.fade { animation: fade .45s ease both; }
+@keyframes fade { from { opacity: .15; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!-- the series bar: the reading order and back/next, the same on every page of the series -->
+<style id="series-bar-css">
+:root { --bar-h: 44px; }
+html { scroll-padding-top: calc(var(--bar-h) + 12px); }
+body { margin: 0; }
+.sbar { position: sticky; top: 0; z-index: 60; height: var(--bar-h); display: flex; align-items: center; gap: .75rem; padding: 0 max(16px, calc((100vw - var(--wide, 1360px)) / 2)); background: color-mix(in srgb, var(--paper) 88%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(10px); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--rule); font-family: var(--font-body); font-size: .8125rem; color: var(--ink-2); }
+.sbar a { color: inherit; text-decoration: none; }
+.sbar a:hover { color: var(--accent); }
+.sbar-home { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sbar-order { position: relative; flex: 1; min-width: 0; display: flex; justify-content: center; }
+.sbar-btn { font: inherit; color: var(--ink); background: none; border: 0; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; display: inline-flex; gap: .5rem; align-items: baseline; max-width: 100%; }
+.sbar-btn:hover, .sbar-btn[aria-expanded="true"] { background: var(--accent-soft); }
+.sbar-num { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.sbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbar-caret { color: var(--ink-3); font-size: .7rem; }
+.sbar-list { position: absolute; top: calc(var(--bar-h) - 6px); left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 32px)); margin: 0; padding: .4rem; list-style: none; background: var(--surface); border-radius: 10px; box-shadow: 0 8px 32px rgba(20, 32, 51, .18); counter-reset: sb; }
+.sbar-list[hidden] { display: none; }
+.sbar-list li { counter-increment: sb; }
+.sbar-list a { display: flex; gap: .75rem; padding: .45rem .6rem; border-radius: 6px; color: var(--ink); }
+.sbar-list a::before { content: counter(sb); font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); min-width: 1.25rem; text-align: right; }
+.sbar-list a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-list a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.sbar-list small { margin-left: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: .7rem; }
+.sbar-step { display: flex; gap: .25rem; white-space: nowrap; }
+.sbar-step a, .sbar-step span { padding: .35rem .6rem; border-radius: 6px; }
+.sbar-step a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-step span { color: var(--ink-3); opacity: .5; }
+@media (max-width: 640px) { .sbar-home { display: none; } .sbar-order { position: static; } .sbar-title { max-width: 9rem; } .sbar-step .sbar-word { display: none; } }
+@media print { .sbar { display: none; } }
+</style>
+<style id="series-layout">
+/* Columns side by side end level: a row is as tall as its tallest column, and the box at the foot of each
+   shorter column grows to the row's bottom. Rows are the pages' classes for columns side by side; a box is a
+   code block (pre), an output (.out), a figure or a cost (.cost). A diagram or a pre that is a column on its
+   own just stretches with the row. Inside a row, a column's own prose goes above its box; text about the
+   whole row goes below the row. At 900px and below the columns stack, and no height is forced. */
+@media (min-width: 901px) {
+  :is(.idea, .two, .pair, .split, .beside, .stage, .ex-body, .choices, figure.side, .viewer, .sig, .fail-grid, .ctrl-row, .facts, .shape) {
+    /* Every column stretches to the row's height. A text column with no box just stretches. */
+    align-items: stretch;
+    /* A stretched column keeps its parts packed at the top, as they were; the spare height goes below them. */
+    & > * { align-content: start; }
+    /* A column that ends in a box, and a figure that is a column, stack their parts so one can grow. */
+    & > :where(:has(> :is(pre, .out, figure, .cost):last-child), figure),
+    & > * > :where(figure:last-child) { display: flex; flex-direction: column; }
+    /* The box grows only when it ends its column: text or a control under a box would leave a gap above it.
+       A row with a pre as a column on its own (a long JSON beside a short sample) or with a live widget's
+       .controls is left out, so its short box keeps its own height. */
+    &:not(:has(> pre, .controls)) > * > :is(pre, .out, figure, .cost):last-child { flex-grow: 1; }
+    /* A figure hands its spare height to the diagram in it, above its caption. */
+    & > figure > :not(figcaption, p),
+    & > * > figure:last-child > :not(figcaption, p) { flex-grow: 1; }
+    /* Columns of a label, a box and a note (.ex-body, and a row marked .labelled) share the row's three
+       tracks, so the boxes start and end level even when the labels or notes above and under them differ. */
+    &:is(.ex-body, .labelled) > div { display: grid; grid-template-rows: subgrid; grid-row: span 3; }
+  }
+}
+</style>
+</head>
+<body>
+<nav class="sbar" aria-label="Conductor series" data-page="10">
+  <a class="sbar-home" href="overview.html">Conductor</a>
+  <div class="sbar-order">
+    <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
+    <ol class="sbar-list" id="sbar-list" hidden></ol>
+  </div>
+  <div class="sbar-step"></div>
+</nav>
+<script id="series-bar-js">
+(function () {
+  var PAGES = [
+    ["Overview", "overview.html"],
+    ["A node and its types", "nodes-and-types.html"],
+    ["The graph record and compiling", "graph-record-and-compiling.html"],
+    ["Series and tables", "series-and-tables.html"],
+    ["Asking a person", "asking-a-person.html"],
+    ["Subgraphs", "subgraphs.html"],
+    ["Saved runs and reuse", "saved-runs-and-reuse.html"],
+    ["Running and streaming", "running-and-streaming.html"],
+    ["Problems", "problems.html"],
+    ["The standard nodes", "standard-nodes.html"],
+    ["Serving runs", "serving-runs.html"]
+  ];
+  var bar = document.querySelector(".sbar");
+  if (!bar) return;
+  var here = parseInt(bar.getAttribute("data-page"), 10) - 1;
+  var url = function (i) { return PAGES[i][1]; };
+  bar.querySelector(".sbar-num").textContent = (here + 1) + " / " + PAGES.length;
+  bar.querySelector(".sbar-title").textContent = PAGES[here][0];
+  var list = bar.querySelector(".sbar-list");
+  PAGES.forEach(function (p, i) {
+    var li = document.createElement("li"), a = document.createElement("a");
+    a.href = url(i);
+    a.textContent = p[0];
+    if (i === here) a.setAttribute("aria-current", "page");
+    li.appendChild(a); list.appendChild(li);
+  });
+  var step = bar.querySelector(".sbar-step");
+  var link = function (i, label, word, rel) {
+    var html = label.replace("WORD", '<span class="sbar-word">' + word + "</span>");
+    if (i < 0 || i >= PAGES.length) { var s = document.createElement("span"); s.innerHTML = html; s.setAttribute("aria-hidden", "true"); return s; }
+    var a = document.createElement("a"); a.href = url(i); a.rel = rel;
+    a.title = PAGES[i][0]; a.innerHTML = html;
+    return a;
+  };
+  step.appendChild(link(here - 1, "← WORD", "Back", "prev"));
+  step.appendChild(link(here + 1, "WORD →", "Next", "next"));
+  var btn = bar.querySelector(".sbar-btn");
+  var open = function (yes) { list.hidden = !yes; btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+  btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
+  document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<!-- /series-bar -->
+<div class="page">
+<div class="wrap">
+
+<!-- ============================ HERO ============================ -->
+<header class="hero">
+  <p class="eyebrow">Conductor &middot; syv-conductor-nodes &middot; page 10 of 11</p>
+  <h1>The <em>standard</em> nodes</h1>
+  <div class="prose stack">
+    <p class="lede"><code>syv-conductor-nodes</code> is a separate package of ready-made nodes. They work on text, numbers, yes or no, JSON, regular expressions, lists and tables, and a few choose where a value goes. They work only on the values they're given.</p>
+    <p class="muted">A host adds the ones it wants to its own registry, next to the nodes it writes itself. You import it as <code>conductor_nodes</code>. Every output on this page was printed by the code it shows.</p>
+    <p class="crumbs"><a href="overview.html">Back to the overview</a></p>
+  </div>
+  <div class="idea" aria-label="The three ideas of this page">
+    <div>
+      <p class="term">A registry <b>per module</b></p>
+      <p class="muted">Each module is one category, with a registry of its own. <code>conductor_nodes.registry</code> has all their nodes.</p>
+    </div>
+    <div>
+      <p class="term">Nodes written like <b>a host's</b></p>
+      <p class="muted">The package imports a few public names, from <code>conductor</code> and <a href="nodes-and-types.html#hint"><code>conductor.widgets</code></a>, and nothing from <a href="overview.html#map"><code class="int" title="Internal">conductor._internal</code></a>.</p>
+    </div>
+    <div>
+      <p class="term">Types that <b>follow the edge</b></p>
+      <p class="muted">A node that passes a value on is generic in <code>T</code>. Its outputs take the type of what is wired into it.</p>
+    </div>
+  </div>
+  <div class="legend" aria-label="Key">
+    <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+    <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+  </div>
+</header>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ MODULES ============================ -->
+<section id="modules" aria-labelledby="mod-h">
+  <div class="section-head prose">
+    <p class="eyebrow">How it's grouped</p>
+    <h2 id="mod-h">Every module is one category</h2>
+    <p class="muted">Each module starts with <a href="nodes-and-types.html#registry"><code>registry = NodeRegistry(category="math")</code></a>, or its own category, and declares its nodes on it with <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>. A node takes the category of the registry it's declared on, so every node in <code>conductor_nodes.math</code> is in <code>math</code>. <code>conductor_nodes.registry</code> then adds the module registries into one.</p>
+  </div>
+
+  <div class="diagram" style="margin-bottom:2.5rem">
+    <svg viewBox="0 0 900 300" role="img" aria-label="The module registries feed conductor_nodes.registry. A host's registry takes either the whole package registry, a module registry, or a filter of the package registry.">
+      <text class="d-title" x="16" y="20">a registry per module</text>
+      <text class="d-title" x="370" y="20">the package</text>
+      <text class="d-title" x="640" y="20">a host's registry</text>
+      <g id="dia-mods"></g>
+      <g id="dia-mod-edges"></g>
+      <rect class="d-box big" x="350" y="122" width="210" height="56" rx="10"/>
+      <text class="d-label" x="455" y="146" text-anchor="middle">conductor_nodes.registry</text>
+      <text class="d-sub" x="455" y="164" text-anchor="middle" id="pkg-sub">every node, a category per module</text>
+      <path class="d-edge" d="M560 150 C 600 150, 600 150, 640 150"/>
+      <path class="d-edge" id="host-edge" d="M560 150 C 600 150, 600 150, 640 150"/>
+      <rect class="d-box on" id="host-box" x="640" y="118" width="244" height="64" rx="10"/>
+      <text class="d-label" x="762" y="144" text-anchor="middle">NodeRegistry()</text>
+      <text class="d-sub" id="host-sub" x="762" y="163" text-anchor="middle"></text>
+      <text class="d-sub" x="600" y="212">add_subregistry(...) copies nodes in.</text>
+      <text class="d-sub" x="600" y="228">filter(...) returns a new registry.</text>
+      <text class="d-sub" x="600" y="252">The host adds its own nodes beside them.</text>
+    </svg>
+  </div>
+
+  <div class="picker">
+    <div class="stack">
+      <p class="eyebrow">Pick what a host takes</p>
+      <div class="mods" id="mods"></div>
+    </div>
+    <div class="picker-side">
+      <div class="tally"><span class="n" id="tally"></span><span class="muted" id="tally-txt">nodes in the host's registry</span></div>
+      <div class="quick">
+        <button class="btn" type="button" id="all-btn">All of them</button>
+        <button class="btn" type="button" id="none-btn">None</button>
+        <span class="seg" role="group" aria-label="Write it as">
+          <button class="btn" type="button" id="as-add" aria-pressed="true">add_subregistry</button>
+          <button class="btn" type="button" id="as-filter" aria-pressed="false">filter</button>
+        </span>
+      </div>
+      <pre data-lang="py" id="pick-code"></pre>
+      <p class="small">The two ways give the same nodes.</p>
+    </div>
+  </div>
+
+  <div class="two" style="margin-top:2.75rem">
+    <div class="sample">
+<script type="text/x-python">
+import io
+from dataclasses import dataclass
+from typing import Annotated, Any
+
+import polars as pl
+
+import conductor_nodes
+from conductor import Graph, NodeDeclarationError, NodeRegistry, make_graph
+from conductor_nodes import control, json_ops, logic, regex_ops, series, tables, text
+from conductor_nodes import math as m
+</script>
+      <p class="cap">This takes one module's registry and makes a graph of two of its nodes. <a href="graph-record-and-compiling.html#make"><code>make_graph</code></a> wires the two in order.</p>
+      <pre data-lang="py">registry = NodeRegistry()
+registry.add_subregistry(conductor_nodes.text.registry)
+graph = Graph.compile(make_graph(text.split, text.uppercase), registry)
+
+print(len(registry), sorted({d.category for d in registry}))
+print(graph.run({"text": "a\nb"}).outputs)</pre>
+      <pre class="out">11 ['text']
+{'result': ['A', 'B']}</pre>
+    </div>
+    <div class="sample">
+      <p class="cap">Filtering by category gives a module's nodes. Adding all of them and then the text module again raises.</p>
+      <pre data-lang="py">math_nodes = conductor_nodes.registry.filter(lambda d: d.category == "math")
+print([d.id for d in math_nodes] == [d.id for d in conductor_nodes.math.registry])
+
+twice = NodeRegistry()
+twice.add_subregistry(conductor_nodes.registry)
+try:
+    twice.add_subregistry(conductor_nodes.text.registry)
+except NodeDeclarationError as error:
+    print(type(error).__name__, [p.type for p in error.problems])</pre>
+      <pre class="out">True
+NodeDeclarationError ['duplicate_node_id']</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ PALETTE ============================ -->
+<section id="palette" aria-labelledby="pal-h">
+  <div class="section-head prose">
+    <p class="eyebrow">The palette</p>
+    <h2 id="pal-h">Every node with a real run of each <span class="lvl pub">Public</span></h2>
+    <p class="muted">Each node is shown as <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> shows it to an editor. Tap one to see its fields and one run. For each run, the node was put in a graph alone and given its first example from <code class="int" title="Internal">tests/test_nodes/test_catalog.py</code> as constants. For <code>control-switch</code> it was given the second. Every run completed.</p>
+  </div>
+  <div class="pal-tools">
+    <span id="cats" class="seg" role="group" aria-label="Category"></span>
+    <label class="small" for="q" style="position:absolute;left:-9999px">Search the nodes</label>
+    <input class="search" id="q" type="search" placeholder="Search id or title" autocomplete="off">
+  </div>
+  <div class="pal">
+    <div class="groups" id="groups"></div>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ SURFACE ============================ -->
+<section id="surface" aria-labelledby="surf-h">
+  <div class="section-head prose">
+    <p class="eyebrow">What it's built on</p>
+    <h2 id="surf-h">The package imports only public names <span class="lvl pub">Public</span></h2>
+    <p class="muted">Conductor's rules say the companion packages import only its <a href="overview.html#map">five public modules</a>. <code>conductor_nodes</code> imports these names from two of them.</p>
+  </div>
+  <div class="two" style="margin-bottom:2.5rem">
+    <div class="sample">
+      <pre data-lang="py">from conductor import NodeError, NodeRegistry, Param, Policy, SKIPPED, Series, Table
+from conductor.widgets import Textarea</pre>
+      <p class="small">Besides those, the package uses <code>pydantic</code> (for <code>JsonValue</code>), <code>polars</code>, the <code>regex</code> package and <code>typing-extensions</code>, which its <code>pyproject.toml</code> lists beside <code>syv-conductor</code>.</p>
+    </div>
+    <p class="muted">Each node is a typed function under <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>, with <a href="nodes-and-types.html#hint"><code>Param</code></a> where a field needs more than its type. The two pages on <a href="nodes-and-types.html">a node and its types</a> and on <a href="series-and-tables.html">Series and tables</a> explain these names.</p>
+  </div>
+  <div class="uses">
+    <div class="use"><h3>NodeRegistry<span>one per module</span></h3><p>A host makes one and adds the package's nodes to it with <a href="nodes-and-types.html#registry"><code>add_subregistry</code></a>. Each node keeps the category of the module it comes from.</p></div>
+    <div class="use"><h3>Series<span>where a loop starts and ends</span></h3><p>A node that returns one starts a <a href="series-and-tables.html#loop">loop</a>, such as <code>text-split</code>, and <code>series-collect</code>, whose list can start a new loop. A node that takes one is called once with every item, such as <code>text-join</code> and <code>math-max</code>. The palette marks both with <code>Series</code>.</p></div>
+    <div class="use"><h3>Table<span>a whole table as one value</span></h3><p><code>series-split</code> takes <code>Table[T] | list[T]</code> and gives its rows or items. <code>series-stack</code> returns <a href="series-and-tables.html#table"><code>Table[R]</code></a>. <code>table-collect</code> takes a <code>Table</code> and returns one with new columns.</p></div>
+    <div class="use"><h3>Param<span>titles, limits, widgets</span></h3><p>It gives output titles such as <code>Sum</code> and <code>Parts</code>. It sets limits that are checked before the node runs, such as <code>ge=0, le=8</code> on <code>json-stringify.indent</code>, <code>ge=0, le=10</code> on <code>math-round.decimals</code>, and <code>min_length=1</code> on <code>text-split.separator</code> and on the <code>needle</code> of <code>text-replace</code> and <code>text-contains</code>.</p></div>
+    <div class="use"><h3>Policy<span>calls that cost nothing</span></h3><p>Every node in the package is declared with <code>policy=</code><a href="nodes-and-types.html#policy"><code>Policy(costs_nothing=True)</code></a>, since none touches anything outside the run. So <a href="saved-runs-and-reuse.html#policy"><code>run.resume(only_costs_nothing=True)</code></a> calls all of them, and the totals after <code>text-split</code>, <code>text-list</code>, <code>regex-extract</code> and <code>series-split</code> are known before any node that costs something is called. A node's own error, such as <code>invalid_pattern</code>, can then fail that call.</p></div>
+    <div class="use"><h3>SKIPPED<span>a branch not chosen</span></h3><p>A <a href="nodes-and-types.html#outputs">branch</a> is an output whose default is <code>SKIPPED</code>. <code>control-decide</code> gives <code>SKIPPED</code> on the branch not chosen. <code>control-switch</code> returns <code>SKIPPED</code> for every branch but the chosen one.</p></div>
+    <div class="use"><h3>NodeError<span>a failure with a code</span></h3><p>The package raises it with codes of its own, such as <code>division_by_zero</code>, <code>not_json</code>, <code>invalid_pattern</code> and <code>columns_not_aligned</code>. Raised inside a <a href="nodes-and-types.html#hooks">hook</a>, it becomes a <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> <a href="problems.html">problem</a> when the graph is compiled.</p></div>
+    <div class="use"><h3>Textarea<span>the one widget</span></h3><p>It's on the long text inputs only. <a href="#widgets">See below</a>.</p></div>
+    <div class="use"><h3>Hooks<span>keywords of <code>@node</code></span></h3><p><code>control-switch</code> has <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a>. <code>table-collect</code> has <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> and <code>compute_outputs</code>. These are the nodes with hooks, and the ones set by a constant: <code>cases</code>, <code>columns</code> and <code>constant_columns</code>.</p></div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ CONTROL ============================ -->
+<section id="control" aria-labelledby="ctrl-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Choosing a way</p>
+    <h2 id="ctrl-h">Decide, switch and default</h2>
+    <p class="muted">A <a href="nodes-and-types.html#outputs">branch</a> is an output. The chosen branch gets the value, and the others get <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a>, so the nodes after them are skipped for that call. Several branches can be wired into one input. That node takes the value of whichever branch was chosen, so there is no node to join the branches again. All three pass <code>value</code> on unchanged.</p>
+  </div>
+
+  <div class="ctrl">
+    <!-- decide -->
+    <div class="ctrl-row">
+      <div class="stack">
+        <h3><code class="id">control-decide</code> sends a value one way or the other</h3>
+        <p class="muted">It sends <code>value</code> to <code>if_true</code> when <code>when</code> is true, and to <code>if_false</code> when it's false. Another node works out the yes or no, and you wire it into <code>when</code>. <code>when</code> has no default, so a graph that neither wires it nor gives it a value is <a href="graph-record-and-compiling.html#walls"><code>input_has_no_value</code></a> when it is compiled. Here <code>logic-equals</code> asks whether a text is 2 characters long.</p>
+        <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
+        <pre data-lang="py">@dataclass(frozen=True)
+class Decided[T]:
+    if_true: Annotated[T, Param(title="If true")] = SKIPPED
+    if_false: Annotated[T, Param(title="If false")] = SKIPPED
+
+@registry.node("control-decide", title="Decision", description="...")
+def decision[T](value: T, when: bool) -> Decided[T]:
+    return Decided(if_true=value) if when else Decided(if_false=value)</pre>
+      </div>
+      <div class="stack">
+        <div class="diagram">
+          <svg viewBox="0 0 560 230" role="img" aria-label="text-length feeds logic-equals, whose answer is control-decide's when. value goes into control-decide, and if_true feeds text-uppercase.">
+            <path class="d-edge" d="M140 52 L 196 52"/>
+            <path class="d-edge" d="M318 52 C 350 52, 340 110, 372 110"/>
+            <path class="d-edge" d="M140 150 C 260 150, 300 132, 372 128"/>
+            <path class="d-edge" id="dec-true" d="M484 104 C 500 104, 494 60, 470 60"/>
+            <path class="d-edge" id="dec-false" d="M484 134 C 512 134, 516 200, 492 204"/>
+            <rect class="d-box" x="20" y="32" width="120" height="40" rx="8"/><text class="d-label" x="80" y="51" text-anchor="middle">text-length</text><text class="d-sub" x="80" y="65" text-anchor="middle" id="dec-text">text "hi"</text>
+            <rect class="d-box" x="196" y="32" width="122" height="40" rx="8"/><text class="d-label" x="257" y="51" text-anchor="middle">logic-equals</text><text class="d-sub" x="257" y="65" text-anchor="middle">other = 2</text>
+            <text class="d-val" x="330" y="94" id="dec-when">when True</text>
+            <rect class="d-box" x="20" y="130" width="120" height="40" rx="8"/><text class="d-label" x="80" y="149" text-anchor="middle">graph input</text><text class="d-sub" x="80" y="163" text-anchor="middle">value "pass"</text>
+            <rect class="d-box on" x="372" y="94" width="112" height="50" rx="8"/><text class="d-label" x="428" y="115" text-anchor="middle">control-decide</text><text class="d-sub" x="428" y="131" text-anchor="middle">if_true | if_false</text>
+            <rect class="d-box" id="dec-up" x="360" y="36" width="110" height="40" rx="8"/><text class="d-label" x="415" y="55" text-anchor="middle">text-uppercase</text><text class="d-sub" x="415" y="69" text-anchor="middle" id="dec-up-sub">gets if_true</text>
+            <text class="d-tag" x="484" y="208" text-anchor="end" id="dec-false-tag">if_false: nothing wired</text>
+          </svg>
+        </div>
+        <div class="controls">
+          <span class="small">Run it with</span>
+          <span class="seg" role="group" aria-label="The text input">
+            <button class="btn" type="button" id="dec-hi" aria-pressed="true">text="hi"</button>
+            <button class="btn" type="button" id="dec-hey" aria-pressed="false">text="hey"</button>
+          </span>
+        </div>
+        <p class="cap">The same graph, run with both texts:</p>
+        <pre data-lang="py">graph = Graph.compile(make_graph(text.length, logic.equals, control.decision, text.uppercase,
+    edges=[("text-length.result", "logic-equals.value"),
+           ("logic-equals.result", "control-decide.when"),
+           ("control-decide.if_true", "text-uppercase.text")],
+    constants={"logic-equals.other": 2, "control-decide.value": "pass"},
+    outputs={"result": "text-uppercase.result"}), conductor_nodes.registry)
+for word in ("hi", "hey"):
+    run = graph.run({"text": word})
+    print(word, run.results["control-decide"], run.outputs)</pre>
+        <pre class="out">hi {'if_true': 'pass', 'if_false': None} {'result': 'PASS'}
+hey {'if_true': None, 'if_false': 'pass'} {'result': None}</pre>
+        <p class="small">The skipped branch shows as <code>None</code> in <a href="running-and-streaming.html#outcomes"><code>run.results</code></a>, and the graph's output is <code>None</code> when <code>text-uppercase</code> was skipped.</p>
+      </div>
+    </div>
+
+    <!-- switch -->
+    <div class="ctrl-row">
+      <div class="stack">
+        <h3><code class="id">control-switch</code> has a branch per case and one called <code>other</code></h3>
+        <p class="muted">Its outputs are named by <code>cases</code>, a constant written in the graph. Its <a href="nodes-and-types.html#hooks"><code>compute_outputs</code> hook</a> reads it when the graph is compiled. With <code>["invoice", "receipt"]</code> the outputs are <code>invoice</code>, <code>receipt</code> and <code>other</code>. A value whose <code>case</code> is none of them goes down <code>other</code>, so it isn't lost. The hook gets <code>value: type</code>, the type wired into <code>value</code>, and gives each name <code>(value, SKIPPED)</code>, so every branch has that type and the default <code>SKIPPED</code>. The match is exact. To ignore upper and lower case, put <code>text-lowercase</code> in front.</p>
+        <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
+        <pre data-lang="py" data-run="no">def _branches(cases: list[str], value: type) -> dict[str, Any]:
+    ...  # refuses a case named "other", and a case given twice
+    return {name: (value, SKIPPED) for name in [*cases, "other"]}
+
+@registry.node("control-switch", ..., compute_outputs=_branches)
+def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
+    taken = case if case in cases else "other"
+    return {name: value if name == taken else SKIPPED
+            for name in [*cases, "other"]}</pre>
+        <p class="cap">Two graphs compiled with <code>cases</code> the hook refuses. Each refusal is a <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a> entry, with the hook's code in its <code>ctx</code>.</p>
+        <pre data-lang="py">for cases in (["invoice", "other"], ["a", "b", "a"]):
+    graph = Graph.compile(make_graph(control.switch,
+        constants={"control-switch.cases": cases},
+        outputs={"result": "control-switch.other"}), conductor_nodes.registry)
+    print(cases, [(p.type, p.ctx["error"]) for p in graph.problems])</pre>
+        <pre class="out">['invoice', 'other'] [('compute_hook_failed', 'case_named_other')]
+['a', 'b', 'a'] [('compute_hook_failed', 'case_given_twice')]</pre>
+        <p class="small"> Since the hook reads <code>cases</code>, the input takes only a constant, and <code>describe()</code> marks it <a href="nodes-and-types.html#hooks"><code>constant_only</code></a>.</p>
+      </div>
+      <div class="stack">
+        <div class="diagram">
+          <svg viewBox="0 0 600 270" role="img" aria-label="series-split gives three items. control-switch sends each text down invoice, receipt or other by its label. All three branches are wired into text-uppercase, and series-collect gathers the results.">
+            <path class="d-edge" id="sw-in" d="M130 135 L 176 135"/>
+            <path class="d-edge sw-br" id="sw-b0" d="M300 120 C 340 120, 330 62, 370 62"/>
+            <path class="d-edge sw-br" id="sw-b1" d="M300 135 L 370 135"/>
+            <path class="d-edge sw-br" id="sw-b2" d="M300 150 C 340 150, 330 208, 370 208"/>
+            <path class="d-edge sw-up" id="sw-u0" d="M440 62 C 470 62, 460 120, 478 124"/>
+            <path class="d-edge sw-up" id="sw-u1" d="M440 135 L 478 135"/>
+            <path class="d-edge sw-up" id="sw-u2" d="M440 208 C 470 208, 460 150, 478 146"/>
+            <path class="d-edge" id="sw-out" d="M538 160 L 538 196"/>
+            <rect class="d-box" x="16" y="112" width="114" height="46" rx="8"/><text class="d-label" x="73" y="132" text-anchor="middle">series-split</text><text class="d-sub" x="73" y="148" text-anchor="middle">3 items</text>
+            <rect class="d-box on" x="176" y="105" width="124" height="60" rx="8"/><text class="d-label" x="238" y="128" text-anchor="middle">control-switch</text><text class="d-sub" x="238" y="144" text-anchor="middle" id="sw-case">case</text>
+            <g id="sw-ports"></g>
+            <rect class="d-box" x="478" y="112" width="110" height="46" rx="8"/><text class="d-label" x="533" y="132" text-anchor="middle">text-uppercase</text><text class="d-sub" x="533" y="148" text-anchor="middle">all three wired in</text>
+            <rect class="d-box" id="sw-col" x="478" y="196" width="110" height="46" rx="8"/><text class="d-label" x="533" y="216" text-anchor="middle">series-collect</text><text class="d-sub" x="533" y="232" text-anchor="middle" id="sw-col-sub">waits for all</text>
+            <text class="d-sub" x="16" y="30">cases = ["invoice", "receipt"]</text>
+            <text class="d-val" x="16" y="190" id="sw-item"></text>
+          </svg>
+        </div>
+        <div class="controls">
+          <button class="btn" id="sw-prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
+          <button class="btn primary" id="sw-play" type="button"><svg viewBox="0 0 16 16" id="sw-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="sw-txt">Play</span></button>
+          <button class="btn" id="sw-next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
+          <span class="count" id="sw-count">1 / 4</span>
+        </div>
+        <p class="muted" id="sw-cap"></p>
+        <p class="cap">The same graph, run:</p>
+        <pre data-lang="py">items = [{"label": "invoice", "text": "a"}, {"label": "receipt", "text": "b"},
+         {"label": "letter", "text": "c"}]
+graph = Graph.compile(make_graph(series.split, control.switch, text.uppercase, series.collect,
+    edges=[("series-split.result.label", "control-switch.case"),
+           ("series-split.result.text", "control-switch.value"),
+           ("control-switch.invoice", "text-uppercase.text"),
+           ("control-switch.receipt", "text-uppercase.text"),
+           ("control-switch.other", "text-uppercase.text"),
+           ("text-uppercase.result", "series-collect.values")],
+    constants={"control-switch.cases": ["invoice", "receipt"]},
+    outputs={"result": "series-collect.result"}), conductor_nodes.registry)
+run = graph.run({"value": items})
+print(run.results["control-switch"])
+print(run.outputs)</pre>
+        <pre class="out">{'invoice': ['a', None, None], 'receipt': [None, 'b', None], 'other': [None, None, 'c']}
+{'result': ['A', 'B', 'C']}</pre>
+      </div>
+    </div>
+
+    <!-- default -->
+    <div class="ctrl-row">
+      <div class="stack">
+        <h3><code class="id">control-default</code> gives the value or a fallback</h3>
+        <p class="muted">It gives <code>value</code>, or <code>fallback</code> when the value is <code>None</code>. A branch not chosen still skips it, since a skip wins. <code>fallback</code> can be a constant. Wire <code>fallback</code> from another node, and you get the first of two values that isn't <code>None</code>.</p>
+        <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
+        <pre data-lang="py">def default[T](value: T | None, fallback: T) -> T:
+    return fallback if value is None else value</pre>
+      </div>
+      <div class="sample">
+        <p class="cap"><code>json-get</code> reads <code>user.name</code>, which is <code>None</code> when nothing is there.</p>
+        <pre data-lang="py">graph = Graph.compile(make_graph(json_ops.get_path, control.default,
+    constants={"json-get.path": "user.name",
+               "control-default.fallback": "nobody"}), conductor_nodes.registry)
+print(graph.run({"value": {"user": {}}}).outputs)
+print(graph.run({"value": {"user": {"name": "Ida"}}}).outputs)</pre>
+        <pre class="out">{'result': 'nobody'}
+{'result': 'Ida'}</pre>
+        <p class="cap">With <code>value</code> wired from <code>control-decide.if_true</code> and <code>when</code> false, it is skipped:</p>
+        <pre data-lang="py">skipped = Graph.compile(make_graph(control.decision, control.default,
+    edges=[("control-decide.if_true", "control-default.value")],
+    constants={"control-decide.when": False, "control-default.fallback": "nobody"},
+    outputs={"result": "control-default.result"}), conductor_nodes.registry)
+print(skipped.run({"value": "Ida"}).results["control-default"])</pre>
+        <pre class="out">{'result': None}</pre>
+      </div>
+    </div>
+
+    <!-- type follows -->
+    <div class="ctrl-row">
+      <div class="stack">
+        <h3>The outputs take the type wired in</h3>
+        <p class="muted"><code>value</code> is a type variable <code>T</code>, and so are the outputs. When a graph is compiled, <code>T</code> becomes the type on the edge into <code>value</code>. Wire in the <code>int</code> of <code>text-length</code>, and both branches are <code>int</code>. A node wired after a branch is checked against <code>int</code>. Wire <code>if_true</code> into <code>text-uppercase.text</code>, a <code>str</code>, and <a href="graph-record-and-compiling.html#compiling">compiling</a> reports it.</p>
+        <p class="small">With no edge into <code>value</code>, say a constant, the type stays <code>Any</code>. The palette's runs show that. There each node is alone, so <code>control-decide</code>'s outputs are <code>Any</code>.</p>
+      </div>
+      <div class="sample">
+        <pre data-lang="py">graph = Graph.compile(make_graph(text.length, control.decision,
+    edges=[("text-length.result", "control-decide.value")]), conductor_nodes.registry)
+print([(f.name, f.type, f.required)
+       for f in graph.describe().nodes["control-decide"].outputs])</pre>
+        <pre class="out">[('if_true', 'int', False), ('if_false', 'int', False)]</pre>
+        <p class="cap">Wire <code>if_true</code> also into <code>text-uppercase.text</code>, and the graph has one <a href="problems.html">problem</a>. Below are its type, its place, and the <code>got</code> and <code>expected</code> of its <code>ctx</code>.</p>
+        <pre data-lang="py">graph = Graph.compile(make_graph(text.length, control.decision, text.uppercase,
+    edges=[("text-length.result", "control-decide.value"),
+           ("control-decide.if_true", "text-uppercase.text")]), conductor_nodes.registry)
+print([(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems])</pre>
+        <pre class="out">[('type_mismatch', ('text-uppercase', 'text'), 'int', 'str')]</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WIDGETS ============================ -->
+<section id="widgets" aria-labelledby="w-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Widgets</p>
+    <h2 id="w-h">The one widget is for long texts <span class="lvl pub">Public</span></h2>
+    <p class="muted">A <a href="nodes-and-types.html#hint">widget</a> tells a host's editor how to draw an input. <a href="graph-record-and-compiling.html#compiling">Compiling</a> and running never read one.</p>
+    <p class="muted">The package gives one widget, <code>Textarea()</code>, to the inputs below. Each is the main text a node works on, which may be long. In <code>describe()</code> it's written <code>{'type': 'textarea', 'rows': 4}</code>.</p>
+  </div>
+  <div class="wlist">
+    <div>
+      <h3>Inputs with <code>Textarea()</code></h3>
+      <div class="pills" id="w-yes"></div>
+    </div>
+    <div>
+      <h3>Inputs with no widget that take text</h3>
+      <div class="pills" id="w-no"></div>
+      <p class="small">Every input typed <code>str</code> with no widget, then those typed <a href="series-and-tables.html#loop"><code>Series[str]</code></a>, a list of texts.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ LOOPS ============================ -->
+<section id="loops" aria-labelledby="l-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Loops and tables</p>
+    <h2 id="l-h">From a table into a loop and back <span class="lvl pub">Public</span></h2>
+    <p class="muted">A table is one value. <code>series-split</code> takes it apart, so the nodes after it run once per row. <code>table-collect</code> puts the rows back into one table, with a new column for what was worked out for each. How loops work is on the <a href="series-and-tables.html">Series and tables</a> page. This is the package's own example, from its README.</p>
+  </div>
+  <div class="two">
+    <div class="sample">
+<script type="text/x-python">
+reg = NodeRegistry()
+reg.add_subregistry(conductor_nodes.series.registry)
+reg.add_subregistry(conductor_nodes.tables.registry)
+</script>
+      <pre data-lang="py">@reg.node("read-contacts", title="Read contacts", description="...")
+def read_contacts(csv: str) -> Table:
+    return pl.read_csv(io.StringIO(csv))
+
+@reg.node("greet", title="Greet", description="...")
+def greet(name: str) -> str:
+    return f"Hello {name}"
+
+contacts = Graph.compile(make_graph(
+    read_contacts, series.split, greet, tables.collect,
+    edges=[("read-contacts.result", "series-split.value"),
+           ("series-split.result.name", "greet.name"),
+           ("series-split.result", "table-collect.rows"),
+           ("greet.result", "table-collect.greeting")],
+    constants={"table-collect.columns": ["greeting"]},
+    outputs={"contacts": "table-collect.result"}), reg)
+
+d = contacts.describe()
+print({n: d.nodes[n].per_item_of for n in ("series-split", "greet", "table-collect")})
+print([(i.field.name, i.field.type) for i in d.nodes["table-collect"].inputs])
+print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())</pre>
+      <pre class="out">{'series-split': None, 'greet': 'series-split.result', 'table-collect': None}
+[('rows', 'Table'), ('columns', 'list[str]'), ('constant_columns', 'list[str]'), ('greeting', 'Any')]
+[{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]</pre>
+    </div>
+    <div class="stack">
+      <p class="muted"><code>greet</code> takes one name, so it runs once per contact (<a href="series-and-tables.html#loop"><code>per_item_of</code></a>). <code>table-collect</code> runs once, with every row.</p>
+      <p class="muted">Each name in <code>columns</code> becomes an input of <code>table-collect</code>, here <code>greeting</code>. Its hook <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> adds it when the graph is compiled. <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a> then works out the table's type. Here the rows are a bare <a href="series-and-tables.html#table"><code>Table</code></a>, of columns not known in advance, so the result is a bare <code>Table</code> too. With rows typed by a <code>TypedDict</code>, the result's columns are typed.</p>
+      <p class="muted">Its output is worked out when the graph is compiled, so <a href="graph-record-and-compiling.html#make"><code>make_graph</code></a> is told the graph returns it, with <code>outputs=</code>.</p>
+      <p class="small"><code>series-collect</code> is the plain way back. It gives a list of each item's value. <code>series-stack</code> stacks one table per item into one table.</p>
+      <p class="muted">Wire the whole table into <code>greet.name</code> instead, and <a href="graph-record-and-compiling.html#compiling">compiling</a> reports a <a href="problems.html">problem</a>.</p>
+      <pre data-lang="py">whole = Graph.compile(make_graph(read_contacts, greet,
+    edges=[("read-contacts.result", "greet.name")]), reg)
+print([(p.type, p.loc) for p in whole.problems])</pre>
+      <pre class="out">[('type_mismatch_whole_table_or_list', ('greet', 'name'))]</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ FACTS ============================ -->
+<section id="facts" aria-labelledby="f-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Good to know</p>
+    <h2 id="f-h">Six details and their runs</h2>
+  </div>
+  <div class="facts">
+    <div>
+      <h3>A slow pattern fails its node</h3>
+      <p class="muted">The regex nodes use the <code>regex</code> package, and every search has a timeout of 2 seconds (<code class="int" title="Internal">regex_ops.TIMEOUT</code>). On <code>(a+)+$</code> against a run of a's and a b, Python's <code>re</code> can run practically forever. The <code>regex</code> package finishes a run of 30. On 5,000 it still runs past the timeout, and the node fails. Here is <code>regex-match</code> on both: the run's status, then its outputs or the code it failed with.</p>
+      <pre data-lang="py">graph = Graph.compile(make_graph(regex_ops.match,
+    constants={"regex-match.pattern": "(a+)+$"}), conductor_nodes.registry)
+for n in (30, 5000):
+    run = graph.run({"text": "a" * n + "b"})
+    print(n, run.status, run.outputs if run.status == "complete" else run.cause.type)</pre>
+      <pre class="out">30 complete {'result': False}
+5000 failed pattern_timeout</pre>
+    </div>
+    <div>
+      <h3>Rounding the way people do</h3>
+      <p class="muted"><code>math-round</code> rounds a half away from zero, on the number as it's written. The float closest to 0.125 is a little less than 0.125, so Python's own <code>round</code> gives 0.12.</p>
+      <pre data-lang="py">print(m.round_to(2.5), m.round_to(-2.5), m.round_to(0.125, 2), round(0.125, 2))</pre>
+      <pre class="out">3.0 -3.0 0.13 0.12</pre>
+    </div>
+    <div>
+      <h3>What counts as empty</h3>
+      <p class="muted"><code>logic-is-empty</code> is true for <code>None</code> and for anything with a length of 0, a table of no rows included. <code>0</code> and a text of one space are not empty.</p>
+      <pre data-lang="py">print(logic.is_empty(pl.DataFrame({"name": []}, schema={"name": pl.String})),
+      logic.is_empty(0), logic.is_empty(" "))</pre>
+      <pre class="out">True False False</pre>
+    </div>
+    <div>
+      <h3>JSON has no NaN</h3>
+      <p class="muted">Python's <code>json</code> reads <code>NaN</code> and <code>Infinity</code>, reads <code>1e999</code> as <code>inf</code>, and writes <code>inf</code> back. JSON has none of them, so <code>json-parse</code> and <code>json-stringify</code> refuse them with <code>not_json</code>.</p>
+      <pre data-lang="py">for text_in in ("NaN", "1e999", '{"a": 1}'):
+    try:
+        print(text_in, "->", json_ops.parse(text_in))
+    except NodeError as error:
+        print(text_in, "->", error.problems[0].type)</pre>
+      <pre class="out">NaN -> not_json
+1e999 -> not_json
+{"a": 1} -> {'a': 1}</pre>
+    </div>
+    <div>
+      <h3>A path part is read as written</h3>
+      <p class="muted"><code>json-get</code> splits its path at each dot and reads each part exactly as written, spaces included. So <code>"user. name"</code> looks for the key <code>" name"</code> and finds nothing.</p>
+      <pre data-lang="py">value = {"user": {"name": "Ida"}}
+print(json_ops.get_path(value, "user.name"), json_ops.get_path(value, "user. name"))</pre>
+      <pre class="out">Ida None</pre>
+    </div>
+    <div>
+      <h3>A node is still its function</h3>
+      <p class="muted"><a href="nodes-and-types.html#signature"><code>@registry.node</code></a> returns a definition you can call like the function. So a node's unit test can be a plain call, with no graph.</p>
+      <pre data-lang="py">print(text.reverse("abc"), json_ops.get_path({"items": [1, 2, 3]}, "items.-1"))</pre>
+      <pre class="out">cba 3</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ CHOICES ============================ -->
+<section id="choices" aria-labelledby="c-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="c-h">The package's design choices</h2>
+  </div>
+  <div class="choices">
+    <article class="choice">
+      <h3>Each module has a registry and is one category.</h3>
+      <p>A host takes the kinds of node it wants with <a href="nodes-and-types.html#registry"><code>add_subregistry</code></a>, or filters the whole package by category, and both give the same nodes. No node in the package sets a category of its own, so each takes its module's.</p>
+      <p class="cost"><b>Cost:</b> a host that adds the whole package and then one module again gets <a href="nodes-and-types.html#registry"><code>duplicate_node_id</code></a>. It picks one or the other.</p>
+    </article>
+    <article class="choice">
+      <h3>The package uses only conductor's public names.</h3>
+      <p>It needs nothing from <a href="overview.html#map"><code class="int" title="Internal">conductor._internal</code></a>, so a change inside the engine that keeps the public modules the same doesn't touch it.</p>
+    </article>
+    <article class="choice">
+      <h3>A node for any type is generic and needs a hook only for names.</h3>
+      <p>The nodes that pass a value on, such as <code>control-decide</code>, <code>logic-equals</code> and <code>series-split</code>, declare a type variable; the palette marks them <code>T</code>. A node after them is checked against the real type, not <code>Any</code>. They need no <a href="nodes-and-types.html#hooks">hook</a>, except <code>control-switch</code>. Its <a href="nodes-and-types.html#outputs">branch</a> names come from a hook, since <code>cases</code> names them, and their type comes from <code>T</code>.</p>
+      <p class="cost"><b>Cost:</b> with no edge into the value, such as a constant, the type stays <code>Any</code>.</p>
+    </article>
+    <article class="choice">
+      <h3>A hook is used only where a constant names the fields.</h3>
+      <p>The branches of <code>control-switch</code> and the new columns of <code>table-collect</code> are named in the graph, so a hook works them out when it's compiled. Each input whose value a hook reads <a href="nodes-and-types.html#hooks">takes only a constant</a>. An input whose type it reads, such as <code>value: type</code>, is wired as usual.</p>
+      <p class="cost"><b>Cost:</b> <code>cases</code> and <code>columns</code> can't come from an edge. They're written when the graph is drawn.</p>
+    </article>
+    <article class="choice">
+      <h3>A branch not chosen is <code>SKIPPED</code>, and branches join at an input.</h3>
+      <p>A branch is an output whose default is <code>SKIPPED</code>, and a call gives a value to at most one branch of a node. A node with several branches wired into one input takes the one that has the value. So the package has no join node.</p>
+    </article>
+    <article class="choice">
+      <h3>The decision doesn't parse a condition.</h3>
+      <p><code>control-decide</code> takes a yes or no. Small nodes work it out: <code>logic-equals</code>, <code>logic-is-empty</code>, <code>logic-not</code>, <code>text-contains</code>, <code>regex-match</code>. So there's no expression language to learn or to check.</p>
+      <p class="cost"><b>Cost:</b> a condition is one more node in the graph.</p>
+    </article>
+    <article class="choice">
+      <h3>A switch always has <code>other</code>.</h3>
+      <p>A case none of the branches names still goes somewhere. That's why a case may not be called <code>other</code> (<code>case_named_other</code>).</p>
+    </article>
+    <article class="choice">
+      <h3>A widget is given only where it adds something.</h3>
+      <p>Without a <a href="nodes-and-types.html#hint">widget</a>, the editor picks a control from the input's type. The inputs that take a long text get a <code>Textarea</code>. The short ones keep the editor's default.</p>
+    </article>
+    <article class="choice">
+      <h3>A failure has a code of its own.</h3>
+      <p>A node that can't do its job raises a <a href="problems.html#failures"><code>NodeError</code></a> with a code such as <code>division_by_zero</code> or <code>invalid_replacement</code>. A host can tell them apart by code. A <code>NodeError</code> other than an <a href="problems.html#failures"><code>ExternalError</code></a>, which no node here raises, isn't <a href="running-and-streaming.html#retried">retried</a>, even with <code>retry_on=(Exception,)</code>, since the same arguments would fail the same way.</p>
+    </article>
+    <article class="choice">
+      <h3>The nodes only compute, so every one is tested by running it.</h3>
+      <p>None of them needs an outside service, so <code class="int" title="Internal">test_catalog.py</code> gives every node an example, and a test checks that none is missing. <a href="problems.html#check"><code>check_registry</code></a> then runs the whole registry in one test. A host sees none of this, but <code>check_registry</code> is the same one test a host can run on its own registry.</p>
+    </article>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ NEXT ============================ -->
+<section id="next" aria-labelledby="next-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Where to go next</p>
+    <h2 id="next-h">The code and the rest of the series</h2>
+    <p class="muted">The nodes are in <code class="int" title="Internal">packages/conductor-nodes/src/conductor_nodes/</code>. Read <code class="int" title="Internal">__init__.py</code> first, then <code class="int" title="Internal">control.py</code> and <code class="int" title="Internal">tables.py</code>, the two modules with <a href="nodes-and-types.html#hooks">hooks</a>. The tests are in <code class="int" title="Internal">tests/test_nodes/</code>.</p>
+  </div>
+  <ul class="series">
+    <li><a href="overview.html">The overview</a> <span>page 1</span></li>
+    <li><a href="nodes-and-types.html">A node and its types</a> <span>page 2</span></li>
+    <li><a href="graph-record-and-compiling.html">The graph record and compiling</a> <span>page 3</span></li>
+    <li><a href="series-and-tables.html">Series and tables</a> <span>page 4</span></li>
+    <li><a href="asking-a-person.html">Asking a person</a> <span>page 5</span></li>
+    <li><a href="subgraphs.html">Subgraphs</a> <span>page 6</span></li>
+    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>page 7</span></li>
+    <li><a href="running-and-streaming.html">Running and streaming</a> <span>page 8</span></li>
+    <li><a href="problems.html">Problems</a> <span>page 9</span></li>
+    <li class="here">The nodes <span>this page</span></li>
+    <li><a href="serving-runs.html">Serving runs</a> <span>page 11</span></li>
+  </ul>
+</section>
+
+
+</div>
+</div>
+
+<!-- The docs build writes every node and one run of it in here, from the code (docs/hooks/explainers.py). -->
+<script type="application/json" id="palette-data">[]</script>
+<script>
+const PALETTE = JSON.parse(document.getElementById("palette-data").textContent);
+/* What each module is for, in words. The modules themselves, their categories and their nodes are read from PALETTE. */
+const WHAT = {
+  text: "change, split, join and search text",
+  math: "arithmetic on float numbers",
+  logic: "answer yes or no about a value",
+  json_ops: "read and write JSON",
+  regex_ops: "match, replace and find patterns",
+  series: "start and end a loop",
+  tables: "rows of a loop back into a table",
+  control: "choose where a value goes",
+};
+const MODULES = [];
+PALETTE.forEach((n) => {
+  let m = MODULES.find((x) => x.mod === n.module);
+  if (!m) MODULES.push((m = { mod: n.module, cat: n.category, n: 0, what: WHAT[n.module] || "" }));
+  m.n += 1;
+});
+/* the items the switch walk-through steps through: the input of the switch sample beside it */
+const SWITCH_ITEMS = [ { label: "invoice", text: "a" }, { label: "receipt", text: "b" }, { label: "letter", text: "c" } ];
+const EMPTY = "The palette is written into this page when the docs are built. Open the built docs to see every node.";
+
+(function () {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  /* escapes the whole text, then turns only [text](a link to a page of the series) into a link */
+  const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- highlighter ---------- */
+  const PY_KW = /\b(def|return|if|else|raise|from|import|class|for|in|lambda|True|False|None|print)\b/g;
+  function highlight(src) {
+    const out = [];
+    const re = /(#[^\n]*)|("""[\s\S]*?"""|f?"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(@[\w.]+)/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      out.push(esc(src.slice(last, m.index)).replace(PY_KW, '<span class="tk-k">$1</span>'));
+      if (m[1]) out.push('<span class="tk-c">' + esc(m[1]) + "</span>");
+      else if (m[2]) out.push('<span class="tk-s">' + esc(m[2]) + "</span>");
+      else out.push('<span class="tk-k">' + esc(m[3]) + "</span>");
+      last = re.lastIndex;
+    }
+    out.push(esc(src.slice(last)).replace(PY_KW, '<span class="tk-k">$1</span>'));
+    return out.join("");
+  }
+  /* each line is a block with a hanging indent, so a wrapped line keeps its place */
+  function hang(pre, html) {
+    const lines = html.split("\n");
+    const balanced = lines.every((l) => (l.match(/<span/g) || []).length === (l.match(/<\/span>/g) || []).length);
+    if (!balanced) { pre.innerHTML = html; return; }
+    pre.innerHTML = lines.map((l) => {
+      const n = l.match(/^ */)[0].length;
+      return '<span class="ln" style="padding-left:' + (n + 2) + 'ch;text-indent:-' + (n + 2) + 'ch">' + (l || " ") + "</span>";
+    }).join("");
+  }
+  const paint = (pre) => hang(pre, highlight(pre.textContent));
+  document.querySelectorAll("pre[data-lang]").forEach(paint);
+  document.querySelectorAll("pre.out").forEach((pre) => hang(pre, esc(pre.textContent)));
+
+  /* ---------- Python-like repr for the palette ---------- */
+  function py(v) {
+    if (v === null) return "None";
+    if (v === true) return "True";
+    if (v === false) return "False";
+    if (typeof v === "string") return "'" + v.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/'/g, "\\'") + "'";
+    if (typeof v === "number") return String(v);
+    if (Array.isArray(v)) return "[" + v.map(py).join(", ") + "]";
+    return "{" + Object.entries(v).map(([k, x]) => "'" + k + "': " + py(x)).join(", ") + "}";
+  }
+  function pyNum(v, type) { return typeof v === "number" && type === "float" && Number.isInteger(v) ? v.toFixed(1) : py(v); }
+
+  /* ======================= MODULE PICKER ======================= */
+  if (!PALETTE.length) {
+    ["#mods", "#groups", "#w-yes", "#w-no"].forEach((q) => { $(q).innerHTML = '<p class="muted">' + esc(EMPTY) + "</p>"; });
+    $("#pick-code").textContent = EMPTY;
+    $(".tally").hidden = true;
+  }
+  const picked = new Set(MODULES.map((m) => m.mod));
+  let asFilter = false;
+  const modsEl = $("#mods");
+  MODULES.forEach((m) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "mod"; b.dataset.mod = m.mod;
+    b.innerHTML = "<b>" + esc(m.mod) + "<span>" + m.n + "</span></b><small>category " + esc(m.cat) + "</small><small>" + esc(m.what) + "</small>";
+    b.addEventListener("click", () => { picked.has(m.mod) ? picked.delete(m.mod) : picked.add(m.mod); renderPick(); });
+    modsEl.append(b);
+  });
+  /* the diagram's module column */
+  const NS = "http://www.w3.org/2000/svg";
+  const dMods = $("#dia-mods"), dEdges = $("#dia-mod-edges");
+  MODULES.forEach((m, i) => {
+    const y = 34 + i * 32;
+    const e = document.createElementNS(NS, "path");
+    e.setAttribute("class", "d-edge"); e.dataset.mod = m.mod;
+    e.setAttribute("d", "M206 " + (y + 12) + " C 290 " + (y + 12) + ", 280 150, 350 150");
+    dEdges.append(e);
+    const g = document.createElementNS(NS, "g"); g.dataset.mod = m.mod;
+    g.innerHTML = '<rect class="d-box" x="16" y="' + y + '" width="190" height="24" rx="6"/>' +
+      '<text class="d-label" x="26" y="' + (y + 16) + '">' + esc(m.mod) + ".registry</text>" +
+      '<text class="d-sub" x="196" y="' + (y + 16) + '" text-anchor="end">' + m.n + "</text>";
+    dMods.append(g);
+  });
+  function renderPick() {
+    const chosen = MODULES.filter((m) => picked.has(m.mod));
+    const total = chosen.reduce((a, m) => a + m.n, 0);
+    modsEl.querySelectorAll(".mod").forEach((b) => b.setAttribute("aria-pressed", String(picked.has(b.dataset.mod))));
+    dMods.querySelectorAll("g").forEach((g) => g.querySelector("rect").setAttribute("class", "d-box" + (picked.has(g.dataset.mod) ? " on" : " off")));
+    dEdges.querySelectorAll("path").forEach((p) => p.setAttribute("class", "d-edge" + (picked.has(p.dataset.mod) ? "" : " off")));
+    $("#tally").textContent = total;
+    $("#tally-txt").textContent = (total === 1 ? "node" : "nodes") + " in the host's registry";
+    $("#host-sub").textContent = PALETTE.length ? total + " of the " + PALETTE.length + " and the host's own" : "";
+    $("#host-edge").setAttribute("class", "d-edge" + (total ? " on" : " off"));
+    $("#as-add").setAttribute("aria-pressed", String(!asFilter));
+    $("#as-filter").setAttribute("aria-pressed", String(asFilter));
+    if (!PALETTE.length) return;
+    let code = "import conductor_nodes\nfrom conductor import NodeRegistry\n\nregistry = NodeRegistry()\n";
+    if (!chosen.length) code += "# no standard nodes, only the host's own\n";
+    else if (chosen.length === MODULES.length) code += "registry.add_subregistry(conductor_nodes.registry)\n";
+    else if (!asFilter) chosen.forEach((m) => { code += "registry.add_subregistry(conductor_nodes." + m.mod + ".registry)\n"; });
+    else {
+      const cats = chosen.map((m) => '"' + m.cat + '"');
+      code += "registry.add_subregistry(\n    conductor_nodes.registry.filter(lambda d: d.category in {" + cats.join(", ") + "})\n)\n";
+    }
+    code += "\n@registry.node(\"greet\", title=\"Greet\", description=\"Greets a person.\")\ndef greet(name: str) -> str:\n    return f\"Hello {name}\"";
+    const pre = $("#pick-code"); pre.textContent = code; paint(pre);
+  }
+  $("#all-btn").addEventListener("click", () => { MODULES.forEach((m) => picked.add(m.mod)); renderPick(); });
+  $("#none-btn").addEventListener("click", () => { picked.clear(); renderPick(); });
+  $("#as-add").addEventListener("click", () => { asFilter = false; renderPick(); });
+  $("#as-filter").addEventListener("click", () => { asFilter = true; renderPick(); });
+  renderPick();
+  if (PALETTE.length) $("#pkg-sub").textContent = PALETTE.length + " nodes, " + MODULES.length + " categories";
+
+  /* ======================= PALETTE ======================= */
+  let cat = "all", query = "", sel = "control-switch";
+  const catsEl = $("#cats");
+  ["all", ...MODULES.map((m) => m.cat)].forEach((c) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chipbtn"; b.dataset.cat = c; b.textContent = c;
+    b.addEventListener("click", () => { cat = c; renderPal(); });
+    catsEl.append(b);
+  });
+  $("#q").addEventListener("input", (e) => { query = e.target.value.trim().toLowerCase(); renderPal(); });
+  function flags(n) {
+    const f = [];
+    if (n.computes_outputs) f.push("compute_outputs");
+    if (n.added_inputs) f.push("compute_added_inputs");
+    if (n.inputs.some((i) => i.series) || n.outputs.some((o) => o.series)) f.push("Series");
+    if (n.inputs.some((i) => i.tv)) f.push("T");
+    return f;
+  }
+  function renderPal() {
+    if (!PALETTE.length) return;
+    catsEl.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cat === cat)));
+    const groups = $("#groups"); groups.innerHTML = "";
+    MODULES.forEach((m) => {
+      if (cat !== "all" && cat !== m.cat) return;
+      const nodes = PALETTE.filter((n) => n.category === m.cat && (!query || n.id.includes(query) || n.title.toLowerCase().includes(query)));
+      if (!nodes.length) return;
+      const g = document.createElement("div"); g.className = "group";
+      g.innerHTML = "<h3>" + esc(m.cat) + " <code>conductor_nodes." + esc(m.mod) + "</code></h3>";
+      const t = document.createElement("div"); t.className = "tiles";
+      nodes.forEach((n) => {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "ntile"; b.setAttribute("aria-pressed", String(n.id === sel));
+        b.innerHTML = "<b>" + esc(n.id) + "</b><small>" + esc(n.title) + "</small>" +
+          (flags(n).length ? '<span class="flags">' + flags(n).map((f) => '<span class="flag">' + esc(f) + "</span>").join("") + "</span>" : "");
+        b.addEventListener("click", () => { sel = n.id; renderPal(); });
+        t.append(b);
+      });
+      g.append(t); groups.append(g);
+    });
+    if (!groups.children.length) groups.innerHTML = '<p class="muted">No node matches. Clear the search or pick another category.</p>';
+    renderDetail();
+  }
+  function typeOf(f) { return (f.series ? "Series[" + f.type + "]" : f.type); }
+  function fieldRows(fields, isInput) {
+    if (!fields.length) return "";
+    return '<table class="ftab"><tbody>' + fields.map((f) => {
+      const notes = [];
+      if (f.title) notes.push("title " + f.title);
+      if (isInput && !f.required && "default" in f) notes.push("default " + py(f.default));
+      if (isInput && f.required) notes.push("required");
+      if (f.widget) notes.push("widget " + f.widget);
+      if (f.constant_only) notes.push("constant only");
+      if (f.tv) notes.push("type variable " + f.tv.join(", "));
+      return "<tr><td>" + esc(f.name) + '</td><td class="ty">' + esc(typeOf(f)) + '<div class="nt">' + esc(notes.join(" · ")) + "</div></td></tr>";
+    }).join("") + "</tbody></table>";
+  }
+  function renderDetail() {
+    const n = PALETTE.find((x) => x.id === sel);
+    const declared = new Set(n.inputs.map((i) => i.name));
+    const added = n.compiled_inputs.filter((i) => !declared.has(i.name));
+    const outTypes = Object.fromEntries(n.compiled_outputs.map((o) => [o.name, o.type]));
+    let outs = n.outputs.length ? fieldRows(n.outputs, false) : "";
+    let hookNote = "";
+    if (n.computes_outputs) hookNote += "<p class=\"note\">Its outputs are worked out by <a href=\"nodes-and-types.html#hooks\"><code>compute_outputs</code></a> when a graph is compiled, so <code>registry.describe()</code> lists none. With the example below they are " +
+      n.compiled_outputs.map((o) => "<code>" + esc(o.name) + "</code> (" + esc(typeOf(o)) + ")").join(", ") + ".</p>";
+    if (n.added_inputs) hookNote += "<p class=\"note\"><a href=\"nodes-and-types.html#hooks\"><code>compute_added_inputs</code></a> adds an input for each column named. With the example below it adds " +
+      added.map((i) => "<code>" + esc(i.name) + "</code> (" + esc(typeOf(i)) + ")").join(", ") + ".</p>";
+    const ex = Object.entries(n.example).map(([k, v]) => '<div><span class="k">' + esc(k) + " = </span><span class=\"v\">" + esc(py(v)) + "</span></div>").join("");
+    const res = Object.entries(n.results).map(([k, v]) => {
+      const shown = v && typeof v === "object" && !Array.isArray(v) && "table" in v ? "a table: " + py(v.table) : pyNum(v, outTypes[k]);
+      return '<div><span class="k">' + esc(k) + ": </span><span class=\"v res\">" + esc(shown) + "</span></div>";
+    }).join("");
+    $("#detail").innerHTML =
+      "<div><p class=\"nid\">" + esc(n.id) + "</p><p class=\"ttl\">" + esc(n.title) + " · category " + esc(n.category) + "</p></div>" +
+      '<p class="desc">' + esc(n.description) + "</p>" +
+      '<pre data-lang="py">from conductor_nodes.' + esc(n.module) + " import " + esc(n.function) + "</pre>" +
+      "<div><h4>Inputs</h4>" + fieldRows(n.inputs, true) + "</div>" +
+      (outs ? "<div><h4>Outputs</h4>" + outs + "</div>" : "") + hookNote +
+      "<div><h4>One run with the test's example</h4><div class=\"runbox\">" + ex + '<div class="k">run.results:</div>' + res + "</div></div>" +
+      (n.id === "table-collect" ? '<p class="small">The example gives the rows as a list of dicts. As a constant it is read into a table.</p>' : "") +
+      (n.results && Object.values(n.results).includes(null) ? '<p class="small"><a href="nodes-and-types.html#outputs">A branch that wasn\'t chosen</a> shows as None in <a href="running-and-streaming.html#outcomes">run.results</a>.</p>' : "");
+    $("#detail").querySelectorAll("pre[data-lang]").forEach(paint);
+  }
+  renderPal();
+
+  /* ======================= DECIDE ======================= */
+  function decide(word) {
+    /* logic-equals asks whether the text is 2 characters long */
+    const t = word.length === 2;
+    $("#dec-hi").setAttribute("aria-pressed", String(word === "hi"));
+    $("#dec-hey").setAttribute("aria-pressed", String(word === "hey"));
+    $("#dec-text").textContent = 'text "' + word + '"';
+    $("#dec-when").textContent = "when " + (t ? "True" : "False");
+    $("#dec-true").setAttribute("class", "d-edge" + (t ? " on" : " off"));
+    $("#dec-false").setAttribute("class", "d-edge" + (t ? " off" : " on"));
+    $("#dec-up").setAttribute("class", "d-box" + (t ? " on" : " off"));
+    $("#dec-up-sub").textContent = t ? "gets if_true" : "skipped";
+  }
+  $("#dec-hi").addEventListener("click", () => decide("hi"));
+  $("#dec-hey").addEventListener("click", () => decide("hey"));
+  decide("hi");
+
+  /* ======================= SWITCH ======================= */
+  const BR = ["invoice", "receipt", "other"];
+  const portY = [62, 135, 208];
+  const ports = $("#sw-ports");
+  BR.forEach((b, i) => {
+    const g = document.createElementNS(NS, "g");
+    g.innerHTML = '<rect class="d-box sw-port" x="370" y="' + (portY[i] - 14) + '" width="70" height="28" rx="6"/>' +
+      '<text class="d-label" x="405" y="' + (portY[i] + 4) + '" text-anchor="middle">' + b + "</text>" +
+      '<text class="d-skip sw-skip" x="405" y="' + (portY[i] + 28) + '" text-anchor="middle"></text>';
+    ports.append(g);
+  });
+  let sw = 0, swTimer = null;
+  const SW_STEPS = 4;
+  function swShow(i) {
+    sw = (i + SW_STEPS) % SW_STEPS;
+    const done = sw === 3;
+    const rects = ports.querySelectorAll(".sw-port"), skips = ports.querySelectorAll(".sw-skip");
+    if (!done) {
+      const item = SWITCH_ITEMS[sw];
+      const chosen = BR.includes(item.label) ? item.label : "other";
+      const k = BR.indexOf(chosen);
+      $("#sw-item").textContent = "item " + sw + ": {'label': '" + item.label + "', 'text': '" + item.text + "'}";
+      $("#sw-case").textContent = "case '" + item.label + "'";
+      BR.forEach((b, j) => {
+        rects[j].setAttribute("class", "d-box sw-port" + (j === k ? " on" : " off"));
+        skips[j].textContent = j === k ? "" : "SKIPPED";
+        $("#sw-b" + j).setAttribute("class", "d-edge" + (j === k ? " on" : " off"));
+        $("#sw-u" + j).setAttribute("class", "d-edge" + (j === k ? " on" : " off"));
+      });
+      $("#sw-in").setAttribute("class", "d-edge on");
+      $("#sw-out").setAttribute("class", "d-edge");
+      $("#sw-col").setAttribute("class", "d-box");
+      $("#sw-col-sub").textContent = "waits for all";
+      $("#sw-cap").innerHTML = linked(item.label === chosen
+        ? "The case is '" + item.label + "', one of the cases, so the text goes down " + chosen + ". The other two branches get SKIPPED for this item."
+        : "The case is '" + item.label + "', which no branch is named for, so the text goes down other.");
+    } else {
+      $("#sw-item").textContent = "all three items done";
+      $("#sw-case").textContent = "one call per item";
+      BR.forEach((b, j) => {
+        rects[j].setAttribute("class", "d-box sw-port");
+        skips[j].textContent = "";
+        $("#sw-b" + j).setAttribute("class", "d-edge");
+        $("#sw-u" + j).setAttribute("class", "d-edge");
+      });
+      $("#sw-in").setAttribute("class", "d-edge");
+      $("#sw-out").setAttribute("class", "d-edge on");
+      $("#sw-col").setAttribute("class", "d-box on");
+      $("#sw-col-sub").textContent = "gets every result";
+      $("#sw-cap").innerHTML = linked("text-uppercase ran [once per item](series-and-tables.html#loop), each time from the one branch that had a value. series-collect takes a [Series](series-and-tables.html#loop), so it runs once and gets every result, in item order.");
+    }
+    $("#sw-count").textContent = sw + 1 + " / " + SW_STEPS;
+  }
+  const PLAY = '<path d="M4 2.5v11L13 8z"/>', PAUSE = '<path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/>';
+  function swStop() { clearInterval(swTimer); swTimer = null; $("#sw-ico").innerHTML = PLAY; $("#sw-txt").textContent = "Play"; }
+  function swPlay() {
+    if (sw === SW_STEPS - 1) swShow(0);
+    $("#sw-ico").innerHTML = PAUSE; $("#sw-txt").textContent = "Pause";
+    swTimer = setInterval(() => { if (sw === SW_STEPS - 1) swStop(); else swShow(sw + 1); }, 2600);
+  }
+  $("#sw-play").addEventListener("click", () => (swTimer ? swStop() : swPlay()));
+  $("#sw-prev").addEventListener("click", () => { swStop(); swShow(sw - 1); });
+  $("#sw-next").addEventListener("click", () => { swStop(); swShow(sw + 1); });
+  swShow(0);
+
+  /* ======================= WIDGETS ======================= */
+  if (PALETTE.length) {
+    const inputs = PALETTE.flatMap((n) => n.inputs.map((i) => ({ ...i, at: n.id + "." + i.name })));
+    const yes = inputs.filter((i) => i.widget === "textarea");
+    const no = [...inputs.filter((i) => !i.widget && i.type === "str" && !i.series), ...inputs.filter((i) => !i.widget && i.type === "str" && i.series)];
+    $("#w-yes").innerHTML = yes.map((i) => '<span class="pill tx">' + esc(i.at) + "</span>").join("");
+    $("#w-no").innerHTML = no.map((i) => '<span class="pill">' + esc(i.at) + "</span>").join("");
+  }
+})();
+</script>
+
+</body>
+</html>

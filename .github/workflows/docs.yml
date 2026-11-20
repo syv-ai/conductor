@@ -1,0 +1,45 @@
+name: Docs
+
+# The example notebooks and the strict docs build. Kept apart from ci.yml, which lints and tests the packages,
+# so a change to the packages alone can be checked before the docs that describe it are written.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  notebooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+      - name: Install
+        run: uv sync
+      - name: Execute the example notebooks
+        run: |
+          failed=0
+          for nb in examples/*.ipynb; do
+            echo "::group::$nb"
+            uv run jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP/notebooks" "$nb" || { echo "::error file=$nb::notebook failed"; failed=1; }
+            echo "::endgroup::"
+          done
+          exit $failed
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+      - name: Build the docs
+        run: uv run --group docs mkdocs build --strict
