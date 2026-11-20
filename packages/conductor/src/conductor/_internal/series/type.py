@@ -14,6 +14,7 @@ import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
+from conductor._internal.base import under_all_definitions, with_definitions
 from conductor._internal.table import Table, is_bare_table_row
 from conductor._internal.types import (
     Param,
@@ -154,16 +155,29 @@ class SeriesType(Type, of=_Series):
             # a node may return None for a ``Series[T] | None``
             return items if items is None else SeriesItems(items)
 
-        items = core_schema.no_info_after_validator_function(as_items, self.schema)
         if self._table is None:
-            return items
+            return core_schema.no_info_after_validator_function(as_items, self.schema)
 
         def form_of(value: Any) -> str:
             return SeriesRows.__name__ if isinstance(value, pl.DataFrame) else SeriesItems.__name__
 
-        rows = core_schema.no_info_after_validator_function(SeriesRows, self._table.schema)
-        return core_schema.tagged_union_schema(
-            {SeriesItems.__name__: items, SeriesRows.__name__: rows}, discriminator=form_of
+        # both forms hold the row's cells, so a model in a cell is declared once, around the union
+        forms, definitions = under_all_definitions(
+            {SeriesItems.__name__: self.schema, SeriesRows.__name__: self._table.schema}
+        )
+        return with_definitions(
+            core_schema.tagged_union_schema(
+                {
+                    SeriesItems.__name__: core_schema.no_info_after_validator_function(
+                        as_items, forms[SeriesItems.__name__]
+                    ),
+                    SeriesRows.__name__: core_schema.no_info_after_validator_function(
+                        SeriesRows, forms[SeriesRows.__name__]
+                    ),
+                },
+                discriminator=form_of,
+            ),
+            definitions,
         )
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
