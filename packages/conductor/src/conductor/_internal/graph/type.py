@@ -93,9 +93,10 @@ class Graph[C]:
     Attributes:
         record: The graph record it was compiled from.
         problems: Everything wrong with the graph. Empty when it can run.
-        inputs: The graph inputs the record declares, by name. These are what a caller gives.
-        outputs: The graph outputs the record declares whose node compiled, by name. These are what a complete run
-            gives. One whose node didn't compile isn't here, as with ``inputs``.
+        inputs: The graph inputs the record offers (``GraphRecord.inputs_offered``), by name. These are what a
+            caller gives.
+        outputs: The graph outputs the record offers (``GraphRecord.outputs_offered``) whose node compiled, by name.
+            These are what a complete run gives. One whose node didn't compile isn't here, as with ``inputs``.
         asks: Whether a node of the graph, or of a subgraph in it at any depth, may stop to ask a person.
     """
 
@@ -155,6 +156,8 @@ class Graph[C]:
         that leaves a choice, and a node's own in the order it declares them. The record doesn't decide it, since it
         keeps no order.
 
+        A graph input that only nodes switched off take isn't here, and a caller who gives it is refused.
+
         The mapping is read-only, since every caller shares it: copy it with ``dict(graph.inputs)`` to change it.
         """
         return MappingProxyType({name: field.description for name, field in self._inputs.items()})
@@ -174,7 +177,8 @@ class Graph[C]:
         ``loops`` ``["documents.result"]``, a ``str`` per document. An output that's a ``Series`` itself adds one
         more, innermost level: the list it returns.
 
-        A graph output whose node didn't compile isn't here. The graph's problems say why.
+        A graph output whose node didn't compile isn't here. The graph's problems say why. Nor is one whose node is
+        switched off. One read from a node downstream of it is here, and a run skips it.
 
         The mapping is read-only, since every caller shares it, ``describe()`` and a subgraph node that uses this
         graph included: copy it with ``dict(graph.outputs)`` to change it.
@@ -198,10 +202,10 @@ class Graph[C]:
     def asks(self) -> bool:
         """Whether any function node may stop to ask a person, in this graph or in a subgraph at any depth.
 
-        A node says it may with ``asks=True``. Only the nodes that compiled are read, so it is certain only for a
-        graph with no problems.
+        A node says it may with ``asks=True``. A node switched off never asks, since it is never called. Only the
+        nodes that compiled are read, so it is certain only for a graph with no problems.
         """
-        return any(node.asks for node in self._nodes.values())
+        return any(node.asks for node in self._nodes.values() if not node.off)
 
     def describe(self) -> GraphDescription:
         """Returns the graph as an editor draws it.

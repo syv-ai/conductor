@@ -188,8 +188,12 @@ class Compiler:
         once every input that takes it is known. So a type two inputs disagree on is always
         ``graph_input_used_two_ways``, whichever order the nodes are compiled in, and its default is then not read.
         A default the type refuses is ``invalid_value`` at the first input, and the graph input is required.
+
+        A graph input that only nodes switched off take is checked the same way, but isn't returned, since the
+        record doesn't offer it (``GraphRecord.inputs_offered``).
         """
         fields: dict[str, Field] = {}
+        offered = self.record.inputs_offered
         for name, (node_id, field) in self.taken_first.items():
             default, declared = REQUIRED, self.record.inputs[name].default
             if declared is not MISSING and name not in self.used_two_ways:
@@ -197,7 +201,8 @@ class Compiler:
                     default = ConstantValidator(node_id, field)(declared)
                 except InvalidCallError as refused:
                     self.problems += refused.problems
-            fields[name] = Field(name, field.hint, default, is_output=False)
+            if name in offered:
+                fields[name] = Field(name, field.hint, default, is_output=False)
         return fields
 
     def _graph_inputs_not_used(self) -> None:
@@ -218,15 +223,18 @@ class Compiler:
         A graph output that names a node the record doesn't have gets the problem ``graph_output_names_missing_node``,
         and one that names an output its node doesn't have gets ``graph_output_not_found``. Neither is on any node.
         One whose node didn't compile is left out with no problem of its own, since that node already has a problem
-        saying why.
+        saying why. One whose node is switched off is checked the same way, but isn't returned, since the record
+        doesn't offer it (``GraphRecord.outputs_offered``).
         """
         fields: dict[str, Field] = {}
+        offered = self.record.outputs_offered
         for name, source in sorted(self.record.outputs.items()):
             node = self.nodes.get(source.node)
             if node is not None and source.output in node.outputs:
-                fields[name] = Field(
-                    name, node.outputs[source.output].hint, REQUIRED, is_output=True
-                )
+                if name in offered:
+                    fields[name] = Field(
+                        name, node.outputs[source.output].hint, REQUIRED, is_output=True
+                    )
                 continue
             if node is None and source.node in self.record.nodes:
                 continue  # the node didn't compile, and has a problem saying why
@@ -380,6 +388,7 @@ class Compiler:
                 inputs=planned.inputs,
                 outputs=outputs,
                 required_branches=planned.required_branches,
+                off=node_record.off,
                 definition=definition,
             )
 
@@ -436,6 +445,7 @@ class Compiler:
             inputs=planned.inputs,
             outputs=inner._outputs,
             required_branches=planned.required_branches,
+            off=node_record.off,
             definition=definition,
             inner=inner,
         )

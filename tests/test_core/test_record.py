@@ -105,7 +105,7 @@ def _refused(record: Any) -> list[tuple[str, tuple, str]]:
 
 
 def test_a_node_record_and_a_graph_record_have_these_fields_in_this_order():
-    assert list(NodeRecord.model_fields) == ["node", "version", "inputs", "display"]
+    assert list(NodeRecord.model_fields) == ["node", "version", "inputs", "off", "display"]
     assert list(GraphRecord.model_fields) == ["inputs", "nodes", "outputs"]
 
 

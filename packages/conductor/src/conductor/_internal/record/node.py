@@ -15,6 +15,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    StrictBool,
     StrictInt,
     ValidationError,
     ValidatorFunctionWrapHandler,
@@ -136,7 +137,7 @@ type InputEntry = Annotated[
 
 
 class NodeRecord(ConductorModel):
-    """One node of a graph record: which node it uses, and what each of its inputs gets.
+    """One node of a graph record: which node it uses, what each of its inputs gets, and whether it is switched off.
 
     The node's id is its key in ``GraphRecord.nodes``. The record doesn't list the node's inputs and outputs.
     Compiling the graph works those out, and ``graph.describe()`` shows them. An input the record leaves out gets
@@ -152,6 +153,11 @@ class NodeRecord(ConductorModel):
     version: StrictInt = Field(default=1, exclude_if=lambda version: version == 1)
     #: What each input gets, by the input's name.
     inputs: Mapping[Name, InputEntry] = Field(default_factory=dict, exclude_if=_empty)
+    #: Whether the node is switched off, read strictly: ``true`` or ``false``, left out of the saved record when
+    #: ``false``. A node switched off compiles as any node does, and a run never calls it: each of its calls is
+    #: skipped, as on a branch not taken. ``GraphRecord.inputs_offered`` and ``outputs_offered`` say what it leaves
+    #: out of the graph's inputs and outputs.
+    off: StrictBool = Field(default=False, exclude_if=lambda off: not off)
     #: The host's own data, like position, size or a title a person edited. Conductor saves it and never looks at it.
     display: Annotated[Mapping[str, JsonValue], CARRIED] = Field(
         default_factory=dict, exclude_if=_empty

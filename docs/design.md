@@ -76,7 +76,8 @@ print(sorted(d.id for d in free))  # ['join', 'upper', 'words']
 ## The graph record and `make_graph`
 
 A record is `{"nodes": {id: node, ...}, "outputs": {name: output, ...}}` and nothing more. A node is
-`{"node", "version", "inputs", "display"}`, where `node` is the id of the definition it uses. Separate fields need no
+`{"node", "version", "inputs", "off", "display"}`, where `node` is the id of the definition it uses, and `off` switches
+it off: a run skips each of its calls, as on a branch not taken, so it needs no rule of its own. Separate fields need no
 parsing, unlike one combined string. Anything a host keeps about the whole graph, like a canvas viewport, goes beside
 the record. The exact shape is in `python -m conductor.about the-graph-record`.
 

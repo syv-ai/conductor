@@ -377,7 +377,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 ```
 
 - `GraphInputRecord(default=)` is one graph input, declared once under `inputs`: `{}`, or `{"default": v}` for one a caller may leave out. A graph output is declared under `outputs`. Used as a subgraph, these are the node's inputs and outputs.
-- `NodeRecord(node=, version=1, inputs=, display=)` is one node of the graph. `node` is the id of the node it uses. Empty fields, and a `version` of 1, are left out when it is saved.
+- `NodeRecord(node=, version=1, inputs=, off=False, display=)` is one node of the graph. `node` is the id of the node it uses. Empty fields, a `version` of 1 and an `off` of `false` are left out when it is saved.
 - Each input's entry is one of three kinds, and the one key its JSON has says which: `{"constant": v}`, `{"graph_input": name}` or `{"sources": [{"node", "output", "field"?}, ...]}`. `InputEntry` is the type of an entry, the union of the three. It is a type alias, so it can't be called or used with `isinstance`: a record reads an entry from its JSON, `NodeRecord(node=..., inputs={"text": {"constant": "x"}})` or `GraphRecord.model_validate(data)`, and `make_graph` writes entries for you. Read one's kind by its key in `record.model_dump(mode="json")`.
 - A dict of the same shape is read too: `GraphRecord.model_validate(data)`.
 - Constants, defaults and a node's `display` are JSON values. `make_graph` writes a Python value as its JSON, as a caller's value for an `Any` input is written ("Starting a run"): a date as its ISO text, an enum as its value, and a host's object by its own schema. So a record equals what its JSON reads back as. A float that isn't finite is refused, by `make_graph` with `finite_number` ("Starting a run"), and by a record built with one in it.
@@ -405,6 +405,15 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 - An entry has exactly one of `constant`, `graph_input` and `sources` (`invalid_record`, `one_of_constant_graph_input_sources` in `ctx.errors`). Any other key is refused, a `default` beside `graph_input` among them (`extra_forbidden`): a default goes on the graph input it is for.
 - With nothing set, the input takes its declared default. A required input with nothing set, on any node, is `input_has_no_value`.
 - `display` is the host's own. It is stored, and never read. What a host keeps about the whole graph, such as a name or a viewport, it stores beside the record.
+
+**A node switched off.** `"off": true` on a node switches it off: `{"node": "shout", "inputs": {...}, "off": true}`. It is read strictly, as `true` or `false` (`invalid_record`, `bool_type` in `ctx.errors`). It is provisional.
+
+- It compiles as any node does, and its problems are reported, so a broken node switched off stays visible, and a graph with one doesn't run. `describe()` shows it as it would show it switched on; the host reads `off` from its record.
+- A run never calls it, or any node inside it when it is a subgraph node. Each of its calls is skipped, once per item inside a loop, and `run.progress` counts them as `skipped`. A node that reads only from it is skipped, as on a branch not taken ("A skip wins"), and so is a `Series` input that collects it. An input with several edges takes its other sources, as from branches. A node that asks never waits while it is switched off, and `graph.asks` leaves it out.
+- A graph input that only nodes switched off take is no graph input: it isn't in `graph.inputs` or `describe()`, and a caller who gives it is refused (`unknown_graph_input`). Its default is still read, and a default its type refuses is still `invalid_value`. An output of a node switched off is no graph output. A graph output read from a node downstream of it stays, and a run skips it, so `run.outputs` shows `None`.
+- `GraphRecord.inputs_offered` and `GraphRecord.outputs_offered` are the graph inputs and outputs the record offers, read from the record alone. A subgraph's inputs and outputs are the ones its record offers, so a port only nodes switched off serve isn't one of the subgraph node's.
+- The record is part of the graph's `fingerprint`, so a run saved while a node was off doesn't read back into the graph with it on (`saved_run_of_another_graph`). Switched back on, a node has nothing of its own to reuse: `with_inputs(previous=run)` calls it, and what reads it, again ("Running again").
+- `make_graph` doesn't write it. Leave the node out of `make_graph`'s call, or switch it off in the record's JSON.
 
 **One value or many.** The type decides, never the value.
 

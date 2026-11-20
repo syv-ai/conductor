@@ -91,6 +91,8 @@ class _CompiledNodeBase:
         outputs: Each output, by name, as compiled: as the definition declares it, or as a ``compute_outputs``
             hook returned it.
         required_branches: The branches that must be taken upstream for the node to be called.
+        off: Whether the record switches the node off (``NodeRecord.off``). A run then never calls it, or any node
+            inside it, and skips each of its calls.
     """
 
     id: str
@@ -98,6 +100,7 @@ class _CompiledNodeBase:
     inputs: dict[str, Input]
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
+    off: bool
 
     def edge_reading(self, output: str) -> Edge:
         """Returns the edge that reads the whole of ``output``.
