@@ -174,26 +174,36 @@ def choices_invalid(*, reason: str, errors: list[dict[str, Any]]) -> str:
     given twice, or there are none.
 
     An editor gets the choices as JSON to show them, and a saved graph stores them as JSON, so each choice is read from
-    its JSON form, as an answer is, and a number in one must be finite. ``ctx.errors`` has the fault of each choice
-    that doesn't read, at the choice's index: the type's own code, such as ``int_type`` or ``finite_number``, or
-    ``no_json_form``. Only when every choice reads are repeats looked for, so ``choice_twice`` comes alone, as does
-    pydantic's ``too_short`` for no choices, each with ``loc`` ``[]``.
+    its JSON form, as an answer is, and a number in one must be finite. Each is read by every check on the same hint,
+    wherever the ``Param`` sits: on the field, a list's item, a dict's value or a field of a host's own model. A check
+    that changes a value, like an ``AfterValidator`` that adds ``"!"``, moves a choice off itself, so every value
+    would fail on its call (``not_a_choice``).
 
-    To fix it, give each choice once, as a value of the input's type that can be written as JSON.
+    ``ctx.errors`` has the fault of each choice that doesn't read, at the choice's index: the type's own code, such as
+    ``int_type``, ``finite_number`` or ``not_a_choice``, or ``no_json_form``. Only when every choice reads are repeats
+    looked for, so ``choice_twice`` comes alone, as does pydantic's ``too_short`` for no choices, each with ``loc``
+    ``[]``.
+
+    To fix it, give each choice once, as a value of the input's type that can be written as JSON. Where a check
+    changes a value, give the choices as the check gives them back, or check them in the node.
 
     Args:
         reason: The first fault.
         errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:
-        from conductor import Choice
+        from pydantic import AfterValidator
 
 
-        def number_size(pick: Annotated[int, Param(choices=[Choice("s", "Small")])]) -> int:
-            return pick
+        def exclaimed(text: str) -> str:
+            return text + "!"
 
 
-        declaration_refused(lambda: node("number_size", title="Number size", description="Hands back the chosen size.")(number_size))
+        def pick_moods(moods: list[Annotated[str, AfterValidator(exclaimed), Param(choices=["calm", "glad"])]]) -> int:
+            return len(moods)
+
+
+        declaration_refused(lambda: node("pick-moods", title="Pick moods", description="Counts the moods picked.")(pick_moods))
     """
     return f"the choices can't be used: {reason}. Give each choice once, as a value of the field's type that can be written as JSON."
 
@@ -1200,24 +1210,35 @@ def type_not_supported(*, type: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def type_not_supported_set(*, type: str) -> str:
-    """An input's or output's type is a set, or holds one, like ``set[str]``, ``frozenset[int]`` or
-    ``list[set[str]]``.
+    """An input's or output's type is a set, or holds one anywhere inside it, like ``set[str]``, ``frozenset[int]``,
+    ``list[set[str]]`` or a field of a host's own model or dataclass typed ``set[str]``.
 
     A set has no order, so its items could come in a different order each time, and the same set would be written
     as a different JSON text. Every value that enters a graph is read from its JSON form, a node's own default
-    included, and a set has none that keeps it the same.
+    included, and a set has none that keeps it the same. A set a node returns would hash differently in each
+    process, so a later run could never reuse the call.
 
-    To fix it, declare a ``list`` or a ``tuple`` instead, and make a set of it inside the node where you need one.
+    To fix it, declare a ``list`` or a ``tuple`` in the set's place, in the field of your own class too, and make a
+    set of it inside the node where you need one.
 
     Args:
-        type: The set type, as its developer wrote it.
+        type: Where the set is: the field of a model, dataclass or ``TypedDict`` that holds it, as ``LabelSet.labels``,
+            or else the input's or output's own type, as its developer wrote it.
 
     Example:
-        def distinct(words: set[str]) -> int:
-            return len(words)
+        from pydantic import BaseModel
 
 
-        declaration_refused(lambda: node("distinct", title="Distinct", description="Counts the distinct words.")(distinct))
+        @host_type("label-set", title="Label set")
+        class LabelSet(BaseModel):
+            labels: set[str]
+
+
+        def label_count(given: LabelSet) -> int:
+            return len(given.labels)
+
+
+        declaration_refused(lambda: node("label-count", title="Label count", description="Counts the labels.")(label_count))
     """
     return f"a set has no order, so {type} has no JSON form that keeps it the same. Declare a list or a tuple instead."
 

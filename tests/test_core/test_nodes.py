@@ -2966,33 +2966,101 @@ class _TagHolder(BaseModel):
     tags: set[str]
 
 
-def test_a_set_field_of_a_hosts_own_model_is_its_own_so_an_edge_may_read_it_and_a_mismatch_is_a_problem() -> (
-    None
-):
-    """The set rule doesn't walk into a host's class, so an edge that names its set field compiles: into a type
-    variable it runs, and into an input that doesn't fit it is ``type_mismatch``, never an exception."""
+@host_type("number-bag", title="Number bag")
+class _NumberBag(BaseModel):
+    numbers: frozenset[int]
 
-    @node("hold", title="Hold", description="For a test.")
-    def hold() -> _TagHolder:
-        return _TagHolder(tags={"a"})
 
-    @node("same-tags", title="Same tags", description="For a test.")
-    def same_tags[V](value: V) -> V:
-        return value
+@host_type("tag-record", title="Tag record")
+@dataclass(frozen=True)
+class _TagRecord:
+    tags: set[str]
 
-    @node("one-text", title="One text", description="For a test.")
-    def one_text(tags: str) -> str:
-        return tags
 
-    registry = registry_of(hold, same_tags, one_text)
-    bound = Graph.compile(
-        make_graph(hold, same_tags, edges=[("hold.result.tags", "same-tags.value")]), registry
-    )
-    assert bound.problems == [] and bound.run().outputs == {"result": {"a"}}
-    mismatched = Graph.compile(
-        make_graph(hold, one_text, edges=[("hold.result.tags", "one-text.tags")]), registry
-    )
-    assert [problem.type for problem in mismatched.problems] == ["type_mismatch"]
+@host_type("tag-shelf", title="Tag shelf")
+class _TagShelf(BaseModel):
+    holders: list[_TagHolder]
+
+
+@pytest.mark.parametrize(
+    ("hint", "where"),
+    [
+        (_TagHolder, "_TagHolder.tags"),
+        (_NumberBag, "_NumberBag.numbers"),
+        (_TagRecord, "_TagRecord.tags"),
+        (list[_TagShelf], "_TagHolder.tags"),
+    ],
+    ids=["model-set", "model-frozenset", "dataclass-set", "set-in-a-list-of-models"],
+)
+def test_a_set_in_a_hosts_own_class_is_refused_at_node_naming_its_field(
+    hint: Any, where: str
+) -> None:
+    """A host's class holds its value as pydantic writes it, so a set field there writes a list in a varying order,
+    and its call hashes differently in each process. The field that holds it is named, the nearest class's."""
+
+    def takes(x: Any) -> int:
+        return 1
+
+    def returns() -> Any:
+        return None
+
+    takes.__annotations__["x"] = hint
+    returns.__annotations__["return"] = hint
+    for wrong in (takes, returns):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        (problem,) = raised.value.problems
+        assert (problem.type, problem.ctx) == ("type_not_supported_set", {"type": where})
+
+
+def _exclaimed(text: str) -> str:
+    return text + "!"
+
+
+_Exclaimed = Annotated[str, AfterValidator(_exclaimed), Param(choices=["calm", "glad"])]
+
+
+@host_type("mood-card", title="Mood card")
+class _MoodCard(BaseModel):
+    mood: _Exclaimed
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [_Exclaimed, list[_Exclaimed], dict[str, _Exclaimed], _MoodCard],
+    ids=["the-field", "a-lists-item", "a-dicts-value", "a-models-field"],
+)
+def test_choices_another_check_on_the_hint_moves_off_are_refused_at_any_depth(hint: Any) -> None:
+    """Every value would fail at run time: the check adds "!" before the choices are compared. So the choices are
+    read by the check around them wherever their ``Param`` sits, as a field's own are."""
+
+    def takes(x: Any) -> int:
+        return 1
+
+    takes.__annotations__["x"] = hint
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(takes)
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == ("choices_invalid", "not_a_choice")
+
+
+def test_choices_inside_a_type_that_its_checks_keep_are_taken() -> None:
+    """The walk reads nested choices by their own check, so ones that check keeps, a float's ``1`` and an enum's
+    member inside a model, are taken."""
+
+    class Size(Enum):
+        SMALL = "s"
+        LARGE = "l"
+
+    @host_type("sized-card", title="Sized card")
+    class SizedCard(BaseModel):
+        size: Annotated[Size, Param(choices=[Size.SMALL])]
+        weight: Annotated[float, Param(choices=[1, 2.5])]
+
+    def takes(x: list[SizedCard], y: dict[str, Annotated[int, Param(choices=[1, 2])]]) -> int:
+        return 1
+
+    declared(takes)
 
 
 _Bag = TypeVar("_Bag", bound=frozenset[int])
