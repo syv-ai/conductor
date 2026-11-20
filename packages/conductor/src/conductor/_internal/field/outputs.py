@@ -30,7 +30,7 @@ from pydantic_core import (
 )
 from pydantic_core.core_schema import TypedDictField, ValidatorFunctionWrapHandler
 
-from conductor._internal.base import SKIPPED
+from conductor._internal.base import SKIPPED, under_all_definitions, with_definitions
 from conductor._internal.problem import conductor_error, raised_again
 from conductor._internal.utils import comma_separated
 
@@ -112,11 +112,23 @@ def outputs_schema(
                 filled[name] = read.get(name, SKIPPED)
         return filled
 
-    by_name = core_schema.typed_dict_schema(dict(fields), extra_behavior="forbid")
+    # two outputs may hold the same model, so what their schemas declare is declared once, around the whole
+    schemas, definitions = under_all_definitions(
+        {name: field["schema"] for name, field in fields.items()}
+    )
+    by_name = core_schema.typed_dict_schema(
+        {name: {**field, "schema": schemas[name]} for name, field in fields.items()},
+        extra_behavior="forbid",
+    )
     if given_as in ("value", "nothing"):
-        return core_schema.no_info_before_validator_function(split, by_name)
-    return core_schema.no_info_before_validator_function(
-        split, core_schema.no_info_wrap_validator_function(all_at_once, by_name)
+        return with_definitions(
+            core_schema.no_info_before_validator_function(split, by_name), definitions
+        )
+    return with_definitions(
+        core_schema.no_info_before_validator_function(
+            split, core_schema.no_info_wrap_validator_function(all_at_once, by_name)
+        ),
+        definitions,
     )
 
 

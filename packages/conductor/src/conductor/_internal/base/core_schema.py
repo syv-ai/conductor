@@ -9,8 +9,9 @@ this module which parts of a schema are schemas, so that rule is written once.
 
 Pydantic writes a type that refers to itself, like a tree, as a ``definitions`` schema: the type's schema, with the
 schemas it refers to beside it, each by its ``ref``. A ``definition-ref`` schema then names one of them by its
-``schema_ref``. ``under_definitions`` and ``with_definitions`` take that wrapper off and put it back, and
-``looked_up`` finds the schema a reference names.
+``schema_ref``. ``under_definitions`` and ``with_definitions`` take that wrapper off and put it back.
+``under_all_definitions`` takes it off several schemas that are joined into one, and ``looked_up`` finds the schema
+a reference names.
 """
 
 from __future__ import annotations
@@ -132,6 +133,27 @@ def under_definitions(
         return schema["schema"], {one["ref"]: one for one in schema["definitions"]}
     whole: dict[str, Any] = schema  # type: ignore[assignment]  # a core schema is a dict
     return whole, {}
+
+
+def under_all_definitions[K](
+    schemas: Mapping[K, Mapping[str, Any]],
+) -> tuple[dict[K, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Returns each schema as ``under_definitions`` does, and the schemas they declare between them, by their ``ref``.
+
+    It is for a schema built from the schemas of several types, like a union of two forms of one value or the
+    outputs of a node. Pydantic refuses a schema that declares one ``ref`` twice. Two types that each hold the same
+    model both declare it, so the joined schema declares each one once, around the whole (``with_definitions``). A
+    ``ref`` names one class, so two schemas declared under it are the same, and either one is kept.
+
+    Args:
+        schemas: The schemas to join, each under its own key.
+    """
+    inner: dict[K, dict[str, Any]] = {}
+    definitions: dict[str, dict[str, Any]] = {}
+    for key, schema in schemas.items():
+        inner[key], declared = under_definitions(schema)
+        definitions.update(declared)
+    return inner, definitions
 
 
 def looked_up(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:

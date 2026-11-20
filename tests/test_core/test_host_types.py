@@ -13,9 +13,10 @@ from http import HTTPStatus
 from ipaddress import IPv4Address
 from pathlib import Path
 from re import Pattern
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypedDict, TypeVar
 from zoneinfo import ZoneInfo
 
+import polars as pl
 import pytest
 from conductor import (
     Ask,
@@ -23,6 +24,7 @@ from conductor import (
     NodeDeclarationError,
     NodeRegistry,
     Run,
+    Series,
     host_type,
     make_graph,
     node,
@@ -717,3 +719,100 @@ def test_a_node_returning_a_declared_dataclass_is_answered_with_one_value() -> N
         "result": Point(3, 4)
     }
     assert Run.from_json(queued.to_json(), graph).resume().outputs == {"result": Point(3, 4)}
+
+
+@host_type("wallet", title="Wallet")
+class Wallet(BaseModel, frozen=True):
+    money: Money
+
+
+class MoneyRow(TypedDict):
+    money: Money
+
+
+class PointRow(TypedDict):
+    point: Point
+
+
+class TwoMoneyRow(TypedDict):
+    paid: Money
+    owed: Money
+
+
+class WalletRow(TypedDict):
+    wallet: Wallet
+
+
+@pytest.mark.parametrize(
+    ("row", "value"),
+    [
+        (MoneyRow, {"money": Money(amount=1)}),
+        (PointRow, {"point": Point(1.0, 2.0)}),
+        (TwoMoneyRow, {"paid": Money(amount=1), "owed": Money(amount=2)}),
+        (WalletRow, {"wallet": Wallet(money=Money(amount=1))}),
+    ],
+    ids=["model", "dataclass", "one model twice", "model in a model"],
+)
+@pytest.mark.parametrize("given", ["returned", "answered"])
+def test_a_series_of_rows_with_a_hosts_class_in_a_cell_runs_and_its_saved_run_reads_back(
+    row: Any, value: dict[str, Any], given: str
+) -> None:
+    """A row's cell may hold a host's own class, whether a node returns the rows or a person answers them."""
+
+    def returns() -> Series[row]:  # type: ignore[valid-type]
+        return [value]
+
+    def asks() -> Series[row]:  # type: ignore[valid-type]
+        raise Ask("Which rows?")
+
+    rows = node("rows", title="Rows", description="For a test.", asks=given == "answered")(
+        asks if given == "answered" else returns
+    )
+    registry = NodeRegistry()
+    registry.add(rows)
+    graph = Graph.compile(make_graph(rows), registry)
+    run = graph.run({})
+    if given == "answered":
+        run = run.with_answers(run.waiting[0], [value]).resume()
+
+    assert run.outputs == {"result": [value]}
+    assert Run.from_json(run.to_json(), graph).outputs == {"result": [value]}
+
+
+def test_a_table_returned_for_a_series_of_rows_with_a_model_in_a_cell_runs() -> None:
+    """A node may return a table for a Series of rows whose cell is a model, as for any other row."""
+
+    @node("rows", title="Rows", description="For a test.")
+    def rows() -> Series[MoneyRow]:
+        return pl.DataFrame({"money": [{"amount": 1.0}]})  # type: ignore[return-value]
+
+    registry = NodeRegistry()
+    registry.add(rows)
+    graph = Graph.compile(make_graph(rows), registry)
+    run = graph.run({})
+
+    assert run.status == "complete"
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
+
+
+@dataclasses.dataclass
+class _PaidAndOwed:
+    paid: TwoMoneyRow
+    owed: TwoMoneyRow
+
+
+def test_a_node_whose_two_outputs_hold_the_same_model_returns_both() -> None:
+    """Two outputs whose types each hold the same model are checked together, as one return."""
+    row: TwoMoneyRow = {"paid": Money(amount=1), "owed": Money(amount=2)}
+
+    @node("accounts", title="Accounts", description="For a test.")
+    def accounts() -> _PaidAndOwed:
+        return _PaidAndOwed(paid=row, owed=row)
+
+    registry = NodeRegistry()
+    registry.add(accounts)
+
+    assert Graph.compile(make_graph(accounts), registry).run({}).outputs == {
+        "paid": row,
+        "owed": row,
+    }
