@@ -1141,7 +1141,7 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
     got = f"Series[{got_one}]" if edge.per_item else got_one
     if got == expected:
         # two types that read alike differ below the top, like tables whose columns differ only in their choices
-        expected = f"{expected} {_how_alike_types_differ(field.type if edge.per_item else field.whole, edge.type)}"
+        expected = f"{expected} with other choices or limits"
     parts = _taken_apart(edge.type)
     if field.whole.row is not None:
         has = (edge.type.row or edge.type).fields
@@ -1176,19 +1176,6 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
     return compile_problems.type_mismatch(
         node_id, field.name, source=written, got=got, expected=expected
     )
-
-
-def _how_alike_types_differ(expected: Type, arriving: Type) -> str:
-    """Says how ``expected`` differs from ``arriving``, two types whose names read alike in a message.
-
-    A row type is named ``row`` whatever its fields, so a field that may be ``None`` where the input's field takes
-    no ``None`` is named: ``whose field 'a' takes no None``. Any other difference is in choices or limits.
-    """
-    for name, hint in expected.fields.items():
-        given = arriving.fields.get(name)
-        if given is not None and Type(given).optional and not Type(hint).optional:
-            return f"whose field '{name}' takes no None"
-    return "with other choices or limits"
 
 
 def _type_in_message(value_type: Type, text: str) -> str:

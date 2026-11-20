@@ -134,12 +134,16 @@ def _fit(
         return not exact
     targets, sources = union_members(target), union_members(source)
     if len(targets) > 1 or len(sources) > 1:
-        # the member shaped like the arriving one takes it, and a bare type variable only what no other member
-        # takes: fed int | None, T | None and None | T both bind T to int
-        targets = tuple(sorted(targets, key=lambda option: isinstance(option, TypeVar)))
+        # Each arriving member goes to a member that holds it as it is, else to a bare type variable, else to any
+        # member that may take it. So a type variable binds only what no other member holds: fed int | None,
+        # T | None binds T to int, and fed int, T | float binds T to int, since float takes an int only by converting.
+        variables = [option for option in targets if isinstance(option, TypeVar)]
+        plain = [option for option in targets if not isinstance(option, TypeVar)]
+        tries = [(option, True) for option in plain]
+        tries += [(option, exact) for option in (*variables, *plain)]
         for one in sources:
-            for option in targets:
-                if _fit(option, one, trial := dict(bound), exact):
+            for option, holding in tries:
+                if _fit(option, one, trial := dict(bound), holding):
                     bound.update(trial)
                     break
             else:
