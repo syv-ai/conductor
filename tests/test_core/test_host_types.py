@@ -199,7 +199,7 @@ def _faults(build: Any) -> list[tuple[str, list[str | int]]]:
         ("str", "conductors_own_type_id"),
         ("Series", "conductors_own_type_id"),
         ("Table", "conductors_own_type_id"),
-        ("row", "conductors_own_type_id"),
+        ("date", "conductors_own_type_id"),
         ("list[int]", "type_id_not_one_word"),
         ("a b", "type_id_not_one_word"),
         ("a|b", "type_id_not_one_word"),
@@ -315,7 +315,7 @@ def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_lin
     [
         ("InvoiceLine", '@host_type("invoice-line", title="Invoice line")'),
         ("IPAddress", '@host_type("ip-address", title="IP address")'),
-        ("Row", '@host_type("row-type", title="Row")'),
+        ("Date", '@host_type("date-type", title="Date")'),
     ],
 )
 def test_the_line_a_class_that_is_not_declared_is_told_to_write_declares_it(
@@ -323,7 +323,7 @@ def test_the_line_a_class_that_is_not_declared_is_told_to_write_declares_it(
 ) -> None:
     """The refusal suggests an id and a title made from the class's name, and pasting them declares the class.
 
-    ``Row`` would give ``"row"``, which is one of conductor's own ids, so it gets ``-type`` after it.
+    ``Date`` would give ``"date"``, which is one of conductor's own ids, so it gets ``-type`` after it.
     """
     undeclared = dataclasses.make_dataclass(name, [("x", float)], frozen=True)
 

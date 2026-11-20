@@ -1190,8 +1190,8 @@ def row_field_optional(*, row: str, field: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def type_not_supported(*, type: str) -> str:
-    """An input's or output's type is one pydantic can't validate or write as JSON, such as a ``TypedDict`` with a field of a plain
-    class, or a hint that is no type at all, like ``-> 5``.
+    """An input's or output's type is one pydantic can't validate or write as JSON, such as a hint that is no type at all,
+    like ``-> 5`` or ``-> [int]``, or a ``TypedDict`` field written as text that names nothing.
 
     To fix it, use a type pydantic can validate and write as JSON: a pydantic model, a dataclass, or a subclass of a
     builtin such as ``class Text(str)``. A class that needs a way of its own can give its own
@@ -1201,19 +1201,11 @@ def type_not_supported(*, type: str) -> str:
         type: The type's id.
 
     Example:
-        class Handle:
-            pass
+        def handles() -> [int]:  # type: ignore[valid-type]
+            return []
 
 
-        class Opened(TypedDict):
-            handle: Handle
-
-
-        def opened(row: Opened) -> str:
-            return ""
-
-
-        declaration_refused(lambda: node("opened", title="Opened", description="Reads an opened file.")(opened))
+        declaration_refused(lambda: node("handles", title="Handles", description="Lists the open handles.")(handles))
     """
     return (
         f"conductor can't check {type} or write it as JSON. Use a type pydantic knows, such as a pydantic model or a dataclass, "

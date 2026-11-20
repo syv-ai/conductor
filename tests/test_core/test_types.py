@@ -884,6 +884,43 @@ def _declared(name: str, function: Any) -> Any:
     return node(name, title=name.title(), description="For a test.")(function)
 
 
+class _Tree(TypedDict):
+    name: str
+    children: list["_Tree"]
+
+
+class _Left(TypedDict):
+    right: "_Right | None"
+
+
+class _Right(TypedDict):
+    left: _Left
+
+
+class _Noted(TypedDict):
+    name: str
+    note: NotRequired[str]
+
+
+@pytest.mark.parametrize(
+    ("row", "named"),
+    [
+        (_Noted, "{name: str, note?: str}"),
+        (_Tree, "{name: str, children: list[{...}]}"),
+        (_Left, "{right: {left: {...}} | None}"),
+        (list[_Right], "list[{left: {right: {...} | None}}]"),
+    ],
+    ids=["left-out", "itself", "through-another", "in-a-list"],
+)
+def test_a_row_is_named_by_its_fields_and_a_row_inside_itself_is_marked_there(
+    row: Any, named: str
+) -> None:
+    def takes(value: row) -> str:  # type: ignore[valid-type]
+        return ""
+
+    assert _declared("takes", takes).describe().inputs[0].type == named
+
+
 def test_a_generic_typed_dict_is_a_row_on_an_input_an_output_a_series_and_a_table() -> None:
     """``Row[int]`` is taken wherever a ``TypedDict`` is, with ``value: T`` read as ``int``.
 

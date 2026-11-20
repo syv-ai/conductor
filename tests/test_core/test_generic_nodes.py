@@ -281,15 +281,21 @@ def count_beside[T](value: T | int) -> T:
     return value  # type: ignore[return-value]
 
 
+@node("just_a", title="Just a", description="For a test.")
+def just_a() -> Literal["a"]:
+    return "a"
+
+
 @pytest.mark.parametrize(
     ("given", "beside", "bound"),
     [
         (text, text_or_a, "str"),
+        (just_a, text_or_a, "Any"),
         (number, count_or_positive, "int"),
         (number, count_or_number, "int"),
         (number, count_beside, "Any"),
     ],
-    ids=["literal", "param", "float", "int"],
+    ids=["literal", "literal-held", "param", "float", "int"],
 )
 def test_a_variable_binds_what_no_other_member_of_its_union_holds_as_it_is(
     given: Any, beside: Any, bound: str

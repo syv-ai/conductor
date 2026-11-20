@@ -95,7 +95,9 @@ def _fit(
     names_its_values = any(get_origin(member) is Literal for member in members) and all(
         member is type(None) or get_origin(member) is Literal for member in members
     )
-    if names_its_values and not isinstance(bare, TypeVar) and (bare is not Any or checked):
+    # a target with a bare type variable among its members binds what arrives, member by member, below
+    binds = any(isinstance(member, TypeVar) for member in union_members(bare))
+    if names_its_values and not binds and (bare is not Any or checked):
         # A source that names its values lands when the target's own check, the one the run gives each value
         # (Type.takes_value), takes one of them, and their classes fit the target: Literal[1] lands on float, but
         # not on Literal[True], which pydantic takes as equal. It needs no check on its call when the target's check
