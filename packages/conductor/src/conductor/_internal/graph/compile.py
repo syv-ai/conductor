@@ -47,7 +47,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Literal, TypeVar, assert_never
 
-from pydantic import MISSING
+from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
 from conductor._internal.field import (
@@ -456,7 +456,8 @@ class Compiler:
 
         It goes in four steps:
 
-        1. Each input gets its compiled input. That's the one ``_constant_inputs`` made, or else its default, its
+        1. Each input gets its compiled input. That's the one ``_constant_inputs`` made, with a constant typed by a
+           type variable read again by the type the edges bound (``_bound_constant``), or else its default, its
            graph input (``_graph_input``) or its edges (``_edge_input``).
         2. Inputs whose edges can't be used together are refused (``_inputs_with_conflicting_edges``).
         3. The node's loops are worked out from the inputs. A ``Series`` or ``Table`` input that an edge gives one
@@ -499,13 +500,14 @@ class Compiler:
                 problem for problems in refused_defaults.values() for problem in problems
             ]
             constants = {
-                name: replace(made, field=fields[name]) for name, made in constants.items()
+                name: self._bound_constant(node_id, node_record, made, fields[name])
+                for name, made in constants.items()
             }
         inputs: dict[str, Input] = {}
         for name, field in fields.items():
             match node_record.inputs.get(name):
                 case ConstantEntry():
-                    # _constant_inputs converted or refused every constant the record gives
+                    # _constant_inputs converted or refused every constant the record gives, by the bound type
                     inputs[name] = constants[name]
                 case _ if name in constants:
                     # an input that takes only a constant, which _constant_inputs refused or found no value for
@@ -718,16 +720,45 @@ class Compiler:
                     )
                     constants[name] = MissingInput(field)
                 case ConstantEntry(constant=value):
-                    try:
-                        constants[name] = ConstantInput(
-                            field, ConstantValidator(node_id, field)(value)
-                        )
-                    except InvalidCallError as refused:
-                        self.problems += refused.problems
-                        constants[name] = MissingInput(field)
+                    constants[name] = self._constant_input(node_id, field, value)
                 case _:
                     pass
         return constants
+
+    def _bound_constant(
+        self,
+        node_id: str,
+        node_record: NodeRecord,
+        made: ConstantInput | MissingInput,
+        field: Field,
+    ) -> ConstantInput | MissingInput:
+        """Returns ``made``, the compiled input ``_constant_inputs`` made, with its type variables bound in ``field``.
+
+        A constant the record gives an input typed by a type variable is read again by the type the edges bound,
+        as a graph input's default is. In ``first(one: T, other: T)``, with ``one`` wired from a ``str`` output, the
+        constant ``5`` for ``other`` is ``invalid_value``. Wired from a ``float``, the constant ``2`` becomes ``2.0``.
+        """
+        match made, node_record.inputs.get(field.name):
+            case ConstantInput(field=unbound), ConstantEntry(constant=value) if (
+                unbound.whole.variables
+            ):
+                return self._constant_input(node_id, field, value)
+            case _:
+                return replace(made, field=field)
+
+    def _constant_input(
+        self, node_id: str, field: Field, value: JsonValue
+    ) -> ConstantInput | MissingInput:
+        """Returns the compiled input of ``field`` for the constant ``value`` the record gives it.
+
+        The constant is converted by the input's type. Where the type refuses it, the graph gets ``invalid_value``
+        and the input gets a ``MissingInput``.
+        """
+        try:
+            return ConstantInput(field, ConstantValidator(node_id, field)(value))
+        except InvalidCallError as refused:
+            self.problems += refused.problems
+            return MissingInput(field)
 
     def _hook(
         self,

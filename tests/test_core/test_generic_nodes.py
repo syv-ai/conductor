@@ -7,7 +7,7 @@ a type variable. Once the graph is compiled, the node's inputs and outputs have 
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, TypedDict, TypeVar
+from typing import Annotated, Any, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -16,10 +16,12 @@ from conductor import (
     Ask,
     Graph,
     NodeDeclarationError,
+    Param,
     Series,
     Table,
     make_graph,
     node,
+    subgraph,
 )
 
 from tests.test_core.nodes import registry_of
@@ -89,6 +91,24 @@ def rows() -> Table[Row]:
 @node("anything", title="Anything", description="For a test.")
 def anything() -> Table:
     return pl.DataFrame({"name": ["a"]})
+
+
+@node("fraction", title="Fraction", description="For a test.")
+def fraction() -> float:
+    return 0.5
+
+
+@node("kind-of", title="Kind of", description="For a test.")
+def kind_of[T](value: T, extra: T = 3) -> str:  # type: ignore[assignment]
+    return type(extra).__name__
+
+
+@node("kind-of-constant", title="Kind of constant", description="For a test.")
+def kind_of_constant[T](
+    value: T,
+    extra: Annotated[T, Param(constant_only=True)] = 3,  # type: ignore[assignment]
+) -> str:
+    return type(extra).__name__
 
 
 @node("upper", title="Upper", description="For a test.")
@@ -386,3 +406,44 @@ def test_an_input_a_hook_adds_with_a_type_variable_is_bound_by_its_edge() -> Non
         for node_input in graph.describe().nodes["echo"].inputs
     ] == [("str", [])]
     assert graph.run().outputs == {"result": "'a'"}
+
+
+@pytest.mark.parametrize("kind", [kind_of, kind_of_constant])
+def test_a_constant_for_a_type_variable_is_checked_by_the_type_the_edge_bound(kind: Any) -> None:
+    refused = _compiled(
+        text, kind, edges=[["text.result", f"{kind.id}.value"]], constants={kind.id: {"extra": 5}}
+    )
+    assert [(problem.type, problem.loc) for problem in refused.problems] == [
+        ("invalid_value", (kind.id, "extra"))
+    ]
+    taken = _compiled(
+        text, kind, edges=[["text.result", f"{kind.id}.value"]], constants={kind.id: {"extra": "b"}}
+    )
+    assert taken.problems == []
+    assert taken.run().outputs == {"result": "str"}
+
+
+@pytest.mark.parametrize("kind", [kind_of, kind_of_constant])
+def test_a_constant_for_a_type_variable_is_converted_by_the_type_the_edge_bound(kind: Any) -> None:
+    graph = _compiled(
+        fraction,
+        kind,
+        edges=[["fraction.result", f"{kind.id}.value"]],
+        constants={kind.id: {"extra": 2}},
+    )
+    assert graph.problems == []
+    assert graph.run().outputs == {"result": "float"}
+
+
+@pytest.mark.parametrize("kind", [kind_of, kind_of_constant])
+def test_a_constant_for_a_type_variable_inside_a_subgraph_is_checked_by_the_bound_type(
+    kind: Any,
+) -> None:
+    inner = make_graph(
+        text, kind, edges=[("text.result", f"{kind.id}.value")], constants={f"{kind.id}.extra": 5}
+    )
+    inside = subgraph("inside", title="Inside", description="For a test.")(inner)
+    graph = Graph.compile(make_graph(inside), registry_of(text, kind, inside))
+    assert [(problem.type, problem.loc) for problem in graph.problems] == [
+        ("invalid_value", ("inside", kind.id, "extra"))
+    ]

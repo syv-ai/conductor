@@ -368,9 +368,11 @@ def invalid_value(
 ) -> str:
     """A constant in the graph record, or a graph input's default, isn't a value of its input's type.
 
-    The value is read strictly from its JSON form, as a caller's graph input is, so ``"3"`` is no ``int``. A value
-    ``make_graph`` or an upgrade's rewrite can't write as JSON is this problem too, at the call, with
-    ``no_json_form`` or ``set_has_no_order`` in ``ctx.errors``.
+    The value is read strictly from its JSON form, as a caller's graph input is, so ``"3"`` is no ``int``. For an
+    input typed by a type variable, it is read by the type the edges bind: in ``first(one: T, other: T)``, wired
+    from a ``str`` output, the constant ``5`` for ``other`` is this problem. A value ``make_graph`` or an upgrade's
+    rewrite can't write as JSON is this problem too, at the call, with ``no_json_form`` or ``set_has_no_order`` in
+    ``ctx.errors``.
 
     A problem may be shown to anyone, so it never quotes the value. ``ctx.reason`` says what the type refused.
     ``ctx.errors`` is pydantic's list of what it refused, each with a ``type``, a ``loc`` and a ``msg``. A host can key

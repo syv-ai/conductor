@@ -248,6 +248,7 @@ A node can work for any type by using type variables: `def keep[T](value: T) -> 
 
 - A variable is the type that arrives on the edge. It is the same in every input and in the return, and it is decided when the graph is compiled. After that the node has ordinary inputs and outputs, and its output is checked against the bound type.
 - Only an edge binds a variable. A constant, a default and a graph input bind nothing. A variable that nothing binds reads as its bound (`T: int | float`), else as `Any`.
+- Each is then read by the bound type: a record's constant and a graph input's default are `invalid_value` where it refuses them, and are converted by it, so `2` is `2.0` for a `T` bound to `float`. A declared default it refuses is `invalid_value_bound_default`, and counts only where the record gives the input nothing. It is provisional.
 - One or many is decided first. So a `Series[X]` wired to `value: T` runs per item, with `T` as `X`.
 - In a union, the member shaped like the arriving type binds.
 - At `T | None`, `T` is what arrives, without its `None`. The same goes for a bare `T`: `value: T` gets no `None`, since the node isn't called for one. A node that passes `None` on writes `T | None`.
