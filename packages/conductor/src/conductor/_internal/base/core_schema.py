@@ -9,9 +9,8 @@ this module which parts of a schema are schemas, so that rule is written once.
 
 Pydantic writes a type that refers to itself, like a tree, as a ``definitions`` schema: the type's schema, with the
 schemas it refers to beside it, each by its ``ref``. A ``definition-ref`` schema then names one of them by its
-``schema_ref``. ``under_definitions`` and ``with_definitions`` take that wrapper off and put it back.
-``under_all_definitions`` takes it off several forms of one value that are joined into one schema. ``looked_up``
-finds the schema a reference names.
+``schema_ref``. ``under_definitions`` and ``with_definitions`` take that wrapper off and put it back, and
+``looked_up`` finds the schema a reference names.
 """
 
 from __future__ import annotations
@@ -133,36 +132,6 @@ def under_definitions(
         return schema["schema"], {one["ref"]: one for one in schema["definitions"]}
     whole: dict[str, Any] = schema  # type: ignore[assignment]  # a core schema is a dict
     return whole, {}
-
-
-def under_all_definitions[K](
-    schemas: Mapping[K, Mapping[str, Any]],
-) -> tuple[dict[K, dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Returns each schema as ``under_definitions`` does, and the schemas they declare between them, by their ``ref``.
-
-    It is for one schema built from the schemas of several forms of one value, like a ``Series`` of rows given as a
-    list or as a table. Pydantic refuses a schema that declares one ``ref`` twice, and both forms declare a model
-    that a row's cell holds. So the joined schema declares each one once, around the whole (``with_definitions``).
-
-    A ``ref`` names a class, but not the config it was built under. A plain dataclass or a ``TypedDict`` takes the
-    config it sits in, so one class built under two configs gives two schemas under one ``ref``. The forms joined
-    here are built from one type under one config, so their schemas under a ``ref`` are the same. Two that differ
-    are a fault in how conductor built them, and raise.
-
-    Args:
-        schemas: The schemas to join, each under its own key.
-
-    Raises:
-        AssertionError: Two of the schemas declare different schemas under one ``ref``.
-    """
-    inner: dict[K, dict[str, Any]] = {}
-    definitions: dict[str, dict[str, Any]] = {}
-    for key, schema in schemas.items():
-        inner[key], declared = under_definitions(schema)
-        for ref, definition in declared.items():
-            if definitions.setdefault(ref, definition) != definition:
-                raise AssertionError(f"two different schemas are declared under the ref {ref!r}")
-    return inner, definitions
 
 
 def looked_up(schema: Mapping[str, Any], definitions: Mapping[str, Any]) -> Any:
