@@ -1066,7 +1066,7 @@ def test_every_ref_in_the_schema_resolves_and_the_start_body_declares_a_graph_re
     for path in ("/runs", "/estimate"):
         body = schema["paths"][path]["post"]["requestBody"]["content"]["application/json"]["schema"]
         node = body["properties"]["graph"]["properties"]["nodes"]["additionalProperties"]
-        assert set(node["properties"]) == {"node", "version", "inputs", "display"}, path
+        assert set(node["properties"]) == {"node", "version", "inputs", "off", "display"}, path
     compiled = schema["paths"]["/compile"]["post"]["requestBody"]["content"]["application/json"]
     assert "nodes" in compiled["schema"]["properties"]
 
