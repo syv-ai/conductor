@@ -2137,7 +2137,7 @@ def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
     [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "invalid_record",
-        ("record", "nodes", "u", "inputs", "text", "sources", 0, "node"),
+        ("record", "nodes", "u", "inputs", "text", "sources", "sources", 0, "node"),
         "not_a_name",
     )
 
