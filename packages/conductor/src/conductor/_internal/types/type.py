@@ -492,11 +492,11 @@ class Type:
 
         This is the name used for a type inside another type, and for the type an edge brings.
         """
-        return (
-            f"{self.id} | None"
-            if type(None) in union_members(self.bare) and self.options
-            else self.id
+        members = union_members(self.bare)
+        may_be_none = type(None) in members or any(
+            get_origin(member) is Literal and None in get_args(member) for member in members
         )
+        return f"{self.id} | None" if may_be_none and self.options else self.id
 
     @functools.cached_property
     def title(self) -> str:

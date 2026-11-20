@@ -228,6 +228,38 @@ def test_a_variable_beside_none_binds_the_arriving_type_without_its_none() -> No
     assert graph.problems == [] and _types(graph, "maybe")["result"] == (False, "str")
 
 
+@node("give_some", title="Give some", description="For a test.")
+def give_some() -> list[int | None]:
+    return [1, None, 2]
+
+
+@node("compact", title="Compact", description="For a test.")
+def compact[T](values: list[T | None]) -> list[T]:
+    return [value for value in values if value is not None]
+
+
+@node("compact_none_first", title="Compact, None first", description="For a test.")
+def compact_none_first[T](values: list[None | T]) -> list[T]:
+    return [value for value in values if value is not None]
+
+
+@node("total_of", title="Total of", description="For a test.")
+def total_of(values: list[int]) -> int:
+    return sum(values)
+
+
+@pytest.mark.parametrize("dropping", [compact, compact_none_first], ids=["T-or-None", "None-or-T"])
+def test_inside_a_value_the_none_of_a_union_takes_a_none_so_the_variable_binds_without_it(
+    dropping: Any,
+) -> None:
+    """Fed ``list[int | None]``, ``list[T | None]`` binds ``T`` to ``int``, whichever member is written first."""
+    graph = Graph.compile(
+        make_graph(give_some, dropping, total_of), registry_of(give_some, dropping, total_of)
+    )
+    assert graph.problems == []
+    assert graph.run().outputs == {"result": 3}
+
+
 def test_a_bare_variable_binds_without_none_so_a_none_is_a_none_input() -> None:
     """A type variable on its own never takes ``None``.
 
