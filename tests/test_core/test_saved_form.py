@@ -474,6 +474,27 @@ def test_a_saved_run_with_reusable_outcomes_of_a_node_reads_back_once_the_node_s
     assert back.status == "complete" and back.results["approve"]["result"] == [True]
 
 
+def test_a_saved_run_waiting_on_a_node_calls_the_node_once_its_code_stops_asking() -> None:
+    """No call of a node that never asks waits for a person. So a question saved while the node asked is dropped
+    when the run is read back, its waiting id names no waiting call, and ``resume`` calls the node's code for it. An
+    answer given before the save stays."""
+    asking = _approve_graph(asks=True)
+    first = asking.run({"text": "a\nb"})
+    answered, still_waiting = first.waiting
+    saved = first.with_answers(answered, False).to_json()
+
+    back = Run.from_json(saved, _approve_graph(asks=False))
+
+    assert back.waiting == [] and back.status == "ready"
+    with pytest.raises(InvalidCallError) as refused:
+        back.with_answers(still_waiting, True)
+    assert [p.type for p in refused.value.problems] == ["not_waiting"]
+    done = back.resume()
+    assert done.status == "complete" and done.results["approve"]["result"] == [False, True]
+    assert Run.from_json(back.to_json(), _approve_graph(asks=False)).to_json() == back.to_json()
+    assert "questions" not in json.loads(back.to_json())["outcomes"]["approve"]
+
+
 def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_and_reuses_them_read_back() -> (
     None
 ):
