@@ -8,7 +8,7 @@ checks them all at once.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass, field
 from io import StringIO
 from typing import Annotated, Any, TypedDict
 
@@ -34,7 +34,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Dropdown, Textarea
-from pydantic import AfterValidator, ValidationError, constr
+from pydantic import AfterValidator, BaseModel, ConfigDict, PrivateAttr, ValidationError, constr
 from pydantic_core import core_schema
 
 from tests.test_core.nodes import input_entry, registry_of
@@ -974,6 +974,70 @@ def test_an_edge_naming_a_field_a_record_lacks_lists_every_field_whatever_its_na
         ("u", "text"),
         ["g.result..hidden", "g.result.b"],
     )
+
+
+@host_type("vault", title="Vault")
+class Vault(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    code: str
+    _key: str = PrivateAttr("k")
+
+
+@host_type("crate", title="Crate")
+@dataclass(frozen=True)
+class Crate:
+    size: str
+    scale: InitVar[int] = 1
+    label: str = field(init=False, default="crate")
+
+
+@node("give_vault", title="Give vault", description="For a test.")
+def give_vault() -> Vault:
+    return Vault(code="c")
+
+
+@node("give_crate", title="Give crate", description="For a test.")
+def give_crate() -> Crate:
+    return Crate(size="s")
+
+
+@pytest.mark.parametrize(
+    ("source", "field", "fields"),
+    [
+        ("give_vault", "_key", ["g.result.code"]),
+        ("give_crate", "scale", ["g.result.size", "g.result.label"]),
+    ],
+    ids=["private attribute", "InitVar"],
+)
+def test_an_edge_reads_only_a_field_the_class_declares(source, field, fields):
+    """A model's private attribute and a dataclass's ``InitVar`` aren't fields of a value, so an edge to one is
+    ``unknown_output``. A dataclass's ``field(init=False)`` is one, since every value has it."""
+    registry = registry_of(give_vault, give_crate, upper)
+
+    def edge_to(name: str) -> GraphRecord:
+        return GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "g": {"node": source},
+                    "u": {
+                        "node": "upper",
+                        "inputs": {
+                            "text": {"sources": [{"node": "g", "output": "result", "field": name}]}
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "u", "output": "result"}},
+            }
+        )
+
+    (found,) = Graph.compile(edge_to(field), registry).problems
+    assert (found.type, found.loc, found.ctx["outputs"]) == (
+        "unknown_output",
+        ("u", "text"),
+        fields,
+    )
+    kept = Graph.compile(edge_to(fields[-1].rsplit(".", 1)[1]), registry)
+    assert kept.problems == []
 
 
 def test_a_broken_edge_is_one_problem_not_repeated_on_the_nodes_downstream():

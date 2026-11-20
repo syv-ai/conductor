@@ -24,7 +24,6 @@ from types import UnionType
 from typing import (
     Annotated,
     Any,
-    ClassVar,
     Literal,
     NotRequired,
     Required,
@@ -136,7 +135,11 @@ def field_hints(hint: Any) -> dict[str, Any]:
     Each hint is the one its author wrote, with its ``Annotated`` metadata, so a field's limits and choices stay
     on it. A ``TypedDict``'s ``Required`` and ``ReadOnly`` are taken off. A field a value may leave out, written
     ``NotRequired`` or in a class declared ``total=False``, is always given as ``NotRequired[...]``, so one test
-    finds it (``types_and_left_out``). A ``ClassVar`` is no field.
+    finds it (``types_and_left_out``).
+
+    Only what the class declares as a field is one: a model's ``model_fields``, a dataclass's ``dataclasses.fields``
+    and every key of a ``TypedDict``. So a model's private attribute, a dataclass's ``InitVar`` and a ``ClassVar``
+    are left out, and a dataclass's ``field(init=False)``, which every value has, is kept.
 
     Raises:
         NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can
@@ -161,9 +164,17 @@ def field_hints(hint: Any) -> dict[str, Any]:
     # a TypedDict says which of its keys must be there, but not for a qualifier written as text, which only the
     # resolved hint shows
     required_keys = getattr(origin, "__required_keys__", written.keys())
+    # the hints are read from the annotations, since the class's own record of its fields keeps a field's
+    # Annotated metadata apart from its type; that record only says which names are fields
+    if issubclass(origin, BaseModel):
+        declared = origin.model_fields.keys()
+    elif dataclasses.is_dataclass(origin):
+        declared = {f.name for f in dataclasses.fields(origin)}
+    else:
+        declared = written.keys()
     fields = {}
     for name, field in written.items():
-        if get_origin(field) is ClassVar:
+        if name not in declared:
             continue
         qualifiers = set()
         while get_origin(field) in _QUALIFIERS:
@@ -200,8 +211,9 @@ def type_fields(hint: Any) -> dict[str, Any]:
     type is the one its author wrote, with its ``Annotated`` limits. A field a value may leave out is given as its
     type, without ``NotRequired``.
 
-    Every annotation in the class's body is a field, except a ``ClassVar``. So a model's private attribute, like
-    ``_secret``, is given, and so are a dataclass's ``InitVar`` and a field declared ``field(init=False)``.
+    Only what the class declares as a field is given. A model's private attribute, like ``_secret``, a
+    dataclass's ``InitVar`` and a ``ClassVar`` are left out. A dataclass's ``field(init=False)`` is given, since
+    every value has it.
 
     Raises:
         NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can
