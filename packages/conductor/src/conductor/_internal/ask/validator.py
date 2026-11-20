@@ -306,7 +306,8 @@ def _answer_fields(
     questions = as_asked(outputs, choices, defaults)
     fields: dict[str, TypedDictField] = {}
     for name, field in outputs.items():
-        schema = _question(field, choices.get(name))
+        # a question saved before a deploy is answered only with the choices the output's type takes now
+        schema = _question(field, field.taken(choices.get(name)))
         default, required = questions[name].default, questions[name].required
         # a required question's default is only what a host starts the answer with, as on a node of one output
         if not required and default is not MISSING:

@@ -15,7 +15,8 @@ The files, roughly in the order a run uses them:
 - ``scheduler.py``: calls every node that is ready, for ``run.resume()`` and ``run.stream()``.
 - ``call.py``: one call of a node's function.
 - ``stream.py``, ``events.py`` and ``node_events.py``: ``run.stream()`` and the events it yields.
-- ``waiting.py``: ``Waiting``, a call waiting for a person, as a host is shown it.
+- ``waiting.py``: ``Question``, a call that asked as a person is shown it, and ``Waiting``, one still waiting, with the id to answer it by.
+- ``asked.py``: ``Asked``, a call a person answered or declined, with their reply, for ``run.asked``.
 - ``results.py``: ``run.results`` and ``run.outputs``.
 - ``progress.py``: ``run.progress``, how far a run is.
 - ``state.py``: ``run.status``.
@@ -26,6 +27,7 @@ The files, roughly in the order a run uses them:
 - ``json/``: saving a run as JSON and reading it back.
 """
 
+from .asked import Asked
 from .blueprint import RunBlueprint
 from .events import (
     Event,
@@ -47,9 +49,10 @@ from .type import (
     Run,
     make_run,
 )
-from .waiting import Waiting
+from .waiting import Question, Waiting
 
 __all__ = [
+    "Asked",
     "CallCount",
     "Event",
     "NodeComplete",
@@ -59,6 +62,7 @@ __all__ = [
     "NodeStart",
     "NodeWaiting",
     "NoneInputCall",
+    "Question",
     "Run",
     "RunBlueprint",
     "RunCheckpoint",

@@ -62,8 +62,10 @@ from conductor._internal.record import (
 )
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import (
+    Asked,
     CallCount,
     NoneInputCall,
+    Question,
     Run,
     RunProgress,
     RunStatus,
@@ -111,6 +113,8 @@ __all__ = [
     # A run
     "Run",
     "Waiting",
+    "Question",
+    "Asked",
     "NoneInputCall",
     "RunProgress",
     "CallCount",

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
+from conductor._internal.field import Field
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import (
     InvalidCallError,
@@ -26,10 +27,12 @@ from conductor._internal.problem import (
     value_free_errors,
 )
 from conductor._internal.series import SeriesItems
+from conductor._internal.types import choice_texts
 
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
 from ..reuse import ReusableOutcomes
+from ..state import EndedEarly
 from .codec import where_in
 from .type import SAVED_DONE, SAVED_SKIPPED, SavedOutcomes
 
@@ -122,14 +125,73 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True):
                 if outcome is not None:
                     outcomes.record(node, item_indexes, outcome)
+    if read.ended_early is not None:
+        try:
+            ended_early = _checked_ending(read.ended_early, outcomes)
+        except ValueError as wrong:
+            raise InvalidCallError([_lists_disagree("ended_early", str(wrong))]) from None
+    else:
+        ended_early = None
     return run_type(
         graph,
         read.max_items,
         outcomes,
         reusable,
-        _last_resume=read.ended_early,
+        _last_resume=ended_early,
         _complete_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
+
+
+def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarly:
+    """Returns how a saved run ended early, once it is one a run could have written.
+
+    A run a decline ended keeps the call declined and no ``cause``, since its ``answer_declined`` is made from the
+    call. Any other keeps its ``cause`` and no declined call. The declined call is one the graph has, with no
+    outcome of its own any more, and its question names only outputs of the node (``_check_question``). Whether
+    the node asks isn't checked: a deploy may make it stop asking, and a run read back keeps what it did, as it keeps
+    an answered call's question.
+
+    Raises:
+        ValueError: Any of that doesn't hold. The message names no value.
+    """
+    declined = ended_early.declined
+    if (ended_early.status == "declined") != (declined is not None):
+        raise ValueError("a run keeps a declined call when, and only when, it is declined")
+    if (ended_early.cause is None) != (declined is not None):
+        raise ValueError(
+            "a declined run keeps no cause, and any other run that ended early keeps one"
+        )
+    if declined is None:
+        return ended_early
+    node = outcomes.blueprint.function_nodes.get(declined.node_path)
+    if node is None:
+        raise ValueError("the declined call is not of a node of the graph")
+    if declined.item_indexes not in outcomes.item_indexes(node.loops)[0]:
+        raise ValueError("the node has no call at the declined call's item indexes")
+    if outcomes.of(declined.node_path).get(declined.item_indexes) is not None:
+        raise ValueError("the declined call has an outcome")
+    _check_question(node.compiled_node.outputs, declined.question)
+    return ended_early
+
+
+def _check_question(outputs: Mapping[str, Field], question: Unanswered) -> None:
+    """Checks that a saved question has the shape an ``Ask`` gives: choices and defaults only for outputs the node
+    has, and for each output at least one choice, none given twice.
+
+    A saved question is a record of what a person was shown, so its values are kept as they were saved, and never
+    read again by the output's type: a deploy may have changed the type, and the person was shown them all the
+    same. The codec checks the rest of its shape: a prompt and titles as text, choices and defaults by output
+    name, values as JSON. An output the node doesn't have, and a list of choices no ``Ask`` could give, are what no
+    deploy explains.
+
+    Raises:
+        ValueError: Any of that doesn't hold. The message names no value.
+    """
+    if not {*question.choices, *question.defaults} <= outputs.keys():
+        raise ValueError("a question names an output the node does not have")
+    for offered in question.choices.values():
+        if not offered or len(choice_texts(offered)) != len(offered):
+            raise ValueError("a question offers no choice, or one choice twice, for an output")
 
 
 def _lists_disagree(where: str, reason: str) -> Problem:
@@ -156,7 +218,8 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
          "fingerprints": ["<fp a>", null, "<fp c>"], "none_inputs": {"1": "line"}}
 
     That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``, each
-    ``Done`` with its fingerprint.
+    ``Done`` with its fingerprint. A question under ``questions`` is a waiting call's ``Unanswered`` where the call
+    has no state, and the ``asked`` of its ``Done`` where a person answered it.
 
     Args:
         node: The node, as compiled.
@@ -195,12 +258,16 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
                 outcomes.append(skipped_outcome)
             else:
                 outcomes.append(None)
-        for call_number, waiting in saved.questions.items():
-            if states[call_number] is not None:
-                raise LookupError(call_number)
-            outcomes[call_number] = dataclasses.replace(
-                waiting, fingerprint=fingerprints[call_number]
-            )
+        for call_number, saved_question in saved.questions.items():
+            _check_question(node.outputs, saved_question)
+            asked = dataclasses.replace(saved_question, fingerprint=fingerprints[call_number])
+            match outcomes[call_number]:
+                case Done() as answered:  # a question a person answered
+                    outcomes[call_number] = dataclasses.replace(answered, asked=asked)
+                case None:  # a question still waiting
+                    outcomes[call_number] = asked
+                case _:
+                    raise LookupError(call_number)
         for call_number, input_name in saved.none_inputs.items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)

@@ -2513,7 +2513,7 @@ def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refu
     assert failed["ended_early"]["status"] == "failed" and complete["ended_early"] is None
     assert (
         _refused(graph, {**failed, "ended_early": {"status": "failed"}}).ctx["where"]
-        == "ended_early.cause"
+        == "ended_early"
     )
     assert (
         _refused(

@@ -1,4 +1,4 @@
-"""``Waiting``, a call that is waiting for a person to answer, as a host is shown it.
+"""``Waiting``, a call that is waiting for a person to answer, as a host is shown it, and ``Question``, what it shows.
 
 When a node raises ``Ask``, its call stops and waits. The host lists those calls with ``run.waiting``, shows each
 one to a person, and sends the answer back with ``run.with_answers(id, value)``. This module builds what the host is
@@ -26,11 +26,35 @@ from .outcome import NoneInput, NotReady, Skipped, Unanswered
 from .outcomes import RunOutcomes
 
 
-class Waiting(ConductorModel):
-    """A call of a node that is waiting for a person to answer, as a host shows it.
+class Question(ConductorModel):
+    """A call of a node that asked a person, as the person is shown it: where it is, what it asks, and its inputs.
 
     A node with one output asks one question, and is answered with a plain value. A node with several outputs asks
     one question per output, and is answered with a mapping by question name.
+
+    ``Waiting`` is a ``Question`` a person can still answer, with the id an answer is sent to. In ``run.asked`` a
+    ``Question`` has no id: the call was answered or declined already, so the record is never an answer's target.
+
+    Attributes:
+        loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
+            that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
+            subgraph node and its item come first: ``("review", 0, "approve", 1)``.
+        prompt: The text the node's ``Ask`` gave.
+        questions: One question per output of the node, since the answer fills the outputs. Each is the
+            ``FieldDescription`` that ``describe()`` gives the output, with the ``choices`` and ``default`` the
+            ``Ask`` set. Its ``required`` and ``default`` say what happens if the answer leaves it out.
+        inputs: The values the call was given, as JSON.
+    """
+
+    loc: tuple[str | int, ...]
+    prompt: str
+    questions: list[FieldDescription]
+    inputs: dict[str, Any]
+
+
+class Waiting(Question):
+    """A call of a node that is waiting for a person to answer, as a host shows it: a ``Question`` with the id to
+    answer it by.
 
     Attributes:
         id: What ``run.with_answers`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
@@ -42,21 +66,39 @@ class Waiting(ConductorModel):
             of those change, the call may ask something else, so the old id stops matching. An answer to it is
             refused with ``answer_stale``. A call whose inputs or items JSON can't write has no fingerprint, and its
             id is the call alone: ``"approve@1"``.
-        loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
-            that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
-            subgraph node and its item come first: ``("review", 0, "approve", 1)``.
-        prompt: The text the node's ``Ask`` gave.
-        questions: One question per output of the node, since the answer fills the outputs. Each is the
-            ``FieldDescription`` that ``describe()`` gives the output, with the ``choices`` and ``default`` the
-            ``Ask`` set. Its ``required`` and ``default`` say what happens if the answer leaves it out.
-        inputs: The values the call was given, as JSON.
     """
 
     id: str
-    loc: tuple[str | int, ...]
-    prompt: str
-    questions: list[FieldDescription]
-    inputs: dict[str, Any]
+
+
+def question_of(
+    node: BlueprintFunctionNode,
+    item_indexes: ItemIndexes,
+    asked: Unanswered,
+    outcomes: RunOutcomes,
+    *,
+    record: bool = False,
+) -> Question:
+    """Builds the ``Question`` a person is shown for one call that asked.
+
+    Args:
+        node: The node that asks.
+        item_indexes: Which call of the node asked.
+        asked: What the call's ``Ask`` said.
+        outcomes: The run's outcomes, to find what the call was given.
+        record: Keep the choices and defaults exactly as asked, for ``run.asked``, though the output's type refuses
+            some of them now. Without it, the question is a form to answer, with only what the type takes.
+    """
+    return Question(
+        loc=outcome_loc(node, item_indexes),
+        prompt=asked.prompt,
+        questions=list(
+            as_asked(
+                node.compiled_node.outputs, asked.choices, asked.defaults, record=record
+            ).values()
+        ),
+        inputs=jsonable(_arguments(node, item_indexes, outcomes)),
+    )
 
 
 def waiting_of(
@@ -65,7 +107,7 @@ def waiting_of(
     waiting: Unanswered,
     outcomes: RunOutcomes,
 ) -> Waiting:
-    """Builds the ``Waiting`` a host is shown for one waiting call.
+    """Builds the ``Waiting`` a host is shown for one waiting call: its ``Question``, and the id to answer it by.
 
     Args:
         node: The node that asks.
@@ -73,18 +115,10 @@ def waiting_of(
         waiting: The call's outcome, with what the ``Ask`` said.
         outcomes: The run's outcomes, to find what the call was given.
     """
-    loc, outputs, choices, defaults = (
-        outcome_loc(node, item_indexes),
-        node.compiled_node.outputs,
-        waiting.choices,
-        waiting.defaults,
-    )
+    question = question_of(node, item_indexes, waiting, outcomes)
     return Waiting(
-        id=write_waiting_id(loc, question_fingerprint(node, waiting)),
-        loc=loc,
-        prompt=waiting.prompt,
-        questions=list(as_asked(outputs, choices, defaults).values()),
-        inputs=jsonable(_arguments(node, item_indexes, outcomes)),
+        id=write_waiting_id(question.loc, question_fingerprint(node, waiting)),
+        **{name: getattr(question, name) for name in Question.model_fields},
     )
 
 

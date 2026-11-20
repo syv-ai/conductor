@@ -18,7 +18,7 @@ indexes::
      ("join",):  {():   Done({"result": "A!+B!+C!"})}}
 
 A call has at most one outcome. Once stored, it changes only when a person answers: the answer replaces
-``Unanswered`` with ``Done``, which keeps the question's fingerprint. There are four kinds, one class each:
+``Unanswered`` with ``Done``, which keeps the question, its fingerprint included. There are four kinds, one class each:
 
 - ``Done``: the call has its outputs. Either the function returned them, or it asked a person and the person
   answered.
@@ -81,8 +81,12 @@ class NotReady(Enum):
 class Done:
     """The call has its outputs, such as ``Done({"result": "B!"})`` for the call ``(1,)`` of ``shout``.
 
-    Either the function returned the outputs, or it raised ``Ask`` and the outputs are the person's answer. The
-    outcome looks the same either way. Only reuse tells them apart, by whether the node may ask (``reuse.py``).
+    Either the function returned the outputs, or it raised ``Ask`` and the outputs are the person's answer. An
+    answer keeps the question it answers in ``asked``, so a saved run says what the person was shown when they
+    answered. Reuse goes by whether the node may ask, not by ``asked`` (``reuse.py``).
+
+    Say ``pick`` raised ``Ask("Who?", choices=team, default="bo")`` and the person answered ``"ida"``. Its outcome
+    is ``Done({"result": "ida"}, asked=Unanswered("Who?", {"result": (...)}, {"result": "bo"}))``.
 
     Attributes:
         outputs: The call's outputs by name. An output may be ``None``, or ``SKIPPED`` when it is a branch that
@@ -90,11 +94,14 @@ class Done:
             function returned.
         fingerprint: The call's fingerprint, or ``None`` when its arguments or items can't be written as JSON. An
             answer keeps the fingerprint of the question it answers.
+        asked: The question a person answered to give the outputs: the call's ``Unanswered`` as it waited. ``None``
+            when the function returned them, or when the saved run it was read from keeps no question for the call.
         has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
     fingerprint: str | None = dataclasses.field(kw_only=True)
+    asked: Unanswered | None = dataclasses.field(default=None, kw_only=True)
     has_outputs: ClassVar[Literal[True]] = True
 
 

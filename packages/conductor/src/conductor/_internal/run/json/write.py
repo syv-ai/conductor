@@ -1,4 +1,5 @@
-"""Writes a run as JSON (``run_to_json``), and a complete run's graph outputs as JSON (``outputs_to_json``).
+"""Writes a run as JSON (``run_to_json``), a complete run's graph outputs as JSON (``outputs_to_json``), and the
+outputs a person's answer gave one call (``answer_to_json``).
 
 ``saved_run`` turns the run into an instance of its graph's codec, the subclass of ``SavedRun`` made for the
 graph. That instance then writes itself as text. This package is the run's own JSON form, so it reads every field
@@ -131,6 +132,26 @@ def saved_run(run: Run) -> SavedRun:
     )
 
 
+def answer_to_json(
+    codec: type[SavedRun], node: BlueprintFunctionNode, answered: Done
+) -> dict[str, Any]:
+    """Returns the outputs a person's answer gave one call, by output name, as JSON data.
+
+    Each value is written as a saved run writes the call's outputs, by the node's list for the output in the graph's
+    codec. A branch the answer left out, ``SKIPPED``, is left out here too. ``Done({"result": True})`` gives
+    ``{"result": True}``.
+
+    Args:
+        codec: The graph's codec.
+        node: The node that asked.
+        answered: The call's outcome.
+    """
+    outputs = node.compiled_node.outputs
+    saved = saved_outcomes(codec.outcomes_classes[place_text(node.node_path)], outputs, [answered])
+    written: dict[str, list[Any]] = saved.model_dump(mode="json", include={"outputs"})["outputs"]
+    return {name: values[0] for name, values in written.items() if name not in saved.skipped}
+
+
 def _outcomes_by_call_number(
     outcomes: RunOutcomes, node: BlueprintFunctionNode
 ) -> list[Outcome | None]:
@@ -167,6 +188,8 @@ def saved_outcomes[S: SavedOutcomes](
             case Done():
                 states.append(SAVED_DONE)
                 fingerprints.append(outcome.fingerprint)
+                if outcome.asked is not None:  # an answer keeps what the person was shown
+                    questions[call_number] = outcome.asked
                 for name, values in values_by_output.items():
                     values.append(outcome.outputs[name])
                 continue
