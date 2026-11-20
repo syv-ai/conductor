@@ -26,6 +26,7 @@ from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
+from conductor._internal.base import JSON_CORE_CONFIG
 from conductor._internal.problem import (
     OWN_MESSAGE,
     NodeDeclarationError,
@@ -517,12 +518,14 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             },
         }
 
-    # each written with its row class, so a fault in a column names the row's field, as in a bare TypedDict
+    # each written with its row class, so a fault in a column names the row's field, as in a bare TypedDict; and
+    # each with conductor's config, since a typed dict reads its fields by its own, so a bytes cell reads base64
     row_class = origin if declared else None
     one_row = (
         core_schema.typed_dict_schema(
             {name: core_schema.typed_dict_field(cell) for name, cell in cells.items()},
             cls=row_class,
+            config=JSON_CORE_CONFIG,
         )
         if declared
         else core_schema.dict_schema(core_schema.str_schema())
@@ -533,6 +536,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             for name, cell in cells.items()
         },
         cls=row_class,
+        config=JSON_CORE_CONFIG,
     )
     as_frame = (
         core_schema.no_info_wrap_validator_function(from_frame, by_column)

@@ -7,7 +7,8 @@ and the cells themselves::
                  {"name": "amount", "type": "float", "values": [12.5, 3.0]}]}
 
 The columns are a list and not an object keyed by name, because a store may give an object's keys back in
-another order.
+another order. A ``bytes`` column's cells are written as base64 text, as all bytes are (``JSON_CONFIG``):
+``{"name": "data", "type": "bytes", "values": ["__4="]}``.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from typing import Any
 import polars as pl
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.base import json_hash
+from conductor._internal.base import JSON_CORE_CONFIG, json_hash
 
 #: The cell types a column is written with by name, each with its polars dtype and the schema that converts its
 #: cells back from JSON. A column of any other kind, such as a list or a struct, is written with the word ``json``
@@ -31,6 +32,7 @@ CELLS: Mapping[type, tuple[Any, CoreSchema]] = {
     int: (pl.Int64, core_schema.int_schema()),
     float: (pl.Float64, core_schema.float_schema()),
     str: (pl.String, core_schema.str_schema()),
+    bytes: (pl.Binary, core_schema.bytes_schema()),
     datetime.date: (pl.Date, core_schema.date_schema()),
     datetime.datetime: (pl.Datetime, core_schema.datetime_schema()),
     datetime.time: (pl.Time, core_schema.time_schema()),
@@ -42,7 +44,8 @@ CELLS: Mapping[type, tuple[Any, CoreSchema]] = {
 DTYPES = {kind.__name__: dtype for kind, (dtype, _) in CELLS.items()}
 
 #: The pydantic schema of a table's JSON, as the module docstring shows it. Each column's ``type`` word picks the
-#: schema its cells are checked by.
+#: schema its cells are checked by. A typed dict reads its fields by its own config, so each is given conductor's,
+#: and a ``bytes`` column reads its cells from base64 text, as every ``bytes`` value does.
 WRITTEN_TABLE = core_schema.typed_dict_schema(
     {
         "columns": core_schema.typed_dict_field(
@@ -60,6 +63,7 @@ WRITTEN_TABLE = core_schema.typed_dict_schema(
                                 ),
                             },
                             extra_behavior="forbid",
+                            config=JSON_CORE_CONFIG,
                         )
                         for word, cells in [
                             *((kind.__name__, cells) for kind, (_, cells) in CELLS.items()),
@@ -72,6 +76,7 @@ WRITTEN_TABLE = core_schema.typed_dict_schema(
         ),
     },
     extra_behavior="forbid",
+    config=JSON_CORE_CONFIG,
 )
 
 
