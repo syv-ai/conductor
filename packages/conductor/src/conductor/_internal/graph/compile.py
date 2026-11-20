@@ -45,7 +45,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, assert_never
 
 from pydantic import MISSING
 
@@ -503,11 +503,13 @@ class Compiler:
             }
         inputs: dict[str, Input] = {}
         for name, field in fields.items():
-            if name in constants:
-                inputs[name] = constants[name]
-                continue
-            # constants has every input the record gives a constant, so these are the kinds left
             match node_record.inputs.get(name):
+                case ConstantEntry():
+                    # _constant_inputs converted or refused every constant the record gives
+                    inputs[name] = constants[name]
+                case _ if name in constants:
+                    # an input that takes only a constant, which _constant_inputs refused or found no value for
+                    inputs[name] = constants[name]
                 case None if name in refused_defaults:
                     inputs[name] = MissingInput(field)
                 case None if field.default is REQUIRED:
@@ -519,6 +521,8 @@ class Compiler:
                     inputs[name] = self._graph_input(node_id, field, graph_input)
                 case SourcesEntry():
                     inputs[name] = self._edge_input(node_id, field, sources[name])
+                case unexpected:
+                    assert_never(unexpected)
         for name in self._inputs_with_conflicting_edges(node_id, inputs):
             inputs[name] = MissingInput(inputs[name].field)
         loops = max(

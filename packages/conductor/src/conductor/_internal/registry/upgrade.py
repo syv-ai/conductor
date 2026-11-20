@@ -11,7 +11,9 @@ input's key keeps it in the record, as a constant.
 A graph input belongs to the whole graph, so an upgrade of one node never changes its default, and a rewrite never
 sees it. A graph input that only the dropped inputs took is dropped with them, and leaves what a caller gives.
 
-Each step works on the record's JSON, as ``make_graph`` writes a record, and ``RecordValidator`` reads it back.
+Every step edits the record's JSON, as ``make_graph`` writes a record. ``RecordValidator`` checks it after each step,
+and the graph inputs that step dropped are read from the record it returns. The JSON is read back once more at the end,
+with those graph inputs gone.
 """
 
 from __future__ import annotations
@@ -89,9 +91,10 @@ def upgraded(
         for newer, older in zip(newest_first, newest_first[1:], strict=False)
         if newer.version > node_record.version
     ]
+    written = graph.model_dump(mode="json")
+    taken = graph.graph_inputs_taken
     for step, older in reversed(steps):
         upgrade = step.upgrade
-        written = graph.model_dump(mode="json")
         node = written["nodes"][node_id]
         renamed = {
             upgrade.renamed_inputs.get(name, name): entry
@@ -113,21 +116,16 @@ def upgraded(
             name: _renamed_source(source, node_id, upgrade.renamed_outputs)
             for name, source in written["outputs"].items()
         }
-        upgraded = RecordValidator(
+        checked = RecordValidator(
             written_by=f"the Upgrade of '{node_record.node}' to version {step.version}"
         )(written)
         # a graph input that only the inputs this step dropped took goes with them
-        dropped = graph.graph_inputs_taken - upgraded.graph_inputs_taken
-        graph = upgraded.model_copy(
-            update={
-                "inputs": {
-                    name: declared
-                    for name, declared in upgraded.inputs.items()
-                    if name not in dropped
-                }
-            }
-        )
-    return graph
+        dropped = taken - checked.graph_inputs_taken
+        written["inputs"] = {
+            name: declared for name, declared in written["inputs"].items() if name not in dropped
+        }
+        taken = checked.graph_inputs_taken
+    return RecordValidator()(written)
 
 
 def _rewritten(
