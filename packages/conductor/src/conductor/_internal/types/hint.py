@@ -134,6 +134,16 @@ def has_own_config(cls: Any) -> bool:
     )
 
 
+def revalidates_instances(cls: Any) -> bool:
+    """Whether pydantic checks again a value that is already an instance of ``cls``, a model or a pydantic dataclass
+    whose config's ``revalidate_instances`` isn't ``"never"``. It then reads a subclass's instance by ``cls``'s own
+    config, so the value may change. ``False`` for any other class, and for anything that is no class."""
+    if not has_own_config(cls):
+        return False
+    config = cls.model_config if issubclass(cls, BaseModel) else cls.__pydantic_config__
+    return config.get("revalidate_instances", "never") != "never"
+
+
 def field_hints(hint: Any) -> dict[str, Any]:
     """Returns the type hint of each field ``hint`` declares, by name. It is empty for a hint that declares none.
 

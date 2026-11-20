@@ -2162,3 +2162,67 @@ def test_a_row_read_by_a_config_of_its_own_reads_each_value_of_another_row_type_
     run = graph.run({"k": 1})
 
     assert (run.status, run.outputs["result"]) == ("complete", ["ann"])
+
+
+@host_type("lower-who", title="Lower who")
+class LowerWho(BaseModel):
+    model_config = ConfigDict(
+        frozen=True, str_to_lower=True, revalidate_instances="subclass-instances"
+    )
+    name: str
+
+
+@host_type("cased-who", title="Cased who")
+class CasedWho(LowerWho):
+    model_config = ConfigDict(frozen=True, str_to_lower=False)
+
+
+class CasedRow(TypedDict):
+    who: CasedWho
+
+
+class LowerRow(TypedDict):
+    who: LowerWho
+
+
+@node("cased-who-one", title="Cased who one", description="For a test.")
+def cased_who_one(k: int) -> CasedWho:
+    return CasedWho(name="ANN")
+
+
+@node("cased-rows", title="Cased rows", description="For a test.")
+def cased_rows(k: int) -> Series[CasedRow]:
+    return [{"who": CasedWho(name="ANN")} for _ in range(k)]
+
+
+@node("lower-who-name", title="Lower who name", description="For a test.")
+def lower_who_name(who: LowerWho) -> list[str]:
+    return [who.name]
+
+
+@node("lower-row-names", title="Lower row names", description="For a test.")
+def lower_row_names(rows: Series[LowerRow]) -> list[str]:
+    return [row["who"].name for row in rows]
+
+
+@node("lower-table-names", title="Lower table names", description="For a test.")
+def lower_table_names(table: Table[LowerRow]) -> list[str]:
+    return [row["who"]["name"] for row in table.to_dicts()]
+
+
+@pytest.mark.parametrize(
+    "nodes",
+    [
+        (cased_who_one, lower_who_name),
+        (cased_rows, lower_row_names),
+        (cased_rows, lower_table_names),
+    ],
+    ids=["a model", "a series of rows", "rows collected into a table"],
+)
+def test_a_subclass_of_a_model_that_revalidates_instances_is_read_by_the_models_own_config(
+    nodes,
+) -> None:
+    graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
+    run = graph.run({"k": 1})
+
+    assert (run.status, run.outputs["result"]) == ("complete", ["ann"])
