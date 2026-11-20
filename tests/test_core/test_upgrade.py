@@ -204,6 +204,62 @@ def test_a_two_step_upgrade_rewrites_the_constants_and_sets_the_last_version():
     }
 
 
+def test_a_later_steps_rewrite_sees_the_constants_as_the_record_after_the_step_before_holds_them():
+    """The second step's rewrite gets the constants the first step left, as the record holds them after it.
+
+    The first rewrite returns a tuple and a date. The second sees them as the JSON a saved record keeps, a list
+    and ISO text, the same as the record that ``to=2`` returns.
+    """
+    import datetime
+
+    seen: list[dict] = []
+
+    def first(before):
+        return {"pair": (2, 1), "day": datetime.date(2026, 1, 2)}
+
+    def second(before):
+        seen.append(before)
+        return before
+
+    @node("steps", title="Steps v1", description="For a test.")
+    def steps_v1(old: str) -> str:
+        return old
+
+    @node(
+        "steps",
+        title="Steps v2",
+        description="For a test.",
+        replaces=steps_v1,
+        upgrade=Upgrade(rewrite=first),
+    )
+    def steps_v2(pair: list[int], day: str) -> str:
+        return day
+
+    @node(
+        "steps",
+        title="Steps",
+        description="For a test.",
+        replaces=steps_v2,
+        upgrade=Upgrade(rewrite=second),
+    )
+    def steps_v3(pair: list[int], day: str) -> str:
+        return day
+
+    registry = NodeRegistry()
+    registry.add(steps_v3)
+    saved = GraphRecord.model_validate(
+        {"nodes": {"s": {"node": "steps", "inputs": {"old": {"constant": "x"}}}}}
+    )
+
+    at_two = registry.upgrade(saved, "s", to=2)
+    upgraded = registry.upgrade(saved, "s")
+
+    assert seen == [{"pair": [2, 1], "day": "2026-01-02"}]
+    assert {name: entry["constant"] for name, entry in _inputs(at_two, "s").items()} == seen[0]
+    assert upgraded.nodes["s"].version == 3
+    assert _inputs(upgraded, "s") == _inputs(at_two, "s")
+
+
 def test_a_renamed_output_moves_the_edges_out_of_it_and_the_graph_compiles_clean():
     registry = _registry()
     upgraded = registry.upgrade(_graph(), "r")

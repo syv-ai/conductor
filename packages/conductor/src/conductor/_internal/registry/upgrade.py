@@ -12,8 +12,8 @@ A graph input belongs to the whole graph, so an upgrade of one node never change
 sees it. A graph input that only the dropped inputs took is dropped with them, and leaves what a caller gives.
 
 Every step edits the record's JSON, as ``make_graph`` writes a record. ``RecordValidator`` checks it after each step,
-and the graph inputs that step dropped are read from the record it returns. The JSON is read back once more at the end,
-with those graph inputs gone.
+and the graph inputs that step dropped are read from the record it returns. The next step starts from that record
+written as JSON again, with those graph inputs gone, and the JSON is read back once more at the end.
 """
 
 from __future__ import annotations
@@ -121,6 +121,7 @@ def upgraded(
         )(written)
         # a graph input that only the inputs this step dropped took goes with them
         dropped = taken - checked.graph_inputs_taken
+        written = checked.model_dump(mode="json")
         written["inputs"] = {
             name: declared for name, declared in written["inputs"].items() if name not in dropped
         }
