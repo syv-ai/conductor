@@ -169,7 +169,7 @@ def param_limit_value_invalid(*, limits: str, type: str, reason: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def choices_invalid(*, reason: str, errors: list[dict[str, Any]]) -> str:
+def choices_invalid(*, type: str, reason: str, errors: list[dict[str, Any]], instead: str) -> str:
     """A ``Param``'s choices can't be used: a choice isn't a value of the input's type, can't be written as JSON or is
     given twice, or there are none.
 
@@ -184,12 +184,18 @@ def choices_invalid(*, reason: str, errors: list[dict[str, Any]]) -> str:
     looked for, so ``choice_twice`` comes alone, as does pydantic's ``too_short`` for no choices, each with ``loc``
     ``[]``.
 
-    To fix it, give each choice once, as a value of the input's type that can be written as JSON. Where a check
-    changes a value, give the choices as the check gives them back, or check them in the node.
+    To fix it, give each choice once, as a value of the type that can be written as JSON. Where a check changes a
+    value (``not_a_choice``), give choices that every check on the hint keeps as they are, or make the change in the
+    node. ``ctx.instead`` is the one that fits.
 
     Args:
+        type: Where the choices are: the field of a model, dataclass or ``TypedDict`` that holds them, as
+            ``Mood.pick``, when a check on a field inside the type moves them, or else the type the ``Param`` is on,
+            as its developer wrote it.
         reason: The first fault.
         errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
+        instead: The fix, as a sentence: for ``not_a_choice``, to give choices every check keeps; for any other
+            fault, to give each choice once, as a value of the type that can be written as JSON.
 
     Example:
         from pydantic import AfterValidator
@@ -205,7 +211,7 @@ def choices_invalid(*, reason: str, errors: list[dict[str, Any]]) -> str:
 
         declaration_refused(lambda: node("pick-moods", title="Pick moods", description="Counts the moods picked.")(pick_moods))
     """
-    return f"the choices can't be used: {reason}. Give each choice once, as a value of the field's type that can be written as JSON."
+    return f"the choices in {type} can't be used: {reason}. {instead}"
 
 
 @DECLARATION_PROBLEMS.problem
@@ -1216,14 +1222,16 @@ def type_not_supported_set(*, type: str) -> str:
     A set has no order, so its items could come in a different order each time, and the same set would be written
     as a different JSON text. Every value that enters a graph is read from its JSON form, a node's own default
     included, and a set has none that keeps it the same. A set a node returns would hash differently in each
-    process, so a later run could never reuse the call.
+    process, so a later run could never reuse the call. So conductor doesn't take a set anywhere in a declared type,
+    even where a host's serializer writes it as a sorted list.
 
     To fix it, declare a ``list`` or a ``tuple`` in the set's place, in the field of your own class too, and make a
     set of it inside the node where you need one.
 
     Args:
         type: Where the set is: the field of a model, dataclass or ``TypedDict`` that holds it, as ``LabelSet.labels``,
-            or else the input's or output's own type, as its developer wrote it.
+            a table's row's included, or else the set itself, as its developer wrote it, like ``set[str]`` inside
+            ``list[set[str]]``.
 
     Example:
         from pydantic import BaseModel
@@ -1240,7 +1248,7 @@ def type_not_supported_set(*, type: str) -> str:
 
         declaration_refused(lambda: node("label-count", title="Label count", description="Counts the labels.")(label_count))
     """
-    return f"a set has no order, so {type} has no JSON form that keeps it the same. Declare a list or a tuple instead."
+    return f"a set has no order, so conductor doesn't take one in a declared type, and {type} is or holds one. Declare a list or a tuple in its place."
 
 
 @DECLARATION_PROBLEMS.problem

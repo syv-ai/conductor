@@ -177,18 +177,21 @@ def declared_choices(
     given: Any,
     reader: SchemaValidator | TypeAdapter[Any],
     write: Callable[[Any], JsonValue],
+    *,
+    where: str,
 ) -> tuple[Choice, ...]:
     """Reads the choices a type declares, as ``read_choices`` does, and refuses them as a fault in the declaration.
 
-    ``Param`` reads its choices with it, and ``Type.choices`` a ``Literal``'s values or an enum's members, so a type
-    whose choices can't be read is refused by ``@node``, and nothing that reads them later meets a bare pydantic
-    error.
+    ``Param`` reads its choices with it, ``Type.choices`` a ``Literal``'s values or an enum's members, and
+    ``Type.check_declared`` a ``Param``'s choices again by every check on the hint, so a type whose choices can't be
+    read is refused by ``@node``, and nothing that reads them later meets a bare pydantic error.
 
     Args:
         given: The choices, as ``Param``, the ``Literal`` or the enum gives them. ``Param``'s are as a developer
             wrote them, so text or a set is refused here.
         reader: The validator of the type the choices are values of.
         write: Converts a value ``reader`` gave back to JSON.
+        where: Where the choices are, which the problem names: a field of a class, as ``Order.size``, or a type.
 
     A choice is read from its JSON form, as an answer is, so ``inf`` and ``nan`` are refused: no one could pick them.
     A choice with a set in it is refused too (``set_has_no_order``), since its JSON form would be a list.
@@ -212,8 +215,16 @@ def declared_choices(
             {**free, "loc": list(raw["loc"][:1])}
             for raw, free in zip(refused.errors(), value_free_errors(refused), strict=True)
         ]
+    # a check on the hint that changes a value moves a choice off itself, so the fix is the check, not the choice
+    instead = (
+        "Give choices that every check on the value keeps as they are, or change the value in the node instead."
+        if errors[0]["type"] == "not_a_choice"
+        else f"Give each choice once, as a value of {where} that can be written as JSON."
+    )
     raise NodeDeclarationError(
-        declaration_problems.choices_invalid(reason=errors[0]["msg"], errors=errors)
+        declaration_problems.choices_invalid(
+            type=where, reason=errors[0]["msg"], errors=errors, instead=instead
+        )
     ) from None
 
 
