@@ -43,11 +43,9 @@ from conductor import (
     JSON_CONFIG,
     SKIPPED,
     Choice,
-    ConstantEntry,
     Deprecation,
     ExternalError,
     Graph,
-    GraphInputEntry,
     GraphInputRecord,
     GraphRecord,
     InvalidCallError,
@@ -60,7 +58,6 @@ from conductor import (
     Run,
     Series,
     Source,
-    SourcesEntry,
     Table,
     Upgrade,
     host_type,
@@ -94,6 +91,8 @@ from pydantic import (
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import core_schema
 
+from tests.test_core.nodes import input_entry
+
 
 def registry_of(*definitions):
     registry = NodeRegistry()
@@ -126,11 +125,12 @@ def node_record(definition_id, *, version=1, constants=None, graph_inputs=(), so
         sources: For each input wired to an edge, the ``(node, output)`` the edge starts from.
     """
     inputs: dict[str, Any] = {
-        name: ConstantEntry(constant=value) for name, value in (constants or {}).items()
+        name: input_entry({"constant": value}) for name, value in (constants or {}).items()
     }
-    inputs |= {name: GraphInputEntry(graph_input=name) for name in graph_inputs}
+    inputs |= {name: input_entry({"graph_input": name}) for name in graph_inputs}
     inputs |= {
-        name: SourcesEntry(sources=(Source(*source),)) for name, source in (sources or {}).items()
+        name: input_entry({"sources": (Source(*source),)})
+        for name, source in (sources or {}).items()
     }
     return NodeRecord(node=definition_id, version=version, inputs=inputs)
 

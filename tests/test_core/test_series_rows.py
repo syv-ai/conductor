@@ -12,7 +12,6 @@ import polars as pl
 import pytest
 from conductor import (
     Graph,
-    GraphInputEntry,
     GraphInputRecord,
     GraphRecord,
     InvalidCallError,
@@ -21,14 +20,13 @@ from conductor import (
     Run,
     Series,
     Source,
-    SourcesEntry,
     Table,
     make_graph,
     node,
     subgraph,
 )
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 
 class Contact(TypedDict):
@@ -89,7 +87,7 @@ def _graph(source: Any = contacts) -> Any:
     }
     readers = {
         node_id: NodeRecord(
-            node=node_id, inputs={name: SourcesEntry(sources=[Source("c", "result", field)])}
+            node=node_id, inputs={name: input_entry({"sources": [Source("c", "result", field)]})}
         )
         for node_id, (name, field) in reads.items()
     }
@@ -98,7 +96,7 @@ def _graph(source: Any = contacts) -> Any:
             inputs={"text": GraphInputRecord()},
             nodes={
                 "c": NodeRecord(
-                    node=source.id, inputs={"text": GraphInputEntry(graph_input="text")}
+                    node=source.id, inputs={"text": input_entry({"graph_input": "text"})}
                 ),
                 **readers,
             },

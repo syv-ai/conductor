@@ -5,7 +5,7 @@ One module, on three text nodes declared at the top. Events, errors and serving 
 ```python
 from typing import Annotated
 
-from conductor import Source, Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, ConstantEntry, SourcesEntry, Run, Series, node
+from conductor import Ask, Graph, GraphRecord, NodeRegistry, Param, Run, Series, node
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -22,7 +22,7 @@ def uppercase(text: str) -> str:
 
 
 # compiling never raises for a bad graph; key on each Problem's type
-broken = Graph.compile(GraphRecord(nodes={"loud": NodeRecord(node="text-uppercase", inputs={"text": SourcesEntry(sources=(Source("ghost", "result"),))})}), registry)
+broken = Graph.compile(GraphRecord.model_validate({"nodes": {"loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}}}}}), registry)
 assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
 
 
@@ -32,10 +32,10 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
 
 
 registry.add(approve)
-asking = Graph.compile(GraphRecord(nodes={
-    "drafts": NodeRecord(node="text-split", inputs={"text": ConstantEntry(constant="first,second")}),
-    "approve": NodeRecord(node="approve", inputs={"proposal": SourcesEntry(sources=(Source("drafts", "result"),))}),
-}), registry)
+asking = Graph.compile(GraphRecord.model_validate({"nodes": {
+    "drafts": {"node": "text-split", "inputs": {"text": {"constant": "first,second"}}},
+    "approve": {"node": "approve", "inputs": {"proposal": {"sources": [{"node": "drafts", "output": "result"}]}}},
+}}), registry)
 
 first = asking.run()
 assert first.status == "waiting" and [waiting.inputs["proposal"] for waiting in first.waiting] == ["first", "second"]

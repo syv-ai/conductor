@@ -34,7 +34,6 @@ from conductor import (
     Run,
     Series,
     Source,
-    SourcesEntry,
     Table,
     host_type,
     make_graph,
@@ -43,7 +42,7 @@ from conductor import (
 from pydantic import AfterValidator, BaseModel, Discriminator, Field, field_validator
 from pydantic_core import PydanticCustomError, core_schema
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 SECRET = "cpr-1234567890"
 
@@ -74,7 +73,7 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
             nodes={
                 "a": NodeRecord(node="give"),
                 "b": NodeRecord(
-                    node=sink.id, inputs={name: SourcesEntry(sources=[Source("a", "result")])}
+                    node=sink.id, inputs={name: input_entry({"sources": [Source("a", "result")]})}
                 ),
             },
             outputs={output: Source("b", output) for output in sink.outputs},

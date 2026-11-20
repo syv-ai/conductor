@@ -31,7 +31,6 @@ from conductor import (
     SKIPPED,
     Ask,
     Graph,
-    GraphInputEntry,
     GraphInputRecord,
     GraphRecord,
     InvalidCallError,
@@ -42,7 +41,6 @@ from conductor import (
     Run,
     Series,
     Source,
-    SourcesEntry,
     Table,
     host_type,
     make_graph,
@@ -51,7 +49,7 @@ from conductor import (
 )
 from pydantic import MISSING
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import input_entry, registry_of
 
 # -- the nodes ---------------------------------------------------------------------------------
 
@@ -992,21 +990,24 @@ def test_collecting_a_series_not_returned_for_a_none_item_is_a_none_input_not_an
         GraphRecord(
             inputs={"text": GraphInputRecord()},
             nodes={
-                "d": NodeRecord(node="docs", inputs={"text": GraphInputEntry(graph_input="text")}),
+                "d": NodeRecord(node="docs", inputs={"text": input_entry({"graph_input": "text"})}),
                 "l": NodeRecord(
-                    node="lines", inputs={"text": SourcesEntry(sources=[Source("d", "result")])}
+                    node="lines", inputs={"text": input_entry({"sources": [Source("d", "result")]})}
                 ),
                 "c": NodeRecord(
-                    node="count", inputs={"items": SourcesEntry(sources=[Source("l", "result")])}
+                    node="count",
+                    inputs={"items": input_entry({"sources": [Source("l", "result")]})},
                 ),
                 "t": NodeRecord(
-                    node="total", inputs={"ns": SourcesEntry(sources=[Source("c", "result")])}
+                    node="total", inputs={"ns": input_entry({"sources": [Source("c", "result")]})}
                 ),
                 "a": NodeRecord(
-                    node="as_table", inputs={"text": SourcesEntry(sources=[Source("d", "result")])}
+                    node="as_table",
+                    inputs={"text": input_entry({"sources": [Source("d", "result")]})},
                 ),
                 "w": NodeRecord(
-                    node="width", inputs={"table": SourcesEntry(sources=[Source("a", "result")])}
+                    node="width",
+                    inputs={"table": input_entry({"sources": [Source("a", "result")]})},
                 ),
             },
         ),
@@ -1323,7 +1324,7 @@ def test_a_series_input_downstream_of_an_input_not_wired_yet_gets_the_problem_it
             "upper": NodeRecord(node="upper"),
             "join": NodeRecord(
                 node="join",
-                inputs={"texts": SourcesEntry(sources=[Source(node="upper", output="result")])},
+                inputs={"texts": input_entry({"sources": [Source(node="upper", output="result")]})},
             ),
         }
     )  # upper.text may yet be wired to a loop, which would make join collect

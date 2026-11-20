@@ -54,13 +54,10 @@ from conductor._internal.problem import (
     ProblemKind,
 )
 from conductor._internal.record import (
-    ConstantEntry,
-    GraphInputEntry,
     GraphInputRecord,
     GraphRecord,
     InputEntry,
     NodeRecord,
-    SourcesEntry,
     read_json,
 )
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
@@ -105,9 +102,6 @@ __all__ = [
     "GraphInputRecord",
     "NodeRecord",
     "InputEntry",
-    "ConstantEntry",
-    "GraphInputEntry",
-    "SourcesEntry",
     "Source",
     "JSON_CONFIG",
     "make_graph",

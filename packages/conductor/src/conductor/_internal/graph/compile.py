@@ -137,8 +137,9 @@ class Compiler:
             once.
         problems: The problems found so far.
         nodes: Each node compiled so far, by id.
-        graph_inputs: Each graph input found so far, by name, in the order found. Each is the field a caller gives
-            a value for, with the type of the inputs it feeds and the default used when the caller gives none.
+        taken_first: Each graph input found so far, by name, in the order found, with the first input that takes
+            it: its node's id and its field. That field gives the graph input its type.
+        used_two_ways: The graph inputs that two inputs take with types or descriptions that disagree.
         record: The graph record being compiled.
         position: Each node's index among the record's node ids, sorted. It breaks ties in the order of the nodes.
     """
@@ -153,7 +154,8 @@ class Compiler:
         self.inside_subgraphs, self.compiled_subgraphs = inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
-        self.graph_inputs: dict[str, Field] = {}
+        self.taken_first: dict[str, tuple[str, Field]] = {}
+        self.used_two_ways: set[str] = set()
         self.record = GraphRecord()
         self.position: dict[str, int] = {}
 
@@ -179,15 +181,35 @@ class Compiler:
                     self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
+        graph_inputs = self._graph_inputs()
         self._graph_inputs_not_used()
         return Graph(
             self.record,
             self.problems,
             self.nodes,
-            self.graph_inputs,
+            graph_inputs,
             self._graph_outputs(),
             self.definitions.context_type,
         )
+
+    def _graph_inputs(self) -> dict[str, Field]:
+        """Returns each graph input the nodes take, by name, in the order found, as the field a caller gives.
+
+        Its type is that of the first input that takes it, and its default is the record's, converted by that type,
+        once every input that takes it is known. So a type two inputs disagree on is always
+        ``graph_input_used_two_ways``, whichever order the nodes are compiled in, and its default is then not read.
+        A default the type refuses is ``invalid_value`` at the first input, and the graph input is required.
+        """
+        fields: dict[str, Field] = {}
+        for name, (node_id, field) in self.taken_first.items():
+            default, declared = REQUIRED, self.record.inputs[name].default
+            if declared is not MISSING and name not in self.used_two_ways:
+                try:
+                    default = ConstantValidator(node_id, field)(declared)
+                except InvalidCallError as refused:
+                    self.problems += refused.problems
+            fields[name] = Field(name, field.hint, default, is_output=False)
+        return fields
 
     def _graph_inputs_not_used(self) -> None:
         """Adds ``graph_input_not_used`` for each graph input the record declares and no entry names.
@@ -649,12 +671,12 @@ class Compiler:
 
     def _graph_input(self, node_id: str, field: Field, name: str) -> GraphInput | MissingInput:
         """Returns the compiled input of ``field`` on ``node_id``, whose value the caller gives as the graph input
-        ``name``, and adds the graph input to ``graph_inputs``.
+        ``name``, and keeps the first input that takes each graph input in ``taken_first``.
 
         The record declares the graph input, with its default if it has one. The first input that names it gives it
-        its type, and its default is converted by that type. A default the type refuses is ``invalid_value`` at the
-        input. A graph input the record doesn't declare is ``graph_input_not_declared``. The input's own declared
-        default plays no part: a graph input the record declares with no default is required.
+        its type. Its default is read once every input that takes it is known (``_graph_inputs``). A graph input the
+        record doesn't declare is ``graph_input_not_declared``. The input's own declared default plays no part: a
+        graph input the record declares with no default is required.
 
         Several inputs may name one graph input. Say ``strip.line`` and ``shout.line`` both name ``line``. Then a
         caller's ``line="a"`` is the value of both. For that to work, the inputs must agree:
@@ -674,20 +696,12 @@ class Compiler:
                 )
             )
             return MissingInput(field)
-        found = self.graph_inputs.get(name)
-        if found is None:
-            default = REQUIRED
-            if declared.default is not MISSING:
-                try:
-                    default = ConstantValidator(node_id, field)(declared.default)
-                except InvalidCallError as refused:
-                    self.problems += refused.problems
-                    return MissingInput(field)
-            self.graph_inputs[name] = Field(name, field.hint, default, is_output=False)
-        elif not _same_graph_input(found, Field(name, field.hint, REQUIRED, is_output=False)):
+        first = self.taken_first.setdefault(name, (node_id, field))[1]
+        if not _same_graph_input(first, field):
             self.problems.append(
                 compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name)
             )
+            self.used_two_ways.add(name)
             return MissingInput(field)
         return GraphInput(field, name)
 
@@ -970,19 +984,20 @@ def _edges_into(node_record: NodeRecord) -> dict[str, tuple[Source, ...]]:
     }
 
 
-def _same_graph_input(found: Field, used: Field) -> bool:
+def _same_graph_input(first: Field, other: Field) -> bool:
     """Whether two inputs that name one graph input agree, so they can share the caller's one value.
 
-    ``Compiler._graph_input`` says what agreeing means.
+    ``Compiler._graph_input`` says what agreeing means. The inputs' own names and defaults play no part.
 
     Args:
-        found: The graph input as the first input that names it made it, with the record's default.
-        used: The graph input as one more input names it.
+        first: The first input that takes the graph input.
+        other: One more input that takes it.
     """
     shown, shown_again = (
-        field.description.model_dump(exclude={"default", "required"}) for field in (found, used)
+        field.description.model_dump(exclude={"name", "default", "required"})
+        for field in (first, other)
     )
-    return found.whole.hint == used.whole.hint and shown == shown_again
+    return first.whole.hint == other.whole.hint and shown == shown_again
 
 
 def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:

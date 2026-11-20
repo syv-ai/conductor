@@ -12,7 +12,7 @@ A graph is data, a `GraphRecord`. It lists the graph's nodes by id. Each node na
 To declare a node, use the **add-node** skill. The installed library is the authority on every rule: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Source, Graph, GraphInputEntry, GraphInputRecord, GraphRecord, NodeRecord, NodeRegistry, SourcesEntry, ConstantEntry, Series
+from conductor import Graph, GraphRecord, NodeRegistry, Series
 
 registry = NodeRegistry(category="text")
 
@@ -32,18 +32,18 @@ def join(parts: Series[str], separator: str = "") -> str:
     return separator.join(parts)
 
 
-record = GraphRecord(
-    inputs={"text": GraphInputRecord()},
-    nodes={
-        "words": NodeRecord(node="text-split", inputs={"text": GraphInputEntry(graph_input="text")}),
-        "loud": NodeRecord(node="text-uppercase", inputs={"text": SourcesEntry(sources=(Source("words", "result"),))}),
-        "joined": NodeRecord(node="text-join", inputs={
-            "parts": SourcesEntry(sources=(Source("loud", "result"),)),
-            "separator": ConstantEntry(constant=" + "),
-        }),
+record = GraphRecord.model_validate({   # the record's JSON, as an editor saves it
+    "inputs": {"text": {}},
+    "nodes": {
+        "words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}},
+        "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}},
+        "joined": {"node": "text-join", "inputs": {
+            "parts": {"sources": [{"node": "loud", "output": "result"}]},
+            "separator": {"constant": " + "},
+        }},
     },
-    outputs={"result": Source("joined", "result")},
-)
+    "outputs": {"result": {"node": "joined", "output": "result"}},
+})
 
 graph = Graph.compile(record, registry)
 if not graph.is_runnable:
