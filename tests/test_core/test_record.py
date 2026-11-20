@@ -281,7 +281,7 @@ def test_a_field_of_a_source_may_have_dots_but_never_starts_with_one():
 
 def test_the_json_schema_gives_an_input_one_entry_of_a_constant_a_graph_input_or_sources():
     schema = GraphRecord.model_json_schema()
-    kinds = schema["$defs"]["InputEntry"]["anyOf"]
+    kinds = schema["$defs"]["InputEntry"]["oneOf"]
 
     assert schema["$defs"]["NodeRecord"]["properties"]["inputs"]["additionalProperties"] == {
         "$ref": "#/$defs/InputEntry"
@@ -458,7 +458,7 @@ _SOURCE = {"node": "a", "output": "result"}
             json.dumps(
                 {"nodes": {"b": {"node": "upper", "inputs": {"text": {"graph_input": "a.b"}}}}}
             ),
-            ("record", "nodes", "b", "inputs", "text", "graph_input"),
+            ("record", "nodes", "b", "inputs", "text", "graph_input", "graph_input"),
             "not_a_name",
         ),
         (
@@ -481,7 +481,7 @@ _SOURCE = {"node": "a", "output": "result"}
                     }
                 }
             ),
-            ("record", "nodes", "b", "inputs", "text", "sources", 0, "field"),
+            ("record", "nodes", "b", "inputs", "text", "sources", "sources", 0, "field"),
             "not_a_field",
         ),
         (
@@ -493,12 +493,12 @@ _SOURCE = {"node": "a", "output": "result"}
                     }
                 }
             ),
-            ("record", "nodes", "b", "inputs", "text", "sources"),
+            ("record", "nodes", "b", "inputs", "text", "sources", "sources"),
             "repeated_source",
         ),
         (
             json.dumps({"nodes": {"b": {"node": "upper", "inputs": {"text": {"sources": []}}}}}),
-            ("record", "nodes", "b", "inputs", "text", "sources"),
+            ("record", "nodes", "b", "inputs", "text", "sources", "sources"),
             "no_sources",
         ),
         (
@@ -538,7 +538,7 @@ _SOURCE = {"node": "a", "output": "result"}
                     },
                 }
             ),
-            ("record", "nodes", "b", "inputs", "text", "default"),
+            ("record", "nodes", "b", "inputs", "text", "graph_input", "default"),
             "extra_forbidden",
         ),
         (

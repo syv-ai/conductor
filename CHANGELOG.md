@@ -31,7 +31,8 @@ What changes in how you work, before the name-by-name tables:
   keeps no order of its nodes: where order matters, nodes go by id. A key written twice in the JSON (two nodes with
   one id), a name with `.`, `/`, `@` or `~`, a source listed twice, an empty list of sources, an input given no kind
   or two, any other key on an entry (a `default` among them) and a field on a graph output are refused when the
-  record is read (`invalid_record`, with the fault in `ctx.error`). A graph input's default is the record's: one
+  record is read (`invalid_record`, with the fault in `ctx.error`; a fault inside an entry has its kind's key in its
+  `loc`, as `("record", "nodes", "b", "inputs", "text", "sources", "sources")`). A graph input's default is the record's: one
   declared with no `default` is required.
   `graph.inputs`, `run.inputs`, `graph.outputs` and `run.outputs` are keyed by the declared names. `graph.inputs` and
   `graph.outputs` are read-only mappings: writing into `graph.outputs` changed what `describe()`, a subgraph node
