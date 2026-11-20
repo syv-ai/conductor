@@ -1157,24 +1157,24 @@ def table_row_not_a_typed_dict(*, row: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem
-def table_cell_keys_vary(*, row: str, column: str, cell: str) -> str:
-    """A column of a ``Table``'s row type has a type whose values may leave out a key.
+def table_cell_not_kept(*, row: str, column: str, cell: str, reason: str) -> str:
+    """A column of a ``Table``'s row type has a type a table doesn't keep as it is.
 
-    That is a dict with open keys, like ``dict[str, int]`` or pydantic's ``JsonValue``, a ``TypedDict`` with a
-    ``NotRequired`` field, a model that takes extra keys (``extra="allow"``), or a union of models whose fields
-    differ, at any depth of the cell: in a list, or in a field of a model, a dataclass or a ``TypedDict``. A table
-    keeps such a cell as a struct, and a struct gives every row every key, with ``None`` for a key the row's value
-    leaves out. So the value would come back from a saved run changed, or not at all. A ``Series`` of the same rows
-    is a list, and keeps each value as it is.
+    A table keeps its cells in polars, which has a column type for Python's own classes like ``int``, ``str`` and
+    ``date``, and for lists and structs of them. So a column may be, at any depth: one of those classes; a
+    ``Literal`` or an enum whose values are all of one of them; ``list[C]`` or a tuple whose items are all ``C``; a
+    model, a dataclass or a ``TypedDict`` of such fields that declares every key a value has; or ``C | None``. Any
+    other type would come back from polars changed: a union of two types, a dict, a tuple of different items, a
+    ``NotRequired`` field, a config with ``extra="allow"``, or ``Any``. A ``Series`` of the same rows is a list, and
+    keeps each value as it is.
 
-    To fix it, give the cell fixed keys: a ``TypedDict`` or model whose every field is required, with ``X | None``
-    for one a value may have no value for.
+    To fix it, give the column a type a table keeps, such as a model whose fields are all required.
 
     Args:
         row: The row type's name.
-        column: The column whose values may leave out a key.
-        cell: The type in the column that lets a key be left out, such as ``dict[str, int]``, ``Inner`` or
-            ``Cat | Dog``.
+        column: The column whose type a table doesn't keep.
+        cell: The type, in the column's type, that a table doesn't keep, such as ``dict[str, int]``.
+        reason: Why a table doesn't keep it.
 
     Example:
         class Scores(TypedDict):
@@ -1188,7 +1188,7 @@ def table_cell_keys_vary(*, row: str, column: str, cell: str) -> str:
 
         declaration_refused(lambda: node("scores", title="Scores", description="Reads the scores in a text.")(scores))
     """
-    return f"in column '{column}' of the row type {row}, a value of {cell} may leave out a key, but a table gives every row every key. Give the column a type with fixed keys: a TypedDict or model whose every field is required."
+    return f"in column '{column}' of the row type {row}, a table doesn't keep {cell} as it is: {reason}. Give the column a type a table keeps, such as a model whose fields are all required."
 
 
 @DECLARATION_PROBLEMS.problem

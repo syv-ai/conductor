@@ -399,19 +399,23 @@ def check_table_row(row: Any) -> None:
     it is let through. A graph that fills in ``T`` in ``Table[T] | list[T]`` with ``str`` is no declaration, so its
     ``Table[str]`` is read as a bare table.
 
-    A column whose values may leave out a key is refused too (``CellType.keys_left_out``).
+    A column of a type a table doesn't keep as it is is refused too (``CellType.refusal``).
 
     Raises:
-        NodeDeclarationError: ``table_row_not_a_typed_dict``, or ``table_cell_keys_vary``.
+        NodeDeclarationError: ``table_row_not_a_typed_dict``, or ``table_cell_not_kept``.
     """
     if isinstance(row, TypeVar) or is_bare_table_row(row):
         return
     if is_typed_dict(row):
         for name, hint in type_fields(row).items():
-            if (keys := cell_type(hint).keys_left_out) is not None:
+            if (refusal := cell_type(hint).refusal) is not None:
+                cell, reason = refusal
                 raise NodeDeclarationError(
-                    declaration_problems.table_cell_keys_vary(
-                        row=(get_origin(row) or row).__qualname__, column=name, cell=keys
+                    declaration_problems.table_cell_not_kept(
+                        row=(get_origin(row) or row).__qualname__,
+                        column=name,
+                        cell=cell,
+                        reason=reason,
                     )
                 )
         return
@@ -536,12 +540,22 @@ def _table_schemas(
     cells = {name: fields[name]["schema"] for name in columns}
     # the polars type of each column a frame of R's own values has, where its type says it
     kept_schema = {name: cell_type(column.hint).dtype for name, column in columns.items()}
-    # the columns whose values may leave out a key, which a frame can't hold: a Series of rows may declare one
-    keys_vary = {
-        name: found
+    # the columns of a type a table doesn't keep as it is, which a Series of rows may declare, since a list keeps it
+    not_kept = {
+        name: refusal
         for name, column in columns.items()
-        if (found := cell_type(column.hint).keys_left_out) is not None
+        if (refusal := cell_type(column.hint).refusal) is not None
     }
+
+    def refuse_not_kept() -> None:
+        if not_kept:
+            name, (cell, reason) = next(iter(not_kept.items()))
+            raise conductor_error(
+                "table_cell_not_kept",
+                "column '{column}' holds {cell}, which a table doesn't keep as it is: {reason}",
+                {"column": name, "cell": cell, "reason": reason},
+            )
+
     dtypes = {
         name: CELLS[column.options[0]][0]
         if column.options[0] in CELLS and len(column.options) == 1
@@ -550,6 +564,7 @@ def _table_schemas(
     }
 
     def from_rows(rows: list[dict[str, Any]]) -> tuple[pl.DataFrame, dict[str, list[Any]]]:
+        refuse_not_kept()
         names = columns if declared else dict.fromkeys(key for one in rows for key in one)
         frame = _frame_of(
             (
@@ -580,13 +595,7 @@ def _table_schemas(
                     for name in columns
                 ]
             ), {}
-        if keys_vary:
-            name, cell = next(iter(keys_vary.items()))
-            raise conductor_error(
-                "table_cell_keys_vary",
-                "column '{column}' holds {cell}, whose values may leave out a key, and a frame gives every row every key",
-                {"column": name, "cell": cell},
-            )
+        refuse_not_kept()
         for name, column in columns.items():
             if name not in frame.columns:
                 raise column_missing(name)

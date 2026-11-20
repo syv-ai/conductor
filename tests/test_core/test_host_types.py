@@ -1184,11 +1184,6 @@ def test_a_table_keeps_a_cell_by_the_fields_its_type_declares(
     assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
 
 
-@host_type("cost", title="Cost")
-class Cost(BaseModel, frozen=True):
-    amount: float
-
-
 type _Wallet = Money
 
 
@@ -1202,10 +1197,6 @@ class MoneyListRow(TypedDict):
 
 class WalletAliasRow(TypedDict):
     cell: _Wallet
-
-
-class MoneyOrCostRow(TypedDict):
-    cell: Money | Cost
 
 
 class AnyRow(TypedDict):
@@ -1222,7 +1213,6 @@ class AnyRow(TypedDict):
             [{"amount": 1.0}, {"amount": 2.0}],
         ),
         (WalletAliasRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
-        (MoneyOrCostRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
         (AnyRow, Money(amount=1), {"amount": 1.0}),
         (AnyRow, [Money(amount=1)], [{"amount": 1.0}]),
         (AnyRow, {"colour": Colour.RED}, {"colour": "red"}),
@@ -1231,7 +1221,6 @@ class AnyRow(TypedDict):
         "a subclass in a list",
         "a subclass in a tuple",
         "a subclass through an alias",
-        "a subclass in a union",
         "a model in an Any cell",
         "a list of models in an Any cell",
         "an enum in a dict in an Any cell",
@@ -1314,31 +1303,39 @@ class ScoresRow(TypedDict):
     points: dict[str, int]
 
 
+class MoneyColourRow(TypedDict):
+    pair: tuple[Money, Colour]
+
+
+def _as_plain_data(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    if isinstance(value, tuple):
+        return [str(one) for one in value]
+    return value
+
+
 @pytest.mark.parametrize(
     ("row", "rows", "cell"),
     [
-        (PetRow, [{"pet": Meowing(meow="m")}, {"pet": Barking(bark=1)}], "Meowing | Barking"),
+        (PetRow, [{"pet": Meowing(meow="m")}, {"pet": Barking(bark=1)}], "meowing | barking"),
         (ScoresRow, [{"points": {"x": 1}}, {"points": {"y": 2}}], "dict[str, int]"),
+        (MoneyColourRow, [{"pair": (Money(amount=1), Colour.RED)}], "tuple[money, colour]"),
     ],
-    ids=["a union of models whose fields differ", "a dict"],
+    ids=["a union of models whose fields differ", "a dict", "a tuple of different items"],
 )
 @pytest.mark.parametrize("returned", ["list", "frame"])
-def test_a_series_of_rows_whose_cells_keys_may_vary_is_taken_as_a_list_and_refused_as_a_frame(
+def test_a_series_of_rows_of_a_cell_a_table_does_not_keep_is_taken_as_a_list_and_refused_as_a_frame(
     row: Any, rows: list[Any], cell: str, returned: str
 ) -> None:
-    """A Series of rows is a list, so its cells keep their keys. A frame gives every row every key, so a frame for
+    """A Series of rows is a list, so its cells are kept as they are. A frame can't keep such a cell, so a frame for
     such rows is refused, naming the column, rather than read as other values."""
 
     def returns() -> Series[row]:  # type: ignore[valid-type]
         if returned == "frame":
+            # each row as plain data polars holds: a model as its fields, a tuple's items as texts
             return pl.DataFrame(  # type: ignore[return-value]
-                [
-                    {
-                        name: value.model_dump() if isinstance(value, BaseModel) else value
-                        for name, value in one.items()
-                    }
-                    for one in rows
-                ]
+                [{name: _as_plain_data(value) for name, value in one.items()} for one in rows]
             )
         return rows  # type: ignore[return-value]
 
@@ -1355,7 +1352,7 @@ def test_a_series_of_rows_whose_cells_keys_may_vary_is_taken_as_a_list_and_refus
         assert run.cause is not None
         assert (run.cause.type, [error["type"] for error in run.cause.ctx["errors"]]) == (
             "invalid_output",
-            ["table_cell_keys_vary"],
+            ["table_cell_not_kept"],
         )
         assert cell in run.cause.ctx["reason"]
 

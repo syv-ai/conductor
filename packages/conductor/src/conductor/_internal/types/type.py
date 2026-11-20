@@ -357,8 +357,11 @@ class Type:
                 ``Param`` that doesn't fit, or a class with a config of its own that reads a ``bytes`` field as text
                 (``type_not_supported_bytes_as_text``).
         """
-        for part in hint_parts(self.hint):
+        parts = list(hint_parts(self.hint))
+        for part in parts:
             _check_written(part)
+        # a Series' or Table's own rule comes after what's written in the hint, which names the fault more closely
+        for part in parts:
             if get_origin(part) in _KINDS:
                 Type(part)._check_own_arguments()
         # each of these raises for a fault in what it builds: the schema, a Series of rows stored as a table, a

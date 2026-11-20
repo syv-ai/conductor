@@ -801,15 +801,15 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_giv
 
 class Graded(TypedDict):
     level: Literal[1, 2]
-    score: int | str
+    score: float
 
 
 @pytest.mark.parametrize("column", ["level", "score"])
 def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
     """A column refuses ``True`` wherever a single value of its type would.
 
-    That covers a ``Literal`` of numbers, and a union that has a number but no ``bool``. Python counts ``True`` as
-    1, but a yes or no is not a number. The column and the single value follow the same rule.
+    That covers a ``Literal`` of numbers, and a number. Python counts ``True`` as 1, but a yes or no is not a number.
+    The column and the single value follow the same rule.
     """
 
     @node("count_rows", title="Count rows", description="For a test.")

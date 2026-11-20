@@ -24,6 +24,7 @@ from .fields import UnreadableFieldError, field_of
 from .fit import fit
 from .hint import (
     a_number,
+    allows_extra,
     declares_fields,
     field_hints,
     hint_parts,
@@ -50,6 +51,7 @@ __all__ = [
     "Type",
     "TypeRefusal",
     "a_number",
+    "allows_extra",
     "as_written",
     "check_one_of",
     "choice_texts",
