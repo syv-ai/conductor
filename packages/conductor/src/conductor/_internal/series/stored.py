@@ -24,7 +24,7 @@ from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
 from conductor._internal.table import Table, written_columns
-from conductor._internal.types import NoSuchFieldError, field_of
+from conductor._internal.types import UnreadableFieldError, field_of
 
 
 class ColumnsOnDemand(dict[str, list[Any]]):
@@ -60,8 +60,8 @@ class SeriesItems(list[Any]):
         ``SeriesItems([{"n": 1}, None]).cell("n", 0)`` is ``1``.
 
         Raises:
-            NoSuchFieldError: The item has no field ``name``. An item of a ``Series[dict]`` or ``Series[Any]`` may
-                not have the field an edge names.
+            UnreadableFieldError: The item has no field ``name``, or the field is ``SKIPPED`` (``field_of``). An
+                item of a ``Series[dict]`` or ``Series[Any]`` may not have the field an edge names.
         """
         item = self[index]
         return item if item is None or item is SKIPPED else field_of(item, name)
@@ -87,7 +87,7 @@ class SeriesItems(list[Any]):
         ``SeriesItems([{"n": 1}, None]).field_as_list("n")`` is ``[1, None]``.
 
         Raises:
-            NoSuchFieldError: An item has no field ``name``.
+            UnreadableFieldError: An item has no field ``name``, or the field is ``SKIPPED`` (``field_of``).
         """
         return [None if item is None or item is SKIPPED else field_of(item, name) for item in self]
 
@@ -147,11 +147,11 @@ class SeriesRows[T]:
         """Returns the cell of the column ``name`` in the row at ``index``.
 
         Raises:
-            NoSuchFieldError: The frame has no column ``name``.
+            UnreadableFieldError: The frame has no column ``name``.
         """
         # a frame of a Series[Any] or a Series[dict] may not have the field the edge names
         if name not in self.frame.columns:
-            raise NoSuchFieldError(name)
+            raise UnreadableFieldError(name)
         return self._columns[name][index]
 
     def as_list(self) -> list[dict[str, Any]]:
@@ -174,12 +174,12 @@ class SeriesRows[T]:
         """Returns the column ``name`` as a new list.
 
         Raises:
-            NoSuchFieldError: The frame has a row and no column ``name``.
+            UnreadableFieldError: The frame has a row and no column ``name``.
         """
         if not self.frame.height:
             return []
         if name not in self.frame.columns:
-            raise NoSuchFieldError(name)
+            raise UnreadableFieldError(name)
         return list(self._columns[name])
 
     def for_saving(self) -> tuple[SeriesRows[T], list[int]]:

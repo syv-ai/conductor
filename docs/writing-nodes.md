@@ -471,7 +471,7 @@ graph = Graph.compile(make_graph(locate, hemisphere, edges=[("locate.result.lat"
 print(graph.run({"city": "Aarhus"}).outputs)  # {'result': 'north'}
 ```
 
-A declared class is one value, so its fields aren't branches: `SKIPPED` inside a returned value fails the call (`invalid_output`).
+A declared class is one value, so its fields aren't branches. `SKIPPED` inside a returned value has no JSON form: the run can't be saved (`run_unwritable`), and an edge that reads that field fails the node it feeds (`invalid_edge_value`).
 
 ## A node for any type
 

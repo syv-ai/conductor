@@ -12,9 +12,7 @@ memory, is ``no_json_form``. And a number that enters is finite: ``inf`` and ``n
 pydantic's ``finite_number``, though what a node computes may hold them. Every refusal here is pydantic's
 ``ValidationError``, as a type's own is, so a caller handles one kind of error.
 
-It also holds ``holds_skipped``, which a node's return check asks, since ``SKIPPED`` inside a returned value has no
-JSON form. It and the reader here walk a value with ``value_parts``, the one walk over a value and everything inside
-it.
+The reader walks a value with ``value_parts``, the one walk over a value and everything inside it.
 """
 
 from __future__ import annotations
@@ -31,7 +29,6 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import (
-    SKIPPED,
     finite_json_text,
     holds_a_set,
     validate_as_json,
@@ -161,14 +158,6 @@ def _as_json[T](title: str, value: Any, write: Callable[[], T]) -> T:
     except PydanticCustomError as error:
         refused = error
     raise ValidationError.from_exception_data(title, [{"type": refused, "loc": (), "input": value}])
-
-
-def holds_skipped(value: Any) -> bool:
-    """Whether ``value`` is ``SKIPPED``, or has it somewhere inside (``value_parts``).
-
-    A frame isn't walked: a table's cells can't be ``SKIPPED``.
-    """
-    return any(part is SKIPPED for part in value_parts(value))
 
 
 def _written(value: Any) -> Any:

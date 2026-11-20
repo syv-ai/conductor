@@ -25,12 +25,11 @@ graph, a caller's input, a person's answer, a record's constant or default, or a
 (``read_as_json``).
 """
 
-from .json import holds_skipped, json_data, read_as_json
+from .json import json_data, read_as_json
 from .type import Validator
 
 __all__ = [
     "Validator",
-    "holds_skipped",
     "json_data",
     "read_as_json",
 ]
