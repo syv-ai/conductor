@@ -7,6 +7,7 @@ plain rows. And the table is checked column by column when the node returns it.
 
 import datetime
 import json
+from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
@@ -173,7 +174,7 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
         ),
         (
             pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}),
-            "column 'name': Input should be a valid string",
+            "column 'name': Input should be a valid string (the column is Int64, where a String column is taken as it is)",
         ),
     ],
 )
@@ -268,6 +269,38 @@ def test_a_frames_column_is_read_as_strictly_as_its_rows(
             "invalid_output",
             [error],
         )
+
+
+class _Priced(TypedDict):
+    amount: Decimal
+
+
+@pytest.mark.parametrize(
+    ("column", "column_type"),
+    [([1.5], "Float64"), ([1], "Int64"), (["1.5"], "String")],
+    ids=["a float column", "a whole number column", "a text column"],
+)
+def test_a_frames_column_of_another_polars_type_than_a_decimals_names_both(
+    column: list[Any], column_type: str
+) -> None:
+    """A ``Decimal`` column is taken from a frame's ``Decimal`` column only, as a row takes only a ``Decimal``; the
+    fault names the column's polars type and the one its type is taken from."""
+
+    @node("prices", title="Prices", description="For a test.")
+    def prices(text: str) -> Table[_Priced]:
+        return pl.DataFrame({"amount": column})  # type: ignore[return-value]
+
+    cause = Graph.compile(make_graph(prices), registry_of(prices)).run({"text": "x"}).cause
+
+    (error,) = cause.ctx["errors"]
+    assert (error["type"], error["ctx"]["column_type"], error["ctx"]["kept_type"]) == (
+        "is_instance_of",
+        column_type,
+        "Decimal(precision=38, scale=0)",
+    )
+    assert (
+        f"(the column is {column_type}, where a Decimal(precision=38, scale=0) column" in cause.msg
+    )
 
 
 def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:

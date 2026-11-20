@@ -7,7 +7,10 @@ test picks one place where a hint could be read two ways, and checks that it is 
 import datetime
 from decimal import Decimal
 from enum import Enum, IntEnum
+from ipaddress import IPv4Address
+from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
+from uuid import UUID
 
 import polars as pl
 import pytest
@@ -569,7 +572,7 @@ class _Clutch(IntEnum):
         (_KindTern | _KindGull, "_KindTern | _KindGull"),
         (_Tern | _TernRecord, "_Tern | _TernRecord"),
         (_TernRecord | _GullRecord, "_TernRecord | _GullRecord"),
-        (_Tern | dict[str, str], "_Tern | dict"),
+        (_Tern | dict[str, str], "_Tern | dict[str, str]"),
         (_ShoreBird | _SeaBird, "_ShoreBird | _SeaBird"),
         (_ShoreBird | Literal["tern", "gull"], "_ShoreBird | Literal['tern', 'gull']"),
         (_ShoreBird | str, "_ShoreBird | str"),
@@ -588,6 +591,12 @@ class _Clutch(IntEnum):
         (str | Decimal, "str | Decimal"),
         (str | bytes, "str | bytes"),
         (_Half | float, "_Half | float"),
+        (str | Path, "str | Path"),
+        (Path | str, "Path | str"),
+        (str | IPv4Address, "str | IPv4Address"),
+        (Table[_TernRecord] | list[_TernRecord], "Table[_TernRecord] | list[_TernRecord]"),
+        (Literal[True] | int, "Literal[True] | int"),
+        (dict[str, _Tern] | dict[str, _Gull], "dict[str, _Tern] | dict[str, _Gull]"),
     ],
     ids=[
         "two models of the same fields",
@@ -614,6 +623,12 @@ class _Clutch(IntEnum):
         "a text and a Decimal",
         "a text and bytes",
         "a float enum and float",
+        "a text and a path",
+        "a path and a text",
+        "a text and an IP address",
+        "a table, read from a list of rows, and a list",
+        "a Literal of True and int, which reads 1 as True",
+        "two dicts of alike values",
     ],
 )
 def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_declared(
@@ -653,6 +668,14 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         (float | str, "1.5"),
         (float | Decimal, Decimal("1.5")),
         (Literal["Infinity"] | float, 1.5),
+        (Literal["auto"] | datetime.date, datetime.date(2026, 1, 2)),
+        (Literal["auto"] | datetime.datetime, "auto"),
+        (Literal["auto"] | Decimal, Decimal("1.5")),
+        (Literal["none"] | UUID, UUID(int=5)),
+        (tuple[str, int] | tuple[str, Decimal], ("a", Decimal("1"))),
+        (Literal[1, 1.5] | int, 1),
+        (Literal["1"] | int, 1),
+        (dict[str, int] | dict[str, str], {"a": "x"}),
     ],
     ids=[
         "told apart by a discriminator",
@@ -676,6 +699,14 @@ def test_a_union_whose_members_json_writes_alike_is_refused_when_the_node_is_dec
         "a text of a float or text",
         "a Decimal, written as text, or float",
         "a float of a Literal of a float's text or float",
+        "a date beside a Literal its type doesn't read",
+        "a Literal's text beside a datetime",
+        "a Decimal beside a Literal its type doesn't read",
+        "a UUID beside a Literal its type doesn't read",
+        "tuples compared position by position",
+        "a Literal of values of int's class beside int",
+        "a Literal of a number's text beside int",
+        "dicts of values of different kinds",
     ],
 )
 def test_a_union_whose_members_json_tells_apart_reads_back_as_each_values_own_class(

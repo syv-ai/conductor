@@ -1297,20 +1297,23 @@ def union_members_alike(*, type: str, member: str, alike: str) -> str:
     A run keeps every value as JSON, which says nothing of a value's class, and pydantic reads a union back as the
     member that takes the value best, the first where two take it as well. So an ``Egret`` a node returned could come
     back as a ``Heron`` from a saved run, or across an edge that reads it again, and a ``date`` as a ``str``. Two
-    members are written alike when JSON writes both as the same kind, an object, an array, a text, a number or a
-    yes or no, and they are of different classes, where one could read the other's value:
+    members are written alike when:
 
-    - two objects: a model, a dataclass, a ``TypedDict``, a dict or a ``Mapping``, generic or not;
-    - two texts: ``str``, ``date``, ``datetime``, ``time``, ``timedelta``, ``Decimal``, ``bytes`` or ``UUID``;
-    - a number beside an enum or a ``Literal`` of numbers, like ``int | IntEnum``, or ``Literal[1] | float``;
-    - an enum beside another enum, a ``Literal`` or the type of its values that shares a value with it;
-    - a list beside a tuple, and two lists, or two tuples, whose items are alike, like ``list[Heron] |
-      list[Egret]``.
+    - pydantic's JSON schema of each says it is written as the same JSON kind, a string, a number, a yes or no, an
+      array or an object, and they are of different classes: two models, a model and a dict, ``str | date``,
+      ``date | time``, ``str | Path``, ``list[int] | tuple[int, ...]``. ``int | float`` is taken, since JSON writes
+      a float with its point, which an ``int`` never reads;
+    - one is an enum or a ``Literal`` and the other reads one of its values as a value of another class, from its
+      JSON or as Python reads an equal value: ``int | IntEnum``, ``Literal[1] | float``, ``Literal[True] | int``,
+      ``str | StrEnum``. ``Literal["auto"] | date`` is taken, since a date reads no ``"auto"``;
+    - two lists, two tuples or two dicts hold alike members at the same place: a list's items, a tuple's position,
+      a dict's keys or values, like ``list[Heron] | list[Egret]``;
+    - one is a table and the other a list or a tuple of objects, which the table reads as its rows.
 
     Such a union is refused even where pydantic might tell its members apart, by their fields or their types.
-    ``X | None``, members of different JSON kinds, like ``int | str``, a ``Literal`` beside the type of its values,
-    like ``Literal["auto"] | str``, ``int | float``, which JSON tells apart by a float's point, and ``float | str``
-    are taken. A float that isn't finite is written as text, so under ``float | str`` it reads back as its text.
+    ``X | None``, members of different JSON kinds, like ``int | str`` or ``float | str``, and a ``Literal`` beside
+    the type of its values, like ``Literal["auto"] | str``, are taken. A float that isn't finite is written as
+    text, so under ``float | str`` it reads back as its text.
 
     To fix it, give each model a field of its own ``Literal`` and name it with pydantic's ``Discriminator``, as
     ``Annotated[Heron | Egret, Discriminator("kind")]``. For other members, declare one type, or types JSON writes

@@ -529,17 +529,39 @@ def _columns_as_cells(frame: pl.DataFrame, names: list[str]) -> dict[str, list[A
 
 
 def _read(
-    read_columns: ValidatorFunctionWrapHandler, given: str | dict[str, list[Any]]
+    read_columns: ValidatorFunctionWrapHandler,
+    given: str | dict[str, list[Any]],
+    dtypes: Mapping[str, tuple[Any, Any]] | None = None,
 ) -> dict[str, list[Any]]:
     """Reads columns given as JSON text or as cells by the table's check of them, each fault at its place in the
-    columns, without the form they were given in."""
+    columns, without the form they were given in.
+
+    Args:
+        read_columns: The table's check of its columns.
+        given: The columns.
+        dtypes: For columns read as their rows (``_read_as_rows``), each one's polars type and the polars type its
+            declared type is kept as, which a fault in it names, in its message and its ``ctx`` (``column_type``,
+            ``kept_type``): ``(the column is String, where a Date column is taken as it is)``.
+    """
     try:
         read: dict[str, list[Any]] = read_columns(given)
     except ValidationError as error:
-        raise ValidationError.from_exception_data(
-            error.title,
-            [raised_again(fault, tuple(fault["loc"][1:])) for fault in error.errors()],
-        ) from None
+        faults = []
+        for fault in error.errors():
+            loc = tuple(fault["loc"][1:])
+            if dtypes is None or not loc or (column := str(loc[0])) not in dtypes:
+                faults.append(raised_again(fault, loc))
+                continue
+            dtype, kept = dtypes[column]
+            said = fault["msg"].replace("{", "{{").replace("}", "}}")
+            named = conductor_error(
+                fault["type"],
+                said
+                + " (the column is {column_type}, where a {kept_type} column is taken as it is)",
+                {**fault.get("ctx", {}), "column_type": str(dtype), "kept_type": str(kept)},
+            )
+            faults.append({"type": named, "loc": loc, "input": fault["input"]})
+        raise ValidationError.from_exception_data(error.title, faults) from None
     return read
 
 
@@ -717,7 +739,11 @@ def _table_schemas(
         if as_json:
             cells |= _read(read_columns, _columns_as_json(frame, as_json))
         if as_rows:
-            cells |= _read(read_columns, _columns_as_cells(frame, as_rows))
+            cells |= _read(
+                read_columns,
+                _columns_as_cells(frame, as_rows),
+                {name: (frame.schema[name], kept_schema[name]) for name in as_rows},
+            )
         # the frame keeps each cell as it was read, so a value its type changes, like a text a model strips, is
         # the same in the table, in a Series of its rows and in a saved run
         if cells:
