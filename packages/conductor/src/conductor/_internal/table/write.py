@@ -130,8 +130,13 @@ def own_copy[V](value: V) -> V:
 
     A frame is copied with ``clone()``. The clone shares the frame's memory until one of them is changed, so it costs
     almost nothing, and it gets the frame's digest, so ``table_digest`` doesn't hash the table again for every run.
-    Any other value is copied with ``copy.deepcopy``, which keeps its exact class and costs a few microseconds for a
-    small value. A frame inside another value is cloned too, but its digest is worked out again.
+    Any other value is copied with ``copy.deepcopy``, which keeps its exact class. Its cost grows with the value's
+    size: a few microseconds for a small value, about 10 ms for a 10k-row list of dicts. A frame inside another value
+    is cloned too, but its digest is worked out again. A value ``copy.deepcopy`` can't copy raises its ``TypeError``,
+    so the run is never made.
+
+    Raises:
+        TypeError: ``copy.deepcopy`` can't copy the value.
     """
     if not isinstance(value, pl.DataFrame):
         return copy.deepcopy(value)
