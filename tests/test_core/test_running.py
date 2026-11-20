@@ -212,6 +212,59 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
     assert [e.loc[0] for e in events if e.type == "node_complete"][-1] == "m"
 
 
+class _Count(TypedDict):
+    n: int
+
+
+@node("grow", title="Grow", description="For a test.")
+def _grow(xs: list[str], counts: Table[_Count], seen: list[str] = ["a"]) -> str:
+    """Breaks the rule that a node never changes a value it is given, on a constant, a table and a default."""
+    xs.append("x")
+    seen.append("x")
+    counts[0, "n"] = counts[0, "n"] + 1
+    return f"{len(xs)} {len(seen)} {counts[0, 'n']}"
+
+
+def _growing() -> Graph[Any]:
+    return Graph.compile(
+        make_graph(
+            _grow,
+            constants={"grow.xs": ["a"], "grow.counts": [{"n": 1}]},
+            inputs={"seen": "grow.seen"},
+        ),
+        registry_of(_grow),
+    )
+
+
+def test_a_node_that_changes_its_constants_and_a_default_changes_them_only_in_its_own_run():
+    graph = _growing()
+
+    runs = [graph.run() for _ in range(3)]
+
+    assert [run.outputs for run in runs] == [{"result": "2 2 2"}] * 3
+    assert [run.inputs["seen"] for run in runs] == [["a", "x"]] * 3
+
+
+def test_a_run_with_its_own_constants_still_reuses_a_call_of_an_earlier_run_of_the_graph():
+    calls: list[str] = []
+
+    @node("size", title="Size", description="For a test.")
+    def size(xs: list[str], counts: Table[_Count]) -> int:
+        calls.append("size")
+        return len(xs) + counts.height
+
+    graph = Graph.compile(
+        make_graph(size, constants={"size.xs": ["a"], "size.counts": [{"n": 1}, {"n": 2}]}),
+        registry_of(size),
+    )
+    first = graph.run()
+
+    again = graph.run(previous=first)
+
+    assert calls == ["size"]
+    assert again.outputs == first.outputs == {"result": 3}
+
+
 def test_a_failed_item_fails_the_node_naming_the_item_and_the_node_collecting_it_never_starts():
     @node("picky", title="Picky", description="For a test.")
     def picky(text: str) -> str:

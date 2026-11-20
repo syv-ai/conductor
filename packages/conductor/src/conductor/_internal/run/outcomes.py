@@ -51,6 +51,7 @@ from typing_extensions import sentinel
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.graph import CollectingInput, Edge, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems, shape_error
+from conductor._internal.table import own_copy
 from conductor._internal.types import UnreadableFieldError, field_of
 
 from .blueprint import BlueprintFunctionNode, RunBlueprint, loop_body_of
@@ -74,18 +75,32 @@ class RunOutcomes:
     Attributes:
         blueprint: The blueprint of the run's graph: every function node, by node path.
         graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``). It is read-only.
+        constants: The constants of each function node, by node path: its blueprint node's ``constants``, copied for
+            this run (``own_copy``) when the run is made. So a node that changes a constant, which it must not do,
+            changes it only in its own run, never in a later run of the same compiled graph.
         for_any_item: Empty in the outcomes a run holds. The outcomes made to ask "could any item of this loop
             have a value?" (``_for_any_item_of``) have here what ``arguments_for`` returned for each node inside
             the loop.
     """
 
-    __slots__ = ("_by_node", "_out_of_order", "blueprint", "for_any_item", "graph_inputs")
+    __slots__ = (
+        "_by_node",
+        "_out_of_order",
+        "blueprint",
+        "constants",
+        "for_any_item",
+        "graph_inputs",
+    )
 
     def __init__(self, blueprint: RunBlueprint, graph_inputs: Mapping[str, Any]) -> None:
-        """Makes the outcomes of a run that has made no call yet."""
+        """Makes the outcomes of a run that has made no call yet, with its own copy of every constant."""
         self._shaped(
             blueprint,
             MappingProxyType(dict(graph_inputs)),
+            {
+                path: {name: own_copy(value) for name, value in node.constants.items()}
+                for path, node in blueprint.function_nodes.items()
+            },
             {path: {} for path in blueprint.function_nodes},
         )
 
@@ -93,6 +108,7 @@ class RunOutcomes:
         self,
         blueprint: RunBlueprint,
         graph_inputs: Mapping[str, Any],
+        constants: Mapping[NodePath, dict[str, Any]],
         by_node: dict[NodePath, dict[ItemIndexes, Outcome]],
     ) -> None:
         """Sets every attribute. ``__init__``, ``copy`` and ``sharing`` make their tables with it.
@@ -100,9 +116,11 @@ class RunOutcomes:
         Args:
             blueprint: The blueprint of the run's graph.
             graph_inputs: The graph inputs, read-only.
+            constants: The run's own constants of each function node, by node path.
             by_node: The outcomes of each function node, by node path and then by item indexes.
         """
         self.blueprint, self.graph_inputs, self._by_node = blueprint, graph_inputs, by_node
+        self.constants = constants
         #: The nodes whose outcomes ``record`` wrote out of item order. ``copy`` sorts them.
         self._out_of_order: set[NodePath] = set()
         self.for_any_item: dict[
@@ -118,7 +136,9 @@ class RunOutcomes:
         for any item of a loop.
         """
         shared = object.__new__(cls)
-        shared._shaped(outcomes.blueprint, outcomes.graph_inputs, outcomes._by_node)
+        shared._shaped(
+            outcomes.blueprint, outcomes.graph_inputs, outcomes.constants, outcomes._by_node
+        )
         return shared
 
     # -- the outcomes ------------------------------------------------------------------------------------------
@@ -158,6 +178,7 @@ class RunOutcomes:
         copied._shaped(
             self.blueprint,
             self.graph_inputs,
+            self.constants,
             {
                 path: dict(sorted(of_node.items()) if path in self._out_of_order else of_node)
                 for path, of_node in self._by_node.items()
@@ -244,7 +265,7 @@ class RunOutcomes:
             InvalidCallError: ``invalid_edge_value`` if an edge reads a field of a value (``lines.result.name``) and
                 the value has no such field, or the field is ``SKIPPED``.
         """
-        arguments = node.constants.copy()
+        arguments = self.constants[node.node_path].copy()
         graph_inputs = self.graph_inputs
         for name, graph_input in node.graph_inputs:
             arguments[name] = graph_inputs[graph_input]

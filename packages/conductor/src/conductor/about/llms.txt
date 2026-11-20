@@ -384,6 +384,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
   - A source naming a node the graph doesn't have is `edge_names_missing_node`.
   - A graph output naming a node the graph doesn't have is `graph_output_names_missing_node`, with `loc` `()` and `ctx` `output`, `source` and `missing`. One naming an output its node doesn't have is `graph_output_not_found`, with `loc` `()` and `ctx` `output`, `source` and `outputs`.
 - `{"constant": v}` is the input's value on every call of every run. The graph doesn't offer that input to a caller.
+  - Each run gets its own copy of every constant and of every graph input's default, made once when the run is made (a frame by `clone()`, any other value by `copy.deepcopy`). A node must not change a value it is given, but one that does, say by appending to a constant list, changes it only in its own run, never in a later run of the same compiled graph. The calls of one run share its copy. The copy has the same JSON, so it doesn't change which calls are reused. An outcome reused from `previous=` ("Running again") is still the previous run's own value, not a copy. It is provisional.
 - `{"graph_input": name}` is the caller's value, under that name. `{"graph_input": name, "default": v}` adds a value for when the caller gives none.
   - The default is the record's. `{"graph_input": name}` with no `default` is required, whatever the input's own default.
   - Several inputs may name one graph input, and the caller's one value feeds them all.
@@ -858,6 +859,8 @@ second = first.again({"text": "ida@a.dk\nbo@b.dk\neva@c.dk"})   # one contact ad
 **Forgetting.** `run.with_forgotten("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
 
 **Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `with_forgotten`) calls it for every item. The policy is checked when that run is made, and again when a saved run is read: `Run.from_json` drops the outcomes a saved run could still reuse for a node whose current `Policy` says `reuse_when_inputs_match=False`, so the rule holds however the run was made.
+
+**A reused value is shared.** A call reused from the previous run hands the nodes downstream the previous run's own value, not a copy. A node must not change a value it is given; one that changes a reused value changes the previous run's results too. It is provisional.
 
 `node_complete.reused` says how many calls were reused.
 

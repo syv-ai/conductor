@@ -161,7 +161,8 @@ class ConstantInput:
 
     Attributes:
         field: The input, as its node declares it.
-        value: The value, already checked and converted by the input's type.
+        value: The value, already checked and converted by the input's type. Each run gets its own copy of it, made
+            when the run is made (``RunOutcomes.constants``), so the compiled graph's value is never handed to a node.
         sources: Always empty, since no edge leads to the input.
         loops: Always empty, since the value isn't made in a loop.
     """
