@@ -598,7 +598,7 @@ In the quick start, `lines` returns a `Series[str]`, `upper` takes one text, and
 - Only a `Series` or `Table` input takes a series whole. Every other input takes it one item at a time, an `Any` input included.
 - The `per_item_of` of a node in `graph.describe()` says which series it runs per item of.
 
-**A field of an output.** An edge may name one field of the value an output returns (a `TypedDict`, a pydantic model or a dataclass), one level down: `{"node": "series-split", "output": "result", "field": "email"}`, written `series-split.result.email` in `make_graph`.
+**A field of an output.** An edge may name one field of the value an output returns (a `TypedDict`, a pydantic model or a dataclass, a generic one with its arguments filled in, so `M[int]`'s `value: T` is an `int`), one level down: `{"node": "series-split", "output": "result", "field": "email"}`, written `series-split.result.email` in `make_graph`.
 
 - It works on one value, or on each item of a series of them.
 - A field of a value of unknown fields, such as a `dict`, is `Any`, and is read when it arrives.

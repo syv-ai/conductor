@@ -34,7 +34,6 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
-import typing_extensions
 from annotated_types import Predicate, Timezone, Unit
 from pydantic import (
     BaseModel,
@@ -82,8 +81,10 @@ from .hint import (
     field_hints,
     hint_parts,
     is_alias,
+    is_typed_dict,
     literal_classes,
     substituted,
+    types_and_left_out,
     union_members,
     union_of,
 )
@@ -523,7 +524,7 @@ class Type:
         ):  # a union's member keeps what checks it, which doesn't change its name
             return Type(one)._named
         # a TypedDict has no declared name, so every one is "row", a generic one's too
-        if typing_extensions.is_typeddict(origin):
+        if is_typed_dict(one):
             return "row", "Row", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
         _check_is_type(one)
@@ -726,10 +727,7 @@ class Type:
         ``field_hints`` reads them. A field a value may leave out is given as its type, without ``NotRequired``.
         """
         one = self.options[0] if len(self.options) == 1 else None
-        return {
-            name: get_args(hint)[0] if get_origin(hint) is NotRequired else hint
-            for name, hint in (field_hints(one) or {}).items()
-        }
+        return {name: hint for name, (hint, _) in types_and_left_out(field_hints(one)).items()}
 
     @property
     def returned_schema(self) -> CoreSchema:

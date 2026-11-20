@@ -116,38 +116,48 @@ def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
 def declares_fields(cls: Any) -> bool:
     """Says whether ``cls`` declares its fields: a pydantic model, a dataclass or a ``TypedDict``."""
     return isinstance(cls, type) and (
-        issubclass(cls, BaseModel)
-        or dataclasses.is_dataclass(cls)
-        or typing_extensions.is_typeddict(cls)
+        issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or is_typed_dict(cls)
     )
 
 
-def field_hints(hint: Any) -> dict[str, Any] | None:
-    """Returns the type hint of each field ``hint`` declares, by name, or ``None`` for a hint that declares none.
+def is_typed_dict(hint: Any) -> bool:
+    """Says whether ``hint`` is a ``TypedDict``, a generic one with its arguments given too, like ``Row[int]``."""
+    return typing_extensions.is_typeddict(get_origin(hint) or hint)
+
+
+def field_hints(hint: Any) -> dict[str, Any]:
+    """Returns the type hint of each field ``hint`` declares, by name. It is empty for a hint that declares none.
 
     A pydantic model, a dataclass and a ``TypedDict`` declare their fields. This is the one place they are read.
     A generic one has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
-    ``value: T`` is ``int``. A type variable left open, as in a bare ``Row``, becomes its bound, or ``Any``.
+    ``value: T`` is ``int``, and so is a generic pydantic model's, ``Box[int]``. A type variable left open, as in a
+    bare ``Row``, becomes its bound, or ``Any``.
 
     Each hint is the one its author wrote, with its ``Annotated`` metadata, so a field's limits and choices stay
     on it. A ``TypedDict``'s ``Required`` and ``ReadOnly`` are taken off. A field a value may leave out, written
     ``NotRequired`` or in a class declared ``total=False``, is always given as ``NotRequired[...]``, so one test
-    finds it. A ``ClassVar`` is no field.
+    finds it (``types_and_left_out``). A ``ClassVar`` is no field.
 
     Raises:
         NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can
             find.
     """
-    origin = get_origin(hint) or hint
+    origin, arguments = get_origin(hint) or hint, get_args(hint)
+    # pydantic makes a class of its own for Box[int], which keeps the generic class and its arguments
+    generic = (
+        vars(origin).get("__pydantic_generic_metadata__") if isinstance(origin, type) else None
+    )
+    if generic is not None and generic["origin"] is not None:
+        origin, arguments = generic["origin"], generic["args"]
     if not declares_fields(origin):
-        return None
+        return {}
     try:
         written = typing.get_type_hints(origin, include_extras=True)
     except NameError:
         raise NodeDeclarationError(
             declaration_problems.type_not_supported(type=origin.__qualname__)
         ) from None
-    bound = dict(zip(getattr(origin, "__parameters__", ()), get_args(hint), strict=False))
+    bound = dict(zip(getattr(origin, "__parameters__", ()), arguments, strict=False))
     # a TypedDict says which of its keys must be there, but not for a qualifier written as text, which only the
     # resolved hint shows
     required_keys = getattr(origin, "__required_keys__", written.keys())
@@ -165,6 +175,17 @@ def field_hints(hint: Any) -> dict[str, Any] | None:
         )
         fields[name] = NotRequired[field] if left_out else field
     return fields
+
+
+def types_and_left_out(fields: Mapping[str, Any]) -> dict[str, tuple[Any, bool]]:
+    """Returns each of ``field_hints``' fields as its type, with whether a value may leave it out.
+
+    ``NotRequired[int]`` gives ``(int, True)``, and ``int`` gives ``(int, False)``.
+    """
+    return {
+        name: (get_args(hint)[0], True) if get_origin(hint) is NotRequired else (hint, False)
+        for name, hint in fields.items()
+    }
 
 
 def a_number(cls: type) -> bool:
@@ -232,11 +253,11 @@ def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]
     if isinstance(hint, TypeVar) and hint.__bound__ is not None:
         parts.append(hint.__bound__)
     origin = get_origin(hint) or hint
-    if (is_alias(hint) or typing_extensions.is_typeddict(origin)) and id(origin) not in walked:
+    if (is_alias(hint) or is_typed_dict(hint)) and id(origin) not in walked:
         walked |= {id(origin)}
         if is_alias(hint):
             parts.append(hint.__value__)
         else:
-            parts += (field_hints(hint) or {}).values()
+            parts += field_hints(hint).values()
     for part in parts:
         yield from hint_parts(part, walked)

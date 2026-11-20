@@ -20,7 +20,7 @@ from .choice import (
 )
 from .fields import UnreadableFieldError, field_of
 from .fit import fit
-from .hint import a_number, field_hints, hint_parts, union_members, union_of
+from .hint import a_number, field_hints, hint_parts, is_typed_dict, union_members, union_of
 from .host_type import NAMES, NotBlank, host_type, is_declared
 from .param import SIZED, Param, as_written, split_hint
 from .type import Type, TypeRefusal, json_by_its_class
@@ -46,6 +46,7 @@ __all__ = [
     "hint_parts",
     "host_type",
     "is_declared",
+    "is_typed_dict",
     "json_by_its_class",
     "pick_texts",
     "split_hint",

@@ -19,7 +19,6 @@ from decimal import Decimal
 from typing import Any, NotRequired, TypeVar, get_args, get_origin
 
 import polars as pl
-import typing_extensions
 from polars.exceptions import InvalidOperationError, PolarsError
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
@@ -32,7 +31,7 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
 )
-from conductor._internal.types import SIZED, Type, field_hints
+from conductor._internal.types import SIZED, Type, field_hints, is_typed_dict
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
@@ -384,11 +383,7 @@ def check_table_row(row: Any) -> None:
     Raises:
         NodeDeclarationError: ``table_row_not_a_typed_dict``.
     """
-    if (
-        isinstance(row, TypeVar)
-        or is_bare_table_row(row)
-        or typing_extensions.is_typeddict(get_origin(row) or row)
-    ):
+    if isinstance(row, TypeVar) or is_bare_table_row(row) or is_typed_dict(row):
         return
     raise NodeDeclarationError(
         declaration_problems.table_row_not_a_typed_dict(
@@ -414,8 +409,8 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     row = (get_args(source) or (Any,))[0]
     origin = get_origin(row) or row
     # only a TypedDict names a table's columns
-    declared = typing_extensions.is_typeddict(origin)
-    hints = (field_hints(row) or {}) if declared else {}
+    declared = is_typed_dict(row)
+    hints = field_hints(row) if declared else {}
     # a column some rows could leave out: a NotRequired field, or any field of a total=False row
     left_out = [name for name, hint in hints.items() if get_origin(hint) is NotRequired]
     if left_out:

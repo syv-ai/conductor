@@ -1053,3 +1053,78 @@ def test_a_row_that_may_leave_a_field_out_is_read_alike_by_an_edge_and_refused_a
     with pytest.raises(NodeDeclarationError) as refused:
         _declared("as-a-table", as_a_table)
     assert refused.value.problems[0].type == "row_field_optional"
+
+
+class _Named(TypedDict):
+    name: str
+
+
+@pytest.mark.parametrize("row", [_PartialPair, _SomePair], ids=["total-false", "not-required"])
+def test_a_row_without_a_field_its_input_may_do_without_fits_it(row: Any) -> None:
+    """A row with only ``name`` fits an input whose ``value`` may be left out, since the input's check takes it."""
+
+    @node("make", title="Make", description="For a test.")
+    def make() -> _Named:
+        return {"name": "ida"}
+
+    @node("take", title="Take", description="For a test.")
+    def take(pair: row) -> int:  # type: ignore[valid-type]
+        return pair.get("value", 0)
+
+    graph = Graph.compile(
+        make_graph(make, take, edges=[("make.result", "take.pair")]), registry_of(make, take)
+    )
+    assert graph.problems == []
+    assert graph.run({}).results["take"]["result"] == 0
+    # the other way round, a row that may leave out a field the input requires doesn't fit it
+
+    @node("give", title="Give", description="For a test.")
+    def give() -> row:  # type: ignore[valid-type]
+        return {"name": "ida"}
+
+    @node("need", title="Need", description="For a test.")
+    def need(pair: _PlainPair) -> int:
+        return pair["value"]
+
+    backwards = Graph.compile(
+        make_graph(give, need, edges=[("give.result", "need.pair")]), registry_of(give, need)
+    )
+    assert [problem.type for problem in backwards.problems] == ["type_mismatch"]
+
+
+def test_an_edge_reads_a_field_of_a_generic_pydantic_model_by_its_filled_in_type() -> None:
+    """``Box[int]``'s field ``value: T`` is an ``int`` to an edge, as a generic ``TypedDict``'s is.
+
+    Pydantic makes a class of its own for ``Box[int]``, so its arguments are read from what pydantic keeps of them.
+    """
+
+    @host_type("box-nfr", title="Box")
+    class Box[T](BaseModel, frozen=True):
+        value: Annotated[T, Param(title="Value")]
+
+    @node("make", title="Make", description="For a test.")
+    def make() -> Box[int]:
+        return Box[int](value=2)
+
+    @node("double", title="Double", description="For a test.")
+    def double(n: int) -> int:
+        return n * 2
+
+    @node("shout", title="Shout", description="For a test.")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    registry = registry_of(make, double, shout)
+    taken = Graph.compile(
+        make_graph(make, double, edges=[("make.result.value", "double.n")]), registry
+    )
+    assert taken.problems == []
+    assert taken.run({}).results["double"]["result"] == 4
+    refused = Graph.compile(
+        make_graph(make, shout, edges=[("make.result.value", "shout.text")]), registry
+    )
+    assert [problem.type for problem in refused.problems] == ["type_mismatch"]
+    unknown = Graph.compile(
+        make_graph(make, double, edges=[("make.result.size", "double.n")]), registry
+    )
+    assert unknown.problems[0].ctx["outputs"] == ["make.result.value"]

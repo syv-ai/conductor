@@ -428,7 +428,7 @@ def _read_signature(
         and not is_declared(returned_class)
     ):  # a dataclass declared with @host_type is a type, so it is one value
         # each field with what the signature fills in for the class's type variables, as in Pair[int]
-        own = field_hints(returns) or {}
+        own = field_hints(returns)
         outputs = {
             f.name: DeclaredOutputValidator(f.name, own[f.name])(_declared_default(f))
             for f in dataclasses.fields(returned_class)

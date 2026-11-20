@@ -11,12 +11,18 @@ import functools
 from typing import TYPE_CHECKING, Annotated, Any, get_args, get_origin
 
 import polars as pl
-import typing_extensions
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.table import Table, is_bare_table_row
-from conductor._internal.types import Param, Type, split_hint, union_members, union_of
+from conductor._internal.types import (
+    Param,
+    Type,
+    is_typed_dict,
+    split_hint,
+    union_members,
+    union_of,
+)
 
 from .read import series_schema
 from .stored import SeriesItems, SeriesRows
@@ -113,10 +119,7 @@ class SeriesType(Type, of=_Series):
         and for rows with limits or choices.
         """
         item = self.item
-        if item.limited or not (
-            is_bare_table_row(item.bare)
-            or typing_extensions.is_typeddict(get_origin(item.bare) or item.bare)
-        ):
+        if item.limited or not (is_bare_table_row(item.bare) or is_typed_dict(item.bare)):
             return None
         table: Any = Table
         return Type(table[item.bare])

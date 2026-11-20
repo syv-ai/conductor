@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, get_args, get_origin
+from typing import TYPE_CHECKING, Any, get_args
 
 import polars as pl
-import typing_extensions
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
-from conductor._internal.types import Type, json_by_its_class
+from conductor._internal.types import Type, is_typed_dict, json_by_its_class
 
 from .read import as_saved, check_table_row, column_missing, table_schema
 from .write import (
@@ -74,8 +73,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     def fields(self) -> Mapping[str, Any]:
         """The type hint of each column, by name: the fields of the ``TypedDict`` ``R``. A bare ``Table`` has none,
         and so has a table whose row a graph filled in with any other type, which is read as a bare table."""
-        origin = get_origin(self._row) or self._row
-        return Type(self._row).fields if typing_extensions.is_typeddict(origin) else {}
+        return Type(self._row).fields if is_typed_dict(self._row) else {}
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:

@@ -37,7 +37,6 @@ from typing import Annotated, Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-import typing_extensions
 from pydantic import (
     AfterValidator,
     AmqpDsn,
@@ -77,7 +76,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.utils import qualified_name
 
-from .hint import READ_AS
+from .hint import READ_AS, is_typed_dict
 
 #: The id and title of each of Python's own classes that conductor names: the builtins, and the standard library's
 #: classes pydantic checks. Each id is the class's name as a host imports it. Every value of one of these is a value of
@@ -282,7 +281,7 @@ def host_type[C: type](
         ) from None
 
     def declare(cls: C) -> C:
-        if not isinstance(cls, type) or typing_extensions.is_typeddict(cls):
+        if not isinstance(cls, type) or is_typed_dict(cls):
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_not_on_a_class(id=id, given=repr(cls))
             )
