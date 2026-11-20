@@ -1243,6 +1243,84 @@ def test_a_literal_source_whose_values_classes_dont_fit_is_a_type_mismatch(sourc
     assert problem.type == "type_mismatch"
 
 
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (int, 1, int | Annotated[str, Param(choices=["a"])]),
+        (int, 1, int | Annotated[str, Param(choices=["1"])]),
+        (list[int], [1], list[int | Annotated[str, Param(choices=["a"])]]),
+    ],
+)
+def test_a_source_that_can_give_none_of_the_inputs_choices_is_a_type_mismatch(
+    source, value, target
+):
+    """A value is one of an input's choices when its JSON text is one of theirs. An ``int`` is always written as a
+    number, and these choices are all text, so every call would fail: compiling says so first."""
+    (problem,) = _wired(source, value, target).problems
+
+    assert problem.type == "type_mismatch"
+
+
+@host_type("crate-size", title="Crate size")
+class _CrateSize(BaseModel, frozen=True):
+    litres: int
+
+
+@host_type("short-code", title="Short code")
+class _ShortCode:
+    """A host's class with a schema of its own: written as its text, read from text only in JSON."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _ShortCode) and other.text == self.text
+
+    def __hash__(self) -> int:
+        return hash(self.text)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.no_info_after_validator_function(cls, core_schema.str_schema()),
+            python_schema=core_schema.is_instance_schema(cls),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda c: c.text),
+        )
+
+
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (str, "a", Annotated[str, Param(choices=["a", "b"])]),
+        (float, 2.5, Annotated[float, Param(choices=[1, 2.5])]),
+        (int, 1, Annotated[float, Param(choices=[1, 2.5])]),
+        (int | str, "a", int | Annotated[str, Param(choices=["a"])]),
+        (Any, "a", Annotated[str, Param(choices=["a"])]),
+        (
+            _CrateSize,
+            _CrateSize(litres=5),
+            Annotated[_CrateSize, Param(choices=[_CrateSize(litres=5)])],
+        ),
+        (
+            _ShortCode,
+            _ShortCode("a"),
+            Annotated[_ShortCode, Param(choices=[_ShortCode("a")])],
+        ),
+        (int, 10**20, Annotated[float, Param(choices=[1e20])]),
+    ],
+)
+def test_a_source_that_can_give_one_of_the_inputs_choices_compiles_and_runs(source, value, target):
+    """A source is refused on an input with choices only where every call would fail for sure, so a float may be
+    the choice ``2.5``, an ``int`` the float choice ``1.0`` or ``1e20``, and a host's class one of its own, however
+    its schema reads it."""
+    graph = _wired(source, value, target)
+
+    assert graph.problems == []
+    assert graph.run({"text": "x"}).status == "complete"
+
+
 type _Team = Literal["ida", "bo"]
 
 

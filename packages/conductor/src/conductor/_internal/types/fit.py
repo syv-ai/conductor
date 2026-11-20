@@ -5,15 +5,28 @@ type? An ``int`` output may go to a ``float`` input, but a ``str`` output may no
 Pydantic checks values, not pairs of types, so this check is written here.
 
 A type with a limit, choices or another check, at any depth, follows one rule. A value of the right class may go
-to it, and each value is checked on its call. A ``Literal`` source names its values, so one more rule holds for it,
-whatever the target: it lands when the target's own check takes one of its values and their classes fit the
-target. So ``Literal["x"]`` doesn't land on ``Literal["ida", "bo"]``, and ``Literal[1]`` doesn't land on
-``Literal[True]``, though pydantic takes ``1`` as ``True``.
+to it, and each value is checked on its call.
+
+One more rule holds where a side names its values: a ``Literal`` source, or a target with choices. A ``Literal``
+source lands when the target's own check takes one of its values and their classes fit the target. So
+``Literal["x"]`` doesn't land on ``Literal["ida", "bo"]``, and ``Literal[1]`` doesn't land on ``Literal[True]``,
+though pydantic takes ``1`` as ``True``.
+
+Any other source is refused on a target with choices only where every call would fail for sure. That is not the
+check each call gives a value; it is a refusal made only where the answer is certain. A value is one of the choices
+when its JSON text is one of theirs, so a source whose every value is written as a kind of JSON (text, a number, a
+yes or no) that none of the choices is can never be one. So ``int`` doesn't land on ``int | Annotated[str,
+Param(choices=["a"])]``, whose one value is text. Both sides must be Python's own plain types: text, a number, a yes
+or no, a date or time, bytes, an enum or a ``Literal``, each with no check but a ``Param``'s. A type variable or
+``Any`` on the target keeps a value as it is given. A host's type, a model, a type with a schema or a check of its
+own, an ``Any`` or ``object`` source, or an alias is left to the check on each call.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypeVar, get_args, get_origin
+import datetime
+from enum import Enum
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypeVar, get_args, get_origin
 
 from .hint import (
     a_number,
@@ -29,7 +42,10 @@ from .hint import (
     union_of,
 )
 from .host_type import accepted_classes
-from .param import split_hint
+from .param import Param, split_hint
+
+if TYPE_CHECKING:
+    from .choice import Choice
 
 
 def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bool:
@@ -101,13 +117,13 @@ def _fit(
     )
     # a target with a bare type variable among its members binds what arrives, member by member, below
     binds = any(isinstance(member, TypeVar) for member in union_members(bare))
+    from .type import Type  # Type is built on fit, so it is imported here
+
     if names_its_values and not binds and (bare is not Any or checked):
         # A source that names its values lands when the target's own check, the one the run gives each value
         # (Type.takes_value), takes one of them, and their classes fit the target: Literal[1] lands on float, but
         # not on Literal[True], which pydantic takes as equal. It needs no check on its call when the target's check
         # takes each value as it is, of the same class, since no other value can come.
-        from .type import Type  # Type is built on fit, so it is imported here
-
         values = [value for member in members for value in (get_args(member) or (None,))]
         checks, classes = Type(target), literal_classes(source)
         landing = [*values, None] if may_be_none else values
@@ -117,7 +133,14 @@ def _fit(
             return False
         return not exact or all(checks.takes_value(value, as_it_is=True) for value in values)
     if checked:
-        # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call
+        # a limit, a choice or a validator may refuse a value of the right class, so it is checked on each call,
+        # unless the target's choices are of a kind of JSON the source never gives, and every call would fail
+        if (
+            param.choices is not None
+            and (choices := Type(target).choices) is not None
+            and _gives_none_of(source, bare, choices)
+        ):
+            return False
         return not exact and _fit(bare, source, bound, False)
     target = bare
     if target == source:
@@ -203,3 +226,76 @@ def _fit(
     return len(expected_args) != len(given_args) or all(
         _fit(a, b, bound, exact) for a, b in zip(expected_args, given_args, strict=True)
     )
+
+
+# Python's own plain classes, each with the kind of JSON its values are written as; a subclass, such as a host's
+# type, may be written another way, so only these classes themselves are known
+_JSON_KINDS: dict[type, str] = {
+    bool: "yes or no",
+    int: "number",
+    float: "number",
+    str: "text",
+    bytes: "text",
+    datetime.date: "text",
+    datetime.datetime: "text",
+    datetime.time: "text",
+}
+
+
+def _gives_none_of(source: Any, target: Any, choices: tuple[Choice, ...]) -> bool:
+    """Says for sure that no value of ``source`` can be one of ``choices`` once ``target`` has read it.
+
+    A value is one of the choices when its JSON text is one of theirs, and ``target``'s plain classes keep the kind
+    of JSON a value is written as: an ``int`` read as a ``float`` is still a number. A type variable or ``Any`` on
+    the target keeps a value as it is. So when every kind ``source`` is written as differs from every choice's, every
+    call fails: ``int`` into ``int | Annotated[str, Param(choices=["a"])]`` gives none of them. Anything this can't
+    be sure of says ``False``, and is left to the check on each call.
+
+    Args:
+        source: The type arriving, without the ``None`` its whole value may be.
+        target: The type expected, without its ``Param``.
+        choices: The target's choices, each id in its JSON form, as the target read them.
+    """
+    given = _json_kinds(source)
+    if given is None:
+        return False
+    # a type variable, or the Any an unbound one becomes, keeps a value as it is given
+    kept = [m for m in union_members(target) if m is not Any and not isinstance(m, TypeVar)]
+    if any(_json_kinds(member) is None for member in kept):
+        return False
+    return not any(_json_kind(choice.id) in given for choice in choices)
+
+
+def _json_kinds(hint: Any) -> set[str] | None:
+    """The kinds of JSON a value of ``hint`` is written as, or ``None`` when ``hint`` isn't made of plain types.
+
+    ``int | str`` is written as a number or text, an enum as its members' values are, and a ``Literal`` as its own
+    values. A limit on a member, as ``Annotated[str, Param(max_length=3)]``, changes no kind; any other check
+    might, so a member with one isn't plain.
+    """
+    kinds: set[str] = set()
+    for member in union_members(hint):
+        if get_origin(member) is Annotated:
+            member, *metadata = get_args(member)
+            if not all(isinstance(one, Param) for one in metadata):
+                return None
+        if get_origin(member) is Literal:
+            kinds |= {_json_kind(value) for value in get_args(member)}
+        elif (
+            isinstance(member, type)
+            and issubclass(member, Enum)
+            and not hasattr(member, "__get_pydantic_core_schema__")
+        ):
+            kinds |= {_json_kind(one.value) for one in member}
+        elif member in _JSON_KINDS:
+            kinds.add(_JSON_KINDS[member])
+        else:
+            return None
+    return kinds
+
+
+def _json_kind(value: Any) -> str:
+    """The kind of JSON ``value`` is written as: ``True`` is a yes or no, ``1`` a number, ``"a"`` text."""
+    if isinstance(value, bool):
+        return "yes or no"
+    return _JSON_KINDS.get(type(value), "other")
