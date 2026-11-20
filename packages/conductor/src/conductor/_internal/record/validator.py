@@ -24,7 +24,7 @@ from typing import Any
 from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticCustomError, PydanticKnownError
 
-from conductor._internal.base import plain_json
+from conductor._internal.base import Validator, plain_json
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
@@ -33,8 +33,7 @@ from conductor._internal.problem import (
     conductor_error,
     shape_error,
 )
-from conductor._internal.types import Type
-from conductor._internal.validation import Validator, read_as_json
+from conductor._internal.types import Type, read_as_json
 
 from .graph import GraphRecord
 
@@ -172,9 +171,7 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
         problems = []
         for name, value in values.items():
             try:
-                written[name] = plain_json(
-                    read_as_json(Type(Any), Type(Any).output_validator, value)
-                )
+                written[name] = plain_json(read_as_json(Type(Any), value, as_output=True))
             except ValidationError as error:
                 problems.append(
                     compile_problems.invalid_value(self._node_id, name, **Type(Any).refusal(error))

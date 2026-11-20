@@ -884,8 +884,8 @@ print(run.outputs)</pre>
   /* The layers, top first, as the import-linter contract in pyproject.toml declares them; that contract is the
      source, and tests/test_core/test_layers.py checks the code against it. */
   const LAYERS = [
-    ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "field", "context"],
-    ["validation"], ["table"], ["types"], ["problem"], ["base"], ["utils"],
+    ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "field", "context"], ["table"],
+    ["types"], ["problem"], ["base"], ["utils"],
   ];
   const ENGINE = {
     make_graph: { read: page("The graph record and compiling") + "." },
@@ -899,7 +899,6 @@ print(run.outputs)</pre>
     field: { read: page("A node and its types") + "." },
     context: { read: page("A node and its types") + "." },
     table: { read: page("Series and tables") + "." },
-    validation: { read: page("A node and its types") + "." },
     types: { read: page("A node and its types") + "." },
     problem: { read: page("Problems") + "." },
     base: { read: page("A node and its types") + "." },

@@ -46,7 +46,7 @@ from pydantic import (
 )
 from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
-from conductor._internal.base import REQUIRED, SKIPPED, Name, finite_json_text
+from conductor._internal.base import REQUIRED, SKIPPED, Name, Validator, finite_json_text
 from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
@@ -68,7 +68,6 @@ from conductor._internal.problem import (
 from conductor._internal.record import WrittenValuesValidator
 from conductor._internal.types import NotBlank
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator
 
 from .policy import Deprecation, Policy
 from .type import (

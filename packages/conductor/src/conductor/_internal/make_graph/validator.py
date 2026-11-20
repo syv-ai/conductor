@@ -21,6 +21,7 @@ from pydantic import (
     with_config,
 )
 
+from conductor._internal.base import Validator
 from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
 from conductor._internal.problem import (
     InvalidCallError,
@@ -28,7 +29,6 @@ from conductor._internal.problem import (
     call_problems,
     conductor_error,
 )
-from conductor._internal.validation import Validator
 
 #: The two classes of a node definition.
 _DEFINITIONS = (FunctionDefinition, SubgraphDefinition)

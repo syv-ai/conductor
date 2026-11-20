@@ -1,8 +1,8 @@
 """The small building blocks the rest of conductor is made from.
 
 None of them knows how a graph runs. They are the base class for models a host stores as JSON, the names of
-places in a graph, how values are written and hashed as JSON, and two special values. Every package may use them,
-so this one imports nothing from conductor except ``utils``.
+places in a graph, how values are written and hashed as JSON, two special values and the base class of every
+validator. Every package may use them, so this one imports nothing from conductor except ``utils``.
 
 - ``model.py``: ``ConductorModel``, the base class of every model a host saves or sends as JSON.
 - ``place.py``: how a node, an output or one call of a node is named, as a tuple and as text, and the id of
@@ -12,6 +12,7 @@ so this one imports nothing from conductor except ``utils``.
   the one walk over a value and everything inside it.
 - ``hashing.py``: short hashes, of bytes and of a value's JSON text.
 - ``sentinels.py``: ``REQUIRED`` and ``SKIPPED``, two values that each mean a different kind of "no value".
+- ``validator.py``: ``Validator``, the base class of every check on a value that comes in from outside.
 """
 
 from .core_schema import (
@@ -53,6 +54,7 @@ from .place import (
     write_waiting_id,
 )
 from .sentinels import REQUIRED, SKIPPED
+from .validator import Validator
 
 __all__ = [
     "FIELD_SEPARATOR",
@@ -68,6 +70,7 @@ __all__ = [
     "Name",
     "NodePath",
     "Source",
+    "Validator",
     "canonical_json",
     "finite_json_text",
     "holds_a_set",

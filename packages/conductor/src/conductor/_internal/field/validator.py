@@ -26,15 +26,14 @@ from typing import Any, TypeVar
 from annotated_types import Not, Predicate
 from pydantic import ValidationError
 
-from conductor._internal.base import REQUIRED, SKIPPED
+from conductor._internal.base import REQUIRED, SKIPPED, Validator
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
     compile_problems,
     declaration_problems,
 )
-from conductor._internal.types import Type, hint_parts
-from conductor._internal.validation import Validator, read_as_json
+from conductor._internal.types import Type, hint_parts, read_as_json
 
 from .type import Field
 
@@ -229,4 +228,4 @@ def _read_default(whole: Type, default: Any) -> Any:
     """
     if default is REQUIRED or default is SKIPPED:
         return default
-    return read_as_json(whole, whole.argument_validator, default)
+    return read_as_json(whole, default)
