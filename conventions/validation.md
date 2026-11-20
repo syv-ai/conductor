@@ -11,6 +11,17 @@ if not is_name(node_id): problems.append(...)   # bad: in graph/compile.py
 # good: the record validator in record/validator.py finds it; compile trusts the record
 ```
 
+## A developer's mistake is caught before a run
+
+Check on every call only what code can't rule out: a caller's or a person's value at its door, and what a node returns, even a value its code only hands on from elsewhere. Catch a mistake in code a developer wrote (a node's body or declaration, a host type, a hook, conductor's own code) before a run: by its types, at `@node` or `@host_type`, when compiling, or in `check_registry`. Keep a per-call check only where data decides when the mistake happens, or where it would otherwise go silently wrong. Never guard a declared parameter with `isinstance`: when a value's type is uncertain, trace it back to where it enters and make it certain there.
+
+Why: a mistake in code is fixed once, by changing the code, so a check paid on every call costs every run in production and catches nothing after the fix, and a guard for a state the types rule out hides the bug that made it.
+
+```python
+if arguments != before: raise ...   # bad: in run/call.py, after every call, for a body that changes its inputs
+# good: check_registry calls each node with made-up values and reports changed_its_inputs
+```
+
 ## A validator is a class in its concept's validator.py
 
 Read each kind of outside value with a subclass of `Validator` in the `validator.py` of the concept it is a value of, built with what it reads the value by and called with the value alone.

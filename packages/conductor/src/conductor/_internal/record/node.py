@@ -15,6 +15,7 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
+    StrictInt,
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
@@ -146,8 +147,9 @@ class NodeRecord(ConductorModel):
 
     #: The id of the node definition this node uses.
     node: str
-    #: The version of the node definition. Left out of the saved record when it is 1, like each field below when empty.
-    version: int = Field(default=1, exclude_if=lambda version: version == 1)
+    #: The version of the node definition, read strictly, as JSON's own number: ``true``, ``1.0`` and ``"2"`` are
+    #: refused. Left out of the saved record when it is 1, like each field below when empty.
+    version: StrictInt = Field(default=1, exclude_if=lambda version: version == 1)
     #: What each input gets, by the input's name.
     inputs: Mapping[Name, InputEntry] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own data, like position, size or a title a person edited. Conductor saves it and never looks at it.

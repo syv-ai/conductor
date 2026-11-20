@@ -434,6 +434,31 @@ def test_an_input_a_graph_input_or_a_graph_output_that_is_not_a_name_is_refused(
     )[0][1][:2] == ("record", "outputs")
 
 
+@pytest.mark.parametrize(
+    ("version", "error"),
+    [
+        (True, "bool_is_not_a_number"),
+        (False, "bool_is_not_a_number"),
+        (1.0, "int_type"),
+        ("2", "int_type"),
+    ],
+)
+@pytest.mark.parametrize("given_as", ["json", "data"])
+def test_a_version_that_is_not_a_whole_number_is_refused(version, error, given_as):
+    """A version is read as JSON's own whole number, from text and from plain data alike: ``true`` is not 1."""
+    data = {
+        "nodes": {"u": {"node": "upper", "version": version, "inputs": {"text": {"constant": "x"}}}}
+    }
+    record = json.dumps(data) if given_as == "json" else data
+
+    with pytest.raises(InvalidCallError) as refused:
+        Graph.compile(record, REGISTRY)
+
+    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
+        ("invalid_record", ("record", "nodes", "u", "version"), error)
+    ]
+
+
 _SOURCE = {"node": "a", "output": "result"}
 
 
