@@ -480,30 +480,28 @@ def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition)
             field. ``upgrade_missing``, naming each dropped field nothing explains.
     """
     upgrade = newer.upgrade
-    adds_inputs, adds_outputs = _hooks_add_fields(older)
     unknown_old = [
         *(
             name
             for name in upgrade.renamed_inputs
-            if not adds_inputs and name not in older.input_names
+            if older.compute_added_inputs is None and name not in older.input_names
         ),
         *(
             name
             for name in upgrade.renamed_outputs
-            if not adds_outputs and name not in older.output_names
+            if older.compute_outputs is None and name not in older.output_names
         ),
     ]
-    adds_inputs, adds_outputs = _hooks_add_fields(newer)
     unknown_new = [
         *(
             name
             for name in upgrade.renamed_inputs.values()
-            if not adds_inputs and name not in newer.input_names
+            if newer.compute_added_inputs is None and name not in newer.input_names
         ),
         *(
             name
             for name in upgrade.renamed_outputs.values()
-            if not adds_outputs and name not in newer.output_names
+            if newer.compute_outputs is None and name not in newer.output_names
         ),
     ]
     if unknown_old or unknown_new:
@@ -515,15 +513,3 @@ def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition)
         unexplained |= gone_inputs(older, newer)
     if unexplained:
         raise NodeDeclarationError(declaration_problems.upgrade_missing(gone=sorted(unexplained)))
-
-
-def _hooks_add_fields(version: NodeDefinition) -> tuple[bool, bool]:
-    """Returns whether a version's hooks may add inputs, and whether they may give outputs, beside those it declares.
-
-    Only a function has hooks. A subgraph's inputs and outputs are all in its record.
-    """
-    match version:
-        case FunctionDefinition():
-            return version.compute_added_inputs is not None, version.compute_outputs is not None
-        case SubgraphDefinition():
-            return False, False

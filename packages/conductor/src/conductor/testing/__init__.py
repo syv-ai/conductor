@@ -216,22 +216,9 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     The node is compiled in a graph of its own, which calls its hooks. Its inputs keep their defaults. Each
     required input that takes only a constant gets a made-up value, so the hooks have a value to read.
     """
-    match version:
-        case FunctionDefinition() if (
-            version.compute_added_inputs is not None or version.compute_outputs is not None
-        ):
-            pass
-        case (
-            FunctionDefinition() | SubgraphDefinition()
-        ):  # a function with no hooks, or a subgraph, which never has hooks of its own
-            return []
-    values = _made_up_values(
-        {
-            name: field
-            for name, field in version.inputs.items()
-            if field.param.constant_only and field.default is REQUIRED
-        }
-    )
+    if version.compute_added_inputs is None and version.compute_outputs is None:
+        return []
+    values = _made_up_values({name: version.inputs[name] for name in version.required_constants})
     if isinstance(values, list):
         return [problems.needs_example(version.id, version.version, inputs=values)]
     failed = [

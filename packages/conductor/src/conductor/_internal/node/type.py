@@ -17,7 +17,7 @@ import functools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
 
 from pydantic import MISSING, JsonValue
 
@@ -83,8 +83,9 @@ class _Version:
     """What every version of a node has, whether it is a function or a subgraph.
 
     It is never made on its own: a version is a ``FunctionDefinition`` or a ``SubgraphDefinition``. Each of them
-    answers ``where_declared``, ``input_names``, ``required_inputs`` and ``output_names`` in its own way. So a
-    caller never has to ask which kind it has.
+    answers ``where_declared``, ``input_names``, ``required_inputs``, ``required_constants``, ``input_default``,
+    ``output_names``, ``compute_added_inputs`` and ``compute_outputs`` in its own way. So a caller never has to ask
+    which kind it has. Only work that differs by kind, such as compiling the node, matches on it.
 
     Attributes:
         id: The id a graph names the node by. Every saved graph that uses the node stores it, so changing it means
@@ -254,6 +255,23 @@ class FunctionDefinition[**P, R](_Version):
         )
 
     @property
+    def required_constants(self) -> tuple[str, ...]:
+        """The names of the inputs a graph must give a constant: each one with no default that is ``constant_only``."""
+        return tuple(
+            name
+            for name, field in self.inputs.items()
+            if field.default is REQUIRED and field.param.constant_only
+        )
+
+    def input_default(self, name: str) -> JsonValue | MISSING:
+        """Returns the default the signature gives the input ``name``, as JSON, or ``MISSING`` when it has none.
+
+        An input a hook adds isn't known before the graph is compiled, so it has none here.
+        """
+        field = self.inputs.get(name)
+        return MISSING if field is None else field.default_json
+
+    @property
     def output_names(self) -> tuple[str, ...]:
         """The names of the outputs."""
         return tuple(self.outputs)
@@ -281,9 +299,13 @@ class SubgraphDefinition(_Version):
 
     Attributes:
         graph: The graph record this subgraph is.
+        compute_added_inputs: Always ``None``. A subgraph has no hooks: its inputs and outputs are all in its record.
+        compute_outputs: Always ``None``, like ``compute_added_inputs``.
     """
 
     graph: GraphRecord
+    compute_added_inputs: ClassVar[None] = None
+    compute_outputs: ClassVar[None] = None
 
     @property
     def where_declared(self) -> str:
@@ -306,6 +328,17 @@ class SubgraphDefinition(_Version):
                 name for name, declared in self.graph.inputs.items() if declared.default is MISSING
             )
         )
+
+    @property
+    def required_constants(self) -> tuple[str, ...]:
+        """Always empty: a subgraph's inputs are graph inputs of its record, and a graph input never takes only a
+        constant."""
+        return ()
+
+    def input_default(self, name: str) -> JsonValue | MISSING:
+        """Returns the default the record declares for the graph input ``name``, or ``MISSING`` when it has none."""
+        declared = self.graph.inputs.get(name)
+        return MISSING if declared is None else declared.default
 
     @property
     def output_names(self) -> tuple[str, ...]:

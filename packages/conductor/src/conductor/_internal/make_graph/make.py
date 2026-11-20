@@ -21,14 +21,13 @@ from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import (
     FIELD_SEPARATOR,
-    REQUIRED,
     Source,
     canonical_json,
     is_field,
     is_name,
     place_text,
 )
-from conductor._internal.node import FunctionDefinition, NodeDefinition
+from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
@@ -358,7 +357,7 @@ def _declared_inputs(
         own = [
             default
             for node_id, input_name in inputs
-            if (default := _own_default(definitions[node_id], input_name)) is not MISSING
+            if (default := definitions[node_id].input_default(input_name)) is not MISSING
         ]
         declared[name] = {}
         if len(given) > 1:
@@ -377,19 +376,6 @@ def _declared_inputs(
         elif len(own) == len(inputs) and len(set(map(canonical_json, own))) == 1:
             declared[name]["default"] = own[0]
     return declared
-
-
-def _own_default(definition: NodeDefinition, name: str) -> JsonValue | MISSING:
-    """Returns the default that the input ``name`` of a node declares, as JSON, or ``MISSING`` when it has none.
-
-    A function's input declares it in the function's signature. A subgraph's input is a graph input its record
-    declares, with its default. An input a hook adds isn't known before the graph is compiled, so it has none here.
-    """
-    if isinstance(definition, FunctionDefinition):
-        field = definition.inputs.get(name)
-        return MISSING if field is None else field.default_json
-    declared = definition.graph.inputs.get(name)
-    return MISSING if declared is None else declared.default
 
 
 def _graph_outputs(
@@ -416,11 +402,7 @@ def _graph_outputs(
             declared[name] = source
     named_nodes = {source.node for source in declared.values()}
     for node_id, definition in definitions.items():
-        if (
-            isinstance(definition, FunctionDefinition)
-            and definition.compute_outputs is not None
-            and node_id not in led_out | named_nodes
-        ):
+        if definition.compute_outputs is not None and node_id not in led_out | named_nodes:
             problems.append(call_problems.hook_outputs_not_named(node_id))
     taken = {(source.node, source.output) for source in declared.values()}
     leaves = [
@@ -509,18 +491,9 @@ def _chain_edges(
     for (before_id, before), (after_id, after) in zip(chain, chain[1:], strict=False):
         outputs = list(before.output_names)
         open_inputs = [name for name in after.required_inputs if (after_id, name) not in filled]
-        # a subgraph's inputs are graph inputs of its record, and a graph input never takes only a constant
-        needs_constant = (
-            [
-                name
-                for name, field in after.inputs.items()
-                if field.param.constant_only
-                and field.default is REQUIRED
-                and (after_id, name) not in filled
-            ]
-            if isinstance(after, FunctionDefinition)
-            else []
-        )
+        needs_constant = [
+            name for name in after.required_constants if (after_id, name) not in filled
+        ]
         if len(outputs) == 1 and len(open_inputs) == 1:
             edges.append(
                 (place_text((before_id,), outputs[0]), place_text((after_id,), open_inputs[0]))
