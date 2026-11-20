@@ -129,7 +129,8 @@ def node(
             signature says, such as ``tags="text"``, or one of the codes for arguments that don't fit together. When
             the decorator is applied, if the function can't make a node.
     """
-    read = DeclarationValidator("@node")(
+    shared = _shared_fields(
+        "@node",
         {
             "id": id,
             "title": title,
@@ -146,9 +147,8 @@ def node(
             "replaces": replaces,
             "upgrade": upgrade,
             "asks": asks,
-        }
+        },
     )
-    number = _version_number("@node", id, version, replaces, upgrade)
 
     def make[**P, R](target: NodeFunction[P, R], /) -> FunctionDefinition[P, R]:
         try:
@@ -209,28 +209,17 @@ def node(
                 return_shape=return_shape,
                 code_text=code_text,
                 context=context,
-                id=id,
-                version=number,
-                title=title,
-                description=description,
-                category=category,
-                tags=tuple(read["tags"]),
-                extra=MappingProxyType(dict(read["extra"])),
-                docs=docs,
-                deprecation=deprecation,
-                replaces=replaces,
-                upgrade=upgrade or Upgrade(),
                 policy=policy,
                 compute_added_inputs=added_inputs_hook,
                 compute_outputs=outputs_hook,
                 asks=asks,
+                **shared,
             )
-            if replaces is not None:
-                _raise_if_upgrade_does_not_fit(replaces, definition)
-            return definition
-        # Each fault is placed at the node's id, with its version.
+        # Each fault in the function is placed at the node's id, with its version.
         except NodeDeclarationError as error:
-            raise error.within(id, number) from None
+            raise error.within(id, shared["version"]) from None
+        _raise_if_upgrade_does_not_fit(definition)
+        return definition
 
     return make
 
@@ -268,7 +257,8 @@ def subgraph(
             with no ``Upgrade`` saying where it went (``upgrade_missing``), or an ``Upgrade`` that renames a graph
             input or output one of the two records doesn't have (``upgrade_renames_unknown``).
     """
-    read = DeclarationValidator("subgraph")(
+    shared = _shared_fields(
+        "subgraph",
         {
             "id": id,
             "title": title,
@@ -281,61 +271,40 @@ def subgraph(
             "deprecation": deprecation,
             "replaces": replaces,
             "upgrade": upgrade,
-        }
+        },
     )
-    number = _version_number("subgraph", id, version, replaces, upgrade)
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
-        definition = SubgraphDefinition(
-            graph=RecordValidator()(record),
-            id=id,
-            version=number,
-            title=title,
-            description=description,
-            category=category,
-            tags=tuple(read["tags"]),
-            extra=MappingProxyType(dict(read["extra"])),
-            docs=docs,
-            deprecation=deprecation,
-            replaces=replaces,
-            upgrade=upgrade or Upgrade(),
-        )
-        if replaces is not None:
-            try:
-                _raise_if_upgrade_does_not_fit(replaces, definition)
-            except NodeDeclarationError as error:
-                raise error.within(id, number) from None
+        definition = SubgraphDefinition(graph=RecordValidator()(record), **shared)
+        _raise_if_upgrade_does_not_fit(definition)
         return definition
 
     return make
 
 
-def _version_number(
-    declared_with: str,
-    id: str,
-    version: int | None,
-    replaces: NodeDefinition | None,
-    upgrade: Upgrade | None,
-) -> int:
-    """Checks what the arguments ``@node`` and ``subgraph`` share say together, and returns the node's version number.
+def _shared_fields(declared_with: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """Checks the arguments of ``@node`` or ``subgraph``, and returns the fields every version of a node has.
 
-    Each argument is checked first, on its own, by ``DeclarationValidator``.
+    Each argument is checked on its own first, by ``DeclarationValidator``. Then the version number is worked out,
+    and ``version``, ``replaces`` and ``upgrade`` are checked together. A kind's own arguments, such as ``@node``'s
+    ``policy``, are checked here too, but only the shared fields are returned.
 
     Args:
         declared_with: ``"@node"`` or ``"subgraph"``. Each message starts with it.
-        id: The node's id.
-        version: The version number given, or ``None``.
-        replaces: The version this one replaces, or ``None``.
-        upgrade: The upgrade given, or ``None``.
+        arguments: Every argument the caller was given, by name.
 
     Returns:
-        ``version`` if it is given. Otherwise one more than the version replaced, or 1 for a first version.
+        The fields of ``_Version`` by name, ready to pass to ``FunctionDefinition`` or ``SubgraphDefinition``. The
+        version is ``version`` if it is given, else one more than the version replaced, or 1 for a first version.
 
     Raises:
-        NodeDeclarationError: ``replaces``, ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id.
+        NodeDeclarationError: An argument is refused, or ``replaces``, ``upgrade`` and ``version`` don't fit
+            together. Its ``loc`` is the id, unless the id itself is refused.
     """
+    read = DeclarationValidator(declared_with)(arguments)
+    id, replaces, upgrade = read["id"], read["replaces"], read["upgrade"]
     # the version comes first, so each fault below names it
-    number = version_number(version, replaces)
+    number = version_number(read["version"], replaces)
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(
             declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id),
@@ -358,7 +327,19 @@ def _version_number(
             id,
             version=number,
         )
-    return number
+    return {
+        "id": id,
+        "version": number,
+        "title": read["title"],
+        "description": read["description"],
+        "category": read["category"],
+        "tags": tuple(read["tags"]),
+        "extra": MappingProxyType(dict(read["extra"])),
+        "docs": read["docs"],
+        "deprecation": read["deprecation"],
+        "replaces": replaces,
+        "upgrade": upgrade or Upgrade(),
+    }
 
 
 def _read_signature(
@@ -471,8 +452,10 @@ def _declared_default(declared: DataclassField[Any]) -> Any:
     return REQUIRED
 
 
-def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition) -> None:
-    """Checks the newer version's ``Upgrade`` against the fields of the two versions.
+def _raise_if_upgrade_does_not_fit(newer: NodeDefinition) -> None:
+    """Checks a version's ``Upgrade`` against its fields and those of the version it replaces.
+
+    A first version, which replaces nothing, has nothing to check.
 
     Each rename has to start at a field the older version declares and end at one the newer version declares. Say
     version 1 takes ``name``, and version 2 takes ``first`` with ``Upgrade(renamed_inputs={"nmae": "first"})``. The
@@ -484,8 +467,11 @@ def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition)
 
     Raises:
         NodeDeclarationError: ``upgrade_renames_unknown``, naming each rename that starts or ends at no declared
-            field. ``upgrade_missing``, naming each dropped field nothing explains.
+            field. ``upgrade_missing``, naming each dropped field nothing explains. Its ``loc`` is the id.
     """
+    older = newer.replaces
+    if older is None:
+        return
     upgrade = newer.upgrade
     unknown_old = [
         *(
@@ -513,10 +499,16 @@ def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition)
     ]
     if unknown_old or unknown_new:
         raise NodeDeclarationError(
-            declaration_problems.upgrade_renames_unknown(old=unknown_old, new=unknown_new)
+            declaration_problems.upgrade_renames_unknown(old=unknown_old, new=unknown_new),
+            newer.id,
+            version=newer.version,
         )
     unexplained = gone_outputs(older, newer)
     if newer.upgrade.rewrite is None:
         unexplained |= gone_inputs(older, newer)
     if unexplained:
-        raise NodeDeclarationError(declaration_problems.upgrade_missing(gone=sorted(unexplained)))
+        raise NodeDeclarationError(
+            declaration_problems.upgrade_missing(gone=sorted(unexplained)),
+            newer.id,
+            version=newer.version,
+        )

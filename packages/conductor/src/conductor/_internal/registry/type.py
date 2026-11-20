@@ -183,14 +183,7 @@ class NodeRegistry[C]:
 
         The decorated name is bound to the node as this registry has it, with the registry's defaults applied.
         """
-        declare = node(*args, **kwargs)
-
-        def decorate(function: Callable[..., Any]) -> NodeDefinition:
-            definition = declare(function)
-            self.add(definition)
-            return self._nodes[definition.id]
-
-        return decorate
+        return self._adding(node(*args, **kwargs))
 
     @_takes_the_arguments_of(subgraph)
     def subgraph(self, *args: Any, **kwargs: Any) -> Any:
@@ -203,10 +196,17 @@ class NodeRegistry[C]:
         An id that is already here raises, as with ``registry.node``. What it returns is the node as this registry
         has it, with the registry's defaults applied.
         """
-        declare = subgraph(*args, **kwargs)
+        return self._adding(subgraph(*args, **kwargs))
 
-        def add(record: GraphRecord | str | bytes) -> NodeDefinition:
-            definition = declare(record)
+    def _adding[T](self, declare: Callable[[T], NodeDefinition]) -> Callable[[T], NodeDefinition]:
+        """Returns ``declare``, which makes a node, with each node it makes added here.
+
+        What the returned function gives back is the node as this registry has it, with the registry's defaults
+        applied.
+        """
+
+        def add(target: T) -> NodeDefinition:
+            definition = declare(target)
             self.add(definition)
             return self._nodes[definition.id]
 
