@@ -760,17 +760,15 @@ events:
     </figure>
     <div class="sample">
       <p class="label">Sample 3, race.py, where both workers answer at once and the store logs each claim and each write of <code>state</code> · the <code>queued</code> lines <span class="lvl int">Internal</span></p>
-      <p class="muted">Here <code>gather</code> starts <code>one</code> first on the one event loop. Across processes either can win, and the outcome has the same shape, with one resume call and one answer refused. <code>check_run_store</code> sends updates at one <code>rev</code> at once, several times over, and fails a store that lets more than one through.</p>
+      <p class="muted">Each answer loads the run on a thread before it claims, so either worker can win, even on one event loop. Both give the same answer here, so the outcome is the same whichever wins: one claim written, one resume call, and one answer queued and refused. <code>check_run_store</code> sends updates at one <code>rev</code> at once, several times over, and fails a store that lets more than one through.</p>
       <script type="text/x-python">
 every = lambda metadata: True
 
 
 def log(run_id, rev, changes, written):
-    """Prints each claim (a write of owner) and each write of state alone, naming the worker."""
-    names = {one._settings.worker_id: "one", other._settings.worker_id: "other"}
+    """Prints each claim (a write of owner) and each write of state alone."""
     if changes.get("owner") is not None:
-        print(f"  claim at rev {rev} by {names[changes['owner']]}: "
-              + ("written" if written else "refused, the row had moved on"))
+        print(f"  claim at rev {rev}: " + ("written" if written else "refused, the row had moved on"))
     elif "state" in changes and "owner" not in changes:
         print(f"  write of state at rev {rev}: " + ("written" if written else "refused") + " -> queued:")
         print(json.dumps(json.loads(changes["state"])["queued"]))
@@ -786,7 +784,7 @@ async def race():
         store.log = log  # from here on, the store prints what it is asked to write
         a, b = await asyncio.gather(
             one.answer(view.id, {waiting_id: True}, allows=every),
-            other.answer(view.id, {waiting_id: False}, allows=every),
+            other.answer(view.id, {waiting_id: True}, allows=every),
         )
         store.log = None
         print("both answered:", a.status, b.status)
@@ -795,10 +793,10 @@ async def race():
         print("refused:", {k: [p.type for p in v] for k, v in view.refused.items()})
 
 asyncio.run(race())</pre>
-      <pre class="out">  claim at rev 1 by one: written
-  claim at rev 1 by other: refused, the row had moved on
+      <pre class="out">  claim at rev 1: written
+  claim at rev 1: refused, the row had moved on
   write of state at rev 2: written -&gt; queued:
-[{"kind": "answer", "waiting_id": "approve~60a01e27", "answer": false}]
+[{"kind": "answer", "waiting_id": "approve~60a01e27", "answer": true}]
 both answered: running running
 ended: complete {'result': True}
 refused: {'approve~60a01e27': ['not_waiting']}</pre>
