@@ -175,7 +175,7 @@ def choices_invalid(*, type: str, reason: str, errors: list[dict[str, Any]], ins
 
     An editor gets the choices as JSON to show them, and a saved graph stores them as JSON, so each choice is read from
     its JSON form, as an answer is, and a number in one must be finite. Each is read by every check on the same hint,
-    wherever the ``Param`` sits: on the field, a list's item, a dict's value or a field of a host's own model. A check
+    wherever the ``Param`` sits: on the port, a list's item, a dict's value or a field of a host's own model. A check
     that changes a value, like an ``AfterValidator`` that adds ``"!"``, moves a choice off itself, so every value
     would fail on its call (``not_a_choice``).
 
@@ -250,11 +250,11 @@ def choices_on_a_literal(*, type: str) -> str:
 def choices_on_a_literal_beside_another_type() -> str:
     """A ``Param`` gives choices for a union of a ``Literal`` with another type, such as ``Literal["auto"] | int``.
 
-    Such a field has no choices: it takes the ``Literal``'s values and any value of the other type. Choices on it
+    Such a port has no choices: it takes the ``Literal``'s values and any value of the other type. Choices on it
     would limit it to the choices, so the other type would take nothing more, and a ``Literal``'s values can't be
     given titles any other way.
 
-    To fix it, remove the ``Param(choices=)``. The field then takes what its type says, untitled.
+    To fix it, remove the ``Param(choices=)``. The port then takes what its type says, untitled.
 
     Example:
         from typing import Literal
@@ -269,7 +269,7 @@ def choices_on_a_literal_beside_another_type() -> str:
         declaration_refused(lambda: node("auto_or_count", title="Auto or count", description="Hands back the count.")(auto_or_count))
     """
     return (
-        "a Literal beside another type takes no Param(choices=), since choices would limit the field to them. Remove"
+        "a Literal beside another type takes no Param(choices=), since choices would limit the port to them. Remove"
         " the Param(choices=)."
     )
 
@@ -282,7 +282,7 @@ def named_value_invalid(*, value: str, instead: str) -> str:
     answer and a description hold each as its JSON. So each must read back from that JSON as itself, or a run of it
     couldn't be saved, described or asked. Text, numbers, yes or no and ``None`` do, and so does the member of an
     enum that is also ``str`` or ``int``, like an ``IntEnum``'s or a ``StrEnum``'s. A plain enum's member, ``bytes``,
-    a tuple, a date and ``nan`` don't. This holds at any depth: on the field, a list's or a ``Series``'s item, a
+    a tuple, a date and ``nan`` don't. This holds at any depth: on the port, a list's or a ``Series``'s item, a
     ``TypedDict``'s field and a table's column.
 
     To fix it, take the value's type, or the enum itself, as the type, with ``Param(choices=[...])`` for some of its
@@ -961,7 +961,7 @@ def unit_in_hint() -> str:
 
     A unit is a label, not a rule: pydantic ignores it, so it checks nothing, and a person is never shown it.
 
-    To fix it, put the unit in the field's title or description, like ``Param(title="Distance (m)")``.
+    To fix it, put the unit in the port's title or description, like ``Param(title="Distance (m)")``.
 
     Example:
         from annotated_types import Unit
@@ -973,7 +973,7 @@ def unit_in_hint() -> str:
 
         declaration_refused(lambda: node("distance", title="Distance", description="Passes a distance on.")(distance))
     """
-    return "pydantic ignores a Unit, so it checks nothing and no one sees it. Put the unit in the field's title instead."
+    return "pydantic ignores a Unit, so it checks nothing and no one sees it. Put the unit in the port's title instead."
 
 
 @DECLARATION_PROBLEMS.problem
@@ -1472,7 +1472,7 @@ def type_not_named(
         f" {parent} is declared, but a subclass doesn't inherit its declaration." if parent else ""
     )
     return (
-        f"{cls} is the type of a field, and it has no @host_type. "
+        f"{cls} is the type of a port, and it has no @host_type. "
         f'Write @host_type("{suggested_id}", title="{suggested_title}") above the class.{why}'
     )
 
@@ -1549,15 +1549,15 @@ def upgrade_missing(*, gone: list[str]) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def upgrade_renames_unknown(*, old: list[str], new: list[str]) -> str:
-    """A node's ``Upgrade`` renames a field that the version it replaces doesn't declare, or renames one to a field
+    """A node's ``Upgrade`` renames a port that the version it replaces doesn't declare, or renames one to a port
     that the new version doesn't declare.
 
-    A rename names an old input or output and its new name. A name that isn't a field, such as a typo, moves nothing,
-    so a graph upgraded by it would lose what that field got.
+    A rename names an old input or output and its new name. A name that isn't a port, such as a typo, moves nothing,
+    so a graph upgraded by it would lose what that port got.
 
-    Only declared fields are checked. A ``compute_added_inputs`` hook adds inputs when a graph is compiled, and a
+    Only declared ports are checked. A ``compute_added_inputs`` hook adds inputs when a graph is compiled, and a
     ``compute_outputs`` hook gives the outputs then. So a version with one of those hooks has its renames of that kind
-    of field left unchecked.
+    of port left unchecked.
 
     To fix it, spell each old name as the version it replaces declares it, and each new name as the new version does.
 
@@ -1578,7 +1578,7 @@ def upgrade_renames_unknown(*, old: list[str], new: list[str]) -> str:
         declaration_refused(lambda: node("salute", title="Salute", description="Salutes a person.", replaces=salute_v1, upgrade=Upgrade(renamed_inputs={"nmae": "first"}))(salute))
     """
     return (
-        f"the Upgrade renames fields that aren't declared: {comma_separated(old)} in the version it replaces, "
+        f"the Upgrade renames ports that aren't declared: {comma_separated(old)} in the version it replaces, "
         f"{comma_separated(new)} in the new version. Spell each name as its version declares it."
     )
 
@@ -1673,7 +1673,7 @@ def widget_outside_param() -> str:
 
 @DECLARATION_PROBLEMS.problem
 def widget_without_json_form(*, widget: str) -> str:
-    """A field's widget has a value that can't be written as JSON, so it can't be sent to an editor.
+    """A port's widget has a value that can't be written as JSON, so it can't be sent to an editor.
 
     A widget is sent to an editor as JSON. A widget field typed ``Any`` takes any value, including one pydantic can't
     write as JSON, such as an object of a class of your own. That is caught here, when the node is declared.

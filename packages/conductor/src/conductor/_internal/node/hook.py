@@ -14,7 +14,7 @@ constant, and the input takes only a constant. A parameter annotated ``type`` ge
 of its name instead. When a graph is compiled, the compiler calls ``hook.call(...)``, which gives each parameter its
 value, calls the function and checks what it returns.
 
-The rules are in the reference: ``python -m conductor.about field-hooks``.
+The rules are in the reference: ``python -m conductor.about hooks``.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from types import MappingProxyType
 from typing import Any, ClassVar
 
 from conductor._internal.context import ContextParameter
-from conductor._internal.field import Field
+from conductor._internal.port import Port
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
@@ -80,7 +80,7 @@ class Hook:
         cls,
         function: Callable[..., Mapping[Any, Any]],
         name: HookName,
-        inputs: Mapping[str, Field],
+        inputs: Mapping[str, Port],
         context: ContextParameter | None,
         *,
         adds_inputs: bool,
@@ -150,8 +150,8 @@ class Hook:
         values: Mapping[str, Any],
         arriving: Mapping[str, Any] = MappingProxyType({}),
         added: tuple[str, ...] = (),
-    ) -> dict[str, Field]:
-        """Calls the hook for one node of a graph, and returns the fields it gives, by name.
+    ) -> dict[str, Port]:
+        """Calls the hook for one node of a graph, and returns the ports it gives, by name.
 
         Args:
             node_id: The node's id. The problems name it.

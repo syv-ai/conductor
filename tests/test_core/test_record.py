@@ -1956,7 +1956,7 @@ def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id_and_the_names_its
         and run.results["e"] == {"result": "HI."}
     )
     assert set(graph.describe().nodes) == {"e", "u"}
-    assert [f.field.name for f in graph.describe().nodes["e"].inputs] == ["text"]
+    assert [f.port.name for f in graph.describe().nodes["e"].inputs] == ["text"]
 
 
 def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_record_gives_no_default():

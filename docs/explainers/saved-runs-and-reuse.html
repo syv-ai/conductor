@@ -400,7 +400,7 @@ graph = Graph.compile(record, registry)</pre>
   <div class="two" style="margin-top:3rem">
     <div class="stack">
       <h3>The finished run as saved</h3>
-      <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line; the sample prints its length first. The sample prints it with <code>dumps</code>, a small helper that indents by 2 and keeps a list that fits on one line on one line. Each entry under <code>fingerprints</code> is a call's fingerprint, taken when the call was made: a hash of the node's code fingerprint and the call's arguments. The code fingerprint hashes the node's id, version, fields, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source, so it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
+      <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line; the sample prints its length first. The sample prints it with <code>dumps</code>, a small helper that indents by 2 and keeps a list that fits on one line on one line. Each entry under <code>fingerprints</code> is a call's fingerprint, taken when the call was made: a hash of the node's code fingerprint and the call's arguments. The code fingerprint hashes the node's id, version, ports, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source, so it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 saved = run.to_json()
 print(len(saved))
@@ -683,7 +683,7 @@ print(took(), fourth.outputs)</pre>
     </div>
     <figure>
       <div class="diagram">
-        <svg viewBox="0 0 560 300" style="min-width:560px" role="img" aria-label="The code fingerprint hashes the node's id, version, function code, field types, loops and asks. The call fingerprint hashes the code fingerprint with the call's arguments as JSON with sorted keys. A call looks up that fingerprint among the previous run's outcomes.">
+        <svg viewBox="0 0 560 300" style="min-width:560px" role="img" aria-label="The code fingerprint hashes the node's id, version, function code, port types, loops and asks. The call fingerprint hashes the code fingerprint with the call's arguments as JSON with sorted keys. A call looks up that fingerprint among the previous run's outcomes.">
           <defs><marker id="ch" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker></defs>
           <text class="d-title" x="16" y="22">what the call is matched by · the node's code</text>
           <rect class="d-box" x="16" y="32" width="528" height="56" rx="8"/>

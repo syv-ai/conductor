@@ -48,7 +48,6 @@ import polars as pl
 from pydantic import BaseModel, ValidationError
 from typing_extensions import sentinel
 
-from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
     FunctionDefinition,
@@ -56,6 +55,7 @@ from conductor._internal.node import (
     NodeDefinition,
     SubgraphDefinition,
 )
+from conductor._internal.port import Port
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import (
     ConstantEntry,
@@ -73,7 +73,7 @@ from conductor._internal.types import Param
 from . import problems
 from .problems import REGISTRY_CHECK_PROBLEMS
 
-#: What ``_made_up`` returns for a field it can't make up a value for.
+#: What ``_made_up`` returns for a port it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")
 
 
@@ -377,36 +377,34 @@ def _watched(
     ), changed
 
 
-def _made_up_values(fields: Mapping[str, Field]) -> dict[str, Any] | list[str]:
-    """Makes up a value for each field that one can be made up for.
+def _made_up_values(ports: Mapping[str, Port]) -> dict[str, Any] | list[str]:
+    """Makes up a value for each port that one can be made up for.
 
     Returns:
-        The values, by name. Or, when a required field that takes only a constant gets none, the names of every
-        such field, sorted: only a constant can give it a value, so the node needs an example.
+        The values, by name. Or, when a required port that takes only a constant gets none, the names of every
+        such port, sorted: only a constant can give it a value, so the node needs an example.
     """
-    values = {
-        name: made for name, field in fields.items() if (made := _made_up(field)) is not _CANNOT
-    }
+    values = {name: made for name, port in ports.items() if (made := _made_up(port)) is not _CANNOT}
     missing = sorted(
-        name for name, field in fields.items() if name not in values and field.needs_a_constant
+        name for name, port in ports.items() if name not in values and port.needs_a_constant
     )
     if missing:
         return missing
     return values
 
 
-def _made_up(field: Field) -> Any:
-    """Makes up a value for a field, within its limits.
+def _made_up(port: Port) -> Any:
+    """Makes up a value for a port, within its limits.
 
     Returns:
-        The value, as the field's type reads it, or ``_CANNOT`` when no value can be made up.
+        The value, as the port's type reads it, or ``_CANNOT`` when no value can be made up.
     """
-    read = field.whole.argument_validator.validate_python
+    read = port.whole.argument_validator.validate_python
     for item in _candidates(
-        field.type.options[0] if len(field.type.options) == 1 else None, field.param
+        port.type.options[0] if len(port.type.options) == 1 else None, port.param
     ):
         try:
-            return read([item, item] if field.is_series else item)
+            return read([item, item] if port.is_series else item)
         # the value is outside a limit, or doesn't match a pattern, so try the next one
         except ValidationError:
             continue
@@ -414,9 +412,9 @@ def _made_up(field: Field) -> Any:
 
 
 def _candidates(hint: Any, param: Param) -> list[Any]:
-    """Returns values a field of type ``hint`` might take, to be tried in order.
+    """Returns values a port of type ``hint`` might take, to be tried in order.
 
-    The field's own type checks each one, and the first it accepts is used.
+    The port's own type checks each one, and the first it accepts is used.
     """
     if typing.get_origin(hint) is Literal:
         return [typing.get_args(hint)[0]]

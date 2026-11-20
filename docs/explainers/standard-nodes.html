@@ -518,7 +518,7 @@ NodeDeclarationError ['duplicate_node_id']</pre>
   <div class="section-head prose">
     <p class="eyebrow">The palette</p>
     <h2 id="pal-h">Every node with a real run of each <span class="lvl pub">Public</span></h2>
-    <p class="muted">Each node is shown as <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> shows it to an editor. Tap one to see its fields and one run. For each run, the node was put in a graph alone and given its first example from <code class="int" title="Internal">tests/test_nodes/test_catalog.py</code> as constants. For <code>control-switch</code> it was given the second. Every run completed.</p>
+    <p class="muted">Each node is shown as <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> shows it to an editor. Tap one to see its ports and one run. For each run, the node was put in a graph alone and given its first example from <code class="int" title="Internal">tests/test_nodes/test_catalog.py</code> as constants. For <code>control-switch</code> it was given the second. Every run completed.</p>
   </div>
   <div class="pal-tools">
     <span id="cats" class="seg" role="group" aria-label="Category"></span>
@@ -546,7 +546,7 @@ NodeDeclarationError ['duplicate_node_id']</pre>
 from conductor.widgets import Textarea</pre>
       <p class="small">Besides those, the package uses <code>pydantic</code> (for <code>JsonValue</code>), <code>polars</code>, the <code>regex</code> package and <code>typing-extensions</code>, which its <code>pyproject.toml</code> lists beside <code>syv-conductor</code>.</p>
     </div>
-    <p class="muted">Each node is a typed function under <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>, with <a href="nodes-and-types.html#hint"><code>Param</code></a> where a field needs more than its type. The two pages on <a href="nodes-and-types.html">a node and its types</a> and on <a href="series-and-tables.html">Series and tables</a> explain these names.</p>
+    <p class="muted">Each node is a typed function under <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>, with <a href="nodes-and-types.html#hint"><code>Param</code></a> where a port needs more than its type. The two pages on <a href="nodes-and-types.html">a node and its types</a> and on <a href="series-and-tables.html">Series and tables</a> explain these names.</p>
   </div>
   <div class="uses">
     <div class="use"><h3>NodeRegistry<span>one per module</span></h3><p>A host makes one and adds the package's nodes to it with <a href="nodes-and-types.html#registry"><code>add_subregistry</code></a>. Each node keeps the category of the module it comes from.</p></div>
@@ -809,7 +809,7 @@ contacts = Graph.compile(make_graph(
 
 d = contacts.describe()
 print({n: d.nodes[n].per_item_of for n in ("series-split", "greet", "table-collect")})
-print([(i.field.name, i.field.type) for i in d.nodes["table-collect"].inputs])
+print([(i.port.name, i.port.type) for i in d.nodes["table-collect"].inputs])
 print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())</pre>
       <pre class="out">{'series-split': None, 'greet': 'series-split.result', 'table-collect': None}
 [('rows', 'Table'), ('columns', 'list[str]'), ('constant_columns', 'list[str]'), ('greeting', 'Any')]
@@ -914,7 +914,7 @@ print(json_ops.get_path(value, "user.name"), json_ops.get_path(value, "user. nam
       <p class="cost"><b>Cost:</b> with no edge into the value, such as a constant, the type stays <code>Any</code>.</p>
     </article>
     <article class="choice">
-      <h3>A hook is used only where a constant names the fields.</h3>
+      <h3>A hook is used only where a constant names the ports.</h3>
       <p>The branches of <code>control-switch</code> and the new columns of <code>table-collect</code> are named in the graph, so a hook works them out when it's compiled. Each input whose value a hook reads <a href="nodes-and-types.html#hooks">takes only a constant</a>. An input whose type it reads, such as <code>value: type</code>, is wired as usual.</p>
       <p class="cost"><b>Cost:</b> <code>cases</code> and <code>columns</code> can't come from an edge. They're written when the graph is drawn.</p>
     </article>
@@ -1154,9 +1154,9 @@ const EMPTY = "The palette is written into this page when the docs are built. Op
     renderDetail();
   }
   function typeOf(f) { return (f.series ? "Series[" + f.type + "]" : f.type); }
-  function fieldRows(fields, isInput) {
-    if (!fields.length) return "";
-    return '<table class="ftab"><tbody>' + fields.map((f) => {
+  function portRows(ports, isInput) {
+    if (!ports.length) return "";
+    return '<table class="ftab"><tbody>' + ports.map((f) => {
       const notes = [];
       if (f.title) notes.push("title " + f.title);
       if (isInput && !f.required && "default" in f) notes.push("default " + py(f.default));
@@ -1172,7 +1172,7 @@ const EMPTY = "The palette is written into this page when the docs are built. Op
     const declared = new Set(n.inputs.map((i) => i.name));
     const added = n.compiled_inputs.filter((i) => !declared.has(i.name));
     const outTypes = Object.fromEntries(n.compiled_outputs.map((o) => [o.name, o.type]));
-    let outs = n.outputs.length ? fieldRows(n.outputs, false) : "";
+    let outs = n.outputs.length ? portRows(n.outputs, false) : "";
     let hookNote = "";
     if (n.computes_outputs) hookNote += "<p class=\"note\">Its outputs are worked out by <a href=\"nodes-and-types.html#hooks\"><code>compute_outputs</code></a> when a graph is compiled, so <code>registry.describe()</code> lists none. With the example below they are " +
       n.compiled_outputs.map((o) => "<code>" + esc(o.name) + "</code> (" + esc(typeOf(o)) + ")").join(", ") + ".</p>";
@@ -1187,7 +1187,7 @@ const EMPTY = "The palette is written into this page when the docs are built. Op
       "<div><p class=\"nid\">" + esc(n.id) + "</p><p class=\"ttl\">" + esc(n.title) + " · category " + esc(n.category) + "</p></div>" +
       '<p class="desc">' + esc(n.description) + "</p>" +
       '<pre data-lang="py">from conductor_nodes.' + esc(n.module) + " import " + esc(n.function) + "</pre>" +
-      "<div><h4>Inputs</h4>" + fieldRows(n.inputs, true) + "</div>" +
+      "<div><h4>Inputs</h4>" + portRows(n.inputs, true) + "</div>" +
       (outs ? "<div><h4>Outputs</h4>" + outs + "</div>" : "") + hookNote +
       "<div><h4>One run with the test's example</h4><div class=\"runbox\">" + ex + '<div class="k">run.results:</div>' + res + "</div></div>" +
       (n.id === "table-collect" ? '<p class="small">The example gives the rows as a list of dicts. As a constant it is read into a table.</p>' : "") +

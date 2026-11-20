@@ -59,7 +59,7 @@ repos:
 
       - id: touch/shown-to-people
         name: Text a person sees
-        files: '^packages/conductor/src/conductor/_internal/(types|node|registry|field)/'
+        files: '^packages/conductor/src/conductor/_internal/(types|node|registry|port)/'
         stages: [touch]
         context:
           - "@conventions/types-and-models.md#what-a-person-sees-is-declared"
@@ -418,7 +418,7 @@ repos:
               code: |
                 record = GraphRecord.model_validate(data)
               expect: { lines: [1] }
-            - path: packages/conductor/src/conductor/_internal/field/type.py
+            - path: packages/conductor/src/conductor/_internal/port/type.py
               code: |
                 _NOT_A_BOOL = TypeAdapter(int)
               expect: { lines: [1] }
@@ -593,7 +593,7 @@ repos:
               expect: { lines: [2] }
             - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
-                value = default if entry is None else constants.get(name, field.default if entry.empty else REQUIRED)
+                value = default if entry is None else constants.get(name, port.default if entry.empty else REQUIRED)
               expect: { lines: [1] }
           good:
             - path: packages/conductor/src/conductor/_internal/table/read.py

@@ -194,7 +194,7 @@ class Type:
 
     ``Type(hint)`` returns the same object for the same hint (``_made_key``), so the work of reading a hint is done
     once. Nothing is worked out until it is asked for. The object lives as long as something uses it, such as a
-    field or a loaded graph. A hint made while a graph loads goes away with the graph.
+    port or a loaded graph. A hint made while a graph loads goes away with the graph.
 
     ``Series`` and ``Table`` each have a subclass, registered with the class it is for::
 
@@ -330,7 +330,7 @@ class Type:
     def check_declared(self) -> None:
         """Refuses the type if a node may not declare it on an input or an output.
 
-        It is asked of each input and output a node declares, so ``@node`` and a hook's fields are held to one set
+        It is asked of each input and output a node declares, so ``@node`` and a hook's ports are held to one set
         of rules. A ``Type`` conductor makes for itself, like ``Type(Any)``, a saved run's, or one whose type variable
         a graph filled in, is never asked.
 
@@ -341,7 +341,7 @@ class Type:
         host's model too. The rules a type's own schema holds, its ``Param`` among them, reach as far as conductor
         builds that schema: a list's item is built as a ``Type`` of its own, but a ``TypedDict``'s field is read by
         pydantic itself. So
-        ``Annotated[Series[int], Param(ge=0)]`` limits each item on a field and in a list, and is refused as a
+        ``Annotated[Series[int], Param(ge=0)]`` limits each item on a port and in a list, and is refused as a
         ``TypedDict``'s field (``param_limit_not_supported``).
 
         Raises:
@@ -376,7 +376,7 @@ class Type:
     def _check_own_arguments(self) -> None:
         """Refuses the arguments of a ``Series`` or ``Table`` hint that a node may not declare.
 
-        ``check_declared`` calls it for each such hint inside a field's hint, the field's own included. ``Type``'s own
+        ``check_declared`` calls it for each such hint inside a port's hint, the port's own included. ``Type``'s own
         takes every argument. A subclass with a rule overrides it: ``TableType`` refuses a row that names no columns,
         and ``SeriesType`` items whose choices can't be read.
         """
@@ -931,7 +931,7 @@ def json_by_its_class(value: Any) -> JsonValue:
 
 
 def _check_written(part: Any) -> None:
-    """Refuses one hint inside a field's hint, as its author wrote it, if a node may not declare it.
+    """Refuses one hint inside a port's hint, as its author wrote it, if a node may not declare it.
 
     ``check_declared`` calls it for every hint ``hint_parts`` finds, and an ``Annotated``'s metadata is found as a
     part of its own. Pydantic would build ``Timezone`` and ``Unit``, and a named predicate such as ``LowerCase``
@@ -1012,7 +1012,7 @@ def _check_built(schema: CoreSchema) -> None:
       config, and the field named is that class's.
     - A ``Param``'s choices that another check on the same hint moves off them, like an ``AfterValidator`` that adds
       ``"!"`` before the choices are compared. Every value would fail at run time. ``Param`` reads its choices by
-      the type it is on; this reads them again by the part of the schema it built, on the field, a list's item, a
+      the type it is on; this reads them again by the part of the schema it built, on the port, a list's item, a
       dict's value or a model's field.
 
     Say ``class Tags(BaseModel)`` has the field ``tags: set[str]``. Then the schema of ``list[Tags]`` is refused,

@@ -145,7 +145,7 @@ def cut(text: str, keep: Annotated[int, Param(title="Letters kept", constant_onl
     return text[:keep]
 
 
-print([field.constant_only for field in cut.describe().inputs])  # [False, True]
+print([port.constant_only for port in cut.describe().inputs])  # [False, True]
 ```
 
 An editor then offers no edge for `keep`. A graph that wires an edge to it, or makes it a graph input, gets the problem `input_takes_only_a_constant` when it is compiled.
@@ -173,7 +173,7 @@ def translate(
     return f"[{language}] {text}"
 
 
-print([field.widget for field in translate.describe().inputs])  # [{'type': 'textarea', 'rows': 4}, {'type': 'dropdown'}]
+print([port.widget for port in translate.describe().inputs])  # [{'type': 'textarea', 'rows': 4}, {'type': 'dropdown'}]
 print(translate.describe().inputs[1].choices)  # (Choice(id='da', title='Danish'), Choice(id='en', title='English'))
 ```
 
@@ -555,7 +555,7 @@ The hook is called when the graph is compiled, with the constant given to `names
 
 The outputs are known only once the graph is compiled, so `make_graph` can't find them by itself. You name the ones the graph returns with `outputs=`, and without it `make_graph` raises `hook_outputs_not_named`. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook parameter annotated `type` gets the type arriving on that input instead of its value, and `type_fields(arriving)` gives that type's fields by name. A hook that raises doesn't stop compiling: the node gets the problem `compute_hook_failed` with your message if you raised a `NodeError`, or `compute_hook_raised` for any other exception.
 
-Whether a field needs a hook or a type variable is in `python -m conductor.about a-node-for-any-type`, and how a hook works is in `python -m conductor.about field-hooks`.
+Whether a port needs a hook or a type variable is in `python -m conductor.about a-node-for-any-type`, and how a hook works is in `python -m conductor.about hooks`.
 
 ## Asking a person
 
@@ -589,7 +589,7 @@ run = Graph.compile(make_graph(pick), registry).run({"ticket": "T-1", "team": ["
 print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='al', title='al'))
 ```
 
-A form works the same way, with `Param(choices=)` on a field. Since a form has several questions, an `Ask`'s `choices` and `default` are given by field name, for only the fields they are for. A waiting run can be saved as JSON and answered much later, in another process:
+A form works the same way, with `Param(choices=)` on a field. Since a form has several questions, an `Ask`'s `choices` and `default` are given by output name, for only the outputs they are for. A waiting run can be saved as JSON and answered much later, in another process:
 
 ```python
 from conductor import Choice, Run

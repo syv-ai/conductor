@@ -29,14 +29,14 @@ from conductor._internal.base import (
     under_definitions,
     with_definitions,
 )
-from conductor._internal.field import Field
 from conductor._internal.graph import Graph
+from conductor._internal.port import Port
 from conductor._internal.types import Type, union_of
 
 from .type import SavedOutcomes, SavedReusable, SavedRun
 
 
-def saved_type(output: Field) -> Type:
+def saved_type(output: Port) -> Type:
     """Returns the type ``output``'s value on one call is saved as, in a saved run and by ``run.outputs_to_json()``.
 
     For ``shout.result``, a ``str``, it is ``Type(str | None)``, with ``None`` for a call that has no outputs. For a
@@ -143,7 +143,7 @@ class _ExactKeys:
 def run_codec(
     fingerprint: str,
     inputs: Mapping[str, Type],
-    outputs: Mapping[str, Mapping[str, Field]],
+    outputs: Mapping[str, Mapping[str, Port]],
     nodes: Iterable[str],
 ) -> type[SavedRun]:
     """Builds the codec of one graph: a subclass of ``SavedRun`` whose fields have the graph's own keys and types.
@@ -291,7 +291,7 @@ def codec_of(graph: Graph[Any]) -> type[SavedRun]:
     blueprint = graph._blueprint
     return run_codec(
         graph.fingerprint,
-        inputs={name: field.whole for name, field in graph._inputs.items()},
+        inputs={name: port.whole for name, port in graph._inputs.items()},
         outputs={
             place_text(path): node.compiled_node.outputs
             for path, node in blueprint.function_nodes.items()

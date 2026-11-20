@@ -36,7 +36,7 @@ from pydantic_core import (
 from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, Validator, validate_as_json
-from conductor._internal.field import Field, answer_by_output, outputs_schema, without_skipped
+from conductor._internal.port import Port, answer_by_output, outputs_schema, without_skipped
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
@@ -80,7 +80,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
             quoting the value.
     """
 
-    def __init__(self, outputs: Mapping[str, Field], *, asks: bool) -> None:
+    def __init__(self, outputs: Mapping[str, Port], *, asks: bool) -> None:
         """Builds the validator for one node.
 
         Args:
@@ -105,13 +105,13 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     {
                         name: core_schema.typed_dict_field(
                             choices_schema(
-                                functools.partial(read_as_output, field.type),
-                                field.type.to_json,
-                                known=field.type.choices or (),
+                                functools.partial(read_as_output, port.type),
+                                port.type.to_json,
+                                known=port.type.choices or (),
                             ),
                             required=False,
                         )
-                        for name, field in self._outputs.items()
+                        for name, port in self._outputs.items()
                     },
                     extra_behavior="forbid",
                 ),
@@ -146,13 +146,13 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
         if ask.default is not REQUIRED:
             # A default is a ready-made answer, so it is read as an answer, against this Ask's own choices. It
             # proposes answers to some questions, so every question may be left out, and none has a default.
-            fields = {
+            schemas = {
                 name: core_schema.typed_dict_field(
-                    _question(field, choices.get(name)), required=False
+                    _question(port, choices.get(name)), required=False
                 )
-                for name, field in outputs.items()
+                for name, port in outputs.items()
             }
-            proposed = SchemaValidator(outputs_schema(outputs, fields, "answer"))
+            proposed = SchemaValidator(outputs_schema(outputs, schemas, "answer"))
             try:
                 read: dict[str, Any] = proposed.validate_python(ask.default)
             except ValidationError as error:
@@ -180,7 +180,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
 
 
 def _ask_faults(
-    argument: str, error: ValidationError, outputs: Mapping[str, Field], *, items: bool = False
+    argument: str, error: ValidationError, outputs: Mapping[str, Port], *, items: bool = False
 ) -> list[dict[str, Any]]:
     """Returns the faults in one argument of an ``Ask``, as ``ctx.errors`` holds them, each ``loc`` written from the
     argument down: ``["choices", "result", 1]``.
@@ -223,7 +223,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
 
     def __init__(
         self,
-        outputs: Mapping[str, Field],
+        outputs: Mapping[str, Port],
         choices: Mapping[str, tuple[Choice, ...]],
         defaults: Mapping[str, JsonValue],
         *,
@@ -241,7 +241,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         """
         self._outputs = outputs
         self._schema = SchemaValidator(
-            outputs_schema(outputs, _answer_fields(outputs, choices, defaults), "answer")
+            outputs_schema(outputs, _answer_schemas(outputs, choices, defaults), "answer")
         )
         self._loc = loc
         self._waiting_id = waiting_id
@@ -266,7 +266,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
 
 
 def _refused_answer(
-    error: ValidationError, outputs: Mapping[str, Field], loc: Loc, waiting_id: str
+    error: ValidationError, outputs: Mapping[str, Port], loc: Loc, waiting_id: str
 ) -> InvalidCallError:
     """Turns what an answer's schema refused into one ``invalid_answer`` per place, as ``AnswerValidator`` raises it.
 
@@ -288,8 +288,8 @@ def _refused_answer(
     )
 
 
-def _answer_fields(
-    outputs: Mapping[str, Field],
+def _answer_schemas(
+    outputs: Mapping[str, Port],
     choices: Mapping[str, tuple[Choice, ...]],
     defaults: Mapping[str, JsonValue],
 ) -> dict[str, TypedDictField]:
@@ -304,22 +304,22 @@ def _answer_fields(
         defaults: The defaults the ``Ask`` proposed, by output name.
     """
     questions = as_asked(outputs, choices, defaults)
-    fields: dict[str, TypedDictField] = {}
-    for name, field in outputs.items():
+    schemas: dict[str, TypedDictField] = {}
+    for name, port in outputs.items():
         # a question saved before a deploy is answered only with the choices the output's type takes now
-        schema = _question(field, field.taken(choices.get(name)))
+        schema = _question(port, port.taken(choices.get(name)))
         default, required = questions[name].default, questions[name].required
         # a required question's default is only what a host starts the answer with, as on a node of one output
         if not required and default is not MISSING:
             schema = core_schema.with_default_schema(
                 schema,
-                default_factory=functools.partial(read_as_output, field.whole, default),
+                default_factory=functools.partial(read_as_output, port.whole, default),
             )
-        fields[name] = core_schema.typed_dict_field(schema, required=required)
-    return fields
+        schemas[name] = core_schema.typed_dict_field(schema, required=required)
+    return schemas
 
 
-def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
+def _question(port: Port, choices: tuple[Choice, ...] | None) -> CoreSchema:
     """Builds the schema of one question: a person's answer read as the value of its output.
 
     The answer is read strictly, the way its JSON text would be (``read_as_output``). So ``True`` is a ``bool``, but
@@ -331,24 +331,24 @@ def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
     isn't one of the choices.
 
     Args:
-        field: The output the question is about.
+        port: The output the question is about.
         choices: The choices the ``Ask`` offered, each id in its JSON form, or ``None`` if it offered none.
 
     Returns:
         A schema whose value is the answer in the form the run keeps. A ``Series`` answer is kept the way the run
         keeps a ``Series`` that a node returned.
     """
-    whole = field.whole
+    whole = port.whole
 
     def read(value: Any) -> Any:
         answer = read_as_output(whole, value)
-        _check_picks(field, answer, choices)
+        _check_picks(port, answer, choices)
         return answer
 
     return core_schema.no_info_plain_validator_function(read)
 
 
-def _check_picks(field: Field, answer: Any, choices: tuple[Choice, ...] | None) -> None:
+def _check_picks(port: Port, answer: Any, choices: tuple[Choice, ...] | None) -> None:
     """Checks the picks in an answer that the output's type can't check by itself.
 
     There are two such checks. If the ``Ask`` offered choices, each pick must be one of them. And an answer to a
@@ -359,7 +359,7 @@ def _check_picks(field: Field, answer: Any, choices: tuple[Choice, ...] | None) 
     ``1`` picks a ``float`` choice ``1.0``. ``None`` counts as no pick.
 
     Args:
-        field: The output the answer is for.
+        port: The output the answer is for.
         answer: The answer after the output's type has read it.
         choices: The choices the ``Ask`` offered, or ``None``.
 
@@ -367,11 +367,9 @@ def _check_picks(field: Field, answer: Any, choices: tuple[Choice, ...] | None) 
         PydanticCustomError: ``not_a_choice`` if a pick isn't one of the ``Ask``'s choices, else ``picked_twice``
             if a choice is picked twice. The message doesn't quote the answer.
     """
-    if choices is None and not (field.is_series and field.type.choices is not None):
+    if choices is None and not (port.is_series and port.type.choices is not None):
         return
-    picks = pick_texts(
-        field.whole.serializer.to_python(answer, mode="json"), several=field.is_series
-    )
+    picks = pick_texts(port.whole.serializer.to_python(answer, mode="json"), several=port.is_series)
     if choices is not None:
         check_one_of(choices, picks)
     if len(set(picks)) != len(picks):
@@ -379,7 +377,7 @@ def _check_picks(field: Field, answer: Any, choices: tuple[Choice, ...] | None) 
 
 
 def _refusals(
-    error: ValidationError, outputs: Mapping[str, Field], *, items: bool = False
+    error: ValidationError, outputs: Mapping[str, Port], *, items: bool = False
 ) -> list[tuple[tuple[str | int, ...], TypeRefusal]]:
     """Splits what a schema of this module refused by the place each fault is at, and says why without the value.
 
@@ -399,13 +397,13 @@ def _refusals(
     by_place: dict[tuple[str | int, ...], Type | None] = {}
     for raw in error.errors():
         loc = raw["loc"]
-        field = outputs.get(str(loc[0])) if loc else None
-        if field is None:
+        port = outputs.get(str(loc[0])) if loc else None
+        if port is None:
             by_place.setdefault(loc, None)
         elif not items:
-            by_place.setdefault(loc[:1], field.whole)
+            by_place.setdefault(loc[:1], port.whole)
         elif len(loc) > 1 and isinstance(loc[1], int):
-            by_place.setdefault(loc[:2], field.type)
+            by_place.setdefault(loc[:2], port.type)
         else:
             by_place.setdefault(loc, None)
     return [
@@ -438,7 +436,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
             isn't read here, so it names none.
     """
 
-    def __init__(self, outputs: Mapping[str, Field] | None, *, loc: Loc, waiting_id: str) -> None:
+    def __init__(self, outputs: Mapping[str, Port] | None, *, loc: Loc, waiting_id: str) -> None:
         """Builds the validator for an answer to one waiting call.
 
         Args:
@@ -474,7 +472,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
                 ]
             ) from None
 
-    def _without_skipped(self, outputs: Mapping[str, Field], answer: Any) -> Any:
+    def _without_skipped(self, outputs: Mapping[str, Port], answer: Any) -> Any:
         """Returns the answer with each branch that is ``SKIPPED`` left out, by the rule the run reads it by.
 
         Raises:

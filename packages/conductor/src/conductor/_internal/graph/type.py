@@ -36,8 +36,8 @@ from pydantic import MISSING
 from conductor._internal.ask import AnswerAsJsonValidator
 from conductor._internal.base import Loc, json_hash, parse_waiting_id, place_text
 from conductor._internal.context import ContextValidator
-from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
+from conductor._internal.port import Port, PortDescription
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord, RecordValidator
 from conductor._internal.utils import plural
@@ -105,12 +105,12 @@ class Graph[C]:
     #: Every node that compiled, by id. Each comes after the nodes it reads from. A node with a problem on one of
     #: its inputs is here too, with a ``MissingInput`` for that input. A graph with problems never runs anyway.
     _nodes: dict[str, CompiledNode]
-    #: Each graph input, by name, as a field: its type, and the value used when the caller gives none
+    #: Each graph input, by name, as a port: its type, and the value used when the caller gives none
     #: (``REQUIRED`` when the caller must give one).
-    _inputs: dict[str, Field]
-    #: Each graph output whose node compiled, by name, sorted: the field of the node output behind it, under the
+    _inputs: dict[str, Port]
+    #: Each graph output whose node compiled, by name, sorted: the port of the node output behind it, under the
     #: graph output's name, with no default.
-    _outputs: dict[str, Field]
+    _outputs: dict[str, Port]
     #: The ``context_type`` the registry names, or ``None``. Every node's ``Context[X]`` was checked against it,
     #: and a run's ``context=`` is an instance of it.
     _context_type: type[C] | None
@@ -149,7 +149,7 @@ class Graph[C]:
         return not self.problems
 
     @functools.cached_property
-    def inputs(self) -> Mapping[str, FieldDescription]:
+    def inputs(self) -> Mapping[str, PortDescription]:
         """The graph inputs, by name: what a caller gives values for. In the example, that's ``text``.
 
         They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where
@@ -160,10 +160,10 @@ class Graph[C]:
 
         The mapping is read-only, since every caller shares it: copy it with ``dict(graph.inputs)`` to change it.
         """
-        return MappingProxyType({name: field.description for name, field in self._inputs.items()})
+        return MappingProxyType({name: port.description for name, port in self._inputs.items()})
 
     @functools.cached_property
-    def outputs(self) -> Mapping[str, FieldDescription]:
+    def outputs(self) -> Mapping[str, PortDescription]:
         """The graph outputs, by name, sorted: what a complete run gives (``run.outputs``).
 
         Each is described as the output of the node behind it, under the graph output's name. In the example,
@@ -183,15 +183,15 @@ class Graph[C]:
         The mapping is read-only, since every caller shares it, ``describe()`` and a subgraph node that uses this
         graph included: copy it with ``dict(graph.outputs)`` to change it.
         """
-        described: dict[str, FieldDescription] = {}
-        for name, field in self._outputs.items():
+        described: dict[str, PortDescription] = {}
+        for name, port in self._outputs.items():
             node, output = self._node_returning(name)
-            description = field.description
+            description = port.description
             if node.branches_required_for(output):
                 description = description.model_copy(update={"required": False, "default": MISSING})
             edge = node.edge_reading(output)
             loops = [place_text(*loop) for loop in edge.loops]
-            if loops and field.is_series:
+            if loops and port.is_series:
                 loops.append(place_text(edge.node, edge.output))
             if loops:
                 description = description.model_copy(update={"is_series": True, "loops": loops})
@@ -244,7 +244,7 @@ class Graph[C]:
                 per_item_of=innermost_series(compiled_node.loops),
                 inputs=[
                     NodeInputDescription(
-                        field=node_input.field.description,
+                        port=node_input.port.description,
                         source=input_source_of(compiled_node.loops, node_input),
                     )
                     for node_input in compiled_node.inputs.values()
@@ -407,7 +407,7 @@ class Graph[C]:
             max_items: The most items any one ``Series`` that a node loops over may have. Past that, the run stops.
             previous: An earlier run of this graph, or of an older version of it, to reuse work from, as
                 ``run.again`` does. A node isn't called again where it gets the same arguments it got there, as
-                long as its id, version, code, fields and loops are the same. So after an edit, only the nodes the
+                long as its id, version, code, ports and loops are the same. So after an edit, only the nodes the
                 edit changed, and what they feed, run again.
 
         Returns:

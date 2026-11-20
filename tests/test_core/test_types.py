@@ -441,7 +441,7 @@ def test_choices_a_converting_check_moves_off_are_refused_when_the_node_is_decla
 
 def test_choices_a_converting_check_moves_off_are_refused_on_a_series_inside_a_list() -> None:
     """A Series' items are read as one type wherever the Series is, so a converting check's choices are refused in a
-    list of Series as on a Series field."""
+    list of Series as on a Series port."""
 
     def shouted(value: str) -> str:
         return value + "!"
@@ -924,7 +924,7 @@ def test_a_row_is_named_by_its_fields_and_a_row_inside_itself_is_marked_there(
 def test_a_generic_typed_dict_is_a_row_on_an_input_an_output_a_series_and_a_table() -> None:
     """``Row[int]`` is taken wherever a ``TypedDict`` is, with ``value: T`` read as ``int``.
 
-    It was taken in a ``Table`` but refused on a field with ``type_not_named``, whose fix a ``TypedDict`` can't take.
+    It was taken in a ``Table`` but refused on a port with ``type_not_named``, whose fix a ``TypedDict`` can't take.
     """
 
     def on_input(pair: _Pair[int]) -> int:

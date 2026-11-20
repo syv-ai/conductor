@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Literal, assert_never
 
 from conductor._internal.base import ConductorModel, NodePath, place_text
-from conductor._internal.field import FieldDescription
+from conductor._internal.port import PortDescription
 from conductor._internal.problem import Problem
 
 from .input import (
@@ -62,12 +62,12 @@ class NodeInputDescription(ConductorModel):
     """One input of a node in a compiled graph, and where it gets its value.
 
     Attributes:
-        field: The input as compiled. Inputs a hook added are included, and a type variable is replaced by the
+        port: The input as compiled. Inputs a hook added are included, and a type variable is replaced by the
             type the input's edges carry.
         source: Where the input gets its value on each call of its node.
     """
 
-    field: FieldDescription
+    port: PortDescription
     source: InputSource
 
 
@@ -98,7 +98,7 @@ class GraphNodeDescription(ConductorModel):
     problems: list[Problem]
     per_item_of: str | None = None
     inputs: list[NodeInputDescription] = []
-    outputs: list[FieldDescription] = []
+    outputs: list[PortDescription] = []
 
 
 class GraphDescription(ConductorModel):
@@ -106,15 +106,15 @@ class GraphDescription(ConductorModel):
 
     Attributes:
         nodes: Every node of the graph record, by id.
-        inputs: The graph inputs, by name. Each is the field a caller gives a value for. Its ``default`` is the
+        inputs: The graph inputs, by name. Each is the port a caller gives a value for. Its ``default`` is the
             record's default, as JSON, and it's ``required`` when the record gives none.
-        outputs: The graph outputs, by name, sorted. Each is the field a complete run gives (see ``graph.outputs``).
+        outputs: The graph outputs, by name, sorted. Each is the port a complete run gives (see ``graph.outputs``).
         problems: Every problem of the graph, including those on nodes.
     """
 
     nodes: dict[str, GraphNodeDescription]
-    inputs: dict[str, FieldDescription]
-    outputs: dict[str, FieldDescription]
+    inputs: dict[str, PortDescription]
+    outputs: dict[str, PortDescription]
     problems: list[Problem]
 
 

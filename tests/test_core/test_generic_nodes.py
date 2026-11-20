@@ -139,8 +139,8 @@ def _compiled(
 
 def _types(graph: Any, node_id: str) -> dict[str, tuple[bool, str]]:
     described = graph.describe().nodes[node_id]
-    fields = [*(node_input.field for node_input in described.inputs), *described.outputs]
-    return {field.name: (field.is_series, field.type) for field in fields}
+    ports = [*(node_input.port for node_input in described.inputs), *described.outputs]
+    return {port.name: (port.is_series, port.type) for port in ports}
 
 
 def test_a_type_variable_is_what_arrives_on_the_edge_in_every_input_and_in_the_return() -> None:
@@ -329,10 +329,10 @@ def just_b() -> Literal["b"]:
 def test_choices_on_a_member_of_a_union_are_the_fields_so_text_goes_to_that_member(
     given: Any, problems: list[str], bound: str | None
 ) -> None:
-    """Unlike a limit, ``Param(choices=)`` on a member limits the whole field, so its ``str`` holds any text.
+    """Unlike a limit, ``Param(choices=)`` on a member limits the whole port, so its ``str`` holds any text.
 
     Binding ``T`` to ``Literal["b"]`` would give ``Literal["b"] | Annotated[str, Param(choices=["a"])]``, a type
-    ``@node`` refuses (``choices_on_a_literal_beside_another_type``), and the field would still take only ``"a"``.
+    ``@node`` refuses (``choices_on_a_literal_beside_another_type``), and the port would still take only ``"a"``.
     """
     graph = _compiled(given, text_or_pick, edges=[[f"{given.id}.result", "text_or_pick.value"]])
     assert [problem.type for problem in graph.problems] == problems
@@ -381,7 +381,7 @@ def test_a_bare_variable_binds_without_none_so_a_none_is_a_none_input() -> None:
         "value": (False, "str"),
         "result": (False, "str"),
     }
-    assert not graph.describe().nodes["seen"].inputs[0].field.json_schema.get("anyOf")
+    assert not graph.describe().nodes["seen"].inputs[0].port.json_schema.get("anyOf")
     run = graph.run()
     assert calls == [] and [(n.loc, n.input) for n in run.none_input_calls] == [
         (("seen",), "value")
@@ -491,11 +491,11 @@ def test_a_generic_dataclass_of_outputs_fills_in_its_arguments_and_reads_an_open
     def bare() -> Decided:  # type: ignore[type-arg]
         return Decided(if_true=1)
 
-    assert [(field.name, field.type) for field in filled.describe().outputs] == [
+    assert [(port.name, port.type) for port in filled.describe().outputs] == [
         ("if_true", "int"),
         ("if_false", "int"),
     ]
-    assert [(field.name, field.type) for field in bare.describe().outputs] == [
+    assert [(port.name, port.type) for port in bare.describe().outputs] == [
         ("if_true", "Any"),
         ("if_false", "Any"),
     ]
@@ -503,11 +503,11 @@ def test_a_generic_dataclass_of_outputs_fills_in_its_arguments_and_reads_an_open
 
 
 def test_a_generic_definition_describes_any_and_its_compiled_node_the_bound_types() -> None:
-    assert [(field.name, field.type) for field in decision.describe().inputs] == [
+    assert [(port.name, port.type) for port in decision.describe().inputs] == [
         ("value", "Any"),
         ("when", "bool"),
     ]
-    assert [(field.name, field.type) for field in decision.describe().outputs] == [
+    assert [(port.name, port.type) for port in decision.describe().outputs] == [
         ("if_true", "Any"),
         ("if_false", "Any"),
     ]
@@ -517,7 +517,7 @@ def test_a_generic_definition_describes_any_and_its_compiled_node_the_bound_type
         .describe()
         .nodes["decision"]
     )
-    assert [node_input.field.type_variables for node_input in compiled_node.inputs] == [
+    assert [node_input.port.type_variables for node_input in compiled_node.inputs] == [
         [],
         [],
     ] and [output.type_variables for output in compiled_node.outputs] == [[], []]
@@ -537,7 +537,7 @@ def test_an_input_a_hook_adds_with_a_type_variable_is_bound_by_its_edge() -> Non
 
     graph = _compiled(text, echo, edges=[["text.result", "echo.value"]])
     assert [
-        (node_input.field.type, node_input.field.type_variables)
+        (node_input.port.type, node_input.port.type_variables)
         for node_input in graph.describe().nodes["echo"].inputs
     ] == [("str", [])]
     assert graph.run().outputs == {"result": "'a'"}

@@ -16,8 +16,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED, NodePath, parse_node_path, place_text
-from conductor._internal.field import Field
 from conductor._internal.graph import CompiledFunctionNode, Graph
+from conductor._internal.port import Port
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
@@ -174,7 +174,7 @@ def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarl
     return ended_early
 
 
-def _check_question(outputs: Mapping[str, Field], question: Unanswered) -> None:
+def _check_question(outputs: Mapping[str, Port], question: Unanswered) -> None:
     """Checks that a saved question has the shape an ``Ask`` gives: choices and defaults only for outputs the node
     has, and for each output at least one choice, none given twice.
 
@@ -303,8 +303,8 @@ def _refuse_null_where_none_is_refused(
             no ``None``.
     """
     for name, values in values_by_output.items():
-        field = node.outputs[name]
-        takes_none, items_take_none = field.whole.optional, field.type.optional
+        port = node.outputs[name]
+        takes_none, items_take_none = port.whole.optional, port.type.optional
         # an output whose value and items may be None has nothing to refuse
         if takes_none and items_take_none:
             continue

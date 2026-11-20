@@ -9,7 +9,7 @@ from __future__ import annotations
 from pydantic import JsonValue
 
 from conductor._internal.base import ConductorModel
-from conductor._internal.field import FieldDescription
+from conductor._internal.port import PortDescription
 
 from .policy import Deprecation
 
@@ -51,8 +51,8 @@ class NodeDescription(ConductorModel):
     extra: dict[str, JsonValue]
     docs: str | None
     deprecation: Deprecation | None
-    inputs: list[FieldDescription]
-    outputs: list[FieldDescription]
+    inputs: list[PortDescription]
+    outputs: list[PortDescription]
     asks: bool
     takes_added_inputs: bool
     computes_outputs: bool

@@ -28,7 +28,6 @@ from conductor import (
     Ask,
     Choice,
     ExternalError,
-    FieldDescription,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -37,6 +36,7 @@ from conductor import (
     NodeRegistry,
     Param,
     Policy,
+    PortDescription,
     Run,
     Series,
     Table,
@@ -430,7 +430,7 @@ class Person(Choice):
     team: str = ""
 
 
-def test_a_field_whose_choices_are_a_hosts_own_keeps_their_class_beside_one_with_the_same_json():
+def test_a_port_whose_choices_are_a_hosts_own_keeps_their_class_beside_one_with_the_same_json():
     @node("plain", title="Plain", description="For a test.")
     def plain(x: Annotated[str, Param(choices=[Choice("ida", "Ida", team="s")])]) -> str:
         return x
@@ -691,7 +691,7 @@ def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
     assert (due.default, due.required) == ("2026-12-01", False)  # Its own default is proposed.
 
 
-def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_and_refuses_one_with_neither():
+def test_a_form_answered_in_part_gives_each_output_left_out_its_default_or_none_and_refuses_one_with_neither():
     graph, run = _waiting_outcomes(review)
     answered = run.with_answers(
         {
@@ -742,7 +742,7 @@ def route(text: str) -> Routed:
     raise Ask(f"Route {text}")
 
 
-def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_a_branch_not_taken():
+def test_a_question_whose_default_is_skipped_proposes_nothing_and_left_out_is_a_branch_not_taken():
     _, run = _waiting_outcomes(route)
     note, escalate = run.waiting[0].questions
     assert (note.required, escalate.required, escalate.default) == (
@@ -953,21 +953,21 @@ def test_an_ask_may_propose_a_default_for_a_lone_branch(returned):
         ({"required": False, "default": None, "loops": ["s.result"]}, "loops_without_series"),
     ],
 )
-def test_a_field_whose_parts_contradict_each_other_is_refused(written, error):
+def test_a_port_whose_parts_contradict_each_other_is_refused(written, error):
     one = {"name": "x", "is_series": False, "type": "str", "json_schema": {"type": "string"}}
     with pytest.raises(ValidationError) as refused:
-        FieldDescription.model_validate({**one, **written})
+        PortDescription.model_validate({**one, **written})
     assert refused.value.errors()[0]["type"] == error
 
 
-def test_a_field_whose_parts_agree_reads_back():
+def test_a_port_whose_parts_agree_reads_back():
     one = {"name": "x", "is_series": False, "type": "str", "json_schema": {"type": "string"}}
     assert (
-        FieldDescription.model_validate({**one, "required": False, "default": None}).default is None
+        PortDescription.model_validate({**one, "required": False, "default": None}).default is None
     )
-    assert FieldDescription.model_validate({**one, "required": True, "default": "a"}).default == "a"
-    assert FieldDescription.model_validate({**one, "required": False}).default is MISSING
-    assert FieldDescription.model_validate(
+    assert PortDescription.model_validate({**one, "required": True, "default": "a"}).default == "a"
+    assert PortDescription.model_validate({**one, "required": False}).default is MISSING
+    assert PortDescription.model_validate(
         {**one, "required": False, "is_series": True, "loops": ["s.result"]}
     ).loops == ["s.result"]
 
@@ -2298,7 +2298,7 @@ def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
     def priority(level: Literal["a", "b"], ticket: str) -> Literal["low", "high"]:
         raise Ask(f"How urgent is {ticket}?")
 
-    assert [field.type for field in priority.describe().inputs] == ["str", "str"]
+    assert [port.type for port in priority.describe().inputs] == ["str", "str"]
     run = Graph.compile(
         make_graph(priority, constants={"priority.level": "a"}), registry_of(priority)
     ).run({"ticket": "T-1"})
@@ -2600,7 +2600,7 @@ def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_cal
     assert done.outputs == {"first": "yes", "second": "yes"}
 
 
-def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_field_names():
+def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_output_names():
     from dataclasses import dataclass
 
     from conductor import GraphRecord, NodeRegistry, node

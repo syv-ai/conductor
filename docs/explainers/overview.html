@@ -884,7 +884,7 @@ print(run.outputs)</pre>
   /* The layers, top first, as the import-linter contract in pyproject.toml declares them; that contract is the
      source, and tests/test_core/test_layers.py checks the code against it. */
   const LAYERS = [
-    ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "field", "context"], ["table"],
+    ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "port", "context"], ["table"],
     ["types"], ["problem"], ["base"], ["utils"],
   ];
   const ENGINE = {
@@ -896,7 +896,7 @@ print(run.outputs)</pre>
     ask: { read: page("Asking a person") + "." },
     record: { read: page("The graph record and compiling") + "." },
     series: { read: page("Series and tables") + "." },
-    field: { read: page("A node and its types") + "." },
+    port: { read: page("A node and its types") + "." },
     context: { read: page("A node and its types") + "." },
     table: { read: page("Series and tables") + "." },
     types: { read: page("A node and its types") + "." },
@@ -996,7 +996,7 @@ print(run.outputs)</pre>
       cap: "read returns a [Series](series-and-tables.html#loop) of two invoices, so approve is called once per item. Bo's 5000 kr. raises [Ask](asking-a-person.html#walk).", more: ["Series and tables", "series-and-tables.html"],
       d: { reg: ["read", "approve", "summary"], graph: "run", doc: ["running: read done, approve@0 done", "approve@1 raised Ask"] } },
     { short: "Ask waits", title: "One call waits for a person",
-      cap: "Bo's call waits, and so does summary, since it [collects every answer](series-and-tables.html#loop). The part after ~ in the [waiting id](asking-a-person.html#ids) is a fingerprint of the call: its inputs, its item and the [node's code](saved-runs-and-reuse.html#matched-by), version, fields, loops and whether it asks. It stays the same on every run of the same graph and code, and changes when any of those change.", more: ["Asking a person", "asking-a-person.html"],
+      cap: "Bo's call waits, and so does summary, since it [collects every answer](series-and-tables.html#loop). The part after ~ in the [waiting id](asking-a-person.html#ids) is a fingerprint of the call: its inputs, its item and the [node's code](saved-runs-and-reuse.html#matched-by), version, ports, loops and whether it asks. It stays the same on every run of the same graph and code, and changes when any of those change.", more: ["Asking a person", "asking-a-person.html"],
       d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["status: waiting", "1 waiting call: approve@1"] } },
     { short: "to_json", title: "Save the run as JSON",
       cap: "Only nodes that were called are in it, so summary isn't. Each call keeps its fingerprint, which a later run [reuses its outcome by](saved-runs-and-reuse.html#matched-by). It's shown reformatted here, and [to_json()](saved-runs-and-reuse.html#saved) writes it on one line.", more: ["Saved runs and reuse", "saved-runs-and-reuse.html"],

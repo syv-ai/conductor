@@ -156,7 +156,7 @@ def test_equals_reads_the_other_value_by_the_type_wired_to_its_value() -> None:
     )
 
     assert [
-        (each.field.name, each.field.type) for each in graph.describe().nodes["logic-equals"].inputs
+        (each.port.name, each.port.type) for each in graph.describe().nodes["logic-equals"].inputs
     ] == [
         ("value", "int"),
         ("other", "int"),
@@ -268,7 +268,7 @@ def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:
     )
 
     outputs = graph.describe().nodes["control-decide"].outputs
-    assert [(field.name, field.type) for field in outputs] == [
+    assert [(port.name, port.type) for port in outputs] == [
         ("if_true", "int"),
         ("if_false", "int"),
     ]
@@ -318,7 +318,7 @@ def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_error_not
     assert cause is not None and cause.type == "invalid_replacement" and "pattern" not in cause.msg
 
 
-def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> None:
+def test_an_empty_separator_is_refused_at_the_input_before_the_node_runs() -> None:
     graph = Graph.compile(
         make_graph(text.split, defaults={"text-split.separator": "\n"}), conductor_nodes.registry
     )
@@ -331,7 +331,7 @@ def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> No
 
 
 @pytest.mark.parametrize("definition", [text.replace, text.contains])
-def test_an_empty_needle_is_refused_at_the_field_before_the_node_runs(definition: Any) -> None:
+def test_an_empty_needle_is_refused_at_the_input_before_the_node_runs(definition: Any) -> None:
     graph = Graph.compile(
         make_graph(definition, constants={f"{definition.id}.text": "ab"}), conductor_nodes.registry
     )

@@ -299,7 +299,7 @@ class RunOutcomes:
             # Keep going: a later input may get SKIPPED, which skips the call.
             if value is NotReady.NOT_READY:
                 ready = False
-            elif value is None and none_input is None and not node_input.field.whole.optional:
+            elif value is None and none_input is None and not node_input.port.whole.optional:
                 none_input = name
             arguments[name] = value
         if not ready:
@@ -421,7 +421,7 @@ class RunOutcomes:
             item gets.
         """
         series_node = self.blueprint.function_nodes[node_input.series[0]]
-        depth, keeps_none_items = len(series_node.loops), node_input.field.keeps_none_items
+        depth, keeps_none_items = len(series_node.loops), node_input.port.keeps_none_items
         if len(item_indexes) < depth:
             return _may_have_value(
                 self.read_edges(node_input.sources, item_indexes), keeps_none_items
@@ -444,7 +444,7 @@ class RunOutcomes:
                 return series.field_as_list(field)
             return (
                 series.as_table_input()
-                if node_input.field.whole.row is not None
+                if node_input.port.whole.row is not None
                 else series.as_list()
             )
         items = []

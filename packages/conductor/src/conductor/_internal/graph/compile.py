@@ -50,15 +50,15 @@ from typing import Any, Literal, TypeVar, assert_never
 from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
-from conductor._internal.field import (
-    BoundDefaultValidator,
-    Field,
-)
 from conductor._internal.node import (
     FunctionDefinition,
     Hook,
     NodeDefinition,
     SubgraphDefinition,
+)
+from conductor._internal.port import (
+    BoundDefaultValidator,
+    Port,
 )
 from conductor._internal.problem import (
     InvalidCallError,
@@ -133,7 +133,7 @@ class Compiler:
         problems: The problems found so far.
         nodes: Each node compiled so far, by id.
         taken_first: Each graph input found so far, by name, in the order found, with the first input that takes
-            it: its node's id and its field. That field gives the graph input its type.
+            it: its node's id and its port. That port gives the graph input its type.
         used_two_ways: The graph inputs that two inputs take with types or descriptions that disagree.
         record: The graph record being compiled.
         position: Each node's index among the record's node ids, sorted. It breaks ties in the order of the nodes.
@@ -150,7 +150,7 @@ class Compiler:
         self.inside_subgraphs, self.compiled_subgraphs = inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
-        self.taken_first: dict[str, tuple[str, Field]] = {}
+        self.taken_first: dict[str, tuple[str, Port]] = {}
         self.used_two_ways: set[str] = set()
         # the record doesn't order its nodes, so ties go by id
         self.position = {node_id: i for i, node_id in enumerate(sorted(record.nodes))}
@@ -183,8 +183,8 @@ class Compiler:
             self.definitions.context_type,
         )
 
-    def _graph_inputs(self) -> dict[str, Field]:
-        """Returns each graph input the nodes take, by name, in the order found, as the field a caller gives.
+    def _graph_inputs(self) -> dict[str, Port]:
+        """Returns each graph input the nodes take, by name, in the order found, as the port a caller gives.
 
         Its type is that of the first input that takes it, and its default is the record's, converted by that type,
         once every input that takes it is known. So a type two inputs disagree on is always
@@ -194,18 +194,18 @@ class Compiler:
         A graph input that only nodes switched off take is checked the same way, but isn't returned, since the
         record doesn't offer it (``GraphRecord.inputs_offered``).
         """
-        fields: dict[str, Field] = {}
+        ports: dict[str, Port] = {}
         offered = self.record.inputs_offered
-        for name, (node_id, field) in self.taken_first.items():
+        for name, (node_id, port) in self.taken_first.items():
             default, declared = REQUIRED, self.record.inputs[name].default
             if declared is not MISSING and name not in self.used_two_ways:
                 try:
-                    default = ConstantValidator(node_id, field)(declared)
+                    default = ConstantValidator(node_id, port)(declared)
                 except InvalidCallError as refused:
                     self.problems += refused.problems
             if name in offered:
-                fields[name] = Field(name, field.hint, default, is_output=False)
-        return fields
+                ports[name] = Port(name, port.hint, default, is_output=False)
+        return ports
 
     def _graph_inputs_not_used(self) -> None:
         """Adds ``graph_input_not_used`` for each graph input the record declares and no entry names.
@@ -216,10 +216,10 @@ class Compiler:
         for name in sorted(self.record.inputs.keys() - self.record.graph_inputs_taken):
             self.problems.append(compile_problems.graph_input_not_used(graph_input=name))
 
-    def _graph_outputs(self) -> dict[str, Field]:
-        """Returns each graph output whose node compiled, by name, sorted, as the field of the node output behind it.
+    def _graph_outputs(self) -> dict[str, Port]:
+        """Returns each graph output whose node compiled, by name, sorted, as the port of the node output behind it.
 
-        The field is the node output's, under the graph output's name, with no default. So a graph output read from
+        The port is the node output's, under the graph output's name, with no default. So a graph output read from
         a branch is never a branch of a subgraph node that uses this graph: a branch is a function node's output.
 
         A graph output that names a node the record doesn't have gets the problem ``graph_output_names_missing_node``,
@@ -228,13 +228,13 @@ class Compiler:
         saying why. One whose node is switched off is checked the same way, but isn't returned, since the record
         doesn't offer it (``GraphRecord.outputs_offered``).
         """
-        fields: dict[str, Field] = {}
+        ports: dict[str, Port] = {}
         offered = self.record.outputs_offered
         for name, source in sorted(self.record.outputs.items()):
             node = self.nodes.get(source.node)
             if node is not None and source.output in node.outputs:
                 if name in offered:
-                    fields[name] = Field(
+                    ports[name] = Port(
                         name, node.outputs[source.output].hint, REQUIRED, is_output=True
                     )
                 continue
@@ -255,7 +255,7 @@ class Compiler:
                     outputs=[place_text((source.node,), output) for output in node.outputs],
                 )
             )
-        return fields
+        return ports
 
     def _resolve(self, node_id: str, node_record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition that a node of the record names, at the record's version.
@@ -357,19 +357,19 @@ class Compiler:
             is not None
         ):
             self.problems.append(unfit)
-        fields = dict(definition.inputs)
-        constants = self._constant_inputs(node_id, node_record, fields)
-        added: dict[str, Field] = {}
+        ports = dict(definition.inputs)
+        constants = self._constant_inputs(node_id, node_record, ports)
+        added: dict[str, Port] = {}
         if definition.compute_added_inputs is not None:
-            made = self._hook(node_id, definition.compute_added_inputs, fields, constants)
+            made = self._hook(node_id, definition.compute_added_inputs, ports, constants)
             if made is None:
                 return
             added = made
-            fields.update(added)
+            ports.update(added)
             constants.update(self._constant_inputs(node_id, node_record, added))
-        planned = self._plan_inputs(node_id, node_record, fields, constants, edges)
+        planned = self._plan_inputs(node_id, node_record, ports, constants, edges)
         bound = planned.bound
-        outputs: dict[str, Field] | None = dict(definition.outputs)
+        outputs: dict[str, Port] | None = dict(definition.outputs)
         if bound is not None:
             outputs, refused = _bind(node_id, definition.outputs, bound)
             self.problems += [found for problems in refused.values() for found in problems]
@@ -381,7 +381,7 @@ class Compiler:
             }
             # compute_outputs runs once the edges have bound the type variables, so it reads what the node gets
             outputs = self._hook(
-                node_id, definition.compute_outputs, fields, planned.inputs, arriving, tuple(added)
+                node_id, definition.compute_outputs, ports, planned.inputs, arriving, tuple(added)
             )
         if outputs is not None:
             self.nodes[node_id] = CompiledFunctionNode(
@@ -405,7 +405,7 @@ class Compiler:
 
         Say the subgraph ``strip -> shout`` is used as the node ``loud``. The subgraph's record is compiled first,
         on its own. The node's inputs and outputs are the graph inputs and outputs that record declares, by name
-        (``line`` and ``result``), so an edge reads ``loud.result``. Each output keeps the field the node inside
+        (``line`` and ``result``), so an edge reads ``loud.result``. Each output keeps the port the node inside
         declares.
 
         The compiled node works out the loops each output depends on itself (``edge_reading``), as it would if the
@@ -437,9 +437,9 @@ class Compiler:
                 for inner_problem in inner.problems
             ]
             return
-        fields = inner._inputs
+        ports = inner._inputs
         planned = self._plan_inputs(
-            node_id, node_record, fields, self._constant_inputs(node_id, node_record, fields), edges
+            node_id, node_record, ports, self._constant_inputs(node_id, node_record, ports), edges
         )
         self.nodes[node_id] = CompiledSubgraphNode(
             id=node_id,
@@ -456,7 +456,7 @@ class Compiler:
         self,
         node_id: str,
         node_record: NodeRecord,
-        fields: Mapping[str, Field],
+        ports: Mapping[str, Port],
         constants: Mapping[str, ConstantInput | MissingInput],
         edges: Mapping[str, tuple[Source, ...]],
     ) -> _InputPlans:
@@ -484,25 +484,25 @@ class Compiler:
         Args:
             node_id: The node's id.
             node_record: The node in the graph record.
-            fields: The node's inputs, by name.
+            ports: The node's inputs, by name.
             constants: The compiled input that ``_constant_inputs`` made for each input it decides, by name.
             edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
         """
-        for name in sorted(node_record.inputs.keys() - fields.keys()):
-            self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(fields)))
+        for name in sorted(node_record.inputs.keys() - ports.keys()):
+            self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(ports)))
         # an input that takes only a constant is in constants, refused where edges lead to it, so it binds no type
         sources = {
             name: self._sources(node_id, name, edges[name])
-            for name in fields
+            for name in ports
             if name in edges and name not in constants
         }
         bound = None
         refused_defaults: Mapping[str, list[Problem]] = {}
         if any(
-            field.whole.variables for field in fields.values()
-        ):  # bind the type variables, so the compiled node's fields have none left
-            bound = _bound(fields, sources)
-            fields, refused = _bind(node_id, fields, bound)
+            port.whole.variables for port in ports.values()
+        ):  # bind the type variables, so the compiled node's ports have none left
+            bound = _bound(ports, sources)
+            ports, refused = _bind(node_id, ports, bound)
             refused_defaults = {
                 name: problems
                 for name, problems in refused.items()
@@ -512,11 +512,11 @@ class Compiler:
                 problem for problems in refused_defaults.values() for problem in problems
             ]
             constants = {
-                name: self._bound_constant(node_id, node_record, made, fields[name])
+                name: self._bound_constant(node_id, node_record, made, ports[name])
                 for name, made in constants.items()
             }
         inputs: dict[str, Input] = {}
-        for name, field in fields.items():
+        for name, port in ports.items():
             match node_record.inputs.get(name):
                 case ConstantEntry():
                     # _constant_inputs converted or refused every constant the record gives, by the bound type
@@ -525,52 +525,52 @@ class Compiler:
                     # an input that takes only a constant, which _constant_inputs refused or found no value for
                     inputs[name] = constants[name]
                 case None if name in refused_defaults:
-                    inputs[name] = MissingInput(field)
-                case None if field.default is REQUIRED:
+                    inputs[name] = MissingInput(port)
+                case None if port.default is REQUIRED:
                     # a node switched off reads no input, so it needs no value
                     if not node_record.off:
                         self.problems.append(compile_problems.input_has_no_value(node_id, name))
-                    inputs[name] = MissingInput(field)
+                    inputs[name] = MissingInput(port)
                 case None:
-                    inputs[name] = ConstantInput(field, field.default)
+                    inputs[name] = ConstantInput(port, port.default)
                 case GraphInputEntry(graph_input=graph_input):
-                    inputs[name] = self._graph_input(node_id, field, graph_input)
+                    inputs[name] = self._graph_input(node_id, port, graph_input)
                 case SourcesEntry():
-                    inputs[name] = self._edge_input(node_id, field, sources[name])
+                    inputs[name] = self._edge_input(node_id, port, sources[name])
                 case unexpected:
                     assert_never(unexpected)
         for name in self._inputs_with_conflicting_edges(node_id, inputs):
-            inputs[name] = MissingInput(inputs[name].field)
+            inputs[name] = MissingInput(inputs[name].port)
         loops = max(
             (node_input.loops for node_input in inputs.values()), key=len, default=()
         )  # only an edge puts a node inside a loop
         inputs |= self._inputs_given_one_value(node_id, inputs, loops)
         for name in self._inputs_not_nested(node_id, inputs, loops):
-            inputs[name] = MissingInput(inputs[name].field)
+            inputs[name] = MissingInput(inputs[name].port)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
 
-    def _edge_input(self, node_id: str, field: Field, sources: list[Edge] | None) -> Input:
-        """Returns the compiled input of ``field``, which the record wires edges to.
+    def _edge_input(self, node_id: str, port: Port, sources: list[Edge] | None) -> Input:
+        """Returns the compiled input of ``port``, which the record wires edges to.
 
         This runs before the node's loops are known. A ``Series`` or ``Table`` input that turns out to get one value
         per call is refused later, by ``_inputs_given_one_value``.
 
         Args:
             node_id: The node.
-            field: The input.
+            port: The input.
             sources: What the edges into the input carry. ``None`` when one of them can't be used, and the graph has
                 the problem.
         """
         if sources is None:
-            return MissingInput(field)
-        collects, expected = _collects_and_expected_type(field, sources)
-        if not self._edges_fit(node_id, field, expected, sources):
-            return MissingInput(field)
+            return MissingInput(port)
+        collects, expected = _collects_and_expected_type(port, sources)
+        if not self._edges_fit(node_id, port, expected, sources):
+            return MissingInput(port)
         loops = sources[0].loops_of_value  # a kept input's edges are all in the same loops
         if collects and loops:
-            return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
+            return CollectingInput(port, loops[-1], loops[:-1], tuple(sources))
         # one that collects gets one value per call, and is refused (_inputs_given_one_value)
-        return EdgeInput(field, tuple(sources), loops)
+        return EdgeInput(port, tuple(sources), loops)
 
     def _inputs_given_one_value(
         self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]
@@ -595,7 +595,7 @@ class Compiler:
             sources = list(node_input.sources)
             if not sources:
                 continue
-            collects, item = _collects_and_expected_type(node_input.field, sources)
+            collects, item = _collects_and_expected_type(node_input.port, sources)
             if not collects:
                 continue
             one_value = [
@@ -605,9 +605,9 @@ class Compiler:
             ]
             if not one_value:
                 continue
-            field = node_input.field
-            if field.whole.row is not None and _only_any(sources):
-                changed[name] = EdgeInput(field, tuple(sources), sources[0].loops_of_value)
+            port = node_input.port
+            if port.whole.row is not None and _only_any(sources):
+                changed[name] = EdgeInput(port, tuple(sources), sources[0].loops_of_value)
                 continue
             self.problems.append(
                 compile_problems.type_mismatch_series_given_one_value(
@@ -615,11 +615,11 @@ class Compiler:
                     name,
                     source=str(one_value[0].wired_to),
                     got=_type_in_message(one_value[0].type, one_value[0].type.text),
-                    expected=_type_in_message(field.whole, field.whole.text),
+                    expected=_type_in_message(port.whole, port.whole.text),
                     item=_type_in_message(item, item.text),
                 )
             )
-            changed[name] = MissingInput(field)
+            changed[name] = MissingInput(port)
         return changed
 
     def _inputs_not_nested(
@@ -661,8 +661,8 @@ class Compiler:
             refused.add(name)
         return refused
 
-    def _graph_input(self, node_id: str, field: Field, name: str) -> GraphInput | MissingInput:
-        """Returns the compiled input of ``field`` on ``node_id``, whose value the caller gives as the graph input
+    def _graph_input(self, node_id: str, port: Port, name: str) -> GraphInput | MissingInput:
+        """Returns the compiled input of ``port`` on ``node_id``, whose value the caller gives as the graph input
         ``name``, and keeps the first input that takes each graph input in ``taken_first``.
 
         The record declares the graph input, with its default if it has one. The first input that names it gives it
@@ -684,23 +684,23 @@ class Compiler:
         if declared is None:
             self.problems.append(
                 compile_problems.graph_input_not_declared(
-                    node_id, field.name, graph_input=name, declared=sorted(self.record.inputs)
+                    node_id, port.name, graph_input=name, declared=sorted(self.record.inputs)
                 )
             )
-            return MissingInput(field)
-        first = self.taken_first.setdefault(name, (node_id, field))[1]
-        if not _same_graph_input(first, field):
+            return MissingInput(port)
+        first = self.taken_first.setdefault(name, (node_id, port))[1]
+        if not _same_graph_input(first, port):
             self.problems.append(
-                compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name)
+                compile_problems.graph_input_used_two_ways(node_id, port.name, graph_input=name)
             )
             self.used_two_ways.add(name)
-            return MissingInput(field)
-        return GraphInput(field, name)
+            return MissingInput(port)
+        return GraphInput(port, name)
 
     def _constant_inputs(
-        self, node_id: str, node_record: NodeRecord, fields: Mapping[str, Field]
+        self, node_id: str, node_record: NodeRecord, ports: Mapping[str, Port]
     ) -> dict[str, ConstantInput | MissingInput]:
-        """Returns the compiled input of each of ``fields`` that the record gives a constant, or that can't get one.
+        """Returns the compiled input of each of ``ports`` that the record gives a constant, or that can't get one.
 
         A constant is converted by the input's type. Where the type refuses it, the graph gets ``invalid_value`` and
         the input gets a ``MissingInput``.
@@ -714,23 +714,23 @@ class Compiler:
         edges have bound its type variables.
         """
         constants: dict[str, ConstantInput | MissingInput] = {}
-        for name, field in fields.items():
+        for name, port in ports.items():
             match node_record.inputs.get(name):
-                case None if field.needs_a_constant:
+                case None if port.needs_a_constant:
                     self.problems.append(
                         compile_problems.input_has_no_value_constant_only(node_id, name)
                     )
-                    constants[name] = MissingInput(field)
-                case SourcesEntry() | GraphInputEntry() as entry if field.param.constant_only:
+                    constants[name] = MissingInput(port)
+                case SourcesEntry() | GraphInputEntry() as entry if port.param.constant_only:
                     given: Literal["sources", "graph_input"] = (
                         "sources" if isinstance(entry, SourcesEntry) else "graph_input"
                     )
                     self.problems.append(
                         compile_problems.input_takes_only_a_constant(node_id, name, given=given)
                     )
-                    constants[name] = MissingInput(field)
+                    constants[name] = MissingInput(port)
                 case ConstantEntry(constant=value):
-                    constants[name] = self._constant_input(node_id, field, value)
+                    constants[name] = self._constant_input(node_id, port, value)
                 case _:
                     pass
         return constants
@@ -740,49 +740,49 @@ class Compiler:
         node_id: str,
         node_record: NodeRecord,
         made: ConstantInput | MissingInput,
-        field: Field,
+        port: Port,
     ) -> ConstantInput | MissingInput:
-        """Returns ``made``, the compiled input ``_constant_inputs`` made, with its type variables bound in ``field``.
+        """Returns ``made``, the compiled input ``_constant_inputs`` made, with its type variables bound in ``port``.
 
         A constant the record gives an input typed by a type variable is read again by the type the edges bound,
         as a graph input's default is. Where binding left the type as it was, the first read stands. In ``first(one: T, other: T)``, with ``one`` wired from a ``str`` output, the
         constant ``5`` for ``other`` is ``invalid_value``. Wired from a ``float``, the constant ``2`` becomes ``2.0``.
         """
-        match made, node_record.inputs.get(field.name):
-            case ConstantInput(field=unbound), ConstantEntry(constant=value) if (
-                field.hint != unbound.hint
+        match made, node_record.inputs.get(port.name):
+            case ConstantInput(port=unbound), ConstantEntry(constant=value) if (
+                port.hint != unbound.hint
             ):
-                return self._constant_input(node_id, field, value)
+                return self._constant_input(node_id, port, value)
             case _:
-                return replace(made, field=field)
+                return replace(made, port=port)
 
     def _constant_input(
-        self, node_id: str, field: Field, value: JsonValue
+        self, node_id: str, port: Port, value: JsonValue
     ) -> ConstantInput | MissingInput:
-        """Returns the compiled input of ``field`` for the constant ``value`` the record gives it.
+        """Returns the compiled input of ``port`` for the constant ``value`` the record gives it.
 
         The constant is converted by the input's type. Where the type refuses it, the graph gets ``invalid_value``
         and the input gets a ``MissingInput``.
         """
         try:
-            return ConstantInput(field, ConstantValidator(node_id, field)(value))
+            return ConstantInput(port, ConstantValidator(node_id, port)(value))
         except InvalidCallError as refused:
             self.problems += refused.problems
-            return MissingInput(field)
+            return MissingInput(port)
 
     def _hook(
         self,
         node_id: str,
         hook: Hook,
-        fields: Mapping[str, Field],
+        ports: Mapping[str, Port],
         inputs: Mapping[str, Input],
         arriving: Mapping[str, Any] = MappingProxyType({}),
         added: tuple[str, ...] = (),
-    ) -> dict[str, Field] | None:
-        """Calls one of a node's hooks, and returns the fields it gives, by name.
+    ) -> dict[str, Port] | None:
+        """Calls one of a node's hooks, and returns the ports it gives, by name.
 
         Each input the hook reads gets the value of its compiled input, else its declared default. Returns ``None``,
-        and adds a problem, when the hook fails or returns something that isn't fields. Returns ``None`` without
+        and adds a problem, when the hook fails or returns something that isn't a port per name. Returns ``None`` without
         calling it when an input it reads has no value, since a problem already says why.
 
         ``compute_added_inputs`` runs before the edges bind the node's type variables, so it gets what
@@ -792,7 +792,7 @@ class Compiler:
         Args:
             node_id: The node's id.
             hook: The hook.
-            fields: The node's inputs, by name.
+            ports: The node's inputs, by name.
             inputs: The compiled inputs known so far, by name.
             arriving: The type the edges into each input carry, by input name.
             added: The inputs ``compute_added_inputs`` added.
@@ -805,7 +805,7 @@ class Compiler:
                 case ConstantInput(value=value):
                     values[name] = value
                 case None:
-                    values[name] = fields[name].default
+                    values[name] = ports[name].default
                 case GraphInput() | EdgeInput() | CollectingInput():
                     # an input a hook reads takes only a constant, so _constant_inputs refused any other entry
                     raise AssertionError(f"the input {name!r} a hook reads got no constant")
@@ -849,8 +849,8 @@ class Compiler:
             edges.sort(key=self._edge_order)
         return edges
 
-    def _edges_fit(self, node_id: str, field: Field, expected: Type, sources: list[Edge]) -> bool:
-        """Whether every edge into ``field`` carries a value of the type ``expected``.
+    def _edges_fit(self, node_id: str, port: Port, expected: Type, sources: list[Edge]) -> bool:
+        """Whether every edge into ``port`` carries a value of the type ``expected``.
 
         For the first edge that doesn't, the graph gets the problem.
 
@@ -861,7 +861,7 @@ class Compiler:
             if (
                 expected is not source.type and expected.fits(source.type) is None
             ):  # the identity check first, since most edges carry exactly the input's type
-                self.problems.append(_mismatch(node_id, field, source))
+                self.problems.append(_mismatch(node_id, port, source))
                 return False
         return True
 
@@ -883,9 +883,9 @@ class Compiler:
                 compile_problems.unknown_output(node_id, name, source=written, outputs=outputs)
             )
             return None
-        field = node.outputs[source.output]
+        port = node.outputs[source.output]
         if source.field is not None and (
-            parts := _taken_apart(field.type)
+            parts := _taken_apart(port.type)
         ):  # only a value with fields has fields to wire; a table or list must be taken apart first
             self.problems.append(
                 compile_problems.unknown_output_field_of_whole_table_or_list(
@@ -899,9 +899,9 @@ class Compiler:
                 )
             )
             return None
-        read_type = field.type if source.field is None else _field_type(field.type, source.field)
+        read_type = port.type if source.field is None else _field_type(port.type, source.field)
         if read_type is None:
-            fields = [place_text(path, source.output, f) for f in field.type.fields]
+            fields = [place_text(path, source.output, f) for f in port.type.fields]
             self.problems.append(
                 compile_problems.unknown_output(
                     node_id, name, source=written, outputs=fields, field=source.field
@@ -975,7 +975,7 @@ class Compiler:
             (name, [self._branches_required_for(s) for s in node_input.sources])
             for name, node_input in inputs.items()
             if isinstance(node_input, CollectingInput)
-            and not node_input.field.keeps_none_items
+            and not node_input.port.keeps_none_items
             and name not in refused
         ]
         for i, (a, branches_a) in enumerate(aligned):
@@ -1022,7 +1022,7 @@ def _edges_into(node_record: NodeRecord) -> dict[str, tuple[Source, ...]]:
     }
 
 
-def _same_graph_input(first: Field, other: Field) -> bool:
+def _same_graph_input(first: Port, other: Port) -> bool:
     """Whether two inputs that name one graph input agree, so they can share the caller's one value.
 
     ``Compiler._graph_input`` says what agreeing means. The inputs' own names and defaults play no part.
@@ -1032,14 +1032,14 @@ def _same_graph_input(first: Field, other: Field) -> bool:
         other: One more input that takes it.
     """
     shown, shown_again = (
-        field.description.model_dump(exclude={"name", "default", "required"})
-        for field in (first, other)
+        port.description.model_dump(exclude={"name", "default", "required"})
+        for port in (first, other)
     )
     return first.whole.hint == other.whole.hint and shown == shown_again
 
 
-def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:
-    """Returns whether ``field`` collects what ``sources`` carry, and the type each source must fit.
+def _collects_and_expected_type(port: Port, sources: list[Edge]) -> tuple[bool, Type]:
+    """Returns whether ``port`` collects what ``sources`` carry, and the type each source must fit.
 
     The type is the input's whole type when it takes one value. When it collects, it's the type of one item of the
     ``Series``, or of one row of the table.
@@ -1049,16 +1049,16 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     input whose edges are all ``Any`` (``_only_any``) collects rows from a loop it is outside, and takes a whole
     table where they give each call one value (``Compiler._inputs_given_one_value``).
     """
-    row = field.whole.row
+    row = port.whole.row
     typed = [s for s in sources if s.type.bare is not Any]
-    collects = field.is_series or (
+    collects = port.is_series or (
         row is not None
-        and (_only_any(sources) or not all(field.whole.fits(s.type) is not None for s in typed))
+        and (_only_any(sources) or not all(port.whole.fits(s.type) is not None for s in typed))
     )
     if not collects:
-        return False, field.whole
+        return False, port.whole
     if row is None:
-        return True, field.type
+        return True, port.type
     return True, row
 
 
@@ -1072,21 +1072,21 @@ def _only_any(sources: list[Edge]) -> bool:
 
 
 def _bound(
-    fields: Mapping[str, Field], sources: Mapping[str, list[Edge] | None]
+    ports: Mapping[str, Port], sources: Mapping[str, list[Edge] | None]
 ) -> dict[TypeVar, Any]:
     """Returns the type each type variable of a node's inputs gets from the edges into them.
 
     If the edges into two inputs that share a variable carry ``int`` and ``str``, the variable gets ``int | str``.
 
     Only an edge binds a variable. A constant, a default or a graph input binds nothing. A variable that no edge
-    binds becomes its bound, or else ``Any``, when the fields are bound.
+    binds becomes its bound, or else ``Any``, when the ports are bound.
     """
     bound: dict[TypeVar, Any] = {}
-    for name, field in fields.items():
+    for name, port in ports.items():
         edge_sources = sources.get(name)
-        if not field.whole.variables or not edge_sources:
+        if not port.whole.variables or not edge_sources:
             continue
-        expected = _collects_and_expected_type(field, edge_sources)[1]
+        expected = _collects_and_expected_type(port, edge_sources)[1]
         for source in edge_sources:
             for variable, hint in (expected.fits(source.type) or {}).items():
                 bound[variable] = bound[variable] | hint if variable in bound else hint
@@ -1094,25 +1094,25 @@ def _bound(
 
 
 def _bind(
-    node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any]
-) -> tuple[dict[str, Field], dict[str, list[Problem]]]:
-    """Returns ``fields``, the inputs or outputs of ``node_id``, with their type variables bound as ``bound`` says.
+    node_id: str, ports: Mapping[str, Port], bound: Mapping[TypeVar, Any]
+) -> tuple[dict[str, Port], dict[str, list[Problem]]]:
+    """Returns ``ports``, the inputs or outputs of ``node_id``, with their type variables bound as ``bound`` says.
 
-    ``BoundDefaultValidator`` does the binding. It also checks each field's declared default against the bound
-    type. A field whose default is refused keeps no default, and its problems are returned too, by name.
+    ``BoundDefaultValidator`` does the binding. It also checks each port's declared default against the bound
+    type. A port whose default is refused keeps no default, and its problems are returned too, by name.
     """
     bind = BoundDefaultValidator(node_id, bound)
-    bound_fields: dict[str, Field] = {}
+    bound_ports: dict[str, Port] = {}
     refused: dict[str, list[Problem]] = {}
-    for name, field in fields.items():
+    for name, port in ports.items():
         try:
-            bound_fields[name] = bind(field)
+            bound_ports[name] = bind(port)
         except InvalidCallError as error:
-            bound_fields[name] = Field(
-                name, Type(field.hint).bind(bound).hint, is_output=field.is_output
+            bound_ports[name] = Port(
+                name, Type(port.hint).bind(bound).hint, is_output=port.is_output
             )
             refused[name] = error.problems
-    return bound_fields, refused
+    return bound_ports, refused
 
 
 def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | None:
@@ -1142,29 +1142,29 @@ def _list_item(whole: Type) -> Type | None:
     return None
 
 
-def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
-    """Returns the ``type_mismatch`` problem for ``edge`` into ``field``.
+def _mismatch(node_id: str, port: Port, edge: Edge) -> Problem:
+    """Returns the ``type_mismatch`` problem for ``edge`` into ``port``.
 
     Where one mistake explains it, the problem says the fix. A whole table or list wired to an input that takes one
     value needs a node first that takes it apart into a ``Series``. A table input wired to rows that lack one of
     its columns needs that column added. A ``Series`` wired to an input that takes a list of its items needs the
     input declared a ``Series``.
     """
-    written, expected = str(edge.wired_to), _type_in_message(field.whole, field.whole.id)
+    written, expected = str(edge.wired_to), _type_in_message(port.whole, port.whole.id)
     got_one = _type_in_message(edge.type, edge.type.text)
     got = f"Series[{got_one}]" if edge.per_item else got_one
     if got == expected:
         # two types that read alike differ below the top, like tables whose columns differ only in their choices
         expected = f"{expected} with other choices or limits"
     parts = _taken_apart(edge.type)
-    if field.whole.row is not None:
+    if port.whole.row is not None:
         has = (edge.type.row or edge.type).fields
-        missing = [column for column in field.whole.fields if column not in has]
+        missing = [column for column in port.whole.fields if column not in has]
         if has and missing:
-            column_type = Type(field.whole.fields[missing[0]]).id
+            column_type = Type(port.whole.fields[missing[0]]).id
             return compile_problems.type_mismatch_missing_column(
                 node_id,
-                field.name,
+                port.name,
                 source=written,
                 got=got,
                 expected=expected,
@@ -1172,23 +1172,23 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
                 column_type=column_type,
                 has=list(has),
             )
-    elif parts and not field.is_series and field.whole.refuses_as_a_list([]):
+    elif parts and not port.is_series and port.whole.refuses_as_a_list([]):
         return compile_problems.type_mismatch_whole_table_or_list(
             node_id,
-            field.name,
+            port.name,
             source=written,
             got=got,
             expected=expected,
             kind=parts[0],
             fields=parts[1],
         )
-    item = _list_item(field.whole) if edge.per_item else None
+    item = _list_item(port.whole) if edge.per_item else None
     if item is not None and item.fits(edge.type) is not None:
         return compile_problems.type_mismatch_series_into_list(
-            node_id, field.name, source=written, got=got, expected=expected, item=item.text
+            node_id, port.name, source=written, got=got, expected=expected, item=item.text
         )
     return compile_problems.type_mismatch(
-        node_id, field.name, source=written, got=got, expected=expected
+        node_id, port.name, source=written, got=got, expected=expected
     )
 
 

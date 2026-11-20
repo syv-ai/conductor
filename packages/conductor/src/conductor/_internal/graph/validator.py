@@ -32,7 +32,7 @@ from pydantic import JsonValue, ValidationError
 from pydantic_core import SchemaValidator, core_schema
 
 from conductor._internal.base import REQUIRED, Validator
-from conductor._internal.field import Field
+from conductor._internal.port import Port
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
@@ -67,11 +67,11 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
             ``invalid_input_list_for_one_value`` for a list given to an input whose type takes no list.
     """
 
-    def __init__(self, inputs: Mapping[str, Field]) -> None:
+    def __init__(self, inputs: Mapping[str, Port]) -> None:
         """Builds the validator for a graph's inputs.
 
         Args:
-            inputs: Each graph input by name, as its field. The field's default is used when the caller gives none,
+            inputs: Each graph input by name, as its port. The port's default is used when the caller gives none,
                 and is ``REQUIRED`` when there is none.
         """
         self._inputs = dict(inputs)
@@ -95,30 +95,30 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
             if name not in self._inputs
         ]
         values: dict[str, Any] = {}
-        for name, field in self._inputs.items():
+        for name, port in self._inputs.items():
             if name in given:
                 try:
-                    values[name] = read_as_argument(field.whole, given[name])
+                    values[name] = read_as_argument(port.whole, given[name])
                 except ValidationError as error:
-                    problems.append(_refused(field, given[name], error))
-            elif field.default is REQUIRED:
+                    problems.append(_refused(port, given[name], error))
+            elif port.default is REQUIRED:
                 problems.append(call_problems.missing_input("inputs", name, name=name))
             else:
                 # the run's own copy, so a node that changes it can't change a later run
-                values[name] = own_copy(field.default)
+                values[name] = own_copy(port.default)
         if problems:
             raise InvalidCallError(problems)
         return values
 
 
-def _refused(field: Field, value: Any, error: ValidationError) -> Problem:
+def _refused(port: Port, value: Any, error: ValidationError) -> Problem:
     """Returns the problem of a graph input whose value its type refuses."""
-    if type(value) is list and not field.is_series and field.whole.refuses_as_a_list(value):
+    if type(value) is list and not port.is_series and port.whole.refuses_as_a_list(value):
         return call_problems.invalid_input_list_for_one_value(
-            "inputs", field.name, name=field.name, expected=field.whole.id, length=len(value)
+            "inputs", port.name, name=port.name, expected=port.whole.id, length=len(value)
         )  # the one mistake whose fix is in the graph, not in the value
     return call_problems.invalid_input(
-        "inputs", field.name, name=field.name, **field.whole.refusal(error)
+        "inputs", port.name, name=port.name, **port.whole.refusal(error)
     )
 
 
@@ -214,10 +214,10 @@ class ConstantValidator(Validator[JsonValue, Any]):
         InvalidCallError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
     """
 
-    def __init__(self, node_id: str, field: Field) -> None:
-        """Builds the validator for the input ``field`` of the node ``node_id``."""
+    def __init__(self, node_id: str, port: Port) -> None:
+        """Builds the validator for the input ``port`` of the node ``node_id``."""
         self._node_id = node_id
-        self._field = field
+        self._port = port
 
     def __call__(self, value: JsonValue) -> Any:
         """Checks ``value`` and returns it read by the input's type.
@@ -225,7 +225,7 @@ class ConstantValidator(Validator[JsonValue, Any]):
         Raises:
             InvalidCallError: See the class.
         """
-        whole, name = self._field.whole, self._field.name
+        whole, name = self._port.whole, self._port.name
         try:
             return read_as_argument(whole, value)
         except ValidationError as error:

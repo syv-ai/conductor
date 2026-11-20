@@ -29,8 +29,8 @@ Read each kind of outside value with a subclass of `Validator` in the `validator
 Why: one shape and one place for every validator, so a reader finds each where its concept is and calls it the same way.
 
 ```python
-read_constant(node_id, field, value)       # bad: a function with a signature of its own
-ConstantValidator(node_id, field)(value)   # good: in graph/validator.py
+read_constant(node_id, port, value)        # bad: a function with a signature of its own
+ConstantValidator(node_id, port)(value)    # good: in graph/validator.py
 ```
 
 ## Text is read once, where it enters

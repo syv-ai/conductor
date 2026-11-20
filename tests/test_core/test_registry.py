@@ -667,8 +667,8 @@ def test_every_class_an_input_or_output_type_names_is_on_the_registry_and_a_tabl
     [described] = registry.describe().nodes
     shown = {
         named
-        for field in (*described.inputs, *described.outputs)
-        for named in field.type.split(" | ")
+        for port in (*described.inputs, *described.outputs)
+        for named in port.type.split(" | ")
     }
     assert shown == {"cash", "text", "str", "number", "list[str]", "Table[weight: number]"}
     assert dict(registry.types) == {
@@ -939,4 +939,4 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -
 
     registry.replace(shout_in_words)
     (loud,) = [n for n in registry.describe().nodes if n.id == "loud"]
-    assert [field.name for field in loud.inputs] == ["words"] and len(hook_calls) == 2
+    assert [port.name for port in loud.inputs] == ["words"] and len(hook_calls) == 2

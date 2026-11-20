@@ -748,7 +748,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
         and graph.describe().nodes["llm"].per_item_of == "text-list.result"
     )
     feeds = {
-        i.field.name: (i.source.mode, i.source.series) for i in graph.describe().nodes["llm"].inputs
+        i.port.name: (i.source.mode, i.source.series) for i in graph.describe().nodes["llm"].inputs
     }
     assert feeds == {
         "prompt": ("item", "text-list.result"),

@@ -809,8 +809,8 @@ def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_fl
     )
     assert not flat.problems and not in_subgraph.problems
     feed = {
-        field.field.name: (field.source.mode, field.source.series)
-        for field in flat.describe().nodes["j"].inputs
+        node_input.port.name: (node_input.source.mode, node_input.source.series)
+        for node_input in flat.describe().nodes["j"].inputs
     }
     assert feed == {"a": ("item", "s.result"), "b": ("collected", "c.result")}
     assert (

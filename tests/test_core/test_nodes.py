@@ -151,7 +151,7 @@ def declared(function, **options):
     return node("x", **{"title": title, "description": "For a test.", **options})(function)
 
 
-def field_of(definition, name, side="inputs"):
+def port_of(definition, name, side="inputs"):
     return next(f for f in getattr(definition.describe(), side) if f.name == name)
 
 
@@ -596,7 +596,7 @@ def test_a_param_hands_pydantic_its_limits_as_annotated_types_objects_and_the_ob
         return x
 
     def schemas(definition):
-        return [field.json_schema for field in definition.describe().inputs]
+        return [port.json_schema for port in definition.describe().inputs]
 
     assert schemas(declared(by_object)) == schemas(declared(by_keyword))
     assert schemas(declared(by_keyword)) == [
@@ -744,8 +744,8 @@ def test_a_length_in_a_string_constraints_is_a_param_length_so_the_last_one_writ
     ) -> str:
         return x
 
-    assert field_of(declared(constrained_then_param), "x").json_schema["minLength"] == 3
-    assert field_of(declared(param_then_constrained), "x").json_schema["minLength"] == 1
+    assert port_of(declared(constrained_then_param), "x").json_schema["minLength"] == 3
+    assert port_of(declared(param_then_constrained), "x").json_schema["minLength"] == 1
     assert compiled_graph(declared(param_then_constrained)).run({"x": "ab"}).outputs == {
         "result": "ab"
     }
@@ -1102,8 +1102,8 @@ def test_a_series_of_tables_is_accepted_as_many_tables():
     def f(x: Series[Table[Invoice]]) -> int:
         return 1
 
-    field = declared(f).inputs["x"]
-    assert field.is_series is True and field.type.id == "Table[name: str, amount: int]"
+    port = declared(f).inputs["x"]
+    assert port.is_series is True and port.type.id == "Table[name: str, amount: int]"
 
 
 def test_a_definition_is_frozen():
@@ -1253,7 +1253,7 @@ def test_an_input_or_output_that_may_be_none_is_described_by_its_type_without_no
         ("many", "Text", True),
         ("one", "Text", False),
     ]
-    output = field_of(f, "result", "outputs")
+    output = port_of(f, "result", "outputs")
     assert output.type == "Text" and {"type": "null"} in output.json_schema["anyOf"]
     assert compiled_graph(f, constants={"f.many": [None], "f.one": None}).run().results["f"] == {
         "result": None
@@ -1439,7 +1439,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
 
 
 def test_each_key_a_field_description_writes_is_its_python_name():
-    """A field's JSON names each part as Python does, so ``json_schema`` is ``"json_schema"`` in both.
+    """A port's JSON names each part as Python does, so ``json_schema`` is ``"json_schema"`` in both.
 
     A host moves between the Python objects and the served JSON, and one concept should have one name.
     """
@@ -1448,10 +1448,10 @@ def test_each_key_a_field_description_writes_is_its_python_name():
     def f(x: int) -> str:
         return ""
 
-    field = f.describe().inputs[0]
-    written = json.loads(field.model_dump_json())
-    assert set(written) <= set(type(field).model_fields)
-    assert written["json_schema"] == field.json_schema == {"type": "integer"}
+    port = f.describe().inputs[0]
+    written = json.loads(port.model_dump_json())
+    assert set(written) <= set(type(port).model_fields)
+    assert written["json_schema"] == port.json_schema == {"type": "integer"}
 
 
 def test_describe_writes_each_default_as_its_type_writes_it_as_json():
@@ -1504,7 +1504,7 @@ def test_a_table_declares_its_columns_and_their_types():
     def bare(text: str) -> Table:
         return pl.DataFrame()
 
-    output = field_of(read, "result", "outputs")
+    output = port_of(read, "result", "outputs")
     columns = {
         c["properties"]["name"]["const"]: c["properties"]["values"]["items"]
         for c in output.json_schema["properties"]["columns"]["prefixItems"]
@@ -1514,7 +1514,7 @@ def test_a_table_declares_its_columns_and_their_types():
         and output.type == "Table[name: str, amount: int]"
         and columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
     )
-    any_columns = field_of(bare, "result", "outputs")
+    any_columns = port_of(bare, "result", "outputs")
     assert (any_columns.is_series, any_columns.type) == (
         False,
         "Table",
@@ -2247,10 +2247,10 @@ def test_a_hooks_own_exception_text_goes_to_the_log_and_never_into_its_problem(c
     assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
 
 
-def test_a_field_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its_default():
+def test_a_port_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its_default():
     """A default ``@node`` would refuse makes ``compute_hook_returned_invalid`` with the declaration's code.
 
-    The declaration's own message quotes the default, a value, so the problem names only the field.
+    The declaration's own message quotes the default, a value, so the problem names only the port.
     """
     [problem] = _computing(lambda: {"count": (int, "secret-default")}).problems
     assert (problem.type, problem.ctx["errors"][0]["type"]) == (
@@ -2324,7 +2324,7 @@ def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignore
     def limited(x: Annotated[int, Ge(0)]) -> str:
         return str(x)
 
-    assert field_of(declared(noted), "x").type == "int"
+    assert port_of(declared(noted), "x").type == "int"
     assert compiled_graph(declared(noted)).run({"x": 3}).outputs == {"result": 3}
     graph = compiled_graph(
         declared(limited),
@@ -2339,8 +2339,8 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
     def f(separator: Annotated[line, Param(min_length=1, title="Separator")] = ",") -> int:
         return 1
 
-    (field,) = declared(f).describe().inputs
-    assert (field.title, field.widget, field.json_schema) == (
+    (port,) = declared(f).describe().inputs
+    assert (port.title, port.widget, port.json_schema) == (
         "Separator",
         {"type": "text-input"},
         {"type": "string", "minLength": 1},
@@ -2365,9 +2365,9 @@ def test_a_param_on_a_series_item_is_the_fields_own_and_refuses_a_negative_int_o
         return sum(n)
 
     for name, may_be_none in (("n", False), ("m", True)):
-        field = field_of(total, name)
+        port = port_of(total, name)
         item_schema = {"type": "integer", "minimum": 0}
-        assert (field.type, field.title, field.is_series, field.json_schema) == (
+        assert (port.type, port.title, port.is_series, port.json_schema) == (
             "int",
             "Count",
             True,
@@ -2632,7 +2632,7 @@ def test_choices_on_a_literal_are_refused_and_the_message_writes_its_plain_type_
 
 
 def test_choices_on_a_literal_inside_a_series_name_the_items_plain_type() -> None:
-    """The plain type goes where the ``Literal`` is, so the field stays a ``Series``."""
+    """The plain type goes where the ``Literal`` is, so the port stays a ``Series``."""
     from conductor import Series
 
     with pytest.raises(NodeDeclarationError) as raised:
@@ -2646,10 +2646,10 @@ def test_choices_on_a_literal_inside_a_series_name_the_items_plain_type() -> Non
 
 @pytest.mark.parametrize("hint", [Literal["auto"] | int, Literal["auto"] | str | None])
 def test_choices_on_a_literal_beside_another_type_are_refused_and_told_to_go(hint: Any) -> None:
-    """Choices there would limit the field to them, so the other type would take nothing more.
+    """Choices there would limit the port to them, so the other type would take nothing more.
 
     Writing the plain type in the ``Literal``'s place would do the same, so the message says only to remove them,
-    and the field without them takes ``"auto"`` and any value of the other type.
+    and the port without them takes ``"auto"`` and any value of the other type.
     """
     from conductor import make_graph
 
@@ -2826,9 +2826,9 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
         (["1", 2], {}, "Input should be a valid integer"),
         ([-1, 1], {"ge": 0}, "Input should be greater than or equal to 0"),
     ],
-    ids=["a bool", "a number as text", "below the field's limit"],
+    ids=["a bool", "a number as text", "below the port's limit"],
 )
-def test_a_declared_choice_is_read_strictly_and_checked_against_the_fields_limits(
+def test_a_declared_choice_is_read_strictly_and_checked_against_the_ports_limits(
     choices: list[object], limits: dict[str, int], reason: str
 ) -> None:
     with pytest.raises(NodeDeclarationError) as raised:
@@ -2902,7 +2902,7 @@ def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
     hint: Any, code: str
 ) -> None:
     """A ``Literal``'s values are text, numbers, yes or no, or ``None``, each with a JSON form of its own, on the
-    field, a list's or a ``Series``'s item, a record's field and a table's column alike."""
+    port, a list's or a ``Series``'s item, a record's field and a table's column alike."""
 
     def give() -> str:
         return "x"
@@ -3412,7 +3412,7 @@ class _MoodCard(BaseModel, frozen=True):
         (dict[str, _Exclaimed], "str"),
         (_MoodCard, "str"),
     ],
-    ids=["the-field", "a-lists-item", "a-dicts-value", "a-models-field"],
+    ids=["the-port", "a-lists-item", "a-dicts-value", "a-models-field"],
 )
 def test_choices_another_check_on_the_hint_moves_off_are_refused_at_any_depth(
     hint: Any, where: str
@@ -3458,7 +3458,7 @@ _Bag = TypeVar("_Bag", bound=frozenset[int])
 
 
 def test_a_set_in_a_type_variables_bound_or_in_an_input_a_hook_adds_is_refused_as_at_node() -> None:
-    """A variable no edge fills in becomes its bound, and a hook's field is held to ``@node``'s rules."""
+    """A variable no edge fills in becomes its bound, and a hook's port is held to ``@node``'s rules."""
 
     def bagged(x: _Bag) -> _Bag:
         return x
@@ -3587,7 +3587,7 @@ def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records
     ) -> int:
         return len(rows)
 
-    described = {field.name: field.default for field in t.describe().inputs}
+    described = {port.name: port.default for port in t.describe().inputs}
     record = make_graph(t, defaults={"t.rows": [{"n": 3}], "t.when": datetime.date(2026, 1, 3)})
     offered = {
         name: given.default for name, given in Graph.compile(record, registry_of(t)).inputs.items()

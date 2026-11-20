@@ -2071,7 +2071,7 @@ def _described(
     return (
         described.found,
         described.per_item_of,
-        {i.field.name: i.source.mode for i in described.inputs},
+        {i.port.name: i.source.mode for i in described.inputs},
         [o.name for o in described.outputs],
         [p.type for p in described.problems],
     )
@@ -2756,7 +2756,7 @@ def test_a_bool_output_into_a_float_input_is_a_type_mismatch_and_a_union_is_name
 def test_a_graph_input_has_its_field_and_writes_as_json():
     import json
 
-    from conductor import FieldDescription, NodeRegistry, make_graph, node
+    from conductor import NodeRegistry, PortDescription, make_graph, node
 
     @node("u", title="U", description="For a test.")
     def u(t: str, n: int = 1) -> str:
@@ -2766,7 +2766,7 @@ def test_a_graph_input_has_its_field_and_writes_as_json():
     registry.add(u)
     graph = Graph.compile(make_graph(u, defaults={"u.n": 1}), registry)
     assert (
-        isinstance(graph.inputs["t"], FieldDescription) and graph.describe().inputs == graph.inputs
+        isinstance(graph.inputs["t"], PortDescription) and graph.describe().inputs == graph.inputs
     )
     assert {
         name: json.loads(i.model_dump_json()).get("default", "no default")

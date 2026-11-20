@@ -23,7 +23,7 @@ from pydantic import MISSING, JsonValue
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter
-from conductor._internal.field import Field, FieldDescription, ReturnShape
+from conductor._internal.port import Port, PortDescription, ReturnShape
 from conductor._internal.record import GraphRecord
 from conductor._internal.utils import qualified_name
 
@@ -137,8 +137,8 @@ class _Version:
     def described_as(
         self,
         *,
-        inputs: list[FieldDescription],
-        outputs: list[FieldDescription],
+        inputs: list[PortDescription],
+        outputs: list[PortDescription],
         asks: bool,
         takes_added_inputs: bool,
         computes_outputs: bool,
@@ -214,8 +214,8 @@ class FunctionDefinition[**P, R](_Version):
     """
 
     function: NodeFunction[P, R]
-    inputs: Mapping[str, Field]
-    outputs: Mapping[str, Field]
+    inputs: Mapping[str, Port]
+    outputs: Mapping[str, Port]
     return_shape: ReturnShape
     code_text: str
     policy: Policy = Policy()
@@ -250,22 +250,22 @@ class FunctionDefinition[**P, R](_Version):
         """
         return tuple(
             name
-            for name, field in self.inputs.items()
-            if field.default is REQUIRED and not field.param.constant_only
+            for name, port in self.inputs.items()
+            if port.default is REQUIRED and not port.param.constant_only
         )
 
     @property
     def required_constants(self) -> tuple[str, ...]:
         """The names of the inputs a graph must give a constant: each one with no default that is ``constant_only``."""
-        return tuple(name for name, field in self.inputs.items() if field.needs_a_constant)
+        return tuple(name for name, port in self.inputs.items() if port.needs_a_constant)
 
     def input_default(self, name: str) -> JsonValue | MISSING:
         """Returns the default the signature gives the input ``name``, as JSON, or ``MISSING`` when it has none.
 
         An input a hook adds isn't known before the graph is compiled, so it has none here.
         """
-        field = self.inputs.get(name)
-        return MISSING if field is None else field.default_json
+        port = self.inputs.get(name)
+        return MISSING if port is None else port.default_json
 
     @property
     def output_names(self) -> tuple[str, ...]:
@@ -275,8 +275,8 @@ class FunctionDefinition[**P, R](_Version):
     def describe(self) -> NodeDescription:
         """Describes the node for an editor's palette."""
         return self.described_as(
-            inputs=[field.description for field in self.inputs.values()],
-            outputs=[field.description for field in self.outputs.values()],
+            inputs=[port.description for port in self.inputs.values()],
+            outputs=[port.description for port in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None,
             computes_outputs=self.compute_outputs is not None,
             asks=self.asks,

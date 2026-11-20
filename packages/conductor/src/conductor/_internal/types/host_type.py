@@ -10,7 +10,7 @@ host names a class of its own with ``@host_type``::
         model_config = ConfigDict(frozen=True)
         amount: float
 
-A field typed ``Money`` then has the id ``"money"`` in ``describe()``, and an editor shows "Money". The decorator
+A port typed ``Money`` then has the id ``"money"`` in ``describe()``, and an editor shows "Money". The decorator
 checks the declaration right away and stores it on the class, where ``declaration_of`` finds it.
 """
 
@@ -121,7 +121,7 @@ PYTHON_NAMES: Mapping[Any, tuple[str, str]] = {
 #: The id and title of each class conductor names itself: Python's own (``PYTHON_NAMES``) and pydantic's. A value of
 #: one of pydantic's may be made that its own check refuses, like ``ByteSize(-5)``, so it is always checked.
 #: ``Series`` and ``Table`` are named in their own packages, and a class whose values are of another class, such as
-#: pydantic's ``EmailStr``, is read as that class (``READ_AS``). Any other class on a field must be declared with
+#: pydantic's ``EmailStr``, is read as that class (``READ_AS``). Any other class on a port must be declared with
 #: ``@host_type``.
 NAMES: Mapping[Any, tuple[str, str]] = {
     **PYTHON_NAMES,

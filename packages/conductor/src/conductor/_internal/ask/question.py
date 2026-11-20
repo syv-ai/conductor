@@ -15,17 +15,17 @@ from collections.abc import Mapping
 
 from pydantic import JsonValue
 
-from conductor._internal.field import Field, FieldDescription
+from conductor._internal.port import Port, PortDescription
 from conductor._internal.types import Choice
 
 
 def as_asked(
-    outputs: Mapping[str, Field],
+    outputs: Mapping[str, Port],
     choices: Mapping[str, tuple[Choice, ...]],
     defaults: Mapping[str, JsonValue],
     *,
     record: bool = False,
-) -> dict[str, FieldDescription]:
+) -> dict[str, PortDescription]:
     """Returns the questions one call asks, one per output of the node, by output name.
 
     Each starts from the output's own description, the one ``describe()`` shows. Then it adds what the call's
@@ -55,10 +55,10 @@ def as_asked(
     Returns:
         Each output's description, with the ``Ask``'s choices and default added, in the order of the outputs.
     """
-    questions: dict[str, FieldDescription] = {}
-    for name, field in outputs.items():
-        asked = field.description_with(choices.get(name), as_asked=record)
-        if name in defaults and (record or field.takes(defaults[name])):
+    questions: dict[str, PortDescription] = {}
+    for name, port in outputs.items():
+        asked = port.description_with(choices.get(name), as_asked=record)
+        if name in defaults and (record or port.takes(defaults[name])):
             asked = asked.model_copy(update={"default": defaults[name], "required": False})
         if len(outputs) == 1:
             asked = asked.model_copy(update={"required": True})

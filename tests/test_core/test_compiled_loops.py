@@ -231,7 +231,7 @@ def input_sources(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
     ``("collected", "d.result")`` means it gets the whole loop at once.
     """
     return {
-        i.field.name: (i.source.mode, i.source.series)
+        i.port.name: (i.source.mode, i.source.series)
         for i in graph.describe().nodes[node_id].inputs
     }
 
@@ -640,7 +640,7 @@ def test_a_subgraph_is_one_node_with_the_inputs_and_outputs_its_record_declares(
     )
     assert graph.is_runnable
     described = graph.describe().nodes["e"]
-    assert [i.field.name for i in described.inputs] == ["text"] and [
+    assert [i.port.name for i in described.inputs] == ["text"] and [
         o.name for o in described.outputs
     ] == ["result"]
     assert graph.describe().nodes["e"].per_item_of == "d.result" and input_sources(graph, "c") == {

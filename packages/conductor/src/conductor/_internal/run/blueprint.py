@@ -363,9 +363,9 @@ def _function_node(
             case GraphInput(name=graph_input):
                 graph_inputs.append((name, graph_input))
                 continue
-            case MissingInput(field=field):
+            case MissingInput(port=port):
                 raise RuntimeError(
-                    f"'{place_text(node_path, field.name)}' gets no value: a graph with problems has no blueprint"
+                    f"'{place_text(node_path, port.name)}' gets no value: a graph with problems has no blueprint"
                 )
             case EdgeInput():
                 node_input = node_input.in_outer_graph(*around)
@@ -375,7 +375,7 @@ def _function_node(
                 for edge in node_input.sources:
                     if edge.per_item:
                         functions[edge.node].looped_outputs.setdefault(edge.output, edge.wired_to)
-            case CollectingInput(field=field):
+            case CollectingInput(port=port):
                 node_input = node_input.in_outer_graph(*around)
                 looped_over = node_input.series
                 series_node = functions[looped_over[0]]
@@ -391,7 +391,7 @@ def _function_node(
                 outside_the_loop = [
                     (read, shared) for read, shared in read_inside if looped_over not in read.loops
                 ]
-                collecting.setdefault(looped_over, []).append((name, field.keeps_none_items))
+                collecting.setdefault(looped_over, []).append((name, port.keeps_none_items))
             case _:
                 assert_never(node_input)
         edge_inputs[name] = node_input

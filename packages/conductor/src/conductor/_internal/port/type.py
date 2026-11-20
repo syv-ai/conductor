@@ -1,7 +1,7 @@
-"""``Field``, one input or output of a node.
+"""``Port``, one input or output of a node.
 
-A field is a name, a type hint and maybe a default. ``Field`` works out everything else conductor needs from the
-hint once, when the field is made: the type of its value, its ``Param`` and whether it is a ``Series``.
+A port is a name, a type hint and maybe a default. ``Port`` works out everything else conductor needs from the
+hint once, when the port is made: the type of its value, its ``Param`` and whether it is a ``Series``.
 """
 
 from __future__ import annotations
@@ -26,36 +26,36 @@ from conductor._internal.types import (
 )
 from conductor.widgets import Widget
 
-from .describe import FieldDescription
+from .describe import PortDescription
 
 
 @dataclass(frozen=True, eq=False)
-class Field:
+class Port:
     """One input or output of a node.
 
     Here are an input with a limit and a default, and an output that may be ``None``::
 
-        Field("times", Annotated[int, Param(ge=0)], 1, is_output=False)
-        Field("result", str | None, is_output=True)
+        Port("times", Annotated[int, Param(ge=0)], 1, is_output=False)
+        Port("result", str | None, is_output=True)
 
-    A field never changes once it is made. To rename one, give it another default or fill in a type variable, you
-    make a new ``Field``. That way nothing worked out from the hint can go out of date.
+    A port never changes once it is made. To rename one, give it another default or fill in a type variable, you
+    make a new ``Port``. That way nothing worked out from the hint can go out of date.
 
-    Two fields are equal only when they are the same object. So a field can be a key in a weak dictionary, even
-    when its default is a list and can't be hashed. A saved run uses this to keep the types it stores each field's
+    Two ports are equal only when they are the same object. So a port can be a key in a weak dictionary, even
+    when its default is a list and can't be hashed. A saved run uses this to keep the types it stores each port's
     values by.
 
     Attributes:
         name: The parameter's name, or the output's.
         hint: The type hint as written.
-        default: The default, already checked by the field's type and converted to it. ``REQUIRED`` when there is
+        default: The default, already checked by the port's type and converted to it. ``REQUIRED`` when there is
             none, and ``SKIPPED`` for an output on a branch that may not be taken. ``validator.py`` checks the
             defaults a node declares.
         is_output: Whether it is an output. An input and an output whose type takes ``None`` differ when they are
-            left out, so every field says which it is.
+            left out, so every port says which it is.
         param: The hint's ``Param``, all of them merged into one. An empty ``Param`` when the hint has none.
         type: The type of one value. For a ``Series``, that is the type of one item.
-        whole: The type of the field's whole value. For a ``Series``, that is the list. Values are checked and
+        whole: The type of the port's whole value. For a ``Series``, that is the list. Values are checked and
             written as JSON by this type.
     """
 
@@ -68,19 +68,19 @@ class Field:
     whole: Type = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Works out the field's types from its hint.
+        """Works out the port's types from its hint.
 
-        Which types a node may declare is checked where a node declares a field (``validator.py``), by the type's own
-        rule (``Type.check_declared``). A field conductor makes for itself, such as one whose type variable a graph
+        Which types a node may declare is checked where a node declares a port (``validator.py``), by the type's own
+        rule (``Type.check_declared``). A port conductor makes for itself, such as one whose type variable a graph
         filled in, is not checked again.
 
         Raises:
-            NodeDeclarationError: Naming the field. A ``Series`` of ``Series``, or a widget that is misplaced or has
+            NodeDeclarationError: Naming the port. A ``Series`` of ``Series``, or a widget that is misplaced or has
                 no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
         try:
-            param, whole, one = _field_parts(self.hint)
+            param, whole, one = _port_parts(self.hint)
             keep("param", param)
             keep("whole", whole)
             keep("type", one)
@@ -116,7 +116,7 @@ class Field:
     def default_json(self) -> JsonValue | MISSING:
         """The default as JSON.
 
-        ``mark: str = "!"`` gives ``"!"``, and ``note: str | None = None`` gives ``None``. A field with no default, or
+        ``mark: str = "!"`` gives ``"!"``, and ``note: str | None = None`` gives ``None``. A port with no default, or
         with the default ``SKIPPED``, gives ``MISSING``, since neither can be written as JSON.
         """
         return (
@@ -136,22 +136,22 @@ class Field:
         return self.is_series and self.type.optional
 
     @functools.cached_property
-    def description(self) -> FieldDescription:
-        """The field as JSON for an editor, with the choices its own type names.
+    def description(self) -> PortDescription:
+        """The port as JSON for an editor, with the choices its own type names.
 
-        A palette shows a node's fields this way. A node that raises ``Ask`` asks about its outputs this way too,
+        A palette shows a node's ports this way. A node that raises ``Ask`` asks about its outputs this way too,
         unless the ``Ask`` sets choices or a default of its own.
         """
         return self.description_with(None)
 
     def description_with(
         self, asked: tuple[Choice, ...] | None, *, as_asked: bool = False
-    ) -> FieldDescription:
-        """The field as JSON for an editor, with its values limited to ``asked`` when an ``Ask`` limits them.
+    ) -> PortDescription:
+        """The port as JSON for an editor, with its values limited to ``asked`` when an ``Ask`` limits them.
 
-        ``required`` and ``default`` say what happens when the field is left out. There are four cases:
+        ``required`` and ``default`` say what happens when the port is left out. There are four cases:
 
-        - A field with a default gets it. ``mark: str = "!"`` gets ``"!"``.
+        - A port with a default gets it. ``mark: str = "!"`` gets ``"!"``.
         - An output like ``-> str | None`` gets ``None``. That holds for an output with no default whose type takes
           ``None``, unless it has choices, is a ``Series`` or is a branch.
         - A branch, an output whose default is ``SKIPPED``, is skipped. It has no default, and isn't required.
@@ -163,13 +163,13 @@ class Field:
         The JSON schema is that of the type, narrowed to ``asked`` (``Type.narrowed``) when it is given. So its
         ``enum`` lists the same choices as ``choices``.
 
-        A question saved before a deploy keeps the choices it offered, and the field's type may refuse some of them
+        A question saved before a deploy keeps the choices it offered, and the port's type may refuse some of them
         now, as when ``-> str`` became ``-> Annotated[str, Param(max_length=3)]``. Only the choices the type takes
         now limit it, so the form a person answers offers only those, or the type's own choices when it takes none.
         With ``as_asked``, for a record of what was asked, ``choices`` are all of ``asked``, as they were shown.
 
         Args:
-            asked: The choices an ``Ask`` offers for the field, or ``None`` for the type's own.
+            asked: The choices an ``Ask`` offers for the port, or ``None`` for the type's own.
             as_asked: Show ``asked`` as they are, though the type refuses some of them now.
         """
         taken = self.taken(asked)
@@ -191,7 +191,7 @@ class Field:
         else:
             default = MISSING
         widget = self.param.widget
-        return FieldDescription(
+        return PortDescription(
             name=self.name,
             title=self.param.title,
             description=self.param.description,
@@ -207,7 +207,7 @@ class Field:
         )
 
     def taken(self, asked: tuple[Choice, ...] | None) -> tuple[Choice, ...] | None:
-        """Returns the choices of ``asked`` the field's type takes now, or ``None`` when it takes none of them.
+        """Returns the choices of ``asked`` the port's type takes now, or ``None`` when it takes none of them.
 
         An ``Ask``'s choices fit the type when it asked. A question saved before a deploy that changed the type may
         offer some the type refuses now, and a person is offered, and may answer, only the others.
@@ -218,7 +218,7 @@ class Field:
         return taken or None
 
     def takes(self, value: JsonValue, *, item: bool = False) -> bool:
-        """Says whether the field's type takes ``value``, in its JSON form, as a person's answer is read.
+        """Says whether the port's type takes ``value``, in its JSON form, as a person's answer is read.
 
         A question saved before a deploy may hold a choice or a default the type refuses now; a form offers only
         what it takes.
@@ -234,13 +234,13 @@ class Field:
         return True
 
 
-def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
-    """Splits a field's hint into its ``Param``, the type of its whole value and the type of one value.
+def _port_parts(hint: Any) -> tuple[Param, Type, Type]:
+    """Splits a port's hint into its ``Param``, the type of its whole value and the type of one value.
 
     The types keep only what limits a value: its limits, its choices and any other metadata. A title or a widget is
-    left out of them, so two fields that differ only in what a person reads get the same type.
+    left out of them, so two ports that differ only in what a person reads get the same type.
 
-    A ``Series``' type reads its own ``Annotated`` as its items' (``SeriesType``), so the field's ``Param`` is its
+    A ``Series``' type reads its own ``Annotated`` as its items' (``SeriesType``), so the port's ``Param`` is its
     item's, with what the Series sets winning.
 
     Raises:
@@ -261,7 +261,7 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     ]
     if any(
         isinstance(metadata, Widget) for metadata in (*others, *on_members)
-    ):  # pydantic would ignore it, and describe() would show no widget for the field
+    ):  # pydantic would ignore it, and describe() would show no widget for the port
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
     if param.widget is not None:
         try:

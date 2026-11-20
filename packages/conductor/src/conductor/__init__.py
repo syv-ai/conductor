@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING
 from conductor._internal.ask import Ask
 from conductor._internal.base import JSON_CONFIG, SKIPPED, Source
 from conductor._internal.context import Context
-from conductor._internal.field import FieldDescription
 from conductor._internal.graph import (
     Graph,
     GraphDescription,
@@ -42,6 +41,7 @@ from conductor._internal.node import (
     node,
     subgraph,
 )
+from conductor._internal.port import PortDescription
 from conductor._internal.problem import (
     DECLARATION_PROBLEMS,
     PROBLEMS,
@@ -120,7 +120,7 @@ __all__ = [
     "CallCount",
     "RunStatus",
     # What an editor reads
-    "FieldDescription",
+    "PortDescription",
     "NodeDescription",
     "RegistryDescription",
     "TypeDescription",

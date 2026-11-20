@@ -18,8 +18,8 @@ other value it has no JSON form, and the return isn't walked for it: the run is 
 (``run_unwritable``).
 
 ``HookValidator`` checks what a ``compute_added_inputs`` or ``compute_outputs`` hook returns, and turns it into
-fields. Say a node's ``compute_outputs`` hook, given ``names="a,b"``, returns ``{"a": str, "b": (int, 0)}``. The
-node gets two outputs, ``a: str``, and ``b: int`` with the default 0. Each field is held to the same rules as one
+ports. Say a node's ``compute_outputs`` hook, given ``names="a,b"``, returns ``{"a": str, "b": (int, 0)}``. The
+node gets two outputs, ``a: str``, and ``b: int`` with the default 0. Each port is held to the same rules as one
 ``@node`` declares. A hook that returns ``{"a.b": str}`` fails, since ``a.b`` isn't a valid name.
 
 ``RewriteValidator`` checks what the ``rewrite`` of a node's ``Upgrade`` returns, when ``registry.upgrade`` moves a
@@ -48,10 +48,10 @@ from pydantic import (
 from pydantic_core import ErrorDetails, PydanticCustomError, SchemaValidator, core_schema
 
 from conductor._internal.base import REQUIRED, SKIPPED, Name, Validator, finite_json_text
-from conductor._internal.field import (
+from conductor._internal.port import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
-    Field,
+    Port,
     ReturnShape,
     outputs_schema,
 )
@@ -94,7 +94,7 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             quotes the value.
     """
 
-    def __init__(self, return_shape: ReturnShape, outputs: Mapping[str, Field]) -> None:
+    def __init__(self, return_shape: ReturnShape, outputs: Mapping[str, Port]) -> None:
         """Builds the validator for one node.
 
         Args:
@@ -105,17 +105,17 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
         # Each output is checked by its type's own validator, not by its schema joined into this one. Two outputs
         # may hold one plain dataclass built under two configs, which pydantic names by one ref. An output a node
         # can't return SKIPPED on must be returned; a branch may be left out of a mapping.
-        fields = {
+        schemas = {
             name: core_schema.typed_dict_field(
                 core_schema.no_info_plain_validator_function(
-                    functools.partial(field.whole.output_validator.validate_python, strict=True)
+                    functools.partial(port.whole.output_validator.validate_python, strict=True)
                 ),
-                required=not field.is_branch,
+                required=not port.is_branch,
             )
-            for name, field in outputs.items()
+            for name, port in outputs.items()
         }
         self._validate = SchemaValidator(
-            outputs_schema(outputs, fields, return_shape)
+            outputs_schema(outputs, schemas, return_shape)
         ).validate_python
 
     def __call__(self, returned: Any) -> dict[str, Any]:
@@ -149,7 +149,7 @@ def _refused_shape(
 
 
 def _first_fault(
-    outputs: Mapping[str, Field], error: ValidationError, returned: Any
+    outputs: Mapping[str, Port], error: ValidationError, returned: Any
 ) -> InvalidCallError:
     """Turns the first fault in what a node returned into an ``invalid_output`` error.
 
@@ -205,22 +205,22 @@ def _first_fault(
 
 
 #: Checks what a hook returns: a mapping of valid names, each to a type or to ``(type, default)``.
-_HOOK_FIELDS = TypeAdapter(dict[Name, Any])
+_HOOK_PORTS = TypeAdapter(dict[Name, Any])
 
 
-class HookValidator(Validator[Any, dict[str, Field]]):
+class HookValidator(Validator[Any, dict[str, Port]]):
     """A validator for what one hook of a node returns.
 
-    A hook returns its fields as a mapping of name to type, or to ``(type, default)``. The validator turns each into
-    a ``Field``, held to the same rules ``@node`` holds a declared field to. Fields from ``compute_added_inputs`` are
-    checked like inputs, with ``DeclaredInputValidator``. Fields from ``compute_outputs`` are checked like outputs,
+    A hook returns its ports as a mapping of name to type, or to ``(type, default)``. The validator turns each into
+    a ``Port``, held to the same rules ``@node`` holds a declared port to. Ports from ``compute_added_inputs`` are
+    checked like inputs, with ``DeclaredInputValidator``. Ports from ``compute_outputs`` are checked like outputs,
     with ``DeclaredOutputValidator``.
 
     Raises (when called):
         InvalidCallError: ``compute_hook_returned_invalid`` problems, each with one error in ``ctx.errors``. There is
             one at each name that isn't a valid name (``not_a_name``). If the hook returned no mapping, there is one
-            at the node (``dict_type``). If ``@node`` would refuse a field, its error's ``type`` is the declaration's
-            code, like ``default_invalid``, and its message names the field but quotes none of the declaration's
+            at the node (``dict_type``). If ``@node`` would refuse a port, its error's ``type`` is the declaration's
+            code, like ``default_invalid``, and its message names the port but quotes none of the declaration's
             text, which can quote the default. If the hook gives a name the node declares itself, there is one at
             the node (``added_input_exists``).
     """
@@ -236,22 +236,22 @@ class HookValidator(Validator[Any, dict[str, Field]]):
         self._node_id = node_id
         self._hook = hook
         self._taken = taken
-        self._read_field: type[DeclaredInputValidator | DeclaredOutputValidator] = (
+        self._read_port: type[DeclaredInputValidator | DeclaredOutputValidator] = (
             DeclaredInputValidator if hook == "compute_added_inputs" else DeclaredOutputValidator
         )
 
-    def __call__(self, returned: Any) -> dict[str, Field]:
-        """Checks what the hook returned, and returns its fields by name.
+    def __call__(self, returned: Any) -> dict[str, Port]:
+        """Checks what the hook returned, and returns its ports by name.
 
         Raises:
             InvalidCallError: See the class.
         """
         try:
-            hints = _HOOK_FIELDS.validate_python(returned)
+            hints = _HOOK_PORTS.validate_python(returned)
         except ValidationError as invalid:
             if not invalid.errors()[0]["loc"]:  # no location: not a mapping
                 reason = (
-                    f"its {self._hook} hook returned a {type(returned).__name__}, not a mapping of each field's name"
+                    f"its {self._hook} hook returned a {type(returned).__name__}, not a mapping of each port's name"
                     " to its type"
                 )
                 raise InvalidCallError(
@@ -265,17 +265,17 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 compile_problems.compute_hook_returned_invalid(
                     self._node_id,
                     str(fault["loc"][0]),
-                    reason=f"its {self._hook} hook returned a name a field can't have ({fault['msg']})",
+                    reason=f"its {self._hook} hook returned a name a port can't have ({fault['msg']})",
                     errors=[shape_error(fault)],
                 )
                 for fault in invalid.errors()
             ) from None
-        fields: dict[str, Field] = {}
+        ports: dict[str, Port] = {}
         for name, given in hints.items():
             hint, default = _hint_and_default(given)
             try:
-                fields[name] = self._read_field(name, hint)(default)
-            # @node would refuse the field, so the hook failed. The declaration's message can quote the default the
+                ports[name] = self._read_port(name, hint)(default)
+            # @node would refuse the port, so the hook failed. The declaration's message can quote the default the
             # hook gave, so the problem keeps only its code.
             except NodeDeclarationError as error:
                 refused = shape_error(
@@ -292,7 +292,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                         )
                     ]
                 ) from None
-        taken = sorted(fields.keys() & self._taken)
+        taken = sorted(ports.keys() & self._taken)
         if taken:
             exists = shape_error(
                 conductor_error(
@@ -308,11 +308,11 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                     )
                 ]
             )
-        return fields
+        return ports
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:
-    """Splits what a hook returns for one field into its type and its default.
+    """Splits what a hook returns for one port into its type and its default.
 
     A hook gives ``(type, default)``, or a type alone. A type alone has no default, so it gets ``REQUIRED``.
     """

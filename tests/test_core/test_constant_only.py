@@ -126,7 +126,7 @@ def test_describe_says_which_inputs_take_only_a_constant():
     for described in (pad.describe(), parts.describe()):
         assert {f.name: f.constant_only for f in described.inputs} == {"text": False, "width": True}
     graph = Graph.compile(make_graph(word, pad), REGISTRY)
-    assert [i.field.constant_only for i in graph.describe().nodes["pad"].inputs] == [False, True]
+    assert [i.port.constant_only for i in graph.describe().nodes["pad"].inputs] == [False, True]
     assert pad.describe().model_dump(mode="json")["inputs"][1]["constant_only"] is True
 
 
@@ -281,7 +281,7 @@ def test_an_input_a_hook_adds_can_take_only_a_constant(
     assert [(p.type, p.loc, p.ctx.get("given")) for p in graph.problems] == (
         [] if found is None else [(found[0], ("s", "setting0"), found[1])]
     )
-    assert [i.field.constant_only for i in graph.describe().nodes["s"].inputs] == [True, True]
+    assert [i.port.constant_only for i in graph.describe().nodes["s"].inputs] == [True, True]
 
 
 def test_a_refused_edge_decides_no_type():
@@ -311,7 +311,7 @@ def test_a_refused_edge_decides_no_type():
     graph = Graph.compile(record, _registry(word, number, either))
     assert [p.type for p in graph.problems] == ["input_takes_only_a_constant"]
     described = graph.describe().nodes["e"]
-    assert [f.field.type for f in described.inputs] == ["int", "int"]
+    assert [f.port.type for f in described.inputs] == ["int", "int"]
     assert [f.type for f in described.outputs] == ["int"]
 
 

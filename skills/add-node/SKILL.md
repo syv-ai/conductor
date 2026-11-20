@@ -7,7 +7,7 @@ description: Writes a conductor node, a Python function under @node. Use when ad
 
 A node is a plain Python function. Its type hints are its interface: each parameter is an input, and the return type is its output. So `def greet(name: str) -> str` under `@node("greet", title="Greet", description="Greets a person.")` is already a node. `Annotated[..., Param(...)]` adds what a person sees in an editor.
 
-To wire nodes into a graph and run it, use the **create-graph** skill. The installed library is the authority on every rule: `python -m conductor.about node` (or `versions`, `field-hooks`, `types`).
+To wire nodes into a graph and run it, use the **create-graph** skill. The installed library is the authority on every rule: `python -m conductor.about node` (or `versions`, `hooks`, `types`).
 
 ```python
 from typing import Annotated
@@ -38,7 +38,7 @@ assert registry["greet"] is greet
 - The id, `title=` and `description=` are all required.
 - The title and description are what a person reads in the palette. Write them for someone who isn't a developer.
 - The docstring is for developers. It's never shown.
-- A field's title is its `Param(title=)`. Without one it's `None`: nothing is guessed from the parameter's name.
+- A port's title is its `Param(title=)`. Without one it's `None`: nothing is guessed from the parameter's name.
 
 **Inputs.**
 - Give an input a widget only where it says more than its type, such as `Param(widget=Textarea())` for a long text. A host's editor picks the control for a `str`, a number, a `bool` or a list from the type, so `TextInput()`, `NumberInput()`, `Switch()` and `ListInput()` there add nothing.
@@ -113,4 +113,4 @@ assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 | A retry loop inside the node | use `Policy(retries=...)`, and raise `ExternalError` or set `retry_on` |
 | "flow" in a docstring or message | conductor's word is graph |
 | Catching `Exception` around an `Ask` | `Ask` is a `BaseException`, so `except Exception` lets it through. Don't catch `BaseException` |
-| `Ask(default=value)` on a node with several outputs | write `default={"field": value}`, by output name, as the answer is. An `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |
+| `Ask(default=value)` on a node with several outputs | write `default={"output_name": value}`, by output name, as the answer is. An `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |

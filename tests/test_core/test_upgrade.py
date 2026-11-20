@@ -637,7 +637,7 @@ def test_compile_leaves_a_pinned_version_alone():
     assert graph.run().outputs == {"result": "Ada Lovelace"}
 
 
-# --- what moves with a renamed field ---------------------------------------------
+# --- what moves with a renamed port ---------------------------------------------
 
 
 def renames_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Param(title="R")]:
@@ -833,9 +833,9 @@ def test_an_output_an_upgrade_renames_needs_nothing_more():
 def test_an_upgrade_renaming_a_field_a_version_does_not_declare_is_refused_where_it_is_declared(
     upgrade: Upgrade, old: list[str], new: list[str]
 ):
-    """A rename from a field the replaced version lacks, or to one the new version lacks, is refused at ``@node``.
+    """A rename from a port the replaced version lacks, or to one the new version lacks, is refused at ``@node``.
 
-    A name that is no field, such as a typo, moves nothing, so a graph upgraded by it would lose what that field got.
+    A name that is no port, such as a typo, moves nothing, so a graph upgraded by it would lose what that port got.
     The ``rewrite`` explains the dropped input, so the only fault is the rename.
     """
     with pytest.raises(NodeDeclarationError) as raised:
@@ -877,8 +877,8 @@ def test_a_subgraph_upgrade_renaming_a_graph_input_it_does_not_have_is_refused()
     )
 
 
-def test_a_rename_of_a_field_a_hook_may_give_is_not_checked():
-    """A version with a hook may have fields it doesn't declare, so a rename of that kind of field passes ``@node``."""
+def test_a_rename_of_a_port_a_hook_may_give_is_not_checked():
+    """A version with a hook may have ports it doesn't declare, so a rename of that kind of port passes ``@node``."""
 
     def outputs_by_name() -> dict[str, type]:
         return {"first": str}

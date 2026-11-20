@@ -17,7 +17,7 @@ Each input of a compiled node is an ``Input``, which is one of five kinds:
   ``shout`` returned for each line.
 - A ``MissingInput`` gets no value, because the graph has a problem there. Such a graph never runs.
 
-Every kind has ``field``, ``sources`` and ``loops``, so code that only needs those doesn't have to check the kind.
+Every kind has ``port``, ``sources`` and ``loops``, so code that only needs those doesn't have to check the kind.
 ``sources`` has one ``Edge`` per edge into the input. An input with no edge into it has no sources and no loops.
 
 A loop means a node is called once per item of a list. A loop is named by that list: the path of the function
@@ -39,7 +39,7 @@ from dataclasses import dataclass, replace
 from typing import Any, ClassVar, final
 
 from conductor._internal.base import NodePath, Source
-from conductor._internal.field import Field
+from conductor._internal.port import Port
 from conductor._internal.types import Type
 
 
@@ -171,14 +171,14 @@ class ConstantInput:
     ``shout.mark`` is ``ConstantInput(mark, "!")``.
 
     Attributes:
-        field: The input, as its node declares it.
+        port: The input, as its node declares it.
         value: The value, already checked and converted by the input's type. Each run gets its own copy of it, made
             when the run is made (``RunOutcomes.constants``), so the compiled graph's value is never handed to a node.
         sources: Always empty, since no edge leads to the input.
         loops: Always empty, since the value isn't made in a loop.
     """
 
-    field: Field
+    port: Port
     value: Any
     sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[tuple[NodePath, str], ...]] = ()
@@ -193,12 +193,12 @@ class MissingInput:
     node is still kept in the compiled graph, so an editor can draw it with this input shown as unset.
 
     Attributes:
-        field: The input, as its node declares it.
+        port: The input, as its node declares it.
         sources: Always empty, since no usable edge leads to the input.
         loops: Always empty.
     """
 
-    field: Field
+    port: Port
     sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[tuple[NodePath, str], ...]] = ()
 
@@ -211,13 +211,13 @@ class GraphInput:
     In the example, ``lines.text`` is ``GraphInput(text, "text")``.
 
     Attributes:
-        field: The input, as its node declares it.
+        port: The input, as its node declares it.
         name: The graph input's name. The caller gives the value by this name, and the run stores it under it.
         sources: Always empty, since no edge leads to the input.
         loops: Always empty, since the value isn't made in a loop.
     """
 
-    field: Field
+    port: Port
     name: str
     sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[tuple[NodePath, str], ...]] = ()
@@ -232,14 +232,14 @@ class EdgeInput:
     ``lines.result``.
 
     Attributes:
-        field: The input, as its node declares it.
+        port: The input, as its node declares it.
         sources: What each edge into the input carries. With several edges, each comes from a different branch of
             one node, and a call gets the value from the branch that has one.
         loops: The loops the node must be in to get the value, outermost first. These come from the edges, which
             all have the same ones.
     """
 
-    field: Field
+    port: Port
     sources: tuple[Edge, ...]
     loops: tuple[tuple[NodePath, str], ...]
 
@@ -273,7 +273,7 @@ class CollectingInput:
     to rows collects them the same way.
 
     Attributes:
-        field: The input, as its node declares it.
+        port: The input, as its node declares it.
         series: The list whose loop the input collects, as the node path and the output:
             ``(("lines",), "result")``.
         loops: The loops the node must be in to get the list, outermost first. These are the loops of the node
@@ -282,7 +282,7 @@ class CollectingInput:
             of one node, as for any input.
     """
 
-    field: Field
+    port: Port
     series: tuple[NodePath, str]
     loops: tuple[tuple[NodePath, str], ...]
     sources: tuple[Edge, ...]

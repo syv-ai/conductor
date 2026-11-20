@@ -42,8 +42,8 @@ from conductor._internal.base import (
     parse_waiting_id,
     write_waiting_id,
 )
-from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
+from conductor._internal.port import Port
 from conductor._internal.problem import InvalidCallError, call_problems, run_problems
 from conductor._internal.table import is_bare_table_row, with_rows_checked
 from conductor._internal.types import Type
@@ -60,12 +60,12 @@ def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
     An input that collects a loop gets one item of its value from each edge, not the whole value. Then each output
     is compared with the input's item type, which for a table is its row type.
     """
-    field, sources = node_input.field, [edge.type for edge in node_input.sources]
+    port, sources = node_input.port, [edge.type for edge in node_input.sources]
     match node_input:
         case EdgeInput():
-            return not all(field.whole.holds(source) for source in sources)
+            return not all(port.whole.holds(source) for source in sources)
         case CollectingInput():
-            item = field.type if field.whole.row is None else field.whole.row
+            item = port.type if port.whole.row is None else port.whole.row
             return not all(item.holds(source) for source in sources)
         case _:
             assert_never(node_input)
@@ -99,30 +99,30 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
         Args:
             inputs: The node's inputs that get their values through edges, by name.
         """
-        read: dict[str, tuple[Field, Type]] = {}
+        read: dict[str, tuple[Port, Type]] = {}
         for name, node_input in inputs.items():
-            whole = node_input.field.whole
+            whole = node_input.port.whole
             if _demands_more(node_input):
-                read[name] = (node_input.field, whole)
+                read[name] = (node_input.port, whole)
             elif isinstance(node_input, CollectingInput) and (row := whole.row) is not None:
                 read[name] = (
-                    node_input.field,
+                    node_input.port,
                     whole if is_bare_table_row(row.hint) else Type(with_rows_checked(whole.hint)),
                 )
         return cls(read) if read else None
 
-    def __init__(self, inputs: Mapping[str, tuple[Field, Type]]) -> None:
+    def __init__(self, inputs: Mapping[str, tuple[Port, Type]]) -> None:
         """Builds the validator for ``inputs``: by name, each input to check and the type its value is checked by,
         which for a table of rows its sources already checked is the table for rows already its row type's values
         (``with_rows_checked``)."""
         self._inputs = tuple(
             (
                 name,
-                field.whole,
-                field.whole.exact_classes,
+                port.whole,
+                port.whole.exact_classes,
                 checked_by.argument_validator.validate_python,
             )
-            for name, (field, checked_by) in inputs.items()
+            for name, (port, checked_by) in inputs.items()
         )
 
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:

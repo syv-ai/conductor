@@ -34,7 +34,7 @@ from conductor._internal.base import SKIPPED
 from conductor._internal.problem import conductor_error, raised_again
 from conductor._internal.utils import comma_separated
 
-from .type import Field
+from .type import Port
 
 #: How a node's function returns its outputs. ``"value"`` is one value, the output ``result``. ``"mapping"`` is a
 #: mapping by output name, from a node whose ``compute_outputs`` hook gives its outputs. ``"nothing"`` is ``None``,
@@ -43,8 +43,8 @@ type ReturnShape = Literal["value", "mapping", "nothing"] | type
 
 
 def outputs_schema(
-    outputs: Mapping[str, Field],
-    fields: Mapping[str, TypedDictField],
+    outputs: Mapping[str, Port],
+    schemas: Mapping[str, TypedDictField],
     given_as: ReturnShape | Literal["answer"],
 ) -> CoreSchema:
     """Builds the schema that reads a value for each of a node's outputs into the outputs, by name.
@@ -60,7 +60,7 @@ def outputs_schema(
 
     Args:
         outputs: The node's outputs, by name.
-        fields: How each output's value is read, by output name: its schema, whether it must be given, and its
+        schemas: How each output's value is read, by output name: its schema, whether it must be given, and its
             default.
         given_as: How the whole value is given: returned in the node's ``ReturnShape``, or as a person answers
             (``answer_by_output``).
@@ -105,14 +105,14 @@ def outputs_schema(
                 "outputs", _in_order(outputs, [*refused, *errors])
             )
         filled: dict[str, Any] = {}
-        for name, field in outputs.items():
-            if field.is_branch and branches and name not in branches:
+        for name, port in outputs.items():
+            if port.is_branch and branches and name not in branches:
                 filled[name] = SKIPPED
             else:
                 filled[name] = read.get(name, SKIPPED)
         return filled
 
-    by_name = core_schema.typed_dict_schema(dict(fields), extra_behavior="forbid")
+    by_name = core_schema.typed_dict_schema(dict(schemas), extra_behavior="forbid")
     if given_as in ("value", "nothing"):
         return core_schema.no_info_before_validator_function(split, by_name)
     return core_schema.no_info_before_validator_function(
@@ -121,7 +121,7 @@ def outputs_schema(
 
 
 def without_skipped(
-    outputs: Mapping[str, Field], given: Mapping[Any, Any]
+    outputs: Mapping[str, Port], given: Mapping[Any, Any]
 ) -> tuple[Mapping[Any, Any], list[InitErrorDetails]]:
     """Reads ``SKIPPED`` in a value given for each output: the one rule for a return, an answer, an ``Ask``'s default,
     and an answer a host queues for later.
@@ -157,7 +157,7 @@ def without_skipped(
     return kept, refused
 
 
-def answer_by_output(outputs: Mapping[str, Field], answer: Any) -> Any:
+def answer_by_output(outputs: Mapping[str, Port], answer: Any) -> Any:
     """Splits a person's answer, or an ``Ask``'s default, into a value per output name.
 
     A node of one output is answered with its value, so the value is put under the output's name. A node of several
@@ -177,7 +177,7 @@ def answer_by_output(outputs: Mapping[str, Field], answer: Any) -> Any:
     return answer
 
 
-def _returned_by_output(shape: ReturnShape, outputs: Mapping[str, Field], returned: Any) -> Any:
+def _returned_by_output(shape: ReturnShape, outputs: Mapping[str, Port], returned: Any) -> Any:
     """Splits what a node's function returned into a value per output name, by the node's ``ReturnShape``.
 
     Raises:
@@ -217,7 +217,7 @@ def _returned_by_output(shape: ReturnShape, outputs: Mapping[str, Field], return
 
 
 def _in_order(
-    outputs: Mapping[str, Field], errors: list[InitErrorDetails]
+    outputs: Mapping[str, Port], errors: list[InitErrorDetails]
 ) -> list[InitErrorDetails]:
     """Puts the faults in the order of the outputs they are at, then those at a name that isn't an output, then those
     of the whole value, keeping the order of the faults at one place."""
@@ -232,7 +232,7 @@ def _in_order(
     return sorted(errors, key=place)
 
 
-def _check_branches(outputs: Mapping[str, Field], given: Container[str]) -> list[str]:
+def _check_branches(outputs: Mapping[str, Port], given: Container[str]) -> list[str]:
     """Refuses a call that gives more than one branch among ``outputs`` a value, and returns the one it gives, if any.
 
     For ``route`` returning a value on both ``long`` and ``short``, the message is "'long' and 'short' both have a
@@ -249,7 +249,7 @@ def _check_branches(outputs: Mapping[str, Field], given: Container[str]) -> list
         PydanticCustomError: ``several_branches_given``, with ``ctx.given`` the branches given a value, in the order
             the node declares them.
     """
-    taken = [name for name, field in outputs.items() if field.is_branch and name in given]
+    taken = [name for name, port in outputs.items() if port.is_branch and name in given]
     if len(taken) <= 1:
         return taken
     quoted = [f"'{name}'" for name in taken]

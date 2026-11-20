@@ -535,7 +535,7 @@ print(inner, list(inner.inputs), list(inner.outputs))
 print({n: d.per_item_of for n, d in inner.describe().nodes.items()})
 
 d = graph.describe().nodes["loud"]
-print([i.field.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_of)</pre>
+print([i.port.name for i in d.inputs], [o.name for o in d.outputs], d.per_item_of)</pre>
 <pre class="out">&lt;Graph of 2 nodes, runnable&gt; ['line'] ['result']
 {'shout': None, 'strip': None}
 ['line'] ['result'] lines.result</pre>
@@ -562,7 +562,7 @@ print(list(json.loads(run.to_json())["outcomes"]))</pre>
   <div class="section-head prose">
     <p class="eyebrow">Compiling</p>
     <h2 id="compile-h">How a subgraph node is compiled</h2>
-    <p class="muted">When a graph is <a href="graph-record-and-compiling.html#compiling">compiled</a>, each subgraph node's record is compiled on its own first. A <a href="problems.html">problem</a> inside comes back with the subgraph node's id in front of its <code>loc</code>. The node is left out, so <code>describe()</code> says it wasn't <code>found</code>. A subgraph that contains itself, at any depth, is <code>subgraph_contains_itself</code>. Otherwise the node's inputs and outputs are the inner graph's. Each output keeps the field of the inner node that returns it, under the graph output's name.</p>
+    <p class="muted">When a graph is <a href="graph-record-and-compiling.html#compiling">compiled</a>, each subgraph node's record is compiled on its own first. A <a href="problems.html">problem</a> inside comes back with the subgraph node's id in front of its <code>loc</code>. The node is left out, so <code>describe()</code> says it wasn't <code>found</code>. A subgraph that contains itself, at any depth, is <code>subgraph_contains_itself</code>. Otherwise the node's inputs and outputs are the inner graph's. Each output keeps the port of the inner node that returns it, under the graph output's name.</p>
   </div>
 
   <div class="pair">

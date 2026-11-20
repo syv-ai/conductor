@@ -351,7 +351,7 @@ class NodeRegistry[C]:
     def describe(self) -> RegistryDescription:
         """Describes the registry for an editor's palette: every node, and every type.
 
-        A subgraph whose graph doesn't compile on this registry's nodes has no fields to offer, and is left out.
+        A subgraph whose graph doesn't compile on this registry's nodes has no ports to offer, and is left out.
         ``check_registry`` reports its problems (``subgraph_broken``), and so does compiling a graph that uses it.
 
         Each type lists the types that take a value of it, its own type included. That list is worked out from
@@ -479,8 +479,8 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
         for step in definition.versions.values():
             match step:
                 case FunctionDefinition():
-                    fields = (*step.inputs.values(), *step.outputs.values())
+                    ports = (*step.inputs.values(), *step.outputs.values())
                 case SubgraphDefinition():  # a subgraph declares no classes of its own
                     continue
-            found.extend(cls for field in fields for cls in field.whole.classes)
+            found.extend(cls for port in ports for cls in port.whole.classes)
     return list(dict.fromkeys(found))

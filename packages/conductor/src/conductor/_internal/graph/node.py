@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import AskValidator
 from conductor._internal.base import SKIPPED, NodePath, Source, place_text, short_hash
-from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
+from conductor._internal.port import Port, PortDescription
 
 from .input import Edge, Input, path_in_outer_graph
 
@@ -120,7 +120,7 @@ class _CompiledNodeBase:
         id: The node's id in the graph record.
         loops: The loops the node is in, outermost first. Each is named by the node path and output of the list it
             loops over.
-        inputs: The compiled input of each input, by name. Each one's ``field`` is the input as compiled. Inputs a
+        inputs: The compiled input of each input, by name. Each one's ``port`` is the input as compiled. Inputs a
             ``compute_added_inputs`` hook added are included, and a type variable is replaced by the type its
             edges carry.
         outputs: Each output, by name, as compiled: as the definition declares it, or as a ``compute_outputs``
@@ -134,7 +134,7 @@ class _CompiledNodeBase:
     id: str
     loops: tuple[tuple[NodePath, str], ...]
     inputs: dict[str, Input]
-    outputs: dict[str, Field]
+    outputs: dict[str, Port]
     required_branches: frozenset[RequiredBranch | Switch]
     off: bool
 
@@ -149,14 +149,14 @@ class _CompiledNodeBase:
         The ``node`` and ``output`` of ``lines.edge_reading("result")`` are ``("lines",)`` and ``"result"``. That's
         also how the loop over that list is named.
         """
-        field = self.outputs[output]
+        port = self.outputs[output]
         return Edge(
             Source(self.id, output),
             (self.id,),
             output,
             self.loops,
-            field.type,
-            per_item=field.is_series,
+            port.type,
+            per_item=port.is_series,
         )
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch | Switch]:
@@ -171,12 +171,12 @@ class _CompiledNodeBase:
             else self.required_branches
         )
 
-    def described_outputs(self) -> list[FieldDescription]:
+    def described_outputs(self) -> list[PortDescription]:
         """Returns each output as an editor shows it.
 
         A waiting call shows its questions this way too, when its ``Ask`` sets no choices or default.
         """
-        return [field.description for field in self.outputs.values()]
+        return [port.description for port in self.outputs.values()]
 
 
 @typing.final
@@ -229,10 +229,10 @@ class CompiledFunctionNode(_CompiledNodeBase):
                 of the outer graph.
         """
         definition = self.definition
-        fields = [
-            (field.name, field.whole.reads_as)
-            for field in (
-                *(node_input.field for node_input in self.inputs.values()),
+        ports = [
+            (port.name, port.whole.reads_as)
+            for port in (
+                *(node_input.port for node_input in self.inputs.values()),
                 *self.outputs.values(),
             )
         ]
@@ -244,7 +244,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         around = tuple([place_text(node, output) for node, output in outer_loops])
         loops = (*around, "/", *own) if around else own
         written = repr(
-            (definition.id, definition.version, code, fields, branches, loops, definition.asks)
+            (definition.id, definition.version, code, ports, branches, loops, definition.asks)
         )
         return short_hash(written.encode(), 8)
 
@@ -269,7 +269,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         """The outputs of the node when it isn't called because an argument was ``None``, and its parameter doesn't
         take ``None``.
 
-        An output that's a branch (``Field.is_branch``) is ``SKIPPED``, since it wasn't taken. Every other output
+        An output that's a branch (``Port.is_branch``) is ``SKIPPED``, since it wasn't taken. Every other output
         is ``None``. For ``shout``, that's ``{"result": None}``. Say ``route`` has the branches ``short`` and
         ``long``, and one more output ``note`` that isn't a branch. Then it's
         ``{"short": SKIPPED, "long": SKIPPED, "note": None}``.
@@ -362,7 +362,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
             branch.in_outer_graph((self.id,), self.loops) for branch in inside
         }
 
-    def described_outputs(self) -> list[FieldDescription]:
+    def described_outputs(self) -> list[PortDescription]:
         """Returns each output as an editor shows it: as its subgraph's graph describes its outputs (``inner.outputs``).
 
         For ``e`` above, ``shouted`` is described as ``shout``'s ``result``: the type ``str``, ``is_series`` true,

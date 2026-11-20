@@ -520,7 +520,7 @@ def test_a_subgraph_node_offers_the_inputs_and_outputs_its_record_declares():
     graph = compile_graph({"e": "shout-inner"})
     assert list(graph.inputs) == ["text"]
     described = graph.describe().nodes["e"]
-    assert [i.field.name for i in described.inputs] == ["text"] and [
+    assert [i.port.name for i in described.inputs] == ["text"] and [
         o.name for o in described.outputs
     ] == ["result"]
     two = compile_graph({"a": "shout-inner", "b": "shout-inner"}, [("a.result", "b.text")])

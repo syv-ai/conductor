@@ -460,9 +460,9 @@ True</pre>
 <pre class="out">dataclasses.FrozenInstanceError: cannot assign to field 'title'</pre>
     </div>
     <div>
-      <p class="label">What <code>describe()</code> hands an editor, one <code>FieldDescription</code> per input and output</p>
-<pre data-lang="py">for field in [*repeat.describe().inputs, *repeat.describe().outputs]:
-    print(field.model_dump_json(exclude_defaults=True))</pre>
+      <p class="label">What <code>describe()</code> hands an editor, one <code>PortDescription</code> per input and output</p>
+<pre data-lang="py">for port in [*repeat.describe().inputs, *repeat.describe().outputs]:
+    print(port.model_dump_json(exclude_defaults=True))</pre>
 <pre class="out">{"name":"text","is_series":false,"type":"str","json_schema":{"type":"string"},"required":true}
 {"name":"times","title":"Times","is_series":false,"type":"int","json_schema":{"maximum":10,"minimum":1,"type":"integer"},"required":false,"default":2}
 {"name":"joiner","is_series":false,"type":"str","json_schema":{"enum":[""," ","-"],"type":"string"},"required":false,"default":" ","choices":[{"id":"","title":""},{"id":" ","title":" "},{"id":"-","title":"-"}],"widget":{"type":"dropdown"}}
@@ -479,7 +479,7 @@ True</pre>
   <div class="section-head prose">
     <p class="eyebrow"><code>Param</code></p>
     <h2 id="hint-h">A <code>Param</code> says more about an input or output</h2>
-    <p class="muted"><code>Annotated[int, Param(...)]</code> adds a title, a widget, limits and choices. The limits and choices check a value. The title, description and widget only reach the editor, so two fields that differ only in their title have the same type.</p>
+    <p class="muted"><code>Annotated[int, Param(...)]</code> adds a title, a widget, limits and choices. The limits and choices check a value. The title, description and widget only reach the editor, so two ports that differ only in their title have the same type.</p>
   </div>
 
   <figure>
@@ -529,13 +529,13 @@ True</pre>
         <path class="d-edge" d="M659 132 L 659 196" marker-end="url(#ah)"/>
         <text class="d-sub" x="666" y="168">id, schema</text>
         <rect class="d-box" x="558" y="198" width="202" height="94" rx="8"/>
-        <text class="d-label" x="572" y="219">FieldDescription</text>
+        <text class="d-label" x="572" y="219">PortDescription</text>
         <text class="d-text" x="572" y="238">title "Times", type "int"</text>
         <text class="d-text" x="572" y="256">schema min 1, max 10</text>
         <text class="d-text" x="572" y="274">default 2, not required</text>
       </svg>
     </div>
-    <figcaption>The blue path is what checks a value. Only it reaches the field's <code class="int" title="Internal">Type</code>.</figcaption>
+    <figcaption>The blue path is what checks a value. Only it reaches the port's <code class="int" title="Internal">Type</code>.</figcaption>
     <p class="small">Solid boxes are public. The dashed box is internal.</p>
   </figure>
   </div>
@@ -558,7 +558,7 @@ print(sep.title, sep.widget, sep.type, sep.json_schema)</pre>
     </div>
     <div>
       <p class="label">Choices go in <code>Param(choices=)</code></p>
-      <p class="muted">Write the type plainly and list each value once in <code>Param(choices=)</code>. The field then takes only those values, and its schema lists them as its <code>enum</code>. A <code>Choice</code> gives a value a title, written by position or with keywords. A bare value is titled by its text. A <code>Literal</code> gives the same choices and <code>enum</code>, but it can't give them titles.</p>
+      <p class="muted">Write the type plainly and list each value once in <code>Param(choices=)</code>. The port then takes only those values, and its schema lists them as its <code>enum</code>. A <code>Choice</code> gives a value a title, written by position or with keywords. A bare value is titled by its text. A <code>Literal</code> gives the same choices and <code>enum</code>, but it can't give them titles.</p>
       <pre data-lang="py">@node("size", title="Size", description="Picks a size.")
 def size(
     pick: Annotated[str, Param(choices=[Choice("s", "Small"),
@@ -567,9 +567,9 @@ def size(
     literal: Literal["s", "m"] = "s",
 ) -> str: ...
 
-for field in size.describe().inputs:
-    print(field.name, field.type, [(c.id, c.title) for c in field.choices],
-          field.json_schema)</pre>
+for port in size.describe().inputs:
+    print(port.name, port.type, [(c.id, c.title) for c in port.choices],
+          port.json_schema)</pre>
       <pre class="out">pick str [('s', 'Small'), ('m', 'Medium')] {'enum': ['s', 'm'], 'type': 'string'}
 untitled str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}
 literal str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}</pre>
@@ -816,7 +816,7 @@ print([(f.name, f.constant_only) for f in sum_of.describe().inputs])
 
 graph = Graph.compile(make_graph(sum_of, constants={"sum.count": 3},
     defaults={"sum.value_0": 0.0, "sum.value_1": 0.0, "sum.value_2": 0.0}), registry)
-print([i.field.name for i in graph.describe().nodes["sum"].inputs])
+print([i.port.name for i in graph.describe().nodes["sum"].inputs])
 print(graph.run({"value_0": 1.0, "value_1": 2.0, "value_2": 3.5}).outputs)</pre>
       <p class="label">printed &middot; the <code class="int" title="Internal">values_of</code> lines, the inputs whose values each hook reads <span class="lvl int">Internal</span></p>
       <pre class="out">frozenset({'count'})
@@ -826,7 +826,7 @@ frozenset({'names'})
 {'result': 6.5}</pre>
     </div>
     <div>
-      <p class="muted">What each parameter of a hook gets, and what a hook returns, is in the reference: <code>python -m conductor.about field-hooks</code>. A hook that fails doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes a <a href="problems.html">problem</a> on its node. A hook that raises any exception but a <code>NodeError</code> is <code>compute_hook_raised</code>, with only the exception's class in <code>ctx</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. The <a href="problems.html">problems page</a> has the other ways a hook fails.</p>
+      <p class="muted">What each parameter of a hook gets, and what a hook returns, is in the reference: <code>python -m conductor.about hooks</code>. A hook that fails doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes a <a href="problems.html">problem</a> on its node. A hook that raises any exception but a <code>NodeError</code> is <code>compute_hook_raised</code>, with only the exception's class in <code>ctx</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. The <a href="problems.html">problems page</a> has the other ways a hook fails.</p>
       <pre data-lang="py">def failing(names: str) -&gt; dict[str, type]:
     raise ValueError("no names")
 
@@ -1266,8 +1266,8 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
     </article>
     <article class="choice">
       <h3>Hooks run when a graph is compiled.</h3>
-      <p>A hook reads constants and the types edges bring, so every node's fields are known before a run, and <a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a> shows them.</p>
-      <p class="cost"><b>Cost:</b> a node's fields can't follow a value that arrives at run time. A type that follows an edge needs no run-time value, since a <a href="standard-nodes.html#control">type variable</a> or a hook parameter annotated <code>type</code> can say it.</p>
+      <p>A hook reads constants and the types edges bring, so every node's ports are known before a run, and <a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a> shows them.</p>
+      <p class="cost"><b>Cost:</b> a node's ports can't follow a value that arrives at run time. A type that follows an edge needs no run-time value, since a <a href="standard-nodes.html#control">type variable</a> or a hook parameter annotated <code>type</code> can say it.</p>
     </article>
     <article class="choice">
       <h3>The run's context isn't an input.</h3>
@@ -1356,7 +1356,7 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
       job: 'The Param\'s title goes to the description, and its limits go into the schema. The default 2 is checked against the type and its limits when @node runs, and must be writable as JSON. A default the type refuses fails here, with default_invalid.' },
     { id: "joiner", text: 'joiner: Annotated[str, Param(choices=["", " ", "-"], widget=Dropdown())] = " "', indent: "    ", tail: ",",
       name: "choices, with a widget",
-      job: "Param(choices=) gives the field its choices, each titled by its text, and its schema lists them as an enum. The field takes no other value. The widget is handed to the editor as JSON. Conductor never reads it, when it compiles or when it runs." },
+      job: "Param(choices=) gives the port its choices, each titled by its text, and its schema lists them as an enum. The port takes no other value. The widget is handed to the editor as JSON. Conductor never reads it, when it compiles or when it runs." },
     { id: "ret", text: ") -> str:",
       name: "the return type",
       job: "A return type that is one value is one output, named result. A function with no return type fails here, with output_without_type." },

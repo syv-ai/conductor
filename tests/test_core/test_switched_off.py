@@ -198,7 +198,7 @@ def test_a_subgraph_output_downstream_of_a_node_switched_off_inside_may_be_skipp
         },
         registry_of(upper, exclaim, part),
     )
-    assert [field.required for field in graph.describe().nodes["part"].outputs] == [False]
+    assert [port.required for port in graph.describe().nodes["part"].outputs] == [False]
     assert (graph.outputs["part"].required, graph.outputs["after"].required) == (False, False)
     assert graph.run({}).outputs == {"part": None, "after": None}
 
@@ -526,7 +526,7 @@ def test_a_subgraph_whose_node_is_switched_off_offers_no_port_only_that_node_ser
         registry_of(upper, exclaim, part),
     )
     assert graph.is_runnable
-    assert [field.name for field in graph.describe().nodes["part"].outputs] == ["result"]
+    assert [port.name for port in graph.describe().nodes["part"].outputs] == ["result"]
     assert graph.run({"text": "a"}).outputs == {"result": "A"}
 
 

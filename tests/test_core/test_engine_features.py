@@ -818,7 +818,7 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
 def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_node_id_is(name: str):
-    """A field name a hook returns, an output's or an added input's, follows the same rule as a node id.
+    """A port name a hook returns, an output's or an added input's, follows the same rule as a node id.
 
     It can't be empty, and it can't use the characters that sources, locs and waiting ids are written with.
     """
@@ -1499,7 +1499,7 @@ def test_a_compiled_graph_describes_a_nodes_added_inputs_with_one_that_no_edge_r
         reg7,
     )
     described = json.loads(graph.describe().model_dump_json())["nodes"]
-    assert [f["field"]["name"] for f in described["f"]["inputs"]] == ["formula", "a", "b"], (
+    assert [f["port"]["name"] for f in described["f"]["inputs"]] == ["formula", "a", "b"], (
         described["f"]
     )
 
@@ -1557,9 +1557,9 @@ def test_an_input_hint_written_as_optional_annotated_any_or_bare_series_is_descr
     ) -> str:
         return type(whole).__name__
 
-    fields = {f.name: f for f in kinds.describe().inputs}
-    assert fields["maybe"].title == "Maybe" and not fields["maybe"].is_series
-    assert fields["many"].is_series and fields["some"].is_series
+    ports = {f.name: f for f in kinds.describe().inputs}
+    assert ports["maybe"].title == "Maybe" and not ports["maybe"].is_series
+    assert ports["many"].is_series and ports["some"].is_series
     graph = Graph.compile(
         GraphRecord.model_validate(
             {

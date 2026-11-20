@@ -19,7 +19,7 @@ refuses, or a ``raise Ask(...)`` in its body without ``asks=True`` raises ``Node
 ``subgraph()`` turns a graph record into a node instead, so a whole graph can be one step in another graph.
 
 The rules for versions, hooks and asking are in the reference: ``python -m conductor.about the-node-contract``,
-``versions-and-policies`` and ``field-hooks``.
+``versions-and-policies`` and ``hooks``.
 """
 
 from __future__ import annotations
@@ -37,10 +37,10 @@ from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter, is_context
-from conductor._internal.field import (
+from conductor._internal.port import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
-    Field,
+    Port,
     ReturnShape,
 )
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
@@ -195,11 +195,11 @@ def node(
                 for name in hook.values_of
             }
             for name in read_by_a_hook:
-                field = inputs[name]
-                inputs[name] = Field(
+                port = inputs[name]
+                inputs[name] = Port(
                     name,
-                    Annotated[field.hint, Param(constant_only=True)],
-                    field.default,
+                    Annotated[port.hint, Param(constant_only=True)],
+                    port.default,
                     is_output=False,
                 )
             definition = FunctionDefinition(
@@ -345,10 +345,10 @@ def _shared_fields(declared_with: str, arguments: Mapping[str, Any]) -> dict[str
 def _read_signature(
     function: Callable[..., Any],
     computed_outputs: bool,
-) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:
+) -> tuple[dict[str, Port], ContextParameter | None, dict[str, Port], ReturnShape]:
     """Turns a function's signature into the node's inputs and outputs.
 
-    A type variable, as in ``def keep[T](value: T) -> T``, stays open in the field's hint. A graph fills it in when
+    A type variable, as in ``def keep[T](value: T) -> T``, stays open in the port's hint. A graph fills it in when
     it is compiled.
 
     Args:
@@ -366,7 +366,7 @@ def _read_signature(
         inspect.signature(function).parameters
     )  # done first, so something that isn't a function gets Python's own "is not a callable object"
     hints = typing.get_type_hints(function, include_extras=True)
-    inputs: dict[str, Field] = {}
+    inputs: dict[str, Port] = {}
     context: ContextParameter | None = None
     for position, (name, parameter) in enumerate(parameters.items()):
         # A Context anywhere else is taken as an input below, and its type refuses that (context_misplaced).
@@ -392,7 +392,7 @@ def _read_signature(
     if "return" not in hints:
         raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
-    outputs: dict[str, Field]
+    outputs: dict[str, Port]
     returned_as: ReturnShape
     returned_class = (
         typing.get_origin(returns) or returns
@@ -424,18 +424,18 @@ def _read_signature(
             {"result": DeclaredOutputValidator("result", returns)(REQUIRED)},
             "value",
         )
-    on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
-    for field in (*inputs.values(), *outputs.values()):
-        for variable in field.whole.variables:
+    on_inputs = {variable for port in inputs.values() for variable in port.whole.variables}
+    for port in (*inputs.values(), *outputs.values()):
+        for variable in port.whole.variables:
             if variable.__constraints__:
                 raise NodeDeclarationError(
                     declaration_problems.type_variable_constrained(variable=variable.__name__),
-                    field.name,
+                    port.name,
                 )
             if variable not in on_inputs:
                 raise NodeDeclarationError(
                     declaration_problems.type_variable_only_in_return(variable=variable.__name__),
-                    field.name,
+                    port.name,
                 )
     return inputs, context, outputs, returned_as
 
@@ -453,11 +453,11 @@ def _declared_default(declared: DataclassField[Any]) -> Any:
 
 
 def _raise_if_upgrade_does_not_fit(newer: NodeDefinition) -> None:
-    """Checks a version's ``Upgrade`` against its fields and those of the version it replaces.
+    """Checks a version's ``Upgrade`` against its ports and those of the version it replaces.
 
     A first version, which replaces nothing, has nothing to check.
 
-    Each rename has to start at a field the older version declares and end at one the newer version declares. Say
+    Each rename has to start at a port the older version declares and end at one the newer version declares. Say
     version 1 takes ``name``, and version 2 takes ``first`` with ``Upgrade(renamed_inputs={"nmae": "first"})``. The
     typo renames nothing, so the rename is refused. A version with a ``compute_added_inputs`` hook may have inputs it
     doesn't declare, so a rename of its inputs isn't checked, and the same goes for ``compute_outputs`` and outputs.
@@ -467,7 +467,7 @@ def _raise_if_upgrade_does_not_fit(newer: NodeDefinition) -> None:
 
     Raises:
         NodeDeclarationError: ``upgrade_renames_unknown``, naming each rename that starts or ends at no declared
-            field. ``upgrade_missing``, naming each dropped field nothing explains. Its ``loc`` is the id.
+            port. ``upgrade_missing``, naming each dropped port nothing explains. Its ``loc`` is the id.
     """
     older = newer.replaces
     if older is None:

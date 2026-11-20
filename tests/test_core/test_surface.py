@@ -914,10 +914,10 @@ def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
 
 def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     from conductor import (
-        FieldDescription,
         GraphDescription,
         NodeDescription,
         NodeRegistry,
+        PortDescription,
         RegistryDescription,
         node,
     )
@@ -932,7 +932,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     assert isinstance(described, RegistryDescription) and isinstance(
         described.nodes[0], NodeDescription
     )
-    assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[
+    assert isinstance(described.nodes[0].inputs[0], PortDescription) and described.nodes[0].inputs[
         0
     ].json_schema == {"type": "string"}
     assert isinstance(

@@ -1,6 +1,6 @@
 """Checking the default a node author writes for an input or an output.
 
-A default is checked against the field's type, so a node with a bad default fails early. Say a node declares
+A default is checked against the port's type, so a node with a bad default fails early. Say a node declares
 ``times: Annotated[int, Param(ge=0)] = -1``. The default ``-1`` is below the limit, so importing the module that
 declares the node raises ``NodeDeclarationError`` with the code ``default_invalid``.
 
@@ -13,7 +13,7 @@ graph record's constant are read. A default is written into a graph record and r
 the same from either. So ``"3"`` and ``5.0`` are refused for an ``int``, ``1`` for a ``bool`` and a ``datetime``
 for a ``date``, and ``1`` for a ``float`` becomes ``1.0``.
 
-Which types a node may declare is the type's own rule (``Type.check_declared``), which ``Field`` asks. Only what
+Which types a node may declare is the type's own rule (``Type.check_declared``), which ``Port`` asks. Only what
 differs between an input and an output is checked here.
 """
 
@@ -35,7 +35,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.types import Type, hint_parts, read_as_argument
 
-from .type import Field
+from .type import Port
 
 #: annotated-types' named predicates that ask for a number that isn't finite: ``IsNan``, ``IsInfinite`` and
 #: ``IsNotFinite``, which may also be written ``Not(math.isfinite)``. A number given to a graph from outside is
@@ -48,23 +48,23 @@ _NOT_FINITE = (
 )
 
 
-def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> Field:
-    """Builds the field a node declares, with its default checked against its type.
+def _declared_port(name: str, hint: Any, default: Any, *, is_output: bool) -> Port:
+    """Builds the port a node declares, with its default checked against its type.
 
     Args:
         name: The parameter's name, or the output's.
         hint: The type hint, as the author wrote it.
         default: The default, as the author wrote it. ``REQUIRED`` means there is none. ``SKIPPED`` makes an
             output a branch.
-        is_output: Whether the field is an output.
+        is_output: Whether the port is an output.
 
     Raises:
-        NodeDeclarationError: The hint is one ``Field`` refuses, its type is one a node may not declare
+        NodeDeclarationError: The hint is one ``Port`` refuses, its type is one a node may not declare
             (``Type.check_declared``), an input asks for a number that isn't finite
             (``predicate_refuses_every_number``), or the type refuses the default read as its JSON
-            (``default_invalid``). It names the field.
+            (``default_invalid``). It names the port.
     """
-    whole = Field(name, hint, is_output=is_output).whole
+    whole = Port(name, hint, is_output=is_output).whole
     try:
         whole.check_declared()
         for part in () if is_output else hint_parts(hint):
@@ -75,7 +75,7 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
     except NodeDeclarationError as error:
         raise error.within(name) from None
     try:
-        return Field(name, hint, _read_default(whole, default), is_output=is_output)
+        return Port(name, hint, _read_default(whole, default), is_output=is_output)
     except ValidationError as error:
         refused = (
             declaration_problems.default_none_not_taken()
@@ -87,10 +87,10 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
         raise NodeDeclarationError(refused, name) from None
 
 
-class DeclaredInputValidator(Validator[Any, Field]):
+class DeclaredInputValidator(Validator[Any, Port]):
     """A validator for one input a node declares, called with the input's default.
 
-    It checks the default against the input's type and returns the input as a ``Field``. It also refuses what only
+    It checks the default against the input's type and returns the input as a ``Port``. It also refuses what only
     an output may have. An input is never a branch, so its default can't be ``SKIPPED``.
 
     ``@node`` uses it for each parameter of the function. ``HookValidator`` uses it for each input a
@@ -111,7 +111,7 @@ class DeclaredInputValidator(Validator[Any, Field]):
         self._name = name
         self._hint = hint
 
-    def __call__(self, default: Any) -> Field:
+    def __call__(self, default: Any) -> Port:
         """Checks ``default`` and returns the input. ``REQUIRED`` means the input has no default.
 
         Raises:
@@ -119,13 +119,13 @@ class DeclaredInputValidator(Validator[Any, Field]):
         """
         if default is SKIPPED:
             raise NodeDeclarationError(declaration_problems.default_skipped_on_input(), self._name)
-        return _declared_field(self._name, self._hint, default, is_output=False)
+        return _declared_port(self._name, self._hint, default, is_output=False)
 
 
-class DeclaredOutputValidator(Validator[Any, Field]):
+class DeclaredOutputValidator(Validator[Any, Port]):
     """A validator for one output a node declares, called with the output's default.
 
-    It checks the default against the output's type and returns the output as a ``Field``. It also refuses what an
+    It checks the default against the output's type and returns the output as a ``Port``. It also refuses what an
     output may not have: ``constant_only`` is for inputs only.
 
     ``@node`` uses it for each field of a returned dataclass. ``HookValidator`` uses it for each output a
@@ -146,7 +146,7 @@ class DeclaredOutputValidator(Validator[Any, Field]):
         self._name = name
         self._hint = hint
 
-    def __call__(self, default: Any) -> Field:
+    def __call__(self, default: Any) -> Port:
         """Checks ``default`` and returns the output.
 
         ``REQUIRED`` means the output has no default. ``SKIPPED`` makes it a branch.
@@ -154,20 +154,20 @@ class DeclaredOutputValidator(Validator[Any, Field]):
         Raises:
             NodeDeclarationError: See the class.
         """
-        field = _declared_field(self._name, self._hint, default, is_output=True)
-        if field.param.constant_only:
+        port = _declared_port(self._name, self._hint, default, is_output=True)
+        if port.param.constant_only:
             raise NodeDeclarationError(declaration_problems.constant_only_on_output(), self._name)
-        return field
+        return port
 
 
-class BoundDefaultValidator(Validator[Field, Field]):
-    """A validator that checks a field's default again, once a graph has fixed its type variables.
+class BoundDefaultValidator(Validator[Port, Port]):
+    """A validator that checks a port's default again, once a graph has fixed its type variables.
 
     A node can use a type variable, as in ``same(value: T = "-")``. When a graph is compiled, the edges into the
     node decide what ``T`` is. Wired from an output of type ``str``, ``T`` is ``str``, and the default ``"-"`` still
     fits. Wired from an ``int``, it doesn't. A variable no edge decides becomes its bound, or ``Any`` if it has none.
 
-    The compiler builds one for each node and calls it with each of the node's fields.
+    The compiler builds one for each node and calls it with each of the node's ports.
 
     Raises (when called):
         InvalidCallError: The type refuses the default, ``None`` included. It carries one ``invalid_value_bound_default``
@@ -184,42 +184,42 @@ class BoundDefaultValidator(Validator[Field, Field]):
         self._node_id = node_id
         self._bound = bound
 
-    def __call__(self, field: Field) -> Field:
-        """Checks the default of ``field`` by its fixed type, and returns the field with that type.
+    def __call__(self, port: Port) -> Port:
+        """Checks the default of ``port`` by its fixed type, and returns the port with that type.
 
-        A field whose type has no type variable is returned as it is.
+        A port whose type has no type variable is returned as it is.
 
         Raises:
             InvalidCallError: See the class.
         """
-        if not field.whole.variables:
-            return field
-        hint = Type(field.hint).bind(self._bound).hint
-        whole = Field(field.name, hint, is_output=field.is_output).whole
+        if not port.whole.variables:
+            return port
+        hint = Type(port.hint).bind(self._bound).hint
+        whole = Port(port.name, hint, is_output=port.is_output).whole
         try:
-            return Field(
-                field.name, hint, _read_default(whole, field.default), is_output=field.is_output
+            return Port(
+                port.name, hint, _read_default(whole, port.default), is_output=port.is_output
             )
         except ValidationError as error:
             kind = (
                 compile_problems.output_default_bound_invalid
-                if field.is_output
+                if port.is_output
                 else compile_problems.invalid_value_bound_default
             )
             raise InvalidCallError(
-                [kind(self._node_id, field.name, type=whole.id, **whole.refusal(error))]
+                [kind(self._node_id, port.name, type=whole.id, **whole.refusal(error))]
             ) from None
 
 
 def _read_default(whole: Type, default: Any) -> Any:
-    """Reads a default by a field's type strictly, as its JSON text would be read, and returns what it reads.
+    """Reads a default by a port's type strictly, as its JSON text would be read, and returns what it reads.
 
     ``REQUIRED`` and ``SKIPPED`` aren't values, so they are returned as they are. Any other default, ``None``
     included, is read as a caller's graph input is (``read_as_argument``): an editor shows it and a saved graph stores
     it as JSON, and the graph reads it back from there.
 
     Args:
-        whole: The type of the field's whole value. For a ``Series[int]``, that is the ``Series``, not ``int``.
+        whole: The type of the port's whole value. For a ``Series[int]``, that is the ``Series``, not ``int``.
         default: The default to read.
 
     Raises:

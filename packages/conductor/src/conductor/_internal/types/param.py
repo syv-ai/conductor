@@ -1,6 +1,6 @@
 """``Param``: what a node author adds to a type hint, inside ``Annotated``.
 
-A plain hint like ``int`` says what kind of value a field takes. ``Param`` says the rest: the title and
+A plain hint like ``int`` says what kind of value a port takes. ``Param`` says the rest: the title and
 description a person sees, the widget they edit it with, limits like ``ge=0``, and choices to pick from::
 
     times: Annotated[int, Param(title="Times", ge=0)] = 1
@@ -90,25 +90,25 @@ class _Texts:
 
 @dataclass(frozen=True, kw_only=True, eq=False)
 class Param:
-    """A field's title, description, widget, limits and choices, written inside ``Annotated``.
+    """A port's title, description, widget, limits and choices, written inside ``Annotated``.
 
     For example::
 
         times: Annotated[int, Param(title="Times", ge=0)] = 1
 
-    The limits and choices apply wherever pydantic checks the type, whether on a node's field or in a host's own
+    The limits and choices apply wherever pydantic checks the type, whether on a node's port or in a host's own
     model. On a node's input or output, pydantic's ``Field(...)`` is refused (``pydantic_field_in_hint``). An
     annotated-types limit written in the hint, like ``Ge(0)``, ``Interval(ge=0, le=8)`` or ``Len(1, 3)``, is read as
     the same ``Param``.
 
     Attributes:
-        title: What a person sees for the field. ``None`` if not given, and nothing is guessed from the name.
-        description: A longer text about the field, shown as help.
-        widget: The ``conductor.widgets`` control a person edits the field with, or answers it with on an output.
+        title: What a person sees for the port. ``None`` if not given, and nothing is guessed from the name.
+        description: A longer text about the port, shown as help.
+        widget: The ``conductor.widgets`` control a person edits the port with, or answers it with on an output.
             A host's own control is a subclass of ``Widget``. Conductor passes it on to the host and never uses it.
         constant_only: Whether an input takes only a constant, from the graph record or its default, and never an
             edge or a graph input. ``None`` means no. An editor offers no edge for it.
-        choices: The values the field takes, a list or a tuple, each a plain value or a ``Choice`` with a title.
+        choices: The values the port takes, a list or a tuple, each a plain value or a ``Choice`` with a title.
             They are kept as given, and ``Type.choices`` checks them, so text or a set is refused there. They go on a plain type, like ``str``: a ``Literal``'s values
             are its choices already, so ``Param(choices=)`` on one is refused (``choices_on_a_literal``). A
             ``Dropdown`` shows them.
@@ -208,7 +208,7 @@ class Param:
             handler: Pydantic's handler, which builds the schema of a type.
 
         Returns:
-            The schema pydantic checks a value with, on a node's field or in a host's own model.
+            The schema pydantic checks a value with, on a node's port or in a host's own model.
 
         Raises:
             NodeDeclarationError: ``param_limit_not_supported`` if pydantic has no rule for a limit on ``source``, like
@@ -322,7 +322,7 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     ``Annotated[int, Ge(0)]`` and ``Annotated[int, Param(ge=0)]`` are one type, and a limit that doesn't fit its
     type is refused the same way (``param_limit_not_supported``).
 
-    A ``Param`` is lifted from a union's member onto the whole, since the field has one title and one set of
+    A ``Param`` is lifted from a union's member onto the whole, since the port has one title and one set of
     choices, but for its limits, which stay on the member they are written on, as pydantic reads them:
     ``Annotated[int, Ge(0)] | str`` limits only the ``int``. Any other metadata stays on its member, where it checks only that member's values: in
     ``Annotated[str, AfterValidator(f)] | None`` the validator never sees ``None``, and in JsonValue's union each

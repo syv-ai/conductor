@@ -18,7 +18,7 @@ from typing import Any, assert_never
 
 from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, json_hash, write_waiting_id
-from conductor._internal.field import FieldDescription
+from conductor._internal.port import PortDescription
 
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .call import jsonable
@@ -41,14 +41,14 @@ class Question(ConductorModel):
             subgraph node and its item come first: ``("review", 0, "approve", 1)``.
         prompt: The text the node's ``Ask`` gave.
         questions: One question per output of the node, since the answer fills the outputs. Each is the
-            ``FieldDescription`` that ``describe()`` gives the output, with the ``choices`` and ``default`` the
+            ``PortDescription`` that ``describe()`` gives the output, with the ``choices`` and ``default`` the
             ``Ask`` set. Its ``required`` and ``default`` say what happens if the answer leaves it out.
         inputs: The values the call was given, as JSON.
     """
 
     loc: tuple[str | int, ...]
     prompt: str
-    questions: list[FieldDescription]
+    questions: list[PortDescription]
     inputs: dict[str, Any]
 
 

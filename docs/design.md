@@ -160,7 +160,7 @@ Errors are data. There's one `Problem` model everywhere, with stable codes in `P
 translate. A message says how to fix the fault. A problem never quotes a value a graph carries (an input, a constant,
 an output, an answer, a saved value) or the text of an exception other than a `NodeError`: a node's or a hook's own exception text goes to the log,
 and the problem names only the exception's class. It may name what a developer or a host wrote, such as ids, places
-and field names, a hook's field names among them. A `NodeError` keeps its message, which its developer wrote for people. The reference's errors
+and port names, a hook's port names among them. A `NodeError` keeps its message, which its developer wrote for people. The reference's errors
 section has the rule: `python -m conductor.about errors`.
 
 ```python
@@ -291,7 +291,7 @@ answer reads it from an edge, like any value: `approval(invoice) -> bool` asks f
 filled by a function that asks, a replayed `ok = ask(...)`, and calling the node again with `ok=None` were all
 rejected. **Worth questioning:** the question shows on `approval`, not on the step a person thinks of.
 
-A question is the same model as a field: the `FieldDescription` a palette reads, with the `Ask`'s `choices` and
+A question is the same model as a port: the `PortDescription` a palette reads, with the `Ask`'s `choices` and
 `default`. How it looks comes from the type's `Param`, so `Ask` takes no `widget=`. One JSON Schema for the whole
 answer was rejected: it loses a host type's id, and has no place for a widget.
 
@@ -436,11 +436,11 @@ A node can be written for any type: `def split[T](value: Table[T] | list[T]) -> 
 edge, settled when compiling. `series-split`, `series-stack` and `control-decide` work this way, with no hooks. A hook
 is only for inputs or outputs named by a constant.
 
-A `FieldDescription` is one flat model per input or output. `null` in `default` means `None` and nothing else, and
+A `PortDescription` is one flat model per input or output. `null` in `default` means `None` and nothing else, and
 "no default" and "a skipped branch" are told apart by `required`, so the model needs no marker JSON lacks. A
-`default` on a `required` field is where an editor starts: the one question of a node with one output is answered
+`default` on a `required` port is where an editor starts: the one question of a node with one output is answered
 with its value, so it is required, a branch too. In
-`graph.describe()`, a node's input is `{field, source}`, and a graph input is a plain `FieldDescription`.
+`graph.describe()`, a node's input is `{port, source}`, and a graph input is a plain `PortDescription`.
 
 What a person sees for a type is declared. Conductor's own types take their id and title from one fixed table, and a
 host's type is declared with `@host_type("id", title="Title")`, checked when the class is defined. Nothing falls back
@@ -545,6 +545,6 @@ React and Mermaid adapters, an `/execute` endpoint and a built-in store were lef
 ## Where to start reading
 
 Start at `packages/conductor/src/conductor/__init__.py`. Then read `_internal/` from the bottom up: `base`, `types`
-and `field`, then `record`, then `graph` (`input`, `node`, `compile`, then `type`), then `run` (`blueprint`,
+and `port`, then `record`, then `graph` (`input`, `node`, `compile`, then `type`), then `run` (`blueprint`,
 `outcome`, `json`, `scheduler`, `arguments`, then `type`), and `registry`. The providers' `router.py`, `store.py`,
 `worker.py` and `held_run.py` come after, and `conductor-nodes` last.

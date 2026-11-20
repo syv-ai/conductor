@@ -15,7 +15,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, place_text
-from conductor._internal.field import Field
+from conductor._internal.port import Port
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
@@ -165,7 +165,7 @@ def _outcomes_by_call_number(
 
 
 def saved_outcomes[S: SavedOutcomes](
-    saved_class: type[S], outputs: Mapping[str, Field], outcomes: list[Outcome | None]
+    saved_class: type[S], outputs: Mapping[str, Port], outcomes: list[Outcome | None]
 ) -> S:
     """Returns the outcomes of one node the way a saved run writes them: a list per output, with an entry per call.
 
@@ -241,7 +241,7 @@ def saved_outcomes[S: SavedOutcomes](
 
 def saved_reusable(
     saved_class: type[SavedReusable],
-    outputs: Mapping[str, Field],
+    outputs: Mapping[str, Port],
     entries: list[tuple[ItemIndexes, Done | Unanswered]],
 ) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run, the way a saved run writes them.

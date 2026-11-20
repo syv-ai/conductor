@@ -746,10 +746,10 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
     <div class="stack">
       <pre data-lang="py">graph = Graph.compile(record, registry)   # the record above
 print(graph)
-print(list(graph.inputs), {name: field.type for name, field in graph.outputs.items()})
+print(list(graph.inputs), {name: port.type for name, port in graph.outputs.items()})
 for node_id, n in graph.describe().nodes.items():
     print(node_id, n.per_item_of,
-          [(i.field.name, i.source.mode, i.source.series) for i in n.inputs])
+          [(i.port.name, i.source.mode, i.source.series) for i in n.inputs])
 print(graph.run({"text": "a\nb"}).outputs)</pre>
       <p class="label">printed &middot; the first line is <code>Graph</code>'s repr <span class="lvl int">Internal</span></p>
       <pre class="out labelled">&lt;Graph of 3 nodes, runnable&gt;
@@ -954,7 +954,7 @@ except InvalidCallError as error:
 [('invalid_place', ('edges', 0, 0))]</pre>
     </div>
     <div class="stack">
-      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that <code>constants=</code>, <code>defaults=</code> and <code>inputs=</code> don't name. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose fields a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
+      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that <code>constants=</code>, <code>defaults=</code> and <code>inputs=</code> don't name. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose ports a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
       <p><b>Graph inputs and outputs.</b> Each required input that gets nothing becomes a graph input under its own name (<code>text</code>), unless it <a href="nodes-and-types.html#hooks">takes only a constant</a>. So does each key of <code>defaults</code>. Each output of a node that no edge leaves becomes a graph output (<code>result</code>). <code>inputs=</code> and <code>outputs=</code> name others. An optional input that <code>inputs=</code> names keeps its own default, so <code>m</code> above defaults to <code>"!"</code> and isn't required. A key of <code>defaults</code> gives its own. A node with a <code>compute_outputs</code> hook that no edge leaves needs <code>outputs=</code> to name what the graph returns from it. Without that, <code>make_graph</code> raises <code>hook_outputs_not_named</code>.</p>
       <p><b>Ids.</b> A definition used twice gets <code>shout-1</code> and <code>shout-2</code>, so no node keeps the bare id <code>shout</code> for another to take over.</p>
       <p><b>What it raises.</b> <code>make_graph</code> raises one <a href="problems.html#moments"><code>InvalidCallError</code></a> with every fault it can see while writing. In the last call, <code>"lines"</code> isn't <code>"node.name"</code>, so it is <code>invalid_place</code> and that edge isn't written. With an edge left out, <code>make_graph</code> makes no automatic graph inputs or outputs, so a name clash that would only follow from the gap isn't listed.</p>

@@ -471,7 +471,7 @@ def test_a_marker_class_is_read_as_the_class_of_its_values_with_its_check() -> N
     described = closest.describe().inputs
 
     assert aware.describe().inputs[0].type == "datetime"
-    assert [field.type for field in described] == ["IPv4Address | IPv6Address", "date"]
+    assert [port.type for port in described] == ["IPv4Address | IPv6Address", "date"]
     assert graph.problems == []
     assert graph.run({"naive": False}).outputs == {"result": "2026-01-02T03:04:00+00:00"}
     assert graph.run({"naive": True}).cause.type == "invalid_edge_value"
@@ -612,7 +612,7 @@ def test_a_hosts_subclass_of_a_class_conductor_names_is_its_own_type() -> None:
     titles = {described.id: described.title for described in registry.describe().types}
     wired = Graph.compile(make_graph(now, fetch, edges=[("now.result", "fetch.at")]), registry)
 
-    assert [field.type for field in fetch.describe().inputs] == ["site", "local-time"]
+    assert [port.type for port in fetch.describe().inputs] == ["site", "local-time"]
     assert (titles["site"], titles["local-time"]) == ("Site", "Local time")
     assert Run.from_json(run.to_json(), graph).outputs == {"result": Site("https://a.example")}
     assert wired.problems == []
@@ -662,14 +662,12 @@ def test_a_node_returning_a_declared_dataclass_has_one_output_an_edge_reads_whol
     )
     outer = Graph.compile(make_graph(place, plot, edges=[("place.where", "plot.point")]), registry)
 
-    assert [(field.name, field.type) for field in locate.describe().outputs] == [
-        ("result", "point")
-    ]
-    assert [field.name for field in parts.describe().outputs] == ["x", "y"]
+    assert [(port.name, port.type) for port in locate.describe().outputs] == [("result", "point")]
+    assert [port.name for port in parts.describe().outputs] == ["x", "y"]
     assert run.outputs == {"north": 3.5, "plot": "1.5,2.5"}
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
     (described,) = (each for each in registry.describe().nodes if each.id == "place")
-    assert [(field.name, field.type) for field in described.outputs] == [("where", "point")]
+    assert [(port.name, port.type) for port in described.outputs] == [("where", "point")]
     assert outer.run({"name": "home"}).outputs == {"result": "1.5,2.5"}
 
 

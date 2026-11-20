@@ -35,7 +35,7 @@ goes to the ``conductor`` logger with its traceback, and the problem names only 
 ``author_code_problem`` is that rule. ``value_free_errors`` does the same for pydantic's errors.
 
 A problem may name what a developer or a host wrote: node ids, input, output and field names, places, waiting ids,
-the limits a type declares and where a JSON text stops being JSON. A field name a ``compute_...`` hook returns is
+the limits a type declares and where a JSON text stops being JSON. A port name a ``compute_...`` hook returns is
 among them, even one it builds from a constant: it is in every ``loc``, in ``describe()`` and on edges. A
 ``NodeError`` keeps its message and its ``ctx``, since the node's developer wrote them for people.
 
@@ -436,17 +436,17 @@ class NodeDeclarationError(ConductorError, TypeError):
 
         Args:
             problem: The fault, as its kind makes it.
-            place: Where it is, outermost first, when the code that finds it knows: a node's id, a field's name.
+            place: Where it is, outermost first, when the code that finds it knows: a node's id, a port's name.
             version: The node's version, given with the node's id. ``None`` while the fault is placed only in a
-                field, before the code that checks the whole node puts the node in front.
+                port, before the code that checks the whole node puts the node in front.
         """
         located = problem.model_copy(update={"loc": (*place, *problem.loc)})
         text = located.msg
         if located.loc:
-            # a declaration's loc is a node's id, then maybe one of its fields, as a graph problem names a place
-            node, *field = located.loc
+            # a declaration's loc is a node's id, then maybe one of its ports, as a graph problem names a place
+            node, *inside = located.loc
             named = str(node) if version is None else f"{node} (version {version})"
-            text = f"{place_text((named,), *map(str, field))}: {located.msg}"
+            text = f"{place_text((named,), *map(str, inside))}: {located.msg}"
         super().__init__([located], text)
 
     def within(self, place: str, version: int | None = None) -> NodeDeclarationError:

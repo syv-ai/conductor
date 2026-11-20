@@ -1629,7 +1629,7 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     nodes = compiled.describe().nodes
 
     def source_of(node_id: str) -> dict[str, tuple[str, str | None]]:
-        return {i.field.name: (i.source.mode, i.source.series) for i in nodes[node_id].inputs}
+        return {i.port.name: (i.source.mode, i.source.series) for i in nodes[node_id].inputs}
 
     assert nodes["j"].per_item_of is None
     assert nodes["u"].per_item_of == "s.result"

@@ -104,18 +104,18 @@ def compute_hook_returned_invalid(
 
     ``ctx.errors`` has one error, with ``loc`` ``[]``, whose ``type`` says what:
 
-    - ``dict_type``: the hook didn't return a mapping of each field's name to its type.
-    - ``not_a_name``: the hook gave a field a name it can't have. Then the problem is at that name. A name must not be
+    - ``dict_type``: the hook didn't return a mapping of each port's name to its type.
+    - ``not_a_name``: the hook gave a port a name it can't have. Then the problem is at that name. A name must not be
       empty, and must not contain ``.``, ``/``, ``@`` or ``~``, since those are used to write sources, node paths and
       waiting ids.
     - ``added_input_exists``: ``compute_added_inputs`` added an input the node already declares.
-    - the code ``@node`` would refuse the field with, such as ``default_invalid`` or ``type_not_named``.
+    - the code ``@node`` would refuse the port with, such as ``default_invalid`` or ``type_not_named``.
 
     To fix it, change the constant the hook reads, or fix the hook. In the example, the hook of ``name_each`` builds
     an output's name from the text, and ``a.b`` holds a ``.``.
 
     Args:
-        loc: The node. If the hook gave a field a name it can't have, that name comes next.
+        loc: The node. If the hook gave a port a name it can't have, that name comes next.
         reason: Why compiling can't use what the hook returned.
         errors: What is wrong with it, as one error whose ``type`` is one of the codes above.
 

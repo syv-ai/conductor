@@ -555,7 +555,7 @@ graph = Graph.compile(
 )
 for node_id, described in graph.describe().nodes.items():
     for one in described.inputs:
-        print(f"{node_id}.{one.field.name:8} {one.source.mode:12} {one.source.series}")
+        print(f"{node_id}.{one.port.name:8} {one.source.mode:12} {one.source.series}")
 print(graph.run({"text": "a\nb"}).outputs)</pre>
       <pre class="out">join.texts    collected    lines.result
 lines.text     graph_input  None

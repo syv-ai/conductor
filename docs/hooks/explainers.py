@@ -206,15 +206,15 @@ def _palette() -> list[dict[str, Any]]:
                 "category": node["category"],
                 "module": module,
                 "function": function,
-                "inputs": [_field(f) for f in node["inputs"]],
-                "outputs": [_field(f) for f in node["outputs"]],
+                "inputs": [_port(f) for f in node["inputs"]],
+                "outputs": [_port(f) for f in node["outputs"]],
                 "added_inputs": node["takes_added_inputs"],
                 "computes_outputs": node["computes_outputs"],
                 "example": example,
                 "compiled_inputs": [
-                    _field(i.field.model_dump(), full=False) for i in compiled.inputs
+                    _port(i.port.model_dump(), full=False) for i in compiled.inputs
                 ],
-                "compiled_outputs": [_field(o.model_dump(), full=False) for o in compiled.outputs],
+                "compiled_outputs": [_port(o.model_dump(), full=False) for o in compiled.outputs],
                 "status": run.status,
                 "results": {name: _shown(value) for name, value in run.results[node["id"]].items()},
             }
@@ -248,7 +248,7 @@ def _load(path: str) -> ModuleType:
     return module
 
 
-def _field(f: dict[str, Any], *, full: bool = True) -> dict[str, Any]:
+def _port(f: dict[str, Any], *, full: bool = True) -> dict[str, Any]:
     out: dict[str, Any] = {"name": f["name"], "type": f["type"], "series": f["is_series"]}
     if not full:
         return out
@@ -420,7 +420,7 @@ def _breaks() -> list[dict[str, Any]]:
                 node_id: {
                     "found": described.found,
                     "per_item_of": described.per_item_of,
-                    "inputs": {i.field.name: i.source.mode for i in described.inputs},
+                    "inputs": {i.port.name: i.source.mode for i in described.inputs},
                 }
                 for node_id, described in graph.describe().nodes.items()
             }

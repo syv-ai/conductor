@@ -142,14 +142,14 @@ def output(graph, node_id: str):
     return described
 
 
-def columns_of(field) -> dict[str, Any]:
-    """Returns the columns of a table field, read from the field's JSON schema.
+def columns_of(port) -> dict[str, Any]:
+    """Returns the columns of a table port, read from the port's JSON schema.
 
     Each column's name maps to the JSON schema of its cells.
     """
     return {
         c["properties"]["name"]["const"]: c["properties"]["values"]["items"]
-        for c in field.json_schema["properties"]["columns"]["prefixItems"]
+        for c in port.json_schema["properties"]["columns"]["prefixItems"]
     }
 
 
@@ -385,7 +385,7 @@ def test_collect_types_its_table_by_the_rows_and_what_arrives_on_each_new_column
     assert columns["sent"] == {"anyOf": [{"type": "string"}, {"type": "null"}]} and columns[
         "team"
     ] == {"type": "string"}
-    feeds = {i.field.name: i.source.mode for i in graph.describe().nodes["table-collect"].inputs}
+    feeds = {i.port.name: i.source.mode for i in graph.describe().nodes["table-collect"].inputs}
     assert (feeds["rows"], feeds["sent"], feeds["team"]) == (
         "collected",
         "collected",
@@ -422,9 +422,7 @@ def test_collect_takes_the_rows_as_a_table_and_keeps_its_columns_as_they_are():
     made = graph.run().results["table-collect"]["result"]
 
     assert [
-        i.field.type
-        for i in graph.describe().nodes["table-collect"].inputs
-        if i.field.name == "rows"
+        i.port.type for i in graph.describe().nodes["table-collect"].inputs if i.port.name == "rows"
     ] == ["Table"]
     assert made.schema == {"n": pl.Int64, "name": pl.String, "loud": pl.String} and made[
         "loud"
