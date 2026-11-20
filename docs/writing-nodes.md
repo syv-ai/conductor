@@ -447,7 +447,7 @@ For 5, `route` gave `small` the value, so `notify` was skipped. A skipped node's
 
 Since a call never gives two branches of one node a value, both may be wired into one input. That input gets the value of whichever branch has it.
 
-`SKIPPED` means a way not taken, and `None` means no value. So an output that may be missing beside other outputs, like the phone number an extractor didn't find next to the email it did, isn't a branch. Type it `str | None` and return `None`. A branch returned as `None` was still taken, though: beside another branch with a value, it counts as a second one. Two branches that both get a value fail the call with `invalid_output`, and so does `SKIPPED` on an output that isn't a branch. A node has one set of branches: two independent ways to go are two nodes.
+`SKIPPED` means a way not taken, and `None` means no value. So an output that may be missing beside other outputs, like the phone number an extractor didn't find next to the email it did, isn't a branch. Type it `str | None` and return `None`. A branch returned as `None` was still taken, though: beside another branch with a value, it counts as a second one. Two branches that both get a value fail the call with `invalid_output`, and so does `SKIPPED` on an output that isn't a branch. A person's answer to the node is held to the same rules. A node has one set of branches: two independent ways to go are two nodes.
 
 Only a dataclass with no `@host_type` lists a node's outputs. A dataclass you declare with `@host_type` is a type, like `Address` above, so a node that returns one has one output, `result`, and passes the whole value on. An edge can still read one field of it:
 

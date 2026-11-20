@@ -21,6 +21,7 @@ from typing import Annotated, Any, Literal
 
 from conductor import (
     PROBLEMS,
+    Graph,
     InvalidCallError,
     Problem,
     Run,
@@ -160,6 +161,7 @@ class RunState(BaseModel):
 
     def with_queued(
         self,
+        graph: Graph[Any],
         answers: Mapping[str, Any] = MappingProxyType({}),
         /,
         *,
@@ -168,9 +170,11 @@ class RunState(BaseModel):
         """This state with more replies queued after what was queued before: one per answer, then one per decline.
 
         What is queued is the JSON data ``Run.queued_as_json`` makes of the answers and the reasons, which the run
-        will be given. That also refuses what JSON can't write, as the run would.
+        will be given. That also refuses what JSON can't write, and ``SKIPPED`` on an output that isn't a branch, as
+        the run would.
 
         Args:
+            graph: The run's graph, which says the outputs of the node each waiting id names.
             answers: Answers by waiting id, as ``run.with_answers`` takes them.
             declines: Reasons by waiting id, as ``run.with_decline`` takes them.
 
@@ -178,7 +182,7 @@ class RunState(BaseModel):
             InvalidCallError: An answer can't be written as JSON (``invalid_answer``), or a reason can't
                 (``invalid_decline_reason``).
         """
-        answered, reasons = Run.queued_as_json(answers, declines=declines)
+        answered, reasons = Run.queued_as_json(graph, answers, declines=declines)
         added = [
             *(QueuedAnswer(waiting_id=key, answer=value) for key, value in answered.items()),
             *(QueuedDecline(waiting_id=key, reason=reason) for key, reason in reasons.items()),

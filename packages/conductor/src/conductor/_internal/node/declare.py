@@ -37,7 +37,12 @@ from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter, is_context
-from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
+from conductor._internal.field import (
+    DeclaredInputValidator,
+    DeclaredOutputValidator,
+    Field,
+    ReturnShape,
+)
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, RecordValidator
 from conductor._internal.types import Param, Type, field_hints, fit, is_declared
@@ -149,9 +154,7 @@ def node(
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError(declaration_problems.async_run())
-            inputs, context, outputs, outputs_dataclass = _read_signature(
-                target, compute_outputs is not None
-            )
+            inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
             code_text, raises_ask = read_code(target)
             if not asks and raises_ask:
                 raise NodeDeclarationError(declaration_problems.ask_not_declared_in_source())
@@ -201,7 +204,7 @@ def node(
                 function=target,
                 inputs=inputs,
                 outputs=outputs,
-                outputs_dataclass=outputs_dataclass,
+                returns=returns,
                 code_text=code_text,
                 context=context,
                 id=id,
@@ -359,7 +362,7 @@ def _version_number(
 def _read_signature(
     function: Callable[..., Any],
     computed_outputs: bool,
-) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], type | None]:
+) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:
     """Turns a function's signature into the node's inputs and outputs.
 
     A type variable, as in ``def keep[T](value: T) -> T``, stays open in the field's hint. A graph fills it in when
@@ -371,8 +374,7 @@ def _read_signature(
 
     Returns:
         Four things: the inputs by name; the ``Context`` parameter, or ``None`` if the first parameter isn't one;
-        the outputs by name; and the dataclass the function returns its outputs in, or ``None`` if it
-        returns one value (a dataclass declared with ``@host_type`` among them), a mapping or nothing.
+        the outputs by name; and how the function returns them (``ReturnShape``).
 
     Raises:
         NodeDeclarationError: A parameter or the return type is one a node can't have.
@@ -408,7 +410,7 @@ def _read_signature(
         raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
     outputs: dict[str, Field]
-    outputs_dataclass: type | None = None
+    returned_as: ReturnShape
     returned_class = (
         typing.get_origin(returns) or returns
     )  # a generic dataclass of outputs is written with its type arguments, like Pair[str]
@@ -419,9 +421,9 @@ def _read_signature(
             raise NodeDeclarationError(
                 declaration_problems.outputs_not_a_mapping(returns=Type(returns).text)
             )
-        outputs = {}
+        outputs, returned_as = {}, "mapping"
     elif returns is None or returns is type(None):
-        outputs = {}
+        outputs, returned_as = {}, "nothing"
     elif (
         isinstance(returned_class, type)
         and dataclasses.is_dataclass(returned_class)
@@ -433,9 +435,12 @@ def _read_signature(
             f.name: DeclaredOutputValidator(f.name, own[f.name])(_declared_default(f))
             for f in dataclasses.fields(returned_class)
         }
-        outputs_dataclass = returned_class
+        returned_as = returned_class
     else:
-        outputs = {"result": DeclaredOutputValidator("result", returns)(REQUIRED)}
+        outputs, returned_as = (
+            {"result": DeclaredOutputValidator("result", returns)(REQUIRED)},
+            "value",
+        )
     on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
     for field in (*inputs.values(), *outputs.values()):
         for variable in field.whole.variables:
@@ -449,7 +454,7 @@ def _read_signature(
                     declaration_problems.type_variable_only_in_return(variable=variable.__name__),
                     field.name,
                 )
-    return inputs, context, outputs, outputs_dataclass
+    return inputs, context, outputs, returned_as
 
 
 def _declared_default(declared: DataclassField[Any]) -> Any:

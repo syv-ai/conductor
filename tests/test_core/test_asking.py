@@ -769,7 +769,55 @@ def test_a_dataclass_answers_a_node_with_branches_and_a_branch_not_chosen_is_lef
     ).resume()
 
     assert answered.results["q"] == {"note": ["fine", "late"], "escalate": [None, "boss"]}
-    assert Run.queued_as_json({"q@0": Routed(note="fine")}) == ({"q@0": {"note": "fine"}}, {})
+    assert Run.queued_as_json(run.graph, {"q@0": Routed(note="fine")}) == (
+        {"q@0": {"note": "fine"}},
+        {},
+    )
+
+
+@dataclass(frozen=True)
+class Kept:
+    keep: int = SKIPPED
+    drop: int = SKIPPED
+    note: str = "fallback"
+
+
+@node("keep", title="Keep", description="For a test.", asks=True)
+def keep_or_drop(text: str) -> Kept:
+    raise Ask(f"Keep {text}?")
+
+
+def test_skipped_on_an_answer_output_that_isnt_a_branch_is_refused_at_its_question_as_a_return_is():
+    """``SKIPPED`` is a branch not taken, so it is refused on any other output, in an answer of any form. A queued
+    answer is refused by the same rule, so it never reads back as the output's default."""
+    _, run = _once(keep_or_drop, text="a")
+    (waiting,) = run.waiting
+    for answer in (Kept(keep=1, note=SKIPPED), {"keep": 1, "note": SKIPPED}):
+        (problem,) = _refused(lambda answer=answer: run.with_answers(waiting, answer))
+        (error,) = problem.ctx["errors"]
+        assert (problem.type, problem.ctx["question"], error["type"], error["loc"]) == (
+            "invalid_answer",
+            "note",
+            "skipped_not_a_branch",
+            [],
+        ), answer
+        assert _refused(
+            lambda answer=answer: Run.queued_as_json(run.graph, {waiting.id: answer})
+        ) == [problem]
+
+
+def test_an_answer_mapping_may_give_a_branch_skipped_and_it_is_left_out_as_from_a_dataclass():
+    """A branch given ``SKIPPED`` is not taken, so it is no second branch with a value, as in a returned mapping."""
+    _, run = _once(keep_or_drop, text="a")
+    (waiting,) = run.waiting
+    answer = {"keep": 1, "drop": SKIPPED}
+
+    answered = run.with_answers(waiting, answer).resume()
+    queued = Run.queued_as_json(run.graph, {waiting.id: answer})[0]
+
+    assert answered.results["q"] == {"keep": 1, "drop": None, "note": "fallback"}
+    assert queued == {waiting.id: {"keep": 1}}
+    assert run.with_answers(queued).resume().results == answered.results
 
 
 @dataclass(frozen=True)
@@ -1371,7 +1419,8 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         (
             lambda: Ask("?", default=SKIPPED),
-            "the default for 'result' is wrong (the value can't be written as JSON)",
+            "the default for 'result' is wrong ('result' is SKIPPED, but it isn't a branch: its default isn't"
+            " SKIPPED)",
         ),
         (
             lambda: Ask("?", choices=["a", 2]),
@@ -3136,7 +3185,9 @@ def test_answers_and_declines_queued_for_later_are_refused_when_json_cant_write_
         {"name": "\ud800", "count": 1},
         _Pair(name="\ud800", count=1),
     ):
-        (queued,) = _refused(lambda answer=answer: Run.queued_as_json({waiting.id: answer}))
+        (queued,) = _refused(
+            lambda answer=answer: Run.queued_as_json(run.graph, {waiting.id: answer})
+        )
         assert (queued.type, queued.loc, queued.ctx) == (
             "invalid_answer",
             waiting.loc,
@@ -3151,10 +3202,10 @@ def test_answers_and_declines_queued_for_later_are_refused_when_json_cant_write_
     for answer in ({"name": "\ud800", "count": 1}, _Pair(name="\ud800", count=1)):
         (named,) = _refused(lambda answer=answer: run.with_answers(waiting, answer))
         assert (named.ctx["question"], named.ctx["errors"][0]["type"]) == ("name", "no_json_form")
-    queued = _refused(lambda: Run.queued_as_json(declines={waiting.id: "\ud800"}))
+    queued = _refused(lambda: Run.queued_as_json(run.graph, declines={waiting.id: "\ud800"}))
     assert queued == _refused(lambda: run.with_decline(waiting, reason="\ud800"))
     # An id that names no call is refused at the call it names, as not_waiting would name it.
-    (problem,) = _refused(lambda: Run.queued_as_json({"approval@x/pay": object()}))
+    (problem,) = _refused(lambda: Run.queued_as_json(run.graph, {"approval@x/pay": object()}))
     assert (problem.type, problem.loc) == ("invalid_answer", ("approval",))
 
 
@@ -3176,7 +3227,7 @@ def test_a_queued_frame_whose_column_a_saved_run_cant_keep_is_refused_naming_the
     run = Graph.compile(make_graph(rows), registry_of(rows)).run({"x": 1})
     (waiting,) = run.waiting
     frame = pl.DataFrame({"a": [1], "b": [object()]}, schema={"a": pl.Int64, "b": pl.Object})
-    (problem,) = _refused(lambda: Run.queued_as_json({waiting.id: {"rows": frame}}))
+    (problem,) = _refused(lambda: Run.queued_as_json(run.graph, {waiting.id: {"rows": frame}}))
     (error,) = problem.ctx["errors"]
     assert (problem.type, problem.ctx["column"], error["type"], error["loc"]) == (
         "invalid_answer",
@@ -3190,13 +3241,14 @@ def test_an_answer_queued_for_later_is_read_by_the_run_as_the_answer_itself():
     run = Graph.compile(make_graph(_ask_for_a_pair), registry_of(_ask_for_a_pair)).run({"x": 1})
     (waiting,) = run.waiting
     for answer in (_Pair(name="bolt", count=3), {"name": "bolt", "count": 3}, {"name": 3}):
-        queued = Run.queued_as_json({waiting.id: answer})[0][waiting.id]
+        queued = Run.queued_as_json(run.graph, {waiting.id: answer})[0][waiting.id]
         direct, later = (
             _outcome(lambda value=value: run.with_answers(waiting, value))
             for value in (answer, queued)
         )
         assert direct == later, answer
     answers, reasons = Run.queued_as_json(
+        run.graph,
         {waiting.id: {"name": "bolt", "count": 3}, "pair~0": datetime.date(2026, 11, 15)},
         declines={waiting.id: "Over budget"},
     )

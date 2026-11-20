@@ -331,8 +331,9 @@ class Worker(Generic[M, X]):
         async def declined(row: RunRow[M]) -> RunRow[M] | None:
             state = row.state
             if state.is_running:
+                graph = await self._settings.graph(row, row.metadata)
                 return await self._store.update(
-                    row, state=state.with_queued(declines={waiting_id: reason})
+                    row, state=state.with_queued(graph, declines={waiting_id: reason})
                 )
             run = await self._settings.load(row, row.metadata)
             ended, saved, outcome = await asyncio.to_thread(
@@ -699,12 +700,13 @@ class Worker(Generic[M, X]):
             RuntimeError: The run would be resumed, and the worker has never served.
         """
         state = row.state
-        queued = state.with_queued(answers)
+        graph = await self._settings.graph(row, row.metadata) if answers else None
+        queued = state if graph is None else state.with_queued(graph, answers)
         if state.is_running:
             return await self._store.update(row, state=queued)
         changed = None
         if answers or max_items is not None:
-            run = await self._settings.load(row, row.metadata)
+            run = await self._settings.load(row, row.metadata, graph)
 
             def given() -> str:
                 answered = run.with_answers(answers)
