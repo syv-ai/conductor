@@ -190,17 +190,31 @@ def _faults(build: Any) -> list[tuple[str, list[str | int]]]:
 
 
 @pytest.mark.parametrize(
-    "wrong_id", ["str", "Series", "Table", "row", "list[int]", "a b", "a|b", ""], ids=repr
+    ("wrong_id", "code"),
+    [
+        ("str", "conductors_own_type_id"),
+        ("Series", "conductors_own_type_id"),
+        ("Table", "conductors_own_type_id"),
+        ("row", "conductors_own_type_id"),
+        ("list[int]", "type_id_not_one_word"),
+        ("a b", "type_id_not_one_word"),
+        ("a|b", "type_id_not_one_word"),
+        ("", "type_id_not_one_word"),
+    ],
+    ids=repr,
 )
-def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_not_a_type_id(
-    wrong_id: Any,
+def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_refused_by_its_own_rule(
+    wrong_id: str, code: str
 ) -> None:
     def build() -> None:
         @host_type(wrong_id, title="Thing")
         class Thing(BaseModel):
             pass
 
-    assert _faults(build) == [("not_a_type_id", ["id"])]
+    assert _faults(build) == [(code, ["id"])]
+    # each message states only the rule the id broke
+    (message,) = [e["msg"] for e in _refused(build).problems[0].ctx["errors"]]
+    assert ("one word" in message) == (code == "type_id_not_one_word")
 
 
 @pytest.mark.parametrize(
@@ -209,14 +223,14 @@ def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_not_a_type_id(
         ({"id": 5, "title": "Thing"}, [("string_type", ["id"])]),
         ({"id": "thing", "title": None}, [("string_type", ["title"])]),
         ({"id": 5, "title": None}, [("string_type", ["id"]), ("string_type", ["title"])]),
-        ({"id": "thing", "title": ""}, [("string_too_short", ["title"])]),
-        ({"id": "thing", "title": "   "}, [("string_too_short", ["title"])]),
+        ({"id": "thing", "title": ""}, [("blank_text", ["title"])]),
+        ({"id": "thing", "title": "   "}, [("blank_text", ["title"])]),
         # every fault in one pass, as on a node
         (
             {"id": "a b", "title": " ", "accepts": [1]},
             [
-                ("not_a_type_id", ["id"]),
-                ("string_too_short", ["title"]),
+                ("type_id_not_one_word", ["id"]),
+                ("blank_text", ["title"]),
                 ("is_type", ["accepts", 0]),
             ],
         ),

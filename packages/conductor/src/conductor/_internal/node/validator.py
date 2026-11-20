@@ -56,6 +56,7 @@ from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
     argument_errors,
+    arguments_reason,
     call_problems,
     compile_problems,
     conductor_error,
@@ -69,7 +70,14 @@ from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, holds_skipped
 
 from .policy import Deprecation, Policy
-from .type import FunctionDefinition, HookName, NodeDefinition, SubgraphDefinition, Upgrade
+from .type import (
+    FunctionDefinition,
+    HookName,
+    NodeDefinition,
+    SubgraphDefinition,
+    Upgrade,
+    version_number,
+)
 
 
 class ReturnValidator(Validator[Any, dict[str, Any]]):
@@ -520,12 +528,13 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
     Each argument is held to its annotation, strictly, so ``tags="abc"``, ``version=True``, ``policy={}`` and
     ``extra={"when": date.today()}`` are refused where the node is declared, never later. ``extra`` is JSON a host is
     shown: its values are JSON values, and a number in it is finite. The id is refused if it isn't a name
-    (``not_a_name``), and a title or description that is empty or only spaces (``string_too_short``). What the
+    (``not_a_name``), and a title or description that is empty or only whitespace (``blank_text``). What the
     arguments say together, such as whether ``replaces=`` names the same node, is checked after it, by the caller.
 
     Raises (when called):
-        NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors``. Its ``loc``
-            is the node's id, or ``()`` when the id itself is refused or there is no id, as for a registry.
+        NodeDeclarationError: One ``invalid_declaration_argument``, with every fault in ``ctx.errors`` and in its
+            ``reason``. Its ``loc`` is the node's id, or ``()`` when the id itself is refused or there is no id, as
+            for a registry. Its text names the node's version, unless the version itself is unknown.
     """
 
     def __init__(self, declared_with: str) -> None:
@@ -550,14 +559,17 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
                 for argument, inside in argument_errors(error, arguments).items()
                 for fault in inside
             ]
-        # an id that is refused can't place the fault
+        # an id that is refused can't place the fault, and a refused version can't name it
         refused = {fault["loc"][0] for fault in faults}
         place = (arguments["id"],) if "id" in arguments and "id" not in refused else ()
+        version = arguments.get("version")
+        unknown = "version" in refused or (version is None and "replaces" in refused)
         raise NodeDeclarationError(
             declaration_problems.invalid_declaration_argument(
                 declared_with=self._declared_with,
-                reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}",
+                reason=arguments_reason(faults),
                 errors=faults,
             ),
             *place,
+            version=None if unknown else version_number(version, arguments.get("replaces")),
         )

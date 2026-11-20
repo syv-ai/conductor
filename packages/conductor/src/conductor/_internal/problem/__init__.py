@@ -28,6 +28,7 @@ from .errors import (
     NodeDeclarationError,
     NodeError,
     argument_errors,
+    arguments_reason,
     author_code_problem,
     conductor_error,
     is_conductor_error,
@@ -59,6 +60,7 @@ __all__ = [
     "no_json_form",
     "set_has_no_order",
     "argument_errors",
+    "arguments_reason",
     "shape_error",
     "value_free_errors",
 ]

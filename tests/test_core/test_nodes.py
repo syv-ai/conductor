@@ -266,10 +266,11 @@ def _faults(
         ({"deprecation": "soon"}, [("is_instance_of", ["deprecation"])]),
         ({"replaces": "x"}, [("not_a_node", ["replaces"])]),
         ({"upgrade": {}}, [("is_instance_of", ["upgrade"])]),
-        ({"title": ""}, [("string_too_short", ["title"])]),
-        ({"title": "   "}, [("string_too_short", ["title"])]),
-        ({"description": ""}, [("string_too_short", ["description"])]),
-        ({"description": "   "}, [("string_too_short", ["description"])]),
+        ({"title": ""}, [("blank_text", ["title"])]),
+        ({"title": "   "}, [("blank_text", ["title"])]),
+        ({"description": ""}, [("blank_text", ["description"])]),
+        ({"description": "   "}, [("blank_text", ["description"])]),
+        ({"description": "\t\n"}, [("blank_text", ["description"])]),
         (
             {"tags": "ab", "version": 0},
             [("greater_than_equal", ["version"]), ("sequence_str", ["tags"])],
@@ -289,9 +290,29 @@ def test_every_fault_in_a_declaration_is_found_in_one_pass(declare: Callable[...
     given: dict[str, Any] = {"title": " ", "description": "For a test.", "tags": "ab"}
     assert _faults(lambda: declare("a.b", **given), ()) == [
         ("not_a_name", ["id"]),
-        ("string_too_short", ["title"]),
+        ("blank_text", ["title"]),
         ("sequence_str", ["tags"]),
     ]
+    # the reason, which the message quotes, names every fault after its argument
+    with pytest.raises(NodeDeclarationError) as raised:
+        declare("a.b", **given)
+    reason = raised.value.problems[0].ctx["reason"]
+    assert [part.split(":")[0] for part in reason.split("; ")] == ["id", "title", "tags"]
+    assert reason in str(raised.value)
+
+
+def test_two_versions_of_a_node_with_a_blank_title_read_apart_by_their_version():
+    texts = []
+    for version in (1, 2):
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("x", title=" ", description="For a test.", version=version)
+        assert raised.value.problems[0].loc == ("x",)
+        texts.append(str(raised.value).split(":")[0])
+    assert texts == ["x (version 1)", "x (version 2)"]
+    # a version that is refused itself can't name the fault
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("x", title=" ", description="For a test.", version=0)
+    assert str(raised.value).startswith("x: ")
 
 
 @pytest.mark.parametrize(
@@ -367,7 +388,9 @@ def test_a_node_id_that_isnt_text_is_an_argument_of_the_wrong_type_placed_at_no_
 def test_an_argument_of_the_wrong_type_names_the_node():
     with pytest.raises(NodeDeclarationError) as raised:
         node("tagged_twice", title="X", description="For a test.", tags="x")  # type: ignore[arg-type]
-    assert str(raised.value).startswith("tagged_twice: @node can't take its arguments: tags:")
+    assert str(raised.value).startswith(
+        "tagged_twice (version 1): @node can't take its arguments: tags:"
+    )
 
 
 @pytest.mark.parametrize(

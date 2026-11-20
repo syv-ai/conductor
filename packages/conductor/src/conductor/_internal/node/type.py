@@ -313,6 +313,16 @@ class SubgraphDefinition(_Version):
 type NodeDefinition = FunctionDefinition[..., Any] | SubgraphDefinition
 
 
+def version_number(version: int | None, replaces: NodeDefinition | None) -> int:
+    """Returns a node's version number: ``version`` if it is given, else one past the version ``replaces`` names, or 1
+    for a first version."""
+    if version is not None:
+        return version
+    if replaces is not None:
+        return replaces.version + 1
+    return 1
+
+
 def gone_inputs(older: NodeDefinition, newer: NodeDefinition) -> set[str]:
     """Returns the inputs of ``older`` that ``newer``, the version replacing it, neither has nor renames."""
     return set(older.input_names) - set(newer.input_names) - newer.upgrade.renamed_inputs.keys()

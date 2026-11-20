@@ -762,24 +762,26 @@ def invalid_declaration_argument(
     Some text has a rule of its own. A node's id is a name, as a node's id in a graph record is: not empty, and none of
     ``.``, ``/``, ``@`` or ``~``, since sources, node paths and waiting ids are written with them (``not_a_name``). A
     type's id, given to ``@host_type``, is one word of letters, digits, ``_``, ``.`` or ``-`` that starts with a letter
-    or ``_``, since it is written inside other ids such as ``list[money]``, and isn't the id of one of conductor's own
-    types, such as ``str`` (``not_a_type_id``). A title or description is what a person reads in a palette, so it
-    isn't empty or only spaces (pydantic's ``string_too_short``). ``@host_type`` put above a class conductor names
-    itself, such as ``HttpUrl``, is refused too (``conductors_own_type``, at ``loc`` ``["cls"]``, the class): declare
-    a subclass of it to give it an id of your own.
+    or ``_``, since it is written inside other ids such as ``list[money]`` (``type_id_not_one_word``). It isn't the id
+    of one of conductor's own types, such as ``str`` (``conductors_own_type_id``). A title or description is what a
+    person reads in a palette, so it isn't empty or only whitespace (``blank_text``). ``@host_type`` put above a class
+    conductor names itself, such as ``HttpUrl``, is refused too (``conductors_own_type``, at ``loc`` ``["cls"]``, the
+    class): declare a subclass of it to give it an id of your own.
 
-    ``ctx.errors`` has every fault of the arguments, so one run finds them all. Each has pydantic's code, one of the
-    codes above, or ``not_a_node`` for a ``replaces=`` that isn't a node definition, and its ``loc``: the argument,
-    then where in it, such as ``["tags", 1]``. A key of ``extra`` that isn't text is not quoted, at any depth: the ``loc`` stops at ``"[key]"``, and a fault in the value under it is left out.
-    ``JsonValue``'s own labels, ``dict`` and ``list``, are left out of a ``loc``, so it names only keys and indexes.
-    The problem's own ``loc`` is the node's id, and ``()`` when the id itself is refused, for a registry, and for
-    ``@host_type``.
+    ``ctx.errors`` has every fault of the arguments, and ``ctx.reason``, which the message quotes, names each after
+    its argument, so one run finds them all. Each fault has pydantic's code, one of the codes above, or ``not_a_node``
+    for a ``replaces=`` that isn't a node definition, and its ``loc``: the argument, then where in it, such as
+    ``["tags", 1]``. A key of ``extra`` that isn't text is not quoted, at any depth: the ``loc`` stops at
+    ``"[key]"``, and a fault in the value under it is left out. ``JsonValue``'s own labels, ``dict`` and ``list``, are
+    left out of a ``loc``, so it names only keys and indexes. The problem's own ``loc`` is the node's id, and ``()``
+    when the id itself is refused, for a registry, and for ``@host_type``. Its text names the node's version after
+    the id, unless the version itself is refused.
 
     To fix it, give each argument the type the signature says, or as its fault says.
 
     Args:
         declared_with: ``@node``, ``subgraph``, ``NodeRegistry`` or ``@host_type``.
-        reason: The first fault, after the argument it is in.
+        reason: Every fault, each after the argument it is in, with ``; `` between them.
         errors: Every fault, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``.
 
     Example:

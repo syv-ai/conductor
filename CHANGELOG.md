@@ -267,9 +267,10 @@ What changes in how you work, before the name-by-name tables:
 - **A node's or a type's id, and a blank title or description, are faults inside `invalid_declaration_argument`**
   (provisional). A node's id that isn't a name, such as `"a.b"`, is `not_a_name` in `ctx.errors`, the code a node's
   id in a graph record has; a type's id that isn't one word of letters, digits, `_`, `.` or `-`, or is one of
-  conductor's own, is `not_a_type_id`; and a title or description that is empty or only spaces is pydantic's
-  `string_too_short`. So a declaration with a bad id, a blank title and `tags="text"` reports all three in one
-  `NodeDeclarationError`, and the codes `invalid_node_id` and `empty_title_or_description` are gone.
+  conductor's own, is `type_id_not_one_word` or `conductors_own_type_id`. A node's or a type's title, and a node's
+  description, that is empty or only whitespace is `blank_text`, at the argument, the text naming the node's
+  version. So a declaration with a bad id, a blank title and `tags="text"` reports all three in one
+  `NodeDeclarationError`, and `ctx.reason`, which the message quotes, names every fault after its argument.
 - **`type_not_named` gives a declaration to paste.** For a class with no `@host_type`, the message suggests an id and a title made from the class's name, `@host_type("invoice-line", title="Invoice line")` for `InvoiceLine`, where it wrote `@host_type("...", title="...")`; `ctx` gains `suggested_id` and `suggested_title`. An id that would be one of conductor's own gets `-type` after it.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
@@ -301,10 +302,6 @@ What changes in how you work, before the name-by-name tables:
   `SubgraphDefinition`. `node(...)` and `@registry.node(...)` take only a function. `subgraph` has no
   `policy`, `compute_added_inputs` or `compute_outputs` argument, so passing one is Python's own `TypeError`,
   and the declaration code `not_for_a_graph` is gone.
-- **A node's title and description are not empty.** `@node`, `@registry.node`, `subgraph` and
-  `registry.subgraph` refuse a `title` or `description` that is empty or only spaces [provisional], as
-  `string_too_short` in `invalid_declaration_argument`, at the argument. `@host_type` refuses a blank title too, by
-  the same rule.
 - **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
   that node once per item, and everything after it; the node never sees the difference. A
   `Series[X]` input collects every item in one call, and a `Table[R]` input collects rows into a
@@ -534,7 +531,7 @@ What changes in how you work, before the name-by-name tables:
 - **A return of the wrong shape says why in `ctx.errors`** [provisional]. `invalid_output` always has `ctx.errors`, and a fault in the return's shape is its one error. An output left out of a returned mapping, or a name that is no output, is pydantic's `missing` or `extra_forbidden` ("Field required", "Extra inputs are not permitted") at the output's name, as an answer to the same node gives them. The others have `loc` `[]` and conductor's code, since pydantic has none: `not_the_class`, `not_a_mapping`, `skipped_not_a_branch`, `several_branches_given` (with `ctx.given`, as an answer and an `Ask`'s default give it), `skipped_inside` for `SKIPPED` inside a value, or `none_required` for a node with no outputs that returned something.
 - **A hook's node returns its outputs by the rules an answer is read by** [provisional]. A node whose `compute_outputs` hook gives its outputs may leave a branch out of the mapping it returns, and the branch is skipped, as when an answer leaves it out; it was `invalid_output` (`missing`). A key that isn't text is pydantic's `invalid_key` at that key, as in an answer, where it was `extra_forbidden`. Of several keys that are no output, the first the node wrote is named, where the first by name was. A `SKIPPED` value on an output that isn't a branch is `skipped_not_a_branch` even when another output is missing, where `missing` came first.
 - **A node's default refused says why in `ctx.errors`** [provisional]. `default_invalid` has `ctx.reason`, `ctx.errors` (pydantic's codes, value-free `loc`, such as `greater_than_equal` at `[1]` for a `Series` default's second item) and, for a table, `ctx.column`, as `invalid_value` has them.
-- **`@host_type`'s arguments refused say why in `ctx.errors`** [provisional]. `invalid_declaration_argument` has `ctx.reason`, the first fault, which its message quotes, and `ctx.errors`, every fault with its `loc` naming the argument (`["id"]`, `["title"]`, `["accepts", 0]`) and pydantic's code (`string_type`, `is_type`) or `conductors_own_type` for a class conductor names.
+- **`@host_type`'s arguments refused say why in `ctx.errors`** [provisional]. `invalid_declaration_argument` has `ctx.reason`, every fault, which its message quotes, and `ctx.errors`, every fault with its `loc` naming the argument (`["id"]`, `["title"]`, `["accepts", 0]`) and pydantic's code (`string_type`, `is_type`) or `conductors_own_type` for a class conductor names.
 - **A `Param`'s choices that can't be used are one kind, `choices_invalid`, with its faults in `ctx.errors`** [provisional]. It has `ctx.reason`, the first fault, and `ctx.errors`: the fault of each choice that doesn't read, at its index (the type's own code, such as `int_type` or `finite_number`, or `no_json_form`), or, once every choice reads, the whole list's (`choice_twice` or `too_short`, `loc` `[]`). So a declaration reports the faults of all its choices at once, as an `Ask`'s are. Its message reads "the choices can't be used: <reason>. Give each choice once, as a value of the field's type that can be written as JSON."
 - **A saved run refused, and an edge naming a record's missing field, say why in `ctx.errors`** [provisional]. `saved_run_unreadable` has `ctx.errors`, its one error with `loc` `[]`: pydantic's code without the value (`bool_is_not_a_number`, `int_parsing`, `bytes_invalid_encoding`, ...), or `saved_lists_disagree` where a node's saved lists don't agree with each other or with the graph. `invalid_edge_value` for a value without the field the edge names has `ctx.field` and the error `no_such_field`, so `invalid_edge_value` always has `ctx.errors`.
 - **`param_limit_value_invalid` says why in `ctx.reason`**, pydantic's text for the schema it couldn't build [provisional]; `ctx.error` on every kind is only a `NodeError`'s code or an exception's class.

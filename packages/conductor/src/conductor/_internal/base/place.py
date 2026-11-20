@@ -106,7 +106,8 @@ def _a_name(text: str) -> str:
         separators = comma_separated(f"'{separator}'" for separator in SEPARATORS)
         raise PydanticCustomError(
             "not_a_name",
-            "'{text}' isn't a valid name. A name can't be empty, and can't contain any of {separators}",
+            "'{text}' isn't a valid name. A name can't be empty, and can't contain any of {separators}, "
+            "since those mean something in sources and waiting ids",
             {"text": text, "separators": separators},
         )
     return text

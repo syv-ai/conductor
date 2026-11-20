@@ -202,6 +202,18 @@ def argument_errors(
     return faults
 
 
+def arguments_reason(faults: list[dict[str, Any]]) -> str:
+    """Returns every fault in the arguments of a declaration as one text, each after the argument it is in.
+
+    For a bad id and ``tags="ab"`` it is ``"id: 'a.b' isn't a valid name. ...; tags: 'str' instances are not
+    allowed as a Sequence value"``.
+
+    Args:
+        faults: The faults, each as ``shape_error`` writes it, its ``loc`` starting with the argument.
+    """
+    return "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in faults)
+
+
 def _steps_given(given: Any, steps: list[str | int]) -> list[str | int] | None:
     """Returns the steps of a fault's ``loc`` that name a place in ``given``, walking ``given`` along them.
 

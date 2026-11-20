@@ -53,6 +53,7 @@ from .type import (
     Upgrade,
     gone_inputs,
     gone_outputs,
+    version_number,
 )
 from .validator import DeclarationValidator
 
@@ -329,12 +330,7 @@ def _version_number(
         NodeDeclarationError: ``replaces``, ``upgrade`` and ``version`` don't fit together. Its ``loc`` is the id.
     """
     # the version comes first, so each fault below names it
-    if version is not None:
-        number = version
-    elif replaces is not None:
-        number = replaces.version + 1
-    else:
-        number = 1
+    number = version_number(version, replaces)
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(
             declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id),

@@ -67,6 +67,7 @@ from pydantic_core import MultiHostUrl, Url, core_schema
 
 from conductor._internal.problem import (
     NodeDeclarationError,
+    arguments_reason,
     conductor_error,
     declaration_problems,
     shape_error,
@@ -158,21 +159,20 @@ _TYPE_ID = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
 
 
 def _not_blank(text: str) -> str:
-    """Returns ``text`` if it has a character other than a space, so that pydantic can use it as a check.
+    """Returns ``text`` if it has a character other than whitespace, so that pydantic can use it as a check.
 
     Raises:
-        PydanticCustomError: Pydantic's ``string_too_short``, for text that is empty or only spaces.
+        PydanticCustomError: ``blank_text``, for text that is empty or only spaces, tabs, newlines or other
+            whitespace.
     """
     if not text.strip():
         raise conductor_error(
-            "string_too_short",
-            "String should have at least 1 character other than spaces",
-            {"min_length": 1},
+            "blank_text", "the text is empty or only whitespace, so a person reads nothing"
         )
     return text
 
 
-#: A title or description a person reads about a node or a type in a palette, so it isn't empty or only spaces.
+#: A title or description a person reads about a node or a type in a palette, so it isn't empty or only whitespace.
 #: ``@node``, ``subgraph`` and ``@host_type`` declare their title with it, and a node its description.
 NotBlank = Annotated[str, AfterValidator(_not_blank)]
 
@@ -180,17 +180,22 @@ NotBlank = Annotated[str, AfterValidator(_not_blank)]
 def _a_type_id(text: str) -> str:
     """Returns ``text`` if a host can declare it as a type's id, so that pydantic can use it as a check.
 
-    A type's id is written inside other ids, as in ``list[money]``, so it is one word. It isn't the id of one of
-    conductor's own types, such as ``str``.
-
     Raises:
-        PydanticCustomError: ``not_a_type_id``, for any other text.
+        PydanticCustomError: ``type_id_not_one_word`` if it isn't one word, since a type's id is written inside other
+            ids, as in ``list[money]``. ``conductors_own_type_id`` if it is the id of one of conductor's own types,
+            such as ``str``.
     """
-    if not _TYPE_ID.match(text) or text in OWN_IDS:
+    if not _TYPE_ID.match(text):
         raise conductor_error(
-            "not_a_type_id",
-            "'{text}' can't be a type's id. A type's id is one word of letters, digits, '_', '.' or '-' that starts "
-            "with a letter or '_', and isn't the id of one of conductor's own types, such as 'str'",
+            "type_id_not_one_word",
+            "'{text}' isn't one word of letters, digits, '_', '.' or '-' that starts with a letter or '_', as a "
+            "type's id is, since it is written inside other ids",
+            {"text": text},
+        )
+    if text in OWN_IDS:
+        raise conductor_error(
+            "conductors_own_type_id",
+            "'{text}' is the id of one of conductor's own types",
             {"text": text},
         )
     return text
@@ -249,8 +254,8 @@ def host_type[C: type](
 
     Raises:
         NodeDeclarationError: Right away, when the class is defined. ``invalid_declaration_argument``, with every
-            fault in ``ctx.errors``, if the id isn't one word or is one of conductor's own (``not_a_type_id``), the
-            title is blank (``string_too_short``), either isn't text, or ``accepts`` has something that isn't a
+            fault in ``ctx.errors``, if the id isn't one word (``type_id_not_one_word``) or is one of conductor's own
+            (``conductors_own_type_id``), the title is blank (``blank_text``), either isn't text, or ``accepts`` has something that isn't a
             class. Then, once the class is given, ``invalid_declaration_argument`` if it is one conductor names
             itself, ``type_declaration_not_on_a_class`` if it isn't a class it can name,
             ``type_declaration_not_writable`` if it can't take a new attribute, and ``host_type_not_supported`` if
@@ -265,7 +270,7 @@ def host_type[C: type](
         raise NodeDeclarationError(
             declaration_problems.invalid_declaration_argument(
                 declared_with="@host_type",
-                reason=f"{faults[0]['loc'][0]}: {faults[0]['msg']}",
+                reason=arguments_reason(faults),
                 errors=faults,
             )
         ) from None
@@ -287,7 +292,7 @@ def host_type[C: type](
             )
             raise NodeDeclarationError(
                 declaration_problems.invalid_declaration_argument(
-                    declared_with="@host_type", reason=f"cls: {own['msg']}", errors=[own]
+                    declared_with="@host_type", reason=arguments_reason([own]), errors=[own]
                 )
             )
         try:
