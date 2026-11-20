@@ -67,7 +67,8 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     """
     blueprint, codec = graph._blueprint, graph._codec
     try:
-        read = codec.model_validate_json(saved)
+        # a field is saved under its name, never an alias (the codec's _SavedValue), so it is read by its name
+        read = codec.model_validate_json(saved, by_alias=False, by_name=True)
     except ValidationError as error:
         first = error.errors()[0]
         # the fingerprint under "graph" is not this graph's

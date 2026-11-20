@@ -44,7 +44,15 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import AfterValidator, BaseModel, ConfigDict, Discriminator, TypeAdapter, with_config
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    TypeAdapter,
+    with_config,
+)
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
@@ -2625,3 +2633,54 @@ def test_a_saved_float_a_deploy_s_limit_refuses_is_refused_by_that_limit(
         "outcomes.measure.outputs.result.0",
         code,
     )
+
+
+@host_type("aliased-reading", title="Aliased reading")
+class _AliasedReading(BaseModel, frozen=True):
+    n: int = Field(alias="p")
+    m: int = Field(validation_alias="vm", serialization_alias="sm")
+    k: int = Field(serialization_alias="sk")
+
+
+@host_type("aliased-by-name", title="Aliased by name")
+class _AliasedByName(BaseModel, frozen=True):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+    n: int = Field(alias="p")
+    inner: list[_AliasedReading]
+
+
+@host_type("aliased-pair", title="Aliased pair")
+@pydantic_dataclass(frozen=True)
+class _AliasedPair:
+    left: int = Field(alias="l")
+
+
+@pytest.mark.parametrize(
+    ("returns", "value"),
+    [
+        (_AliasedReading, _AliasedReading(p=1, vm=2, k=3)),
+        (
+            _AliasedByName,
+            _AliasedByName(p=4, inner=[_AliasedReading(p=1, vm=2, k=3)]),
+        ),
+        (list[_AliasedReading], [_AliasedReading(p=5, vm=6, k=7)]),
+        (_AliasedPair, _AliasedPair(l=8)),  # type: ignore[call-arg]
+    ],
+)
+def test_a_host_type_with_aliased_fields_reads_back_from_its_save_as_it_was(
+    returns: Any, value: Any
+):
+    """A saved run writes each field of a host's model or dataclass under its name, never an alias, and reads it by
+    its name, so the run reads back as itself and writes the same bytes again."""
+
+    @node("aliased", title="Aliased", description="For a test.")
+    def aliased(text: str) -> returns:  # type: ignore[valid-type]
+        return value
+
+    graph = Graph.compile(make_graph(aliased), registry_of(aliased))
+    saved = graph.run({"text": "a"}).to_json()
+
+    back = Run.from_json(saved, graph)
+
+    assert back.results["aliased"]["result"] == value
+    assert back.to_json() == saved

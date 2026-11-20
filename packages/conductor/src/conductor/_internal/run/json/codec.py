@@ -57,7 +57,9 @@ class _SavedValue:
     A pydantic model or a dataclass writes its fields by its own config, whatever schema it sits in. By default that
     writes ``inf`` as ``null``, which a ``float`` field can't read back. So a type with a model or dataclass inside is
     written the way ``Type.to_json`` writes it: first as Python's JSON values, which keep the float, then as text by
-    the codec's config.
+    the codec's config. Each field is written under its name, never an alias, and ``run_from_json`` reads it by its
+    name, so a field with ``alias``, ``serialization_alias`` or ``validation_alias`` reads back as it was saved,
+    whatever the class's config says.
 
     This is a class used as the hint, rather than ``GetPydanticSchema`` inside ``Annotated``. Pydantic moves the
     definitions of a schema a hint returns up beside the whole schema. For one that ``Annotated`` returns, it leaves
@@ -74,7 +76,7 @@ class _SavedValue:
         schema = _read_strictly(value_type.output_schema if output else value_type.argument_schema)
         if _holds_a_model(schema):
             as_json = core_schema.plain_serializer_function_ser_schema(
-                functools.partial(value_type.serializer.to_python, mode="json")
+                functools.partial(value_type.serializer.to_python, mode="json", by_alias=False)
             )
             # what pydantic defined beside the type stays beside it
             inner, definitions = under_definitions(schema)
