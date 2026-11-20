@@ -22,7 +22,7 @@ from pydantic import (
 
 from conductor._internal.base import ConductorModel, Name, Source
 from conductor._internal.problem import conductor_error, value_free_errors
-from conductor._internal.validation import KindByKey
+from conductor._internal.types import KindByKey
 
 
 def _empty(value: Mapping[str, Any]) -> bool:

@@ -31,7 +31,7 @@ from typing import Any, TypedDict, cast
 from pydantic import JsonValue, ValidationError
 from pydantic_core import SchemaValidator, core_schema
 
-from conductor._internal.base import REQUIRED
+from conductor._internal.base import REQUIRED, Validator
 from conductor._internal.field import Field
 from conductor._internal.problem import (
     InvalidCallError,
@@ -40,9 +40,8 @@ from conductor._internal.problem import (
     compile_problems,
 )
 from conductor._internal.table import own_copy
-from conductor._internal.types import Type
+from conductor._internal.types import Type, read_as_json
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import Validator, read_as_json
 
 
 class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
@@ -99,9 +98,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         for name, field in self._inputs.items():
             if name in given:
                 try:
-                    values[name] = read_as_json(
-                        field.whole, field.whole.argument_validator, given[name]
-                    )
+                    values[name] = read_as_json(field.whole, given[name])
                 except ValidationError as error:
                     problems.append(_refused(field, given[name], error))
             elif field.default is REQUIRED:
@@ -230,7 +227,7 @@ class ConstantValidator(Validator[JsonValue, Any]):
         """
         whole, name = self._field.whole, self._field.name
         try:
-            return read_as_json(whole, whole.argument_validator, value)
+            return read_as_json(whole, value)
         except ValidationError as error:
             found = compile_problems.invalid_value(self._node_id, name, **whole.refusal(error))
         raise InvalidCallError([found])

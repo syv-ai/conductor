@@ -36,14 +36,16 @@ from pydantic_core import (
 )
 from pydantic_core.core_schema import TypedDictField
 
-from conductor._internal.base import REQUIRED, SKIPPED, Loc
+from conductor._internal.base import REQUIRED, SKIPPED, Loc, Validator, validate_as_json
 from conductor._internal.field import Field, outputs_schema
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
     conductor_error,
+    json_form,
     run_problems,
 )
+from conductor._internal.table import json_fallback
 from conductor._internal.types import (
     Choice,
     Type,
@@ -51,8 +53,8 @@ from conductor._internal.types import (
     check_one_of,
     choices_schema,
     pick_texts,
+    read_as_json,
 )
-from conductor._internal.validation import Validator, json_data, read_as_json
 
 from .question import as_asked
 from .type import Ask
@@ -102,9 +104,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     {
                         name: core_schema.typed_dict_field(
                             choices_schema(
-                                functools.partial(
-                                    read_as_json, field.type, field.type.output_validator
-                                ),
+                                functools.partial(read_as_json, field.type, as_output=True),
                                 field.type.to_json,
                                 known=field.type.choices or (),
                             ),
@@ -298,7 +298,7 @@ def _answer_fields(
             schema = core_schema.with_default_schema(
                 schema,
                 default_factory=functools.partial(
-                    read_as_json, field.whole, field.whole.output_validator, default
+                    read_as_json, field.whole, default, as_output=True
                 ),
             )
         fields[name] = core_schema.typed_dict_field(schema, required=required)
@@ -354,7 +354,7 @@ def _question(field: Field, choices: tuple[Choice, ...] | None) -> CoreSchema:
     whole = field.whole
 
     def read(value: Any) -> Any:
-        answer = read_as_json(whole, whole.output_validator, value)
+        answer = read_as_json(whole, value, as_output=True)
         _check_picks(field, answer, choices)
         return answer
 
@@ -454,12 +454,15 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
     An answer is read from its JSON form. A host that keeps an answer to give a run later keeps what this returns
     (``Run.queued_as_json``): a ``date`` becomes ``"2026-11-15"``, a dataclass or a pydantic model a mapping of its
     fields, a field that is ``SKIPPED`` left out as a branch not chosen, and a ``polars.DataFrame`` its columns
-    (``json_data``). So a kept answer reads as the answer itself, but for a frame with a column a saved run can't
-    keep, which is refused here even where the question's table doesn't name it.
+    (``json_fallback``), since the answer's type isn't known here to read the frame as it is. So a kept answer reads
+    as the answer itself, but for a frame with a column a saved run can't keep, which is refused here even where the
+    question's table doesn't name it. ``inf`` stays a float, so the answer is refused where the run reads it
+    (``finite_number``), as the answer itself is.
 
     Raises (when called):
         InvalidCallError: One ``invalid_answer`` for the whole answer when it can't be written as JSON, such as a
-            ``str`` with a lone surrogate. The questions aren't known here, so it names none.
+            ``str`` with a lone surrogate, or has a set in it (``set_has_no_order``). The questions aren't known
+            here, so it names none.
     """
 
     def __init__(self, *, loc: Loc, waiting_id: str) -> None:
@@ -478,8 +481,13 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
         Raises:
             InvalidCallError: See the class.
         """
+        fields = _as_mapping(answer)
         try:
-            return json_data(_as_mapping(answer))
+            return json_form(
+                _ANY.id,
+                fields,
+                lambda: validate_as_json(_ANY.output_validator, fields, fallback=json_fallback),
+            )
         except ValidationError as error:
             raise InvalidCallError(
                 [
@@ -524,7 +532,7 @@ class DeclineValidator(Validator[Any, str | None]):
             InvalidCallError: See the class.
         """
         try:
-            return cast(str | None, read_as_json(_REASON, _REASON.argument_validator, reason))
+            return cast(str | None, read_as_json(_REASON, reason))
         except ValidationError as error:
             raise InvalidCallError(
                 [

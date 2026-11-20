@@ -18,9 +18,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from conductor._internal.base import NodePath
+from conductor._internal.base import NodePath, Validator
 from conductor._internal.problem import InvalidCallError, call_problems
-from conductor._internal.validation import Validator
 
 from .type import ContextParameter
 

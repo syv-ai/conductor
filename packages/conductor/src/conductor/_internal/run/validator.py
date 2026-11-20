@@ -32,13 +32,13 @@ from conductor._internal.base import (
     ItemIndexes,
     Loc,
     NodePath,
+    Validator,
     parse_waiting_id,
     write_waiting_id,
 )
 from conductor._internal.field import Field
 from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.problem import InvalidCallError, call_problems, run_problems
-from conductor._internal.validation import Validator
 
 
 def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
