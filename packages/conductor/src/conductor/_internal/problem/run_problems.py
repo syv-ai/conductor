@@ -207,6 +207,9 @@ def invalid_edge_value(
     - a table whose columns are only known once it is made,
     - a field of a value whose type declares no fields, like a ``dict``. A value without the field the edge names
       has ``ctx.field``, and its one error in ``ctx.errors`` is ``no_such_field``.
+    - a field that is ``SKIPPED``, such as the field of a model typed ``Any``. Only an output's whole value is a
+      skipped branch, so the edge doesn't skip the node it feeds. It has ``ctx.field``, and its one error in
+      ``ctx.errors`` is ``skipped_inside``.
 
     In the example, ``letters`` returns 12, and ``small`` takes at most 3.
 
@@ -258,13 +261,12 @@ def invalid_output(
     isn't text, at ``"[key]"``, with no ``ctx.output``: a key may be built from data, so it is never quoted. The others have
     ``loc`` ``[]`` and conductor's code, since pydantic has none: ``not_the_class`` (not the node's dataclass),
     ``not_a_mapping``, ``skipped_not_a_branch``, ``several_branches_given`` (as an answer's and an ``Ask``'s
-    default's), ``skipped_inside`` (``SKIPPED`` inside a value) and ``none_required`` (a node with no outputs returned
-    something).
+    default's) and ``none_required`` (a node with no outputs returned something).
 
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
     branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. ``SKIPPED`` is an
-    output's whole value or one item of a ``Series``, never inside a value, such as a field of a returned model or
-    dataclass or an item of a list: it has no JSON form, so the run couldn't be saved. The reference has the rule
+    output's whole value or one item of a ``Series``. The return isn't searched for it inside a value, such as an
+    item of a list typed ``Any``: such a run is refused when it is saved (``run_unwritable``). The reference has the rule
     under "Branches" (``python -m conductor.about the-node-contract``).
 
     To fix it, make the node return what it declares. Outputs that may each have a value on one call aren't branches:

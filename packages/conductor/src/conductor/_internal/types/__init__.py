@@ -18,7 +18,7 @@ from .choice import (
     choices_schema,
     pick_texts,
 )
-from .fields import NoSuchFieldError, field_of
+from .fields import UnreadableFieldError, field_of
 from .fit import fit
 from .hint import a_number, hint_parts, substituted, union_members, union_of
 from .host_type import NAMES, NotBlank, host_type, is_declared
@@ -29,7 +29,7 @@ __all__ = [
     "NAMES",
     "SIZED",
     "Choice",
-    "NoSuchFieldError",
+    "UnreadableFieldError",
     "NotBlank",
     "Param",
     "Type",

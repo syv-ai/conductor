@@ -14,7 +14,7 @@ from typing import Any
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.graph import CollectingInput, Graph
 from conductor._internal.series import StoredSeries
-from conductor._internal.types import NoSuchFieldError
+from conductor._internal.types import UnreadableFieldError
 
 from .blueprint import BlueprintFunctionNode
 from .outcome import NotReady
@@ -54,9 +54,9 @@ class DisplayReader(RunOutcomes):
     far. In the example, while ``shout`` has only returned for the first line, ``results["shout"]["result"]`` is
     ``["A!", None]``.
 
-    An edge can name one field of a value (``give.result.name``). If the value has no such field, the node the
-    edge leads to fails, and the run ends ``failed`` with that as its cause. Showing the run afterwards mustn't
-    raise the same error again, so here the missing field is shown as ``None``.
+    An edge can name one field of a value (``give.result.name``). If the value has no such field, or the field is
+    ``SKIPPED``, the node the edge leads to fails, and the run ends ``failed`` with that as its cause. Showing the
+    run afterwards mustn't raise the same error again, so here that field is shown as ``None``.
     """
 
     __slots__ = ()
@@ -72,7 +72,7 @@ class DisplayReader(RunOutcomes):
     ) -> Any:
         """Returns what ``RunOutcomes.read_output`` returns, as a host is shown it.
 
-        A field the value doesn't have is ``None``. A ``Series`` output is a plain list of its items. A value that
+        A field the value doesn't have, or that is ``SKIPPED``, is ``None``. A ``Series`` output is a plain list of its items. A value that
         isn't there yet stays ``NOT_READY``, so that working out whether any item of a loop may have a value goes as
         it does for a call: a question still waiting upstream is not a ``None``. ``display_value`` shows it as
         ``None``.
@@ -81,18 +81,18 @@ class DisplayReader(RunOutcomes):
             value = RunOutcomes.read_output(
                 self, node, output, item_indexes, field, one_item=one_item
             )
-        except NoSuchFieldError:
+        except UnreadableFieldError:
             return None
         return value.as_list() if isinstance(value, StoredSeries) else value
 
     def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input would get for the call at ``item_indexes``.
 
-        It is ``None`` when the edge names a field that an item of the list doesn't have.
+        It is ``None`` when the edge names a field that an item of the list doesn't have, or that is ``SKIPPED``.
         """
         try:
             return RunOutcomes.collect(self, node_input, item_indexes)
-        except NoSuchFieldError:
+        except UnreadableFieldError:
             return None
 
     def display_value(

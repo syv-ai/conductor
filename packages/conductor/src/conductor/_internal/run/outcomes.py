@@ -21,8 +21,9 @@ Sometimes a node can't be called, and ``arguments_for`` says why instead. It che
 1. An input gets only ``SKIPPED``, because every edge into it comes from a skipped branch. The call is
    ``Skipped``, whatever the other inputs get.
 2. A value an input needs doesn't exist yet. The call is ``NOT_READY``, and the run tries it again later.
-3. An edge reads a field of a value (``lines.result.name``) that the value doesn't have. The call fails with
-   ``invalid_edge_value``.
+3. An edge reads a field of a value (``lines.result.name``) that the value doesn't have, or that is ``SKIPPED``.
+   The call fails with ``invalid_edge_value``. A field that is ``SKIPPED`` is never a skipped branch: only an
+   output's whole value is.
 4. An input gets ``None``, and its parameter doesn't take ``None``. The call is a ``NoneInput``, and the
    function isn't called.
 
@@ -49,8 +50,8 @@ from typing_extensions import sentinel
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.graph import CollectingInput, Edge, EdgeInput
-from conductor._internal.problem import InvalidCallError, conductor_error, run_problems, shape_error
-from conductor._internal.types import NoSuchFieldError, field_of
+from conductor._internal.problem import InvalidCallError, run_problems, shape_error
+from conductor._internal.types import UnreadableFieldError, field_of
 
 from .blueprint import BlueprintFunctionNode, RunBlueprint, loop_body_of
 from .outcome import NoneInput, NotReady, Outcome, Skipped
@@ -241,7 +242,7 @@ class RunOutcomes:
 
         Raises:
             InvalidCallError: ``invalid_edge_value`` if an edge reads a field of a value (``lines.result.name``) and
-                the value has no such field.
+                the value has no such field, or the field is ``SKIPPED``.
         """
         arguments = node.constants.copy()
         graph_inputs = self.graph_inputs
@@ -254,19 +255,15 @@ class RunOutcomes:
             try:
                 value = self.read_input(node_input, item_indexes)
             # Keep going: a later input may get SKIPPED, which skips the call.
-            except NoSuchFieldError as missing:
+            except UnreadableFieldError as unreadable:
                 if fault is None:
-                    error = shape_error(
-                        conductor_error(
-                            "no_such_field", "it has no field '{field}'", {"field": missing.field}
-                        )
-                    )
+                    error = shape_error(unreadable.error)
                     fault = InvalidCallError(
                         [
                             run_problems.invalid_edge_value(
                                 input=name,
                                 reason=error["msg"],
-                                field=missing.field,
+                                field=unreadable.field,
                                 errors=[error],
                             )
                         ]
@@ -358,7 +355,8 @@ class RunOutcomes:
             returns the ``None`` or ``SKIPPED`` that every item would get.
 
         Raises:
-            NoSuchFieldError: The edge reads a field of a value, and the value has no such field.
+            UnreadableFieldError: The edge reads a field of a value, and the value has no such field, or the field
+                is ``SKIPPED``.
         """
         depth = len(node.loops)
         outcome = self._by_node[node.node_path].get(item_indexes[:depth])

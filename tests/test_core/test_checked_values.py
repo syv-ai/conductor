@@ -551,18 +551,20 @@ class Outer:
     ],
     ids=["a-field", "an-any-field", "a-nested-default", "inside-a-series-item", "a-dict-value"],
 )
-def test_skipped_inside_a_returned_value_is_refused_at_the_call(returned, return_type):
-    """``SKIPPED`` is an output's whole value or an item of a ``Series``, never inside a value: it has no JSON form,
-    so the run would complete and then fail to save. A model's or dataclass's instance is taken without its fields
-    checked again, so a field built as ``SKIPPED`` reaches here, and so does a default of a nested dataclass."""
+def test_skipped_inside_a_returned_value_is_refused_when_the_run_is_saved(returned, return_type):
+    """``SKIPPED`` is an output's whole value or an item of a ``Series``. Inside a value it has no JSON form, but a
+    return isn't searched for it, so the run completes and saving it, or its outputs, is ``run_unwritable``, whose
+    message names that cause. A model's or dataclass's instance is taken without its fields checked again, so a
+    field built as ``SKIPPED`` gets this far, and so does a default of a nested dataclass."""
     run = _returning(returned, return_type)
+    assert run.status == "complete"
 
-    assert (run.cause.type, run.cause.ctx["output"], run.cause.ctx["reason"]) == (
-        "invalid_output",
-        "result",
-        "SKIPPED is inside the value, where it has no JSON form: only an output's whole value, or an item of a "
-        "Series, may be SKIPPED",
-    )
+    for save, where in ((run.to_json, "g.result"), (run.outputs_to_json, "result")):
+        with pytest.raises(InvalidCallError) as refused:
+            save()
+        (problem,) = refused.value.problems
+        assert (problem.type, problem.ctx["where"]) == ("run_unwritable", where)
+        assert "SKIPPED inside a value" in problem.msg
 
 
 @pytest.mark.parametrize(
@@ -571,14 +573,12 @@ def test_skipped_inside_a_returned_value_is_refused_at_the_call(returned, return
         (Routed(count=SKIPPED, long="a"), Routed, "count", "skipped_not_a_branch"),
         (Routed(long="a", short="b"), Routed, "short", "several_branches_given"),
         ({"count": 1}, Routed, None, "not_the_class"),
-        (Parcel(1.0, SKIPPED), Parcel, "result", "skipped_inside"),
         ("a", None, None, "none_required"),
     ],
     ids=[
         "skipped-not-a-branch",
         "two-branches",
         "not-the-class",
-        "skipped-inside",
         "none-required",
     ],
 )
@@ -1249,6 +1249,49 @@ def test_a_field_an_item_or_untyped_column_lacks_fails_the_target_at_that_item_o
         "values",
         "name",
     )
+
+
+@pytest.mark.parametrize(
+    ("returned", "declared", "edge", "into", "loc"),
+    [
+        (Box(SKIPPED), Box, "give.result.value", "anything-in.x", ("anything-in",)),
+        ({"name": SKIPPED}, dict[str, Any], "give.result.name", "anything-in.x", ("anything-in",)),
+        (
+            [{"name": "a"}, {"name": SKIPPED}],
+            Series[dict],
+            "give.result.name",
+            "anything-in.x",
+            ("anything-in", 1),
+        ),
+        (
+            [{"name": "a"}, {"name": SKIPPED}],
+            Series[dict],
+            "give.result.name",
+            "all-of.values",
+            ("all-of",),
+        ),
+    ],
+    ids=["a-model-field", "a-dict-key", "a-series-item-field", "a-collected-field"],
+)
+def test_a_field_an_edge_reads_that_is_skipped_fails_the_reader_instead_of_skipping_it(
+    returned: Any, declared: Any, edge: str, into: str, loc: tuple[Any, ...]
+) -> None:
+    """Only an output's whole value is a skipped branch. A field inside a value that is ``SKIPPED`` has no JSON form,
+    so the edge that reads it refuses it, and the node it feeds isn't skipped as if a branch weren't chosen."""
+    give = _giving(returned, declared)
+    reader = _anything_in if into.startswith("anything-in") else _all_of
+    run = Graph.compile(
+        make_graph(give, reader, edges=[(edge, into)]), registry_of(give, reader)
+    ).run()
+
+    cause = run.cause
+    assert (run.status, cause.type, cause.loc, cause.ctx["field"]) == (
+        "failed",
+        "invalid_edge_value",
+        loc,
+        edge.rsplit(".", 1)[1],
+    )
+    assert [error["type"] for error in cause.ctx["errors"]] == ["skipped_inside"]
 
 
 @dataclass(frozen=True)

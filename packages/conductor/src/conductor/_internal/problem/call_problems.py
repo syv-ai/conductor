@@ -814,9 +814,12 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     """A run has a value that can't be written as JSON.
 
     ``ctx.where`` names the output. In the example, ``cut_emoji`` returns a text with half of an emoji's pair, a lone
-    surrogate, which JSON can't write.
+    surrogate, which JSON can't write. A value may also hold an object pydantic can't write, or ``SKIPPED`` inside
+    it, such as an item of a list typed ``Any``. A node's return isn't searched for ``SKIPPED``, so such a run
+    finishes in memory and is refused here, when it is saved.
 
-    To fix it, give the output a type that pydantic can write as JSON.
+    To fix it, give the output a type that pydantic can write as JSON, and return ``SKIPPED`` only as a branch's
+    whole value or an item of a ``Series``.
 
     Args:
         loc: ``"saved_run"`` and the steps to the value, or ``"outputs"`` and the graph output's name.
@@ -832,4 +835,8 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
         unwritable = Graph.compile(make_graph(cut_emoji), registry).run({"text": "a"})
         refused(lambda: unwritable.to_json())
     """
-    return f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}. Give that output a type pydantic can write as JSON."
+    return (
+        f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}, such as an object pydantic can't write "
+        "or SKIPPED inside a value. Give that output a type pydantic can write as JSON, and keep SKIPPED out of its "
+        "value."
+    )
