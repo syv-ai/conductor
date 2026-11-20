@@ -14,6 +14,7 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
+- **A generic `TypedDict` is a row everywhere.** `Row[int]`, for `class Row[T](TypedDict)`, was taken in a `Table` but refused on a field and in a `Series` with `type_not_named`, whose fix (`@host_type`) a `TypedDict` can't take. Now it is taken on an input, an output, a `Series`, a `Table` and an edge's field, with its arguments filled in; its id is `row`, as any `TypedDict`'s. A field written `ReadOnly`, and a `NotRequired` field of a `TypedDict` input fed a row that has it, are taken the same way. A generic dataclass of outputs returned bare, `-> Pair`, crashed `@node` with a `ValueError`; its open type variable is now `Any`, as a bare generic `TypedDict`'s is. It is provisional.
 - **A `Param`'s `title` and `description` can't be blank.** `Param(title="  ")` was taken; now it is refused when the `Param` is written, as a node's is (`invalid_declaration_argument`, with `blank_text` in `ctx.errors`). It is provisional.
 - **A graph record is its nodes by id, and declares what the graph takes and returns.** `{"nodes": {"shout":
   {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node": "join", "output": "result"}}}`. Each input a

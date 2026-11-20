@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import typing
 from collections.abc import Mapping
 from enum import Enum
 from types import FunctionType, MethodType, UnionType
@@ -80,6 +79,7 @@ from .fit import fit
 from .hint import (
     READ_AS,
     declares_fields,
+    field_hints,
     hint_parts,
     is_alias,
     literal_classes,
@@ -522,8 +522,8 @@ class Type:
             origin is Annotated
         ):  # a union's member keeps what checks it, which doesn't change its name
             return Type(one)._named
-        # a TypedDict has no declared name, so every one is "row"
-        if typing_extensions.is_typeddict(one):
+        # a TypedDict has no declared name, so every one is "row", a generic one's too
+        if typing_extensions.is_typeddict(origin):
             return "row", "Row", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
         _check_is_type(one)
@@ -721,17 +721,15 @@ class Type:
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
         """The type hint of each field, by name, for a type that declares its fields: a model, a dataclass or a
-        ``TypedDict``. Empty for any other type."""
+        ``TypedDict``, a generic one's with its arguments filled in. Empty for any other type.
+
+        ``field_hints`` reads them. A field a value may leave out is given as its type, without ``NotRequired``.
+        """
         one = self.options[0] if len(self.options) == 1 else None
-        return (
-            {
-                name: hint
-                for name, hint in typing.get_type_hints(one).items()
-                if get_origin(hint) is not ClassVar
-            }
-            if declares_fields(one)
-            else {}
-        )
+        return {
+            name: get_args(hint)[0] if get_origin(hint) is NotRequired else hint
+            for name, hint in (field_hints(one) or {}).items()
+        }
 
     @property
     def returned_schema(self) -> CoreSchema:

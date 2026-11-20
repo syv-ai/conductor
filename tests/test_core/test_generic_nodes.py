@@ -320,6 +320,33 @@ def test_a_generic_dataclass_of_outputs_returns_one_branch_at_run_time() -> None
     )
 
 
+def test_a_generic_dataclass_of_outputs_fills_in_its_arguments_and_reads_an_open_one_as_any() -> (
+    None
+):
+    """``-> Decided[int]`` has ``int`` outputs, and a bare ``-> Decided`` has ``Any`` ones, as a bare ``TypedDict`` has.
+
+    A bare one crashed ``@node`` with a ``ValueError`` before.
+    """
+
+    @node("filled", title="Filled", description="For a test.")
+    def filled() -> Decided[int]:
+        return Decided(if_true=1)
+
+    @node("bare", title="Bare", description="For a test.")
+    def bare() -> Decided:  # type: ignore[type-arg]
+        return Decided(if_true=1)
+
+    assert [(field.name, field.type) for field in filled.describe().outputs] == [
+        ("if_true", "int"),
+        ("if_false", "int"),
+    ]
+    assert [(field.name, field.type) for field in bare.describe().outputs] == [
+        ("if_true", "Any"),
+        ("if_false", "Any"),
+    ]
+    assert bare.describe().outputs[0].type_variables == []
+
+
 def test_a_generic_definition_describes_any_and_its_compiled_node_the_bound_types() -> None:
     assert [(field.name, field.type) for field in decision.describe().inputs] == [
         ("value", "Any"),

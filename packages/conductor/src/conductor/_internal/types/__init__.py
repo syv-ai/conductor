@@ -20,7 +20,7 @@ from .choice import (
 )
 from .fields import UnreadableFieldError, field_of
 from .fit import fit
-from .hint import a_number, hint_parts, substituted, union_members, union_of
+from .hint import a_number, field_hints, hint_parts, union_members, union_of
 from .host_type import NAMES, NotBlank, host_type, is_declared
 from .param import SIZED, Param, as_written, split_hint
 from .type import Type, TypeRefusal, json_by_its_class
@@ -40,6 +40,7 @@ __all__ = [
     "choice_texts",
     "choices_in_message",
     "choices_schema",
+    "field_hints",
     "field_of",
     "fit",
     "hint_parts",
@@ -48,7 +49,6 @@ __all__ = [
     "json_by_its_class",
     "pick_texts",
     "split_hint",
-    "substituted",
     "union_members",
     "union_of",
 ]

@@ -1,7 +1,7 @@
 """Small helpers for taking a type hint apart or building one.
 
 They answer questions like: what are the members of this union? What does this ``type X = ...`` alias stand
-for? Does this class declare fields? What is this hint with its type variables filled in?
+for? Which fields does this class declare? What is this hint with its type variables filled in?
 """
 
 from __future__ import annotations
@@ -24,7 +24,10 @@ from types import UnionType
 from typing import (
     Annotated,
     Any,
+    ClassVar,
     Literal,
+    NotRequired,
+    Required,
     TypeAliasType,
     TypeGuard,
     TypeVar,
@@ -48,8 +51,13 @@ from pydantic import (
     PastDate,
     PastDatetime,
 )
+from typing_extensions import ReadOnly
 
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
+
+#: The qualifiers a ``TypedDict``'s field may be written in. They say whether a value may leave the field out, or
+#: change it, and not what type the field is.
+_QUALIFIERS = frozenset({Required, NotRequired, ReadOnly})
 
 #: Classes that mean another hint when written as a hint, such as ``polars.DataFrame``, which means ``Table``.
 #:
@@ -112,6 +120,51 @@ def declares_fields(cls: Any) -> bool:
         or dataclasses.is_dataclass(cls)
         or typing_extensions.is_typeddict(cls)
     )
+
+
+def field_hints(hint: Any) -> dict[str, Any] | None:
+    """Returns the type hint of each field ``hint`` declares, by name, or ``None`` for a hint that declares none.
+
+    A pydantic model, a dataclass and a ``TypedDict`` declare their fields. This is the one place they are read.
+    A generic one has its type arguments filled in: for ``class Row[T](TypedDict)``, ``Row[int]``'s field
+    ``value: T`` is ``int``. A type variable left open, as in a bare ``Row``, becomes its bound, or ``Any``.
+
+    Each hint is the one its author wrote, with its ``Annotated`` metadata, so a field's limits and choices stay
+    on it. A ``TypedDict``'s ``Required`` and ``ReadOnly`` are taken off. A field a value may leave out, written
+    ``NotRequired`` or in a class declared ``total=False``, is always given as ``NotRequired[...]``, so one test
+    finds it. A ``ClassVar`` is no field.
+
+    Raises:
+        NodeDeclarationError: ``type_not_supported`` for a field written as text that names nothing Python can
+            find.
+    """
+    origin = get_origin(hint) or hint
+    if not declares_fields(origin):
+        return None
+    try:
+        written = typing.get_type_hints(origin, include_extras=True)
+    except NameError:
+        raise NodeDeclarationError(
+            declaration_problems.type_not_supported(type=origin.__qualname__)
+        ) from None
+    bound = dict(zip(getattr(origin, "__parameters__", ()), get_args(hint), strict=False))
+    # a TypedDict says which of its keys must be there, but not for a qualifier written as text, which only the
+    # resolved hint shows
+    required_keys = getattr(origin, "__required_keys__", written.keys())
+    fields = {}
+    for name, field in written.items():
+        if get_origin(field) is ClassVar:
+            continue
+        qualifiers = set()
+        while get_origin(field) in _QUALIFIERS:
+            qualifiers.add(get_origin(field))
+            field = get_args(field)[0]
+        field = substituted(field, bound)
+        left_out = NotRequired in qualifiers or (
+            Required not in qualifiers and name not in required_keys
+        )
+        fields[name] = NotRequired[field] if left_out else field
+    return fields
 
 
 def a_number(cls: type) -> bool:
@@ -184,12 +237,6 @@ def hint_parts(hint: Any, walked: frozenset[int] = frozenset()) -> Iterator[Any]
         if is_alias(hint):
             parts.append(hint.__value__)
         else:
-            try:
-                parts += typing.get_type_hints(origin, include_extras=True).values()
-            # a field written as text that names nothing Python can find
-            except NameError:
-                raise NodeDeclarationError(
-                    declaration_problems.type_not_supported(type=origin.__qualname__)
-                ) from None
+            parts += (field_hints(hint) or {}).values()
     for part in parts:
         yield from hint_parts(part, walked)

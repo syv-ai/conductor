@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import datetime
 import functools
-import typing
 from collections.abc import Callable, Iterable, Mapping
 from decimal import Decimal
 from typing import Any, NotRequired, TypeVar, get_args, get_origin
@@ -33,7 +32,7 @@ from conductor._internal.problem import (
     conductor_error,
     declaration_problems,
 )
-from conductor._internal.types import SIZED, Type, substituted
+from conductor._internal.types import SIZED, Type, field_hints
 
 from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
@@ -373,24 +372,6 @@ def is_bare_table_row(hint: Any) -> bool:
     return hint is Any or hint is dict or hint == dict[str, Any]
 
 
-def row_columns(row: Any, *, include_extras: bool = True) -> dict[str, Any] | None:
-    """Returns the hint of each column a table's row type names, or ``None`` for a row that names none.
-
-    A ``TypedDict`` names its fields. A generic one, like ``Row[int]``, names its fields with its type arguments
-    filled in. Any other row, a bare one included, names no columns.
-
-    Args:
-        row: The row type ``R`` of ``Table[R]``.
-        include_extras: Whether each hint keeps its ``Annotated`` metadata.
-    """
-    origin = get_origin(row) or row
-    if not typing_extensions.is_typeddict(origin):
-        return None
-    hints = typing.get_type_hints(origin, include_extras=include_extras)
-    bound = dict(zip(getattr(origin, "__parameters__", ()), get_args(row), strict=False))
-    return {name: substituted(hint, bound) for name, hint in hints.items()}
-
-
 def check_table_row(row: Any) -> None:
     """Refuses ``row``, the row type ``R`` of a ``Table[R]`` a node declares, if it names no columns.
 
@@ -432,16 +413,11 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     """
     row = (get_args(source) or (Any,))[0]
     origin = get_origin(row) or row
-    found = row_columns(row)
-    declared = found is not None
-    hints = found or {}
-    # A NotRequired field, or total=False, is a column some rows could leave out. A NotRequired written as a
-    # string annotation shows up only in the resolved hints.
-    left_out = [
-        name
-        for name, hint in hints.items()
-        if name in origin.__optional_keys__ or typing.get_origin(hint) is NotRequired
-    ]
+    # only a TypedDict names a table's columns
+    declared = typing_extensions.is_typeddict(origin)
+    hints = (field_hints(row) or {}) if declared else {}
+    # a column some rows could leave out: a NotRequired field, or any field of a total=False row
+    left_out = [name for name, hint in hints.items() if get_origin(hint) is NotRequired]
     if left_out:
         raise NodeDeclarationError(
             declaration_problems.row_field_optional(row=origin.__qualname__, field=left_out[0])

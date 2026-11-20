@@ -114,7 +114,8 @@ class SeriesType(Type, of=_Series):
         """
         item = self.item
         if item.limited or not (
-            is_bare_table_row(item.bare) or typing_extensions.is_typeddict(item.bare)
+            is_bare_table_row(item.bare)
+            or typing_extensions.is_typeddict(get_origin(item.bare) or item.bare)
         ):
             return None
         table: Any = Table

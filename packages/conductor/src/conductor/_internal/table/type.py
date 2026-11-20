@@ -9,15 +9,16 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, get_args
+from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 import polars as pl
+import typing_extensions
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
 from conductor._internal.types import Type, json_by_its_class
 
-from .read import as_saved, check_table_row, column_missing, row_columns, table_schema
+from .read import as_saved, check_table_row, column_missing, table_schema
 from .write import (
     table_digest,
     written_table,
@@ -71,8 +72,10 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
-        """The type hint of each column, by name. A bare ``Table`` has none."""
-        return row_columns(self._row, include_extras=False) or {}
+        """The type hint of each column, by name: the fields of the ``TypedDict`` ``R``. A bare ``Table`` has none,
+        and so has a table whose row a graph filled in with any other type, which is read as a bare table."""
+        origin = get_origin(self._row) or self._row
+        return Type(self._row).fields if typing_extensions.is_typeddict(origin) else {}
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
@@ -81,7 +84,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         The id lists the columns, like ``Table[customer: str, amount: float]``, or is just ``Table`` for a bare
         table. The title is always ``Table``, and a table names no class.
         """
-        columns = row_columns(self._row, include_extras=False) or {}
+        columns = self.fields
         return (
             f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]"
             if columns

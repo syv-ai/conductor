@@ -5,7 +5,7 @@ test picks one place where a hint could be read two ways, and checks that it is 
 """
 
 import datetime
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import polars as pl
 import pytest
@@ -25,8 +25,17 @@ from conductor import (
     node,
 )
 from conductor.widgets import Widget
-from pydantic import AfterValidator, BaseModel, GetCoreSchemaHandler, JsonValue, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    GetCoreSchemaHandler,
+    JsonValue,
+    model_validator,
+    with_config,
+)
 from pydantic_core import CoreSchema, core_schema
+from typing_extensions import ReadOnly
 
 from tests.test_core.nodes import registry_of
 
@@ -837,3 +846,210 @@ def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_has_a_funct
 
 def test_a_series_is_written_by_its_public_name() -> None:
     assert repr(Series[int]) == "conductor.Series[int]"
+
+
+class _Pair[T](TypedDict):
+    name: str
+    value: T
+
+
+class _PlainPair(TypedDict):
+    name: str
+    value: int
+
+
+class _FixedPair(TypedDict):
+    name: ReadOnly[str]
+    value: int
+
+
+@with_config(ConfigDict(title="Configured pair"))
+class _ConfiguredPair(TypedDict):
+    name: str
+    value: int
+
+
+class _PartialPair(TypedDict, total=False):
+    name: str
+    value: int
+
+
+class _SomePair(TypedDict):
+    name: str
+    value: NotRequired[int]
+
+
+def _declared(name: str, function: Any) -> Any:
+    return node(name, title=name.title(), description="For a test.")(function)
+
+
+def test_a_generic_typed_dict_is_a_row_on_an_input_an_output_a_series_and_a_table() -> None:
+    """``Row[int]`` is taken wherever a ``TypedDict`` is, with ``value: T`` read as ``int``.
+
+    It was taken in a ``Table`` but refused on a field with ``type_not_named``, whose fix a ``TypedDict`` can't take.
+    """
+
+    def on_input(pair: _Pair[int]) -> int:
+        return pair["value"]
+
+    def on_output() -> _Pair[int]:
+        return {"name": "ida", "value": 1}
+
+    def in_a_series() -> Series[_Pair[int]]:
+        return [{"name": "ida", "value": 1}]
+
+    def in_a_table() -> Table[_Pair[int]]:
+        return pl.DataFrame({"name": ["ida"], "value": [1]})
+
+    described = {
+        name: _declared(name, function).describe()
+        for name, function in [
+            ("on-input", on_input),
+            ("on-output", on_output),
+            ("in-a-series", in_a_series),
+            ("in-a-table", in_a_table),
+        ]
+    }
+    assert described["on-input"].inputs[0].type == "row"
+    assert described["on-input"].inputs[0].json_schema["properties"]["value"] == {
+        "title": "Value",
+        "type": "integer",
+    }
+    assert described["on-output"].outputs[0].type == "row"
+    assert described["in-a-series"].outputs[0].type == "row"
+    assert described["in-a-series"].outputs[0].is_series
+    assert described["in-a-table"].outputs[0].type == "Table[name: str, value: int]"
+
+
+def test_an_edge_reads_a_field_of_a_generic_typed_dict_by_its_filled_in_type() -> None:
+    """An edge from ``make.result.value`` of a ``Row[int]`` carries an ``int``, and one to a field it lacks is refused."""
+
+    @node("make", title="Make", description="For a test.")
+    def make() -> _Pair[int]:
+        return {"name": "ida", "value": 2}
+
+    @node("double", title="Double", description="For a test.")
+    def double(n: int) -> int:
+        return n * 2
+
+    registry = registry_of(make, double)
+    graph = Graph.compile(
+        make_graph(make, double, edges=[("make.result.value", "double.n")]), registry
+    )
+    assert graph.problems == []
+    assert graph.run({}).results["double"]["result"] == 4
+    unknown = Graph.compile(
+        make_graph(make, double, edges=[("make.result.size", "double.n")]), registry
+    )
+    assert [problem.type for problem in unknown.problems] == ["unknown_output"]
+
+
+def test_a_generic_typed_dict_left_unfilled_reads_its_open_field_as_any() -> None:
+    """A bare ``Row``, its ``T`` given no argument, is a row whose ``value`` is ``Any`` in a table and on an edge."""
+
+    @node("make", title="Make", description="For a test.")
+    def make() -> _Pair:  # type: ignore[type-arg]
+        return {"name": "ida", "value": "x"}
+
+    @node("shout", title="Shout", description="For a test.")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    def in_a_table() -> Table[_Pair]:  # type: ignore[type-arg]
+        return pl.DataFrame({"name": ["ida"], "value": [1]})
+
+    assert _declared("unfilled-table", in_a_table).describe().outputs[0].type == (
+        "Table[name: str, value: Any]"
+    )
+    graph = Graph.compile(
+        make_graph(make, shout, edges=[("make.result.value", "shout.text")]),
+        registry_of(make, shout),
+    )
+    assert graph.problems == []
+    assert graph.run({}).results["shout"]["result"] == "X"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [_PlainPair, _Pair[int], _FixedPair, _ConfiguredPair],
+    ids=["plain", "generic", "read-only", "with-config"],
+)
+def test_every_reader_of_a_rows_fields_finds_the_same_fields(row: Any) -> None:
+    """A row's fields are the same to its JSON schema, a table's columns, an edge's field and a frame for a ``Series``.
+
+    Each of these once read the fields its own way, and a generic ``TypedDict`` or a ``ReadOnly`` field fell between
+    them.
+    """
+
+    def take(pair: row) -> int:  # type: ignore[valid-type]
+        return 0
+
+    def as_a_table() -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame({"name": ["ida"], "value": [1]})
+
+    @node("make", title="Make", description="For a test.")
+    def make() -> Series[row]:  # type: ignore[valid-type]
+        return pl.DataFrame({"name": ["ida", "bo"], "value": [1, 2]})
+
+    @node("double", title="Double", description="For a test.")
+    def double(n: int) -> int:
+        return n * 2
+
+    assert set(_declared("take", take).describe().inputs[0].json_schema["properties"]) == {
+        "name",
+        "value",
+    }
+    assert _declared("as-a-table", as_a_table).describe().outputs[0].type == (
+        "Table[name: str, value: int]"
+    )
+    graph = Graph.compile(
+        make_graph(make, double, edges=[("make.result.value", "double.n")]),
+        registry_of(make, double),
+    )
+    assert graph.problems == []
+    assert graph.run({}).results["double"]["result"] == [2, 4]
+
+
+@pytest.mark.parametrize("row", [_PartialPair, _SomePair], ids=["total-false", "not-required"])
+def test_a_row_that_may_leave_a_field_out_is_read_alike_by_an_edge_and_refused_as_a_table(
+    row: Any,
+) -> None:
+    """A ``total=False`` or ``NotRequired`` field is a field to an edge, and no column of a table.
+
+    A row with every field fits such an input, and an edge may read the field. A table refuses the row, since every
+    row of a table has every column.
+    """
+
+    @node("make", title="Make", description="For a test.")
+    def make() -> _PlainPair:
+        return {"name": "ida", "value": 3}
+
+    @node("take", title="Take", description="For a test.")
+    def take(pair: row) -> int:  # type: ignore[valid-type]
+        return pair.get("value", 0)
+
+    @node("give", title="Give", description="For a test.")
+    def give() -> row:  # type: ignore[valid-type]
+        return {"name": "ida", "value": 3}
+
+    @node("double", title="Double", description="For a test.")
+    def double(n: int) -> int:
+        return n * 2
+
+    whole = Graph.compile(
+        make_graph(make, take, edges=[("make.result", "take.pair")]), registry_of(make, take)
+    )
+    assert whole.problems == []
+    assert whole.run({}).results["take"]["result"] == 3
+    picked = Graph.compile(
+        make_graph(give, double, edges=[("give.result.value", "double.n")]),
+        registry_of(give, double),
+    )
+    assert picked.problems == []
+
+    def as_a_table() -> Table[row]:  # type: ignore[valid-type]
+        return pl.DataFrame()
+
+    with pytest.raises(NodeDeclarationError) as refused:
+        _declared("as-a-table", as_a_table)
+    assert refused.value.problems[0].type == "row_field_optional"

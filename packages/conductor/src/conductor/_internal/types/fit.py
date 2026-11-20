@@ -13,12 +13,11 @@ target. So ``Literal["x"]`` doesn't land on ``Literal["ida", "bo"]``, and ``Lite
 
 from __future__ import annotations
 
-import typing
-from typing import Any, Literal, TypeVar, get_args, get_origin
+from typing import Any, Literal, NotRequired, TypeVar, get_args, get_origin
 
 import typing_extensions
 
-from .hint import a_number, aliased, is_alias, literal_classes, union_members
+from .hint import a_number, aliased, field_hints, is_alias, literal_classes, union_members
 from .host_type import accepted_classes
 from .param import split_hint
 
@@ -101,28 +100,26 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         # a value of the right class may be one of them, so it is checked on each call
         return not exact and fit(literal_classes(target), source, bound, False)
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
-    if typing_extensions.is_typeddict(source):
-        source_fields = typing.get_type_hints(source, include_extras=True)
+    if typing_extensions.is_typeddict(source_class):
+        given = _types_and_left_out(field_hints(source) or {})
         # a TypedDict fits by its keys: every key the target names must be there, with a type that fits
-        if typing_extensions.is_typeddict(target):
-            expected = typing.get_type_hints(target, include_extras=True)
+        if typing_extensions.is_typeddict(target_class):
+            expected = _types_and_left_out(field_hints(target) or {})
             # a check drops the keys the target doesn't name, so the value isn't the same as it was
-            same = not exact or expected.keys() == source_fields.keys()
-            return (
-                same
-                and target.__required_keys__ <= source.__required_keys__
-                and all(
-                    key in source_fields and fit(hint, source_fields[key], bound, exact)
-                    for key, hint in expected.items()
-                )
+            same = not exact or expected.keys() == given.keys()
+            return same and all(
+                key in given
+                and (left_out or not given[key][1])
+                and fit(hint, given[key][0], bound, exact)
+                for key, (hint, left_out) in expected.items()
             )
         if target_class is not dict:
             return False
         key, value = get_args(target) or (Any, Any)
         return fit(key, str, bound, exact) and all(
-            fit(value, hint, bound, exact) for hint in source_fields.values()
+            fit(value, hint, bound, exact) for hint, _ in given.values()
         )
-    if typing_extensions.is_typeddict(target) or not (
+    if typing_extensions.is_typeddict(target_class) or not (
         isinstance(target_class, type) and isinstance(source_class, type)
     ):
         return False
@@ -140,3 +137,11 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
     return len(expected_args) != len(given_args) or all(
         fit(a, b, bound, exact) for a, b in zip(expected_args, given_args, strict=True)
     )
+
+
+def _types_and_left_out(fields: dict[str, Any]) -> dict[str, tuple[Any, bool]]:
+    """Returns each field's type, by name, with whether a value may leave the field out (``NotRequired``)."""
+    return {
+        name: (get_args(hint)[0], True) if get_origin(hint) is NotRequired else (hint, False)
+        for name, hint in fields.items()
+    }
