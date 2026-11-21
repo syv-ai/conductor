@@ -47,7 +47,7 @@ registry.add_subregistry(served)
 
 
 @registry.node("who", title="Who", description="For a test.")
-def who(ctx: Context[AppContext]) -> str:
+def who(ctx: Context[HostContext]) -> str:
     return ctx.user
 
 

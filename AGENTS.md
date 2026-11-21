@@ -19,8 +19,8 @@ Pushing a `v*` tag publishes the three packages to PyPI, at one version. The two
 uv sync                      # install everything
 uv run pre-commit install    # the commit hooks: notebook outputs, ruff's fixes and format, imports, docstrings
 uv run pytest tests/ -q      # the whole suite
-uvx ruff check --fix .       # lint, fixing what ruff can; CI runs `ruff check .`
-uvx ruff format .            # format, as the commit hook does; CI runs `ruff format --check .`
+uvx ruff@0.17.0 check --fix .  # lint, fixing what ruff can; CI runs `ruff check .` at the version the commit hook pins
+uvx ruff@0.17.0 format .       # format, as the commit hook does; CI runs `ruff format --check .`
 uv run mypy packages         # type-check, as CI runs it
 uv run --group docs mkdocs build --strict  # the docs; CI also runs this, and executes every notebook in examples/
 ```

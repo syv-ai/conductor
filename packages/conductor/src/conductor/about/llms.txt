@@ -1293,8 +1293,7 @@ A node may raise `NodeError(code=...)` under a code that is also in the catalogu
 
 A widget tells an editor how to draw a port. Widgets are frozen models with a `type`, and a host subclasses `Widget` for a control of its own. Compiling and running never read one.
 
-- A port with no widget is drawn with the control
- the host's editor picks for its type. No type has a default widget.
+- A port with no widget is drawn with the control the host's editor picks for its type. No type has a default widget.
 - The `title`, the `description` and a value's limits (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. `Param.limits` gives them as the annotated-types objects pydantic is handed, and a pattern as `pydantic.StringConstraints`. A port with no `title` has `None` for one.
 - A `Param`'s widget is a `Widget` instance. A type checker refuses a class passed bare.
 - A widget is written as JSON, so every field of a subclass needs a type pydantic writes as JSON. A field of a class pydantic checks only with `isinstance` (a client, or a `polars.DataFrame`, let in with `arbitrary_types_allowed`), or of a `type[X]`, raises `pydantic.errors.PydanticInvalidForJsonSchema` where the class statement ends. For a type named before it is defined, that is where the class is rebuilt. The error names the class and the field, and a field of a model inside it by that model.

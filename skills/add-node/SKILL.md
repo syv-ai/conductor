@@ -66,7 +66,7 @@ assert registry["greet"] is greet
 | A branch | give each output the default `SKIPPED`, and return a value on at most one of them. Two independent ways to go are two nodes |
 | To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
 | A person's answer | `raise Ask(prompt)`, and `asks=True` on the `@node`, or `@node` refuses the function. The answer becomes the node's outputs. See "Asking a person" below |
-| A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`. Name the class once with `NodeRegistry(context_type=AppContext)`, and pass the object as `run.resume(context=AppContext(...))` |
+| A client, a clock, the caller | the run's context: `def sign(ctx: Context[HostContext], text: str)`. Name the class once with `NodeRegistry(context_type=HostContext)`, and pass the object as `run.resume(context=HostContext(...))` |
 | Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
 | A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
@@ -103,7 +103,7 @@ assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 - A node's body is only called for a node you give an example (a node may send mail). It's called once per example, through the engine.
 - A body that changes a value it was given, as `items.append(x)` does, is `changed_its_inputs`. Make a new value instead: `[*items, x]`, `dataclasses.replace`, `model_copy(update=...)`, `frame.with_columns(...)`.
 - `("greet", 1)` as a key gives examples for an older version.
-- `context=AppContext(...)` gives the examples the run's context, the same way `graph.run` takes it.
+- `context=HostContext(...)` gives the examples the run's context, the same way `graph.run` takes it.
 - A known failure goes in a test of its own, over `registry.filter(...)`, marked `pytest.mark.xfail(strict=True)`. `python -m conductor.about example-run-failed` shows one.
 
 ## Common mistakes
