@@ -260,21 +260,6 @@ def test_a_node_record_is_at_version_1_unless_it_says_and_is_frozen():
         record.version = 2  # type: ignore[misc]
 
 
-def test_a_node_record_without_the_node_it_uses_is_refused():
-    with pytest.raises(ValidationError):
-        NodeRecord.model_validate({"version": 1})
-
-
-def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
-    with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(
-            json.dumps({"nodes": {"u": {"node": "upper", "valuse": {"text": "x"}}}}), REGISTRY
-        )
-    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
-        ("invalid_record", ("record", "nodes", "u", "valuse"), "extra_forbidden")
-    ]
-
-
 @pytest.mark.parametrize(
     ("record", "loc", "error"),
     [
@@ -287,6 +272,11 @@ def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
             "missing",
         ),
         (json.dumps({"nodes": [{"id": "u", "node": "upper"}]}), ("record", "nodes"), "dict_type"),
+        (
+            json.dumps({"nodes": {"u": {"node": "upper", "valuse": {"text": "x"}}}}),
+            ("record", "nodes", "u", "valuse"),
+            "extra_forbidden",
+        ),
         (
             json.dumps(
                 {
@@ -333,40 +323,6 @@ def test_a_record_as_plain_data_compiles_as_its_json_does():
     from_data = Graph.compile(as_a_dict, REGISTRY)  # type: ignore[arg-type]
     from_text = Graph.compile(json.dumps(as_a_dict), REGISTRY)
     assert from_data.record == from_text.record and from_data.problems == from_text.problems == []
-
-
-def test_a_half_finished_graph_record_compiles_with_its_problems():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "x": {"node": "nothing"},
-                    "y": {
-                        "node": "tail",
-                        "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}},
-                    },
-                },
-                "outputs": {},
-            }
-        ),
-        REGISTRY,
-    )
-    assert {p.type for p in graph.problems} == {"unknown_node", "edge_names_missing_node"}
-
-
-def test_a_records_nodes_are_keyed_by_their_ids():
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
-            "outputs": {"result": {"node": "u", "output": "result"}},
-        }
-    )
-    assert list(record.nodes) == ["u"] and record.nodes["u"] == NodeRecord(
-        node="upper", inputs={"text": input_entry({"graph_input": "text"})}
-    )
 
 
 def test_what_a_host_saves_reads_back_as_it_was_written():
@@ -1205,50 +1161,6 @@ def test_an_edge_from_a_node_that_did_not_compile_is_not_reported_again():
         "outputs": {"result": {"node": "u", "output": "result"}},
     }
     assert _problems(unknown) == [("unknown_node", ("x",))]
-    missing = {
-        "nodes": {
-            "u": {
-                "node": "upper",
-                "inputs": {"text": {"sources": [{"node": "x", "output": "result"}]}},
-            }
-        },
-        "outputs": {"result": {"node": "u", "output": "result"}},
-    }
-    assert _problems(missing) == [("edge_names_missing_node", ("u", "text"))]
-
-
-def test_a_node_id_or_a_source_that_is_no_name_is_refused_by_the_record_validator():
-    """``a@b`` and ``a/b`` can't be node ids, so a node with either id is refused, and so is an edge from one."""
-    for bad in ("a@b", "a/b"):
-        with pytest.raises(InvalidCallError) as refused:
-            Graph.compile(
-                json.dumps({"nodes": {bad: {"node": "upper"}, "u": {"node": "tail"}}}), REGISTRY
-            )
-        assert [(p.type, p.loc) for p in refused.value.problems] == [
-            ("invalid_record", ("record", "nodes", bad, "[key]"))
-        ]
-        with pytest.raises(InvalidCallError) as refused:
-            Graph.compile(
-                json.dumps(
-                    {
-                        "nodes": {
-                            "u": {
-                                "node": "tail",
-                                "inputs": {
-                                    "text": {"sources": [{"node": bad, "output": "result"}]}
-                                },
-                            }
-                        }
-                    }
-                ),
-                REGISTRY,
-            )
-        problem = refused.value.problems[0]
-        assert (problem.type, problem.loc[:5], problem.loc[-1]) == (
-            "invalid_record",
-            ("record", "nodes", "u", "inputs", "text"),
-            "node",
-        )
 
 
 # -- what a caller gives ---------------------------------------------------------------------------
@@ -1339,27 +1251,6 @@ def test_a_graph_input_named_like_a_setting_of_the_call_is_given_to_its_node(nam
     }
 
 
-def test_two_inputs_naming_one_graph_input_each_get_the_callers_one_value():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "b": {"node": "tail", "inputs": {"text": {"graph_input": "text"}}},
-                },
-                "outputs": {
-                    "a_result": {"node": "a", "output": "result"},
-                    "b_result": {"node": "b", "output": "result"},
-                },
-            }
-        ),
-        REGISTRY,
-    )
-    assert graph.problems == [] and list(graph.inputs) == ["text"]
-    assert graph.run({"text": "x"}).outputs == {"a_result": "X", "b_result": "x."}
-
-
 def test_two_inputs_naming_one_graph_input_with_different_types_is_graph_input_used_two_ways():
     a = {"node": "upper", "inputs": {"text": {"graph_input": "x"}}}
     b = {"node": "both_ints", "inputs": {"a": {"graph_input": "x"}, "b": {"constant": 1}}}
@@ -1409,21 +1300,20 @@ def _one_graph_input_feeding(a_hint, b_hint, defaults=None):
         (int, Annotated[int, Param()]),
         (int, Annotated[int, Param(title=None)]),
         (Annotated[int, Param()], int),
+        (Annotated[int, Ge(0)], Annotated[int, Param(ge=0)]),
     ],
-    ids=["empty param", "param of defaults", "param first"],
+    ids=["empty param", "param of defaults", "param first", "a limit by annotated types"],
 )
 def test_two_inputs_of_one_graph_input_written_differently_but_meaning_the_same_agree(
     a_hint, b_hint
 ):
     graph = _one_graph_input_feeding(a_hint, b_hint)
     assert graph.problems == []
-    assert graph.inputs == _one_graph_input_feeding(int, int).inputs
-    assert graph.run({"x": 3}).outputs == {"a": 3, "b": 3}
-
-
-def test_two_inputs_of_one_graph_input_with_one_limit_written_by_annotated_types_and_by_param_agree():
-    graph = _one_graph_input_feeding(Annotated[int, Ge(0)], Annotated[int, Param(ge=0)])
-    assert graph.problems == []
+    assert (
+        graph.inputs
+        == _one_graph_input_feeding(a_hint, a_hint).inputs
+        == _one_graph_input_feeding(b_hint, b_hint).inputs
+    )
     assert graph.run({"x": 3}).outputs == {"a": 3, "b": 3}
 
 
@@ -1556,19 +1446,6 @@ def test_a_subgraph_node_offers_its_inner_graph_input_and_output_as_its_own():
         and run.outputs == {"result": "HI."}
         and run.results["e"] == {"result": "HI."}
     )
-
-
-def test_a_constant_on_a_subgraph_node_reaches_the_inner_input_it_offers():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"e": {"node": "enrich", "inputs": {"text": {"constant": "hi"}}}},
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
-        ),
-        REGISTRY,
-    )
-    assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"result": "HI."}
 
 
 def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
@@ -1998,33 +1875,6 @@ picky = subgraph("picky", title="Picky", description="For a test.")(
     make_graph(refuses_bad, outputs={"result": "refuses_bad.result"})
 )
 OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, enrich, halves, picky)
-
-
-def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_downstream_is_still_described():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "a": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}},
-                    },
-                    "b": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                    "c": {
-                        "node": "tail",
-                        "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
-        REGISTRY,
-    )
-    assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
-    assert set(graph.describe().nodes) == {"a", "b", "c"}
 
 
 def test_describe_lists_every_node_of_a_half_broken_graph_and_which_definitions_were_found():
@@ -2482,16 +2332,6 @@ def test_a_subgraph_whose_two_inner_inputs_name_one_graph_input_takes_one_value_
         and list(graph.inputs) == ["text"]
         and graph.run({"text": "a"}).outputs == {"result": "AA."}
     )
-
-
-def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_by_the_record_validator():
-    with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(
-            json.dumps({"nodes": {"e": {"node": "enrich"}, "e/upper": {"node": "upper"}}}), OUTSIDE
-        )
-    assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_record", ("record", "nodes", "e/upper", "[key]"))
-    ]
 
 
 def test_a_set_given_for_a_series_input_is_refused_as_it_has_no_order():

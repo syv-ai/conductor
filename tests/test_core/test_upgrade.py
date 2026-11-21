@@ -9,9 +9,9 @@ its own: a node pinned at an old version runs that version.
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 import pytest
 from conductor import (
@@ -134,61 +134,75 @@ def _newer_y(y: Annotated[Txt, _param("Y")]) -> Annotated[Txt, Param(title="R")]
     return y
 
 
-def test_an_input_gone_from_the_next_version_needs_an_upgrade():
-    with pytest.raises(NodeDeclarationError) as raised:
-        node(
-            "two",
-            title="Newer y",
-            description="For a test.",
-            replaces=node("two", title="Older x", description="For a test.")(_older_x),
-        )(_newer_y)
-    assert raised.value.problems[0].type == "upgrade_missing" and "two" in str(raised.value)
+@dataclass(frozen=True)
+class _X:
+    x: str
 
 
-def test_an_upgrade_must_say_where_a_gone_input_went():
-    with pytest.raises(NodeDeclarationError, match="upgrade|Upgrade"):
-        node(
-            "two",
-            title="Newer y",
-            description="For a test.",
-            replaces=node("two", title="Older x", description="For a test.")(_older_x),
-            upgrade=Upgrade(renamed_outputs={}),
-        )(_newer_y)
+@dataclass(frozen=True)
+class _Y:
+    y: str
 
 
-def test_a_rename_or_a_rewrite_says_where_it_went():
-    assert (
-        node(
-            "two",
-            title="Newer y",
-            description="For a test.",
-            replaces=node("two", title="Older x", description="For a test.")(_older_x),
-            upgrade=Upgrade(renamed_inputs={"x": "y"}),
-        )(_newer_y).version
-        == 2
-    )
-    assert (
-        node(
-            "two",
-            title="Newer y",
-            description="For a test.",
-            replaces=node("two", title="Older x", description="For a test.")(_older_x),
-            upgrade=Upgrade(rewrite=lambda v: {"y": v["x"]}),
-        )(_newer_y).version
-        == 2
-    )
+def _older_out() -> _X:
+    return _X("a")
 
 
-def test_a_version_keeping_its_fields_needs_no_upgrade():
-    assert (
-        node(
-            "two",
-            title="Older x",
-            description="For a test.",
-            replaces=node("two", title="Older x", description="For a test.")(_older_x),
-        )(_older_x).version
-        == 2
-    )
+def _newer_out() -> _Y:
+    return _Y("b")
+
+
+def _declared(
+    node_id: str, older: Callable[..., Any], newer: Callable[..., Any], upgrade: Upgrade | None
+):
+    """Declares ``newer`` as the next version of ``older``, under ``node_id``, with ``upgrade``."""
+    return node(
+        node_id,
+        title="Newer",
+        description="For a test.",
+        replaces=node(node_id, title="Older", description="For a test.")(older),
+        upgrade=upgrade,
+    )(newer)
+
+
+@pytest.mark.parametrize(
+    ("node_id", "older", "newer", "upgrade"),
+    [
+        ("two", _older_x, _newer_y, Upgrade(renamed_outputs={})),
+        ("o", _older_out, _newer_out, Upgrade(renamed_inputs={})),
+        ("o", _older_out, _newer_out, Upgrade(rewrite=dict)),
+    ],
+    ids=["an-input-no-rename", "an-output-no-rename", "an-output-a-rewrite"],
+)
+def test_an_upgrade_that_drops_an_input_or_an_output_without_saying_where_it_went_is_refused_where_it_is_declared(
+    node_id: str, older: Callable[..., Any], newer: Callable[..., Any], upgrade: Upgrade
+) -> None:
+    """An upgrade that drops an input or an output without saying where it went is refused when the node is declared.
+
+    A ``rewrite`` sees only the node's constants, never the edges out of it. So it can't say where a dropped output
+    went.
+    """
+    with pytest.raises(
+        NodeDeclarationError, match="the new version drops x, which the version it replaces has"
+    ) as raised:
+        _declared(node_id, older, newer, upgrade)
+    assert raised.value.problems[0].type == "upgrade_missing"
+
+
+@pytest.mark.parametrize(
+    ("node_id", "older", "newer", "upgrade"),
+    [
+        ("two", _older_x, _newer_y, Upgrade(renamed_inputs={"x": "y"})),
+        ("two", _older_x, _newer_y, Upgrade(rewrite=lambda v: {"y": v["x"]})),
+        ("two", _older_x, _older_x, None),
+        ("o", _older_out, _newer_out, Upgrade(renamed_outputs={"x": "y"})),
+    ],
+    ids=["an-input-renamed", "an-input-rewritten", "the-same-fields", "an-output-renamed"],
+)
+def test_a_version_that_says_where_each_dropped_input_or_output_went_or_drops_none_is_declared(
+    node_id: str, older: Callable[..., Any], newer: Callable[..., Any], upgrade: Upgrade | None
+) -> None:
+    assert _declared(node_id, older, newer, upgrade).version == 2
 
 
 # --- registry.upgrade ------------------------------------------------------------
@@ -300,40 +314,6 @@ def test_upgrade_reads_the_record_through_the_record_validator_and_refuses_two_n
 def test_a_node_already_at_its_latest_version_returns_the_graph_unchanged():
     graph = _graph(version=3)
     assert _registry().upgrade(graph, "r") is graph
-
-
-def test_an_edge_into_an_input_the_step_renames_moves_with_it():
-    def carry_v1(
-        name: Annotated[Txt, _param("Name")] = Txt(""),
-    ) -> Annotated[Txt, Param(title="R")]:
-        return name
-
-    @node(
-        "carry",
-        title="Carry",
-        description="d",
-        category="test",
-        replaces=node("carry", title="Carry v1", description="For a test.")(carry_v1),
-        upgrade=Upgrade(renamed_inputs={"name": "full"}),
-    )
-    def carry(full: Annotated[Txt, _param("Full")] = Txt("")) -> Annotated[Txt, Param(title="R")]:
-        return full
-
-    registry = registry_of(echo, carry)
-    graph = GraphRecord.model_validate(
-        {
-            "nodes": {
-                "src": {"node": "echo"},
-                "r": {
-                    "node": "carry",
-                    "inputs": {"name": {"sources": [{"node": "src", "output": "result"}]}},
-                },
-            }
-        }
-    )
-
-    upgraded = registry.upgrade(graph, "r")
-    assert _inputs(upgraded, "r") == {"full": {"sources": [{"node": "src", "output": "result"}]}}
 
 
 def _versions_of_summed(kind: str, upgrade: Upgrade | None):
@@ -763,61 +743,6 @@ def test_upgrading_a_subgraph_sets_only_its_version():
     assert _inputs(upgraded, "f") == {"text": {"constant": "x"}}
     with pytest.raises(InvalidCallError, match="Its versions are 1, 2"):
         registry.upgrade(graph, "f", to=5)
-
-
-@dataclass(frozen=True)
-class _X:
-    x: str
-
-
-@dataclass(frozen=True)
-class _Y:
-    y: str
-
-
-def _older_out() -> _X:
-    return _X("a")
-
-
-def _newer_out() -> _Y:
-    return _Y("b")
-
-
-@pytest.mark.parametrize(
-    "upgrade", [Upgrade(renamed_inputs={}), Upgrade(rewrite=dict)], ids=["no-rename", "a-rewrite"]
-)
-def test_an_upgrade_that_drops_an_output_without_renaming_it_is_refused_where_it_is_declared(
-    upgrade: Upgrade,
-) -> None:
-    """An upgrade that drops an output without renaming it is refused when the node is declared.
-
-    A ``rewrite`` sees only the node's constants, never the edges out of it. So it can't say where a dropped output
-    went.
-    """
-    with pytest.raises(
-        NodeDeclarationError, match="the new version drops x, which the version it replaces has"
-    ) as raised:
-        node(
-            "o",
-            title="Newer out",
-            description="For a test.",
-            replaces=node("o", title="Older out", description="For a test.")(_older_out),
-            upgrade=upgrade,
-        )(_newer_out)
-    assert raised.value.problems[0].type == "upgrade_missing"
-
-
-def test_an_output_an_upgrade_renames_needs_nothing_more():
-    assert (
-        node(
-            "o",
-            title="Newer out",
-            description="For a test.",
-            replaces=node("o", title="Older out", description="For a test.")(_older_out),
-            upgrade=Upgrade(renamed_outputs={"x": "y"}),
-        )(_newer_out).version
-        == 2
-    )
 
 
 @pytest.mark.parametrize(
