@@ -1,0 +1,151 @@
+"""Nodes for arithmetic: ``math-add``, ``math-divide``, ``math-min`` and the rest.
+
+They take and return ``float`` numbers. Dividing by 0 fails the node with ``division_by_zero``.
+"""
+
+import math
+from decimal import ROUND_HALF_UP, Decimal
+from typing import Annotated
+
+from conductor import NodeError, NodeRegistry, Param, Policy, Series
+
+registry = NodeRegistry(category="math")
+
+
+@registry.node(
+    "math-add",
+    title="Add",
+    description="Adds two numbers together.",
+    policy=Policy(costs_nothing=True),
+)
+def add(a: float, b: float) -> Annotated[float, Param(title="Sum")]:
+    """Returns ``a + b``."""
+    return a + b
+
+
+@registry.node(
+    "math-subtract",
+    title="Subtract",
+    description="Takes the second number away from the first.",
+    policy=Policy(costs_nothing=True),
+)
+def subtract(a: float, b: float) -> Annotated[float, Param(title="Difference")]:
+    """Returns ``a - b``."""
+    return a - b
+
+
+@registry.node(
+    "math-multiply",
+    title="Multiply",
+    description="Multiplies two numbers.",
+    policy=Policy(costs_nothing=True),
+)
+def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
+    """Returns ``a * b``."""
+    return a * b
+
+
+@registry.node(
+    "math-divide",
+    title="Divide",
+    description="Divides the first number by the second. Dividing by zero is an error.",
+    policy=Policy(costs_nothing=True),
+)
+def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
+    """Returns ``a / b``.
+
+    Raises:
+        NodeError: ``division_by_zero`` if ``b`` is 0.
+    """
+    if b == 0:
+        raise NodeError(
+            "Cannot divide by 0. Give a second number other than 0.", code="division_by_zero"
+        )
+    return a / b
+
+
+@registry.node(
+    "math-modulo",
+    title="Remainder",
+    description="Gives what is left over when the first number is divided by the second. Dividing by zero is an error.",
+    policy=Policy(costs_nothing=True),
+)
+def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
+    """Returns ``a % b``, what is left over when ``a`` is divided by ``b``.
+
+    Raises:
+        NodeError: ``division_by_zero`` if ``b`` is 0.
+    """
+    if b == 0:
+        raise NodeError(
+            "Cannot divide by 0. Give a second number other than 0.", code="division_by_zero"
+        )
+    return a % b
+
+
+@registry.node(
+    "math-round",
+    title="Round",
+    description="Rounds a number to the number of decimals you choose, with halves rounded away from zero.",
+    policy=Policy(costs_nothing=True),
+)
+def round_to(
+    value: float, decimals: Annotated[int, Param(ge=0, le=10)] = 0
+) -> Annotated[float, Param(title="Rounded")]:
+    """Rounds ``value`` to ``decimals`` decimals, with a half rounded away from zero.
+
+    So 2.5 becomes 3, and -2.5 becomes -3. At two decimals, 0.125 becomes 0.13.
+
+    The number is rounded as it is written. The float closest to 0.125 is a tiny bit less than 0.125, so Python's
+    own ``round`` gives 0.12. This node gives 0.13, as a person would expect.
+    """
+    if (
+        not math.isfinite(value) or abs(value) >= 2**52
+    ):  # a float this large has no fraction to round, and inf and nan can't be rounded
+        return value
+    return float(Decimal(str(value)).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP))
+
+
+@registry.node(
+    "math-min",
+    title="Smallest",
+    description="Finds the smallest of the numbers. With no numbers it is an error.",
+    policy=Policy(costs_nothing=True),
+)
+def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
+    """Returns the smallest of the numbers.
+
+    Raises:
+        NodeError: ``no_numbers`` if there are none.
+    """
+    if not values:
+        raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
+    return min(values)
+
+
+@registry.node(
+    "math-max",
+    title="Largest",
+    description="Finds the largest of the numbers. With no numbers it is an error.",
+    policy=Policy(costs_nothing=True),
+)
+def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
+    """Returns the largest of the numbers.
+
+    Raises:
+        NodeError: ``no_numbers`` if there are none.
+    """
+    if not values:
+        raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
+    return max(values)
+
+
+@registry.node(
+    "math-abs",
+    title="Absolute value",
+    description="Gives the number without its minus sign.",
+    policy=Policy(costs_nothing=True),
+)
+def absolute(value: float) -> Annotated[float, Param(title="Absolute")]:
+    """Returns ``value`` without its minus sign."""
+    return abs(value)
