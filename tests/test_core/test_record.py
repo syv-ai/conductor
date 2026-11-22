@@ -2585,6 +2585,18 @@ _THE_NAME_RULE = "where neither part is empty or contains any of '.', '/', '@', 
         ({"constants": {"name": "x"}}, ("constants", "name"), "name"),
         ({"outputs": {"r": "shout"}}, ("outputs", "r"), "shout"),
     ],
+    ids=[
+        "a-tilde-in-an-output",
+        "a-field-starting-with-a-dot",
+        "an-at-in-a-node",
+        "a-slash-in-an-input",
+        "a-tilde-in-a-graph-output",
+        "a-tilde-in-a-graph-input",
+        "an-edge-source-of-one-part",
+        "an-edge-target-of-one-part",
+        "a-constant-of-one-part",
+        "a-graph-output-of-one-part",
+    ],
 )
 def test_make_graph_refuses_a_place_that_is_not_node_and_name_as_invalid_place(
     arguments: dict[str, Any], loc: tuple[str | int, ...], text: str
@@ -2592,8 +2604,8 @@ def test_make_graph_refuses_a_place_that_is_not_node_and_name_as_invalid_place(
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, _shout, **arguments)
 
-    [problem] = [p for p in refused.value.problems if p.type == "invalid_place"]
-    assert (problem.loc, problem.ctx) == (loc, {"text": text})
+    [problem] = refused.value.problems
+    assert (problem.type, problem.loc, problem.ctx) == ("invalid_place", loc, {"text": text})
     # the message says why the text is no place, though it is written as node.name
     assert (
         problem.msg

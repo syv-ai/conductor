@@ -261,21 +261,25 @@ def test_a_node_record_is_at_version_1_unless_it_says_and_is_frozen():
 
 
 @pytest.mark.parametrize(
-    ("record", "loc", "error"),
+    ("record", "faults"),
     [
-        ('{"nodes": [', ("record",), "json_invalid"),
-        (b'{"nodes": \xff}', ("record",), "json_invalid"),
-        ('{"nodes": ' + "1" * 5000 + "}", ("record",), "json_invalid"),
+        ('{"nodes": [', [(("record",), "json_invalid")]),
+        (b'{"nodes": \xff}', [(("record",), "json_invalid")]),
+        ('{"nodes": ' + "1" * 5000 + "}", [(("record",), "json_invalid")]),
         (
             json.dumps({"nodes": {"u": {"type": "upper"}}}),
-            ("record", "nodes", "u", "node"),
-            "missing",
+            [
+                (("record", "nodes", "u", "node"), "missing"),
+                (("record", "nodes", "u", "type"), "extra_forbidden"),
+            ],
         ),
-        (json.dumps({"nodes": [{"id": "u", "node": "upper"}]}), ("record", "nodes"), "dict_type"),
+        (
+            json.dumps({"nodes": [{"id": "u", "node": "upper"}]}),
+            [(("record", "nodes"), "dict_type")],
+        ),
         (
             json.dumps({"nodes": {"u": {"node": "upper", "valuse": {"text": "x"}}}}),
-            ("record", "nodes", "u", "valuse"),
-            "extra_forbidden",
+            [(("record", "nodes", "u", "valuse"), "extra_forbidden")],
         ),
         (
             json.dumps(
@@ -289,29 +293,36 @@ def test_a_node_record_is_at_version_1_unless_it_says_and_is_frozen():
                     },
                 }
             ),
-            ("record", "nodes", "u", "inputs", "text"),
-            "one_of_constant_graph_input_sources",
+            [(("record", "nodes", "u", "inputs", "text"), "one_of_constant_graph_input_sources")],
         ),
         (
             json.dumps({"nodes": {"u": {"node": "upper"}}, "outputs": {"result": "u.result"}}),
-            ("record", "outputs", "result"),
-            "dataclass_type",
+            [(("record", "outputs", "result"), "dataclass_type")],
         ),
+    ],
+    ids=[
+        "not-json",
+        "not-utf-8",
+        "a-number-too-long",
+        "a-node-without-its-node",
+        "nodes-as-a-list",
+        "a-misspelled-key",
+        "an-entry-of-two-kinds",
+        "an-output-as-text",
     ],
 )
 def test_what_is_not_a_record_is_refused_as_invalid_record_never_pydantics_own_error(
-    record, loc, error
+    record, faults
 ):
     """A record's fault is conductor's ``invalid_record``, raised as ``InvalidCallError``, never the plain
     ``ValidationError`` the record's model raised."""
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record, REGISTRY)
     problems = refused.value.problems
-    assert all(p.type == "invalid_record" for p in problems) and (
-        problems[0].loc,
-        problems[0].ctx["errors"][0]["type"],
-    ) == (loc, error)
-    assert problems[0].msg.startswith("This isn't a valid graph record. At")
+    assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in problems] == [
+        ("invalid_record", loc, error) for loc, error in faults
+    ]
+    assert all(p.msg.startswith("This isn't a valid graph record. At") for p in problems)
 
 
 def test_a_record_as_plain_data_compiles_as_its_json_does():
