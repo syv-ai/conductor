@@ -258,6 +258,50 @@ table.plain td:first-child { font-family: var(--font-mono); font-size: .8125rem;
 footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; max-width: 90ch; }
 footer code { font-size: .95em; }
 
+/* ---------- one screen per section: wide rows instead of long columns ---------- */
+.section-head { margin-bottom: 1.5rem; }
+.section-head.prose { max-width: 104ch; }
+.section-head.side { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); column-gap: 2.5rem; align-items: end; }
+@media (max-width: 900px) { .section-head.side { grid-template-columns: minmax(0, 1fr); } }
+.sig-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem 2rem; align-items: start; }
+.sig-row > * { min-width: 0; display: grid; gap: .6rem; align-content: start; }
+.sig-row .explorer { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+@media (min-width: 1101px) { .sig-row { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.2fr); } }
+@media (min-width: 861px) and (max-width: 1100px) { .sig-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.sig-row .sig { font-size: .8125rem; line-height: 1.6; }
+.sig-row pre { font-size: .78rem; line-height: 1.5; }
+.sig-row .panel { padding: 1rem 1.1rem; gap: .6rem; }
+.sig-row .panel .job { font-size: .9375rem; line-height: 1.5; }
+.sig-row .sig { padding: 1rem; }
+.types-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem 2.5rem; align-items: start; }
+.types-row > * { min-width: 0; display: grid; gap: .75rem; align-content: start; }
+.types-row > .section-head { margin-bottom: 0; }
+@media (min-width: 901px) {
+  .types-row { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  .types-row > .section-head { grid-area: 1 / 2; }
+  .types-row > .types-code { grid-area: 1 / 1 / 3 / 2; }
+  .types-row > .types-matrix { grid-area: 2 / 2; }
+}
+.types-code pre { font-size: .78rem; line-height: 1.5; }
+.hooks-more { margin-top: 1.5rem; max-width: 110ch; }
+@media (min-width: 861px) { .hooks-code { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); } }
+.hooks-code pre { font-size: .78rem; line-height: 1.5; }
+/* a head and its prose, then what it prints, beside one long sample */
+.split3 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem 2.5rem; align-items: start; }
+.split3 > * { min-width: 0; display: grid; gap: .75rem; align-content: start; }
+.split3 > .section-head { margin-bottom: 0; }
+@media (min-width: 901px) {
+  .split3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .split3 > .s3-head { grid-area: 1 / 1; }
+  .split3 > .s3-code { grid-area: 1 / 2 / 3 / 3; }
+  .split3 > .s3-out { grid-area: 2 / 1; }
+}
+.split3 pre { font-size: .78rem; line-height: 1.5; }
+.shape pre { font-size: .78rem; line-height: 1.5; }
+@media (min-width: 861px) {
+  .gallery { grid-template-columns: minmax(0, 28rem) minmax(0, 1fr); }
+  .faults { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: .5rem; align-content: start; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -486,16 +530,18 @@ body { margin: 0; }
 
 <!-- ============================ SIGNATURE ============================ -->
 <section id="signature" aria-labelledby="sig-h">
-  <div class="section-head prose">
-    <p class="eyebrow">What <code>@node</code> reads</p>
-    <h2 id="sig-h">The signature is read once</h2>
+  <div class="section-head side">
+    <div>
+      <p class="eyebrow">What <code>@node</code> reads</p>
+      <h2 id="sig-h">The signature is read once</h2>
+    </div>
     <p class="muted">Tap a part of the node to read what conductor makes from it. The code under the node runs it and prints the result.</p>
   </div>
-  <div class="explorer">
-    <div class="sig" id="sig" role="group" aria-label="The repeat node, part by part"></div>
-    <aside class="panel" id="sig-panel" aria-live="polite"></aside>
-  </div>
-  <div class="pair" style="margin-top:2rem">
+  <div class="sig-row">
+    <div class="explorer">
+      <div class="sig" id="sig" role="group" aria-label="The repeat node, part by part"></div>
+      <aside class="panel" id="sig-panel" aria-live="polite"></aside>
+    </div>
     <div>
 <script type="text/x-python">
 from dataclasses import FrozenInstanceError, dataclass
@@ -529,11 +575,11 @@ print("repeat" in registry)</pre>
 ['text', 'times', 'joiner'] ['result']
 False
 True</pre>
+    </div>
+    <div>
       <p class="muted">A definition is frozen:</p>
       <pre data-lang="py">repeat.title = "Shout"</pre>
 <pre class="out">dataclasses.FrozenInstanceError: cannot assign to field 'title'</pre>
-    </div>
-    <div>
       <p class="label">What <code>describe()</code> hands an editor, one <code>PortDescription</code> per input and output</p>
 <pre data-lang="py">for port in [*repeat.describe().inputs, *repeat.describe().outputs]:
     print(port.model_dump_json(exclude_defaults=True))</pre>
@@ -614,7 +660,19 @@ True</pre>
   </figure>
   </div>
 
-  <div class="pair" style="margin-top:3rem">
+  <div class="prose" style="margin-top:1.5rem">
+    <p class="muted">On a node's input or output, pydantic's <code>Field(...)</code> is refused (<code>pydantic_field_in_hint</code>). Pydantic's own metadata, like <code>annotated_types.Ge(0)</code>, still works.</p>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="stack" aria-labelledby="stack-h">
+  <div class="section-head prose">
+    <p class="eyebrow"><code>Param</code></p>
+    <h2 id="stack-h">Params stack, and choices go in <code>Param(choices=)</code></h2>
+  </div>
+  <div class="pair">
     <div>
       <p class="label">Params stack, and the later one wins</p>
       <p class="muted">An alias can be wrapped in another <code>Param</code>. How the two merge is in the reference: <code>python -m conductor.about the-node-contract</code>.</p>
@@ -649,19 +707,17 @@ untitled str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}
 literal str [('s', 's'), ('m', 'm')] {'enum': ['s', 'm'], 'type': 'string'}</pre>
     </div>
   </div>
-
-  <div class="prose" style="margin-top:2.5rem">
-    <p class="muted">On a node's input or output, pydantic's <code>Field(...)</code> is refused (<code>pydantic_field_in_hint</code>). Pydantic's own metadata, like <code>annotated_types.Ge(0)</code>, still works.</p>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ OUTPUTS ============================ -->
 <section id="outputs" aria-labelledby="out-h">
-  <div class="section-head prose">
-    <p class="eyebrow">The return type</p>
-    <h2 id="out-h">Four shapes of output <span class="lvl pub">Public</span></h2>
+  <div class="section-head side">
+    <div>
+      <p class="eyebrow">The return type</p>
+      <h2 id="out-h">Four shapes of output <span class="lvl pub">Public</span></h2>
+    </div>
     <p class="muted">The return type says what the outputs are, and what the function must hand back on each call. Pick a shape. Each prints its <code>return_shape</code>, how the function returns its outputs, <code>describe()</code>'s <code>computes_outputs</code>, and its outputs as <code>describe()</code> lists them.</p>
   </div>
   <div class="tabs" role="tablist" id="shape-tabs" aria-label="Shapes of output"></div>
@@ -741,14 +797,13 @@ print([(f.name, f.type, f.required) for f in log.describe().outputs])</pre>
 
 <!-- ============================ TYPES ============================ -->
 <section id="types" aria-labelledby="types-h">
-  <div class="section-head prose">
+  <div class="types-row">
+  <div class="section-head">
     <p class="eyebrow">How a type is named</p>
     <h2 id="types-h">A class's id and title come from a table or a declaration <span class="lvl pub">Public</span></h2>
     <p class="muted">Conductor names its own types from one fixed table. A class of the host's own is named with <code>@host_type</code>. Nothing falls back to a class's name.</p>
   </div>
-
-  <div class="pair">
-    <div>
+    <div class="types-code">
       <pre data-lang="py">@host_type("celsius", title="Celsius")
 class Celsius(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -778,15 +833,24 @@ str          Text           accepted_as=['str']
 bool         Yes or no      accepted_as=['bool']
 celsius      Celsius        accepted_as=['temperature', 'celsius']</pre>
     </div>
-    <div>
+    <div class="types-matrix">
       <p class="label">Where a value of each type may go</p>
-      <p class="muted" style="font-size:.9375rem">Each row is a type an output has. A tick is an input type it may be wired into, from its <code>accepted_as</code> above. Tap a row.</p>
+      <p class="muted" style="font-size:.9375rem">Each row is a type an output has. A tick is an input type it may be wired into, from its <code>accepted_as</code>, which the code prints. Tap a row.</p>
       <div class="matrix-wrap"><table class="matrix" id="matrix" aria-label="Which input types accept a value of each type"></table></div>
       <p class="muted" style="font-size:.9375rem"><code>Celsius</code> goes into <code>Temperature</code> only because <code>Temperature</code> lists it in <code>accepts</code>. The model still reads the value itself, here through <code>from_attributes</code>. The list is worked out from subclassing and <code>accepts</code>, so nobody keeps it by hand.</p>
     </div>
   </div>
 
-  <div class="pair" style="margin-top:3rem">
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="unnamed" aria-labelledby="unnamed-h">
+  <div class="section-head prose">
+    <p class="eyebrow">How a type is named</p>
+    <h2 id="unnamed-h">A class with no declaration is refused</h2>
+  </div>
+  <div class="pair">
     <div>
       <p class="label">A class with no declaration</p>
       <pre data-lang="py">@dataclass
@@ -863,7 +927,20 @@ unnamed Unnamed</pre>
   </figure>
   </div>
 
-  <div class="pair" style="margin-top:3rem">
+  <div class="prose hooks-more">
+    <p class="muted">What each parameter of a hook gets, and what a hook returns, is in the reference: <code>python -m conductor.about hooks</code>. A hook that fails doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes a <a href="problems.html">problem</a> on its node. A hook that raises any exception but a <code>NodeError</code> is <code>compute_hook_raised</code>, with only the exception's class in <code>ctx</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. The <a href="problems.html">problems page</a> has the other ways a hook fails.</p>
+    <p class="muted">Where an output's type should follow what arrives on an edge, a <a href="standard-nodes.html#control">type variable</a> says it without a hook: <code>def keep[T](value: T) -> T</code>.</p>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="hooks-code" aria-labelledby="hooks-code-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Fields a graph decides</p>
+    <h2 id="hooks-code-h">Two hooks declared, and one that fails</h2>
+  </div>
+  <div class="pair hooks-code">
     <div>
       <pre data-lang="py">def operands(count: int) -> dict[str, type]:
     return {f"value_{i}": float for i in range(count)}
@@ -892,15 +969,14 @@ graph = Graph.compile(make_graph(sum_of, constants={"sum.count": 3},
     defaults={"sum.value_0": 0.0, "sum.value_1": 0.0, "sum.value_2": 0.0}), registry)
 print([i.port.name for i in graph.describe().nodes["sum"].inputs])
 print(graph.run({"value_0": 1.0, "value_1": 2.0, "value_2": 3.5}).outputs)</pre>
+    </div>
+    <div>
       <p class="label">printed &middot; the <code class="int" title="Internal">values_of</code> lines, the inputs whose values each hook reads <span class="lvl int">Internal</span></p>
       <pre class="out">frozenset({'count'})
 frozenset({'names'})
 [('count', True)]
 ['count', 'value_0', 'value_1', 'value_2']
 {'result': 6.5}</pre>
-    </div>
-    <div>
-      <p class="muted">What each parameter of a hook gets, and what a hook returns, is in the reference: <code>python -m conductor.about hooks</code>. A hook that fails doesn't stop <a href="graph-record-and-compiling.html#compiling">compiling</a>. It becomes a <a href="problems.html">problem</a> on its node. A hook that raises any exception but a <code>NodeError</code> is <code>compute_hook_raised</code>, with only the exception's class in <code>ctx</code>, and its traceback goes to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. The <a href="problems.html">problems page</a> has the other ways a hook fails.</p>
       <pre data-lang="py">def failing(names: str) -&gt; dict[str, type]:
     raise ValueError("no names")
 
@@ -917,25 +993,20 @@ for problem in Graph.compile(record, registry).problems:
 <pre class="out">compute_hook_raised ('f',) {'error': 'ValueError'}</pre>
     </div>
   </div>
-
-  <div class="prose" style="margin-top:2.5rem">
-    <p class="muted">Where an output's type should follow what arrives on an edge, a <a href="standard-nodes.html#control">type variable</a> says it without a hook: <code>def keep[T](value: T) -> T</code>.</p>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ CONTEXT AND POLICY ============================ -->
 <section id="context" aria-labelledby="ctx-h">
-  <div class="section-head prose">
+  <div class="split3">
+  <div class="section-head s3-head">
     <p class="eyebrow">Beside the inputs</p>
-    <h2 id="ctx-h">The run's context and the node's <code>Policy</code></h2>
+    <h2 id="ctx-h">The run's context is one object from the host</h2>
+    <p class="muted">A host often has things many nodes need, like the person running the graph or an HTTP client. It passes them as one object, <code>context=</code>, when it starts or resumes a run. A node takes it as its first parameter, typed <code>Context[X]</code>. That parameter isn't an input.</p>
+    <p class="muted">A node may name the registry's class, a base of it, or a <code>Protocol</code>, which is how a pre-built node asks for only the members it uses. <a href="graph-record-and-compiling.html#compiling">Compiling</a> checks a <code>Protocol</code>'s members by name only. Their types are the host's type checker's job. Below, <code>lookup</code> asks for a <code>Protocol</code> the registry's class doesn't meet.</p>
   </div>
-  <div class="pair">
-    <div>
-      <h3>The context is one object from the host</h3>
-      <p class="muted">A host often has things many nodes need, like the person running the graph or an HTTP client. It passes them as one object, <code>context=</code>, when it starts or resumes a run. A node takes it as its first parameter, typed <code>Context[X]</code>. That parameter isn't an input.</p>
-      <p class="muted">A node may name the registry's class, a base of it, or a <code>Protocol</code>, which is how a pre-built node asks for only the members it uses. <a href="graph-record-and-compiling.html#compiling">Compiling</a> checks a <code>Protocol</code>'s members by name only. Their types are the host's type checker's job. Below, <code>lookup</code> asks for a <code>Protocol</code> the registry's class doesn't meet.</p>
+    <div class="s3-code">
       <pre data-lang="py">@dataclass(frozen=True)
 class HostContext:
     caller: str
@@ -962,18 +1033,32 @@ print(sign(HostContext("Ida"), "Done"))
 print(list(sign.inputs), sign.context.name)
 for problem in Graph.compile(make_graph(lookup), registry).problems:
     print(problem.type, problem.loc, problem.msg)</pre>
+    </div>
+    <div class="s3-out">
       <p class="label">printed &middot; the second line, <code class="int" title="Internal">sign.inputs</code> and <code class="int" title="Internal">sign.context.name</code> <span class="lvl int">Internal</span></p>
       <pre class="out">Done, Ida
 ['text'] ctx
 context_does_not_fit_missing_member ('lookup', 'ctx') 'lookup' asks for the run's context as HasDatabase, but the registry's context class, HostContext, has no database. Add what the node reads to HostContext, or change what the node asks for.</pre>
     </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="policy" aria-labelledby="policy-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Beside the inputs</p>
+    <h2 id="policy-h">A <code>Policy</code> says how the engine calls the node</h2>
+  </div>
+  <div class="pair">
     <div>
-      <h3 id="policy">A <code>Policy</code> says how the engine calls the node</h3>
       <p class="muted">The engine reads a node's <code>Policy</code> when it calls the node, as <a href="running-and-streaming.html">Running and streaming</a> shows. A <a href="subgraphs.html#open">subgraph</a> has none, since its inner nodes run by their own.</p>
       <p class="muted">Each field and its default:</p>
       <pre data-lang="py">print(Policy())</pre>
 <pre class="out">Policy(concurrency=None, retries=0, retry_delay=1.0, attempt_timeout=None, retry_on=(), reuse_when_inputs_match=True, costs_nothing=False)</pre>
       <p class="muted">What each field means is in the reference: <code>python -m conductor.about versions-and-policies</code>, with retries in <code>retries-and-timeouts</code>, reuse in <code>running-again</code> and <code>costs_nothing</code> in <code>running</code>. <a href="running-and-streaming.html#policy">Running and streaming</a> and <a href="saved-runs-and-reuse.html#policy">Saved runs and reuse</a> show them at work.</p>
+    </div>
+    <div>
       <p class="muted"><code>Policy</code> is a frozen pydantic dataclass read strictly, so a wrong value raises where it is written. So does a keyword it doesn't have. A node whose <code>concurrency</code> is 2 or more, or that has an <code>attempt_timeout</code>, is called on threads. Any other is called on the scheduler's own thread, retries included. <code class="int" title="Internal">Policy.threaded</code> says which.</p>
       <pre data-lang="py">p = Policy(concurrency=4, retries=2)
 print(p.threaded, Policy().threaded, Policy(attempt_timeout=5).threaded)
@@ -996,14 +1081,14 @@ for bad in ({"retries": "2"}, {"concurrency": 0}, {"retries": True}, {"retry": 2
 
 <!-- ============================ VERSIONS ============================ -->
 <section id="versions" aria-labelledby="ver-h">
-  <div class="section-head prose">
+  <div class="split3">
+  <div class="section-head s3-head">
     <p class="eyebrow">Versions and <code>Upgrade</code></p>
     <h2 id="ver-h">A new version replaces the one before it <span class="lvl pub">Public</span></h2>
-    <p class="muted">A <a href="graph-record-and-compiling.html#record">graph record</a> names the version of each node it uses. A new version is a <code>@node</code> with the same id that names the one before it in <code>replaces=</code>. The registry holds the newest. The older ones are plain definitions, reached through <code>versions</code>. <a href="graph-record-and-compiling.html#upgrade"><code>registry.upgrade</code></a> moves one node of a record forward, a step at a time. Step through it.</p>
+    <p class="muted">A <a href="graph-record-and-compiling.html#record">graph record</a> names the version of each node it uses. A new version is a <code>@node</code> with the same id that names the one before it in <code>replaces=</code>. The registry holds the newest. The older ones are plain definitions, reached through <code>versions</code>. <a href="graph-record-and-compiling.html#upgrade"><code>registry.upgrade</code></a> moves one node of a record forward, a step at a time. The next section steps through it.</p>
+    <p class="muted">An <code>Upgrade</code> is needed only when a version drops an input or output of the one it replaces. A dropped input needs a rename or a <code>rewrite</code>. A dropped output needs a rename, since what has to move is the edges out of it. Without one, the declaration raises <code>upgrade_missing</code>. <code>version=</code> is one past the version replaced, or 1, unless the node gives its own number, which must be above the one it replaces.</p>
   </div>
-
-  <div class="pair">
-    <div>
+    <div class="s3-code">
       <pre data-lang="py">registry = NodeRegistry()
 
 
@@ -1028,9 +1113,22 @@ def greet(first: str, last: str) -> str:
 print(list(greet.versions), greet.versions[1] is greet_v1, "greet" in registry, len(registry))
 saved = make_graph(greet_v1, constants={"greet.name": "Ida Berg"})
 print(Graph.compile(saved, registry).run().outputs)</pre>
+    </div>
+    <div class="s3-out">
       <pre class="out">[3, 2, 1] True True 1
 {'result': 'Hello Ida Berg'}</pre>
     </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="upgrade" aria-labelledby="upg-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Versions and <code>Upgrade</code></p>
+    <h2 id="upg-h"><code>registry.upgrade</code> moves a saved record forward, a step at a time</h2>
+  </div>
+  <div class="pair">
     <div>
       <nav class="rail" id="ver-rail" aria-label="Upgrade steps"></nav>
       <div id="ver-text" aria-live="polite" style="display:grid;gap:.6rem">
@@ -1057,6 +1155,8 @@ print(Graph.compile(moved, registry).run().outputs)</pre>
 {'result': 'Hello Ida Berg'}</pre>
         </div>
       </div>
+    </div>
+    <div>
       <figure>
       <div class="diagram" style="padding:.75rem">
         <svg viewBox="0 0 420 210" role="img" aria-label="Three versions of greet. Version 3 replaces version 2, which replaces version 1. Only version 3 is on the registry. The highlighted version is the one the record names at this step." id="chain" class="small-dia">
@@ -1079,19 +1179,17 @@ print(Graph.compile(moved, registry).run().outputs)</pre>
       </figure>
     </div>
   </div>
-
-  <div class="prose" style="margin-top:2.5rem">
-    <p class="muted">An <code>Upgrade</code> is needed only when a version drops an input or output of the one it replaces. A dropped input needs a rename or a <code>rewrite</code>. A dropped output needs a rename, since what has to move is the edges out of it. Without one, the declaration raises <code>upgrade_missing</code>. <code>version=</code> is one past the version replaced, or 1, unless the node gives its own number, which must be above the one it replaces.</p>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ FAULTS ============================ -->
 <section id="faults" aria-labelledby="faults-h">
-  <div class="section-head prose">
-    <p class="eyebrow">Declaration faults</p>
-    <h2 id="faults-h">A mistake in a node fails where it is written <span class="lvl pub">Public</span></h2>
+  <div class="section-head side">
+    <div>
+      <p class="eyebrow">Declaration faults</p>
+      <h2 id="faults-h">A mistake in a node fails where it is written <span class="lvl pub">Public</span></h2>
+    </div>
     <p class="muted"><code>@node</code>, <a href="subgraphs.html#open"><code>subgraph</code></a>, <code>@host_type</code>, <code>Param</code> and <code>NodeRegistry</code> raise <code>NodeDeclarationError</code>, which is a <code>TypeError</code>. <a href="problems.html#catalogues"><code>DECLARATION_PROBLEMS</code></a> holds every kind, each with a code of its own, on the <a href="problems.html">problems page</a> (<code>python -m conductor.about problems</code>). Here are some of them, each run here: the code, then the message.</p>
   </div>
   <div class="gallery">
@@ -1275,13 +1373,14 @@ except NodeDeclarationError as error:
 
 <!-- ============================ REGISTRY ============================ -->
 <section id="registry" aria-labelledby="reg-h">
-  <div class="section-head prose">
+  <div class="split3">
+  <div class="section-head s3-head">
     <p class="eyebrow">The registry</p>
     <h2 id="reg-h">A registry holds the nodes a host offers <span class="lvl pub">Public</span></h2>
     <p class="muted"><code>@registry.node</code> takes the same arguments as <code>@node</code> and also adds the node. <code>add</code> takes definitions made elsewhere, and <code>add_subregistry</code> copies another registry's nodes in.</p>
+    <p class="muted">A node that comes in gets the registry's defaults, and the registry holds a copy, so <code>lower</code> keeps its own empty tags. <code>add</code> raises on an id that is already there, and a misspelt id raises too. How defaults merge, and why there is one way to add and swap a node, is in <a href="../design/">the design guide</a>, under "The front door and the registry". Every method is in the reference: <code>python -m conductor.about conductor</code>.</p>
   </div>
-  <div class="pair">
-    <div>
+    <div class="s3-code">
       <pre data-lang="py">text = NodeRegistry(category="Text", tags=["acme"], extra={"tier": "free"})
 
 @text.node("upper", title="Uppercase", description="Capitals.",
@@ -1311,15 +1410,14 @@ except KeyError as error:
 
 free = host.filter(lambda d: d.extra.get("tier") == "free")
 print([d.id for d in free], len(host))</pre>
+    </div>
+    <div class="s3-out">
       <pre class="out">upper 'Text' ('core', 'acme', 'case') {'tier': 'free', 'icon': 'A'}
 lower 'Case' ('core',) {}
 () ('acme', 'case')
 duplicate_node_id upper
 KeyError "'uper' is not registered here; the ids are upper, lower"
 ['upper'] 2</pre>
-    </div>
-    <div>
-      <p class="muted">A node that comes in gets the registry's defaults, and the registry holds a copy, so <code>lower</code> keeps its own empty tags. <code>add</code> raises on an id that is already there, and a misspelt id raises too. How defaults merge, and why there is one way to add and swap a node, is in <a href="../design/">the design guide</a>, under "The front door and the registry". Every method is in the reference: <code>python -m conductor.about conductor</code>.</p>
     </div>
   </div>
 </section>
