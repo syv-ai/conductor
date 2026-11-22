@@ -1993,6 +1993,51 @@ async def test_an_answer_queued_before_a_cancelled_run_asks_its_question_is_refu
         assert await _resume_calls(store, run_id) == 1
 
 
+async def test_a_reply_queued_for_a_run_whose_saved_run_cant_be_loaded_is_refused_with_the_resume_calls_cause() -> (
+    None
+):
+    """A row a worker can't load, as after a deploy its saved run no longer fits, has no run to give its queue to. So
+    each queued reply is refused with why the resume call failed, never kept or dropped unseen."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    left = left_running(
+        "left", graph, Graph.compile(graph, registry).with_inputs(inputs), owner="a-dead-worker"
+    )
+    await store.create(dataclasses.replace(left, run='{"graph": "not this graph"}'))
+    assert (await worker.answer("left", {waiting_id: True}, allows=EVERY_RUN)).status == "running"
+
+    async with worker.serving():
+        failed = await store.ended("left")
+
+    assert store.state("left")["queued"] == []
+    assert (failed.status, failed.cause.type) == ("failed", "saved_run_of_another_graph")
+    assert failed.refused == {waiting_id: [failed.cause]}
+
+
+async def test_the_replies_queued_for_a_running_run_are_stored_one_per_waiting_id_as_the_next_worker_reads_them() -> (
+    None
+):
+    """What a worker writes into a row's state is what the next worker reads back, maybe after a deploy: each reply
+    is one entry, tagged with its kind and holding only what that kind has, in the order the replies came."""
+    registry, graph, _, inputs, waiting_id = asking()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    left = left_running(
+        "left", graph, Graph.compile(graph, registry).with_inputs(inputs), owner="a-dead-worker"
+    )
+    await store.create(left)
+
+    await worker.answer("left", {waiting_id: True}, allows=EVERY_RUN)
+    await worker.decline("left", waiting_id, reason="No", allows=EVERY_RUN)
+
+    assert store.state("left")["queued"] == [
+        {"kind": "answer", "waiting_id": waiting_id, "answer": True},
+        {"kind": "decline", "waiting_id": waiting_id, "reason": "No"},
+    ]
+
+
 async def test_an_answer_queued_for_a_question_the_checkpoint_hasnt_asked_is_refused_loudly_when_the_resume_call_raises() -> (
     None
 ):
