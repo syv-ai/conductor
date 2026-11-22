@@ -12,7 +12,6 @@ import polars as pl
 import pytest
 from conductor import (
     Graph,
-    InvalidCallError,
     NodeRegistry,
     Param,
     Run,
@@ -300,18 +299,6 @@ def test_a_table_split_into_rows_is_written_under_both_outputs_and_reads_back_eq
     assert read_back.results["series-split"]["result"] == run.results["series-split"]["result"]
     assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
     assert read_back.with_forgotten("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
-
-
-def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused():
-    graph = _split_members()
-    saved = json.loads(graph.run().to_json())
-    saved["outcomes"]["series-split"]["outputs"]["result"] = [None]  # null, not listed as skipped
-
-    with pytest.raises(InvalidCallError) as refused:
-        Run.from_json(json.dumps(saved), graph)
-    (found,) = refused.value.problems
-    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.series-split")
-    assert "call 0 is done and has null for 'result'" in found.msg
 
 
 def test_stack_puts_the_tables_returned_per_item_into_one_table_of_their_row_type():

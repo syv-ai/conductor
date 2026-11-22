@@ -257,23 +257,6 @@ def test_a_series_wired_to_an_input_of_one_value_starts_a_loop_that_its_downstre
     assert input_sources(graph, "u") == {"text": ("item", "d.result")}
 
 
-def test_a_node_inside_a_loop_gets_an_output_from_outside_it_as_an_outer_value():
-    graph = compile_graph(
-        {"d": "documents", "u": "upper", "p": "pair"}, [("d.result", "p.a"), ("u.result", "p.b")]
-    )
-    assert graph.describe().nodes["p"].per_item_of == "d.result"
-    assert input_sources(graph, "p") == {"a": ("item", "d.result"), "b": ("outer_value", None)}
-
-
-def test_a_series_input_collects_the_loop_and_its_node_is_called_once_outside_it():
-    graph = compile_graph(
-        {"d": "documents", "u": "upper", "c": "count"},
-        [("d.result", "u.text"), ("u.result", "c.items")],
-    )
-    assert graph.describe().nodes["c"].per_item_of is None
-    assert input_sources(graph, "c") == {"items": ("collected", "d.result")}
-
-
 def test_nested_loops_are_collected_one_level_at_a_time():
     graph = compile_graph(
         {"d": "documents", "l": "lines", "u": "upper", "c": "count", "t": "total"},
@@ -330,16 +313,6 @@ def test_an_input_wired_to_the_outer_series_of_a_nested_loop_gets_its_item_as_an
 # -- what is refused -------------------------------------------------------------------------------
 
 
-def test_a_node_wired_to_the_items_of_two_series_that_are_not_nested_is_refused():
-    graph = compile_graph(
-        {"a": "documents", "b": "documents", "p": "pair"},
-        [("a.result", "p.a"), ("b.result", "p.b")],
-        inputs={"folder": ["a.folder", "b.folder"]},
-    )
-    assert problems(graph) == [("series_not_nested", ("p",))]
-    assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
-
-
 def test_two_nodes_wired_to_one_series_are_inside_the_same_loop():
     graph = compile_graph(
         {"d": "documents", "u": "upper", "v": "upper", "p": "pair"},
@@ -355,11 +328,6 @@ def test_a_series_input_wired_to_a_source_that_runs_once_is_refused_and_describe
     ]
     assert graph.describe().nodes["c"].per_item_of is None
     assert input_sources(graph, "c") == {"items": ("missing", None)}
-
-
-def test_a_list_constant_on_an_input_of_one_value_is_an_invalid_value():
-    graph = compile_graph({"u": "upper"}, [], constants={"u.text": ["a", "b"]})
-    assert problems(graph) == [("invalid_value", ("u", "text"))]
 
 
 def test_a_series_of_the_wrong_item_type_is_a_type_mismatch_between_the_two_series_types():

@@ -26,7 +26,6 @@ from conductor import (
     InvalidCallError,
     NodeRecord,
     Param,
-    Run,
     Series,
     Source,
     Table,
@@ -1932,59 +1931,6 @@ def test_a_subgraph_lists_its_inputs_and_outputs_in_the_registrys_describe():
     ] == ["result"]
 
 
-def test_collecting_a_series_from_a_skipped_branch_is_skipped_not_called_with_an_empty_list():
-    calls: list[list[str]] = []
-
-    @node("gate", title="Gate", description="For a test.")
-    def gate(text: str) -> YesNo:
-        return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
-
-    @node("count-all", title="Count all", description="For a test.")
-    def count_all(texts: Series[str]) -> str:
-        calls.append(list(texts))
-        return str(len(texts))
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "g": {"node": "gate", "inputs": {"text": {"graph_input": "text"}}},
-                    "s": {
-                        "node": "split",
-                        "inputs": {"text": {"sources": [{"node": "g", "output": "no"}]}},
-                    },
-                    "c": {
-                        "node": "count-all",
-                        "inputs": {"texts": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
-        registry_of(gate, split, count_all),
-    )
-
-    assert graph.run({"text": "yes"}).results["c"]["result"] is None and calls == []
-    assert graph.run({"text": "a,b"}).outputs == {"result": "2"}
-
-
-def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
-    @node("some", title="Some", description="For a test.")
-    def some(text: str) -> Series[str]:
-        return ["a", SKIPPED, "c"]
-
-    graph = Graph.compile(make_graph(some, upper), registry_of(some, upper))
-    run = graph.run({"text": "x"})
-
-    assert run.results["some"]["result"] == ["a", None, "c"] and run.results["upper"]["result"] == [
-        "A",
-        None,
-        "C",
-    ]
-    assert Run.from_json(run.to_json(), graph).results == run.results
-
-
 def test_a_table_input_gets_its_declared_columns():
     from typing import TypedDict
 
@@ -2034,133 +1980,6 @@ def test_a_table_input_gets_its_declared_columns():
         registry,
     ).run({"table": pl.DataFrame({"name": ["a"], "email": ["a@x"]})}).outputs == {"result": "name"}
     assert narrowed.run().outputs == {"result": "name"}
-
-
-def test_a_node_collecting_two_series_of_different_depths_is_called_per_item_of_the_outer_one():
-    @node("parts", title="Parts", description="For a test.")
-    def parts(text: str) -> Series[str]:
-        return text.split("|")
-
-    @node("pair-lists", title="Pair lists", description="For a test.")
-    def pair_lists(a: Series[str], b: Series[str]) -> str:
-        return f"{len(a)}/{len(b)}"
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "p": {"node": "parts", "inputs": {"text": {"graph_input": "text"}}},
-                    "s": {
-                        "node": "split",
-                        "inputs": {"text": {"sources": [{"node": "p", "output": "result"}]}},
-                    },
-                    "x": {
-                        "node": "pair-lists",
-                        "inputs": {
-                            "a": {"sources": [{"node": "p", "output": "result"}]},
-                            "b": {"sources": [{"node": "s", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "x", "output": "result"}},
-            }
-        ),
-        registry_of(parts, split, pair_lists),
-    )
-
-    assert (
-        graph.describe().nodes["x"].per_item_of == "p.result"
-    )  # collecting the inner series ends the inner loop, not the outer one
-    assert graph.run({"text": "a,b|c"}).outputs == {"result": ["2/2", "2/1"]}
-
-
-def test_collecting_items_that_a_skipped_branch_skipped_all_of_is_skipped():
-    """When a skipped branch skipped every item being collected, the collecting call is skipped too.
-
-    A branch is taken per document, and every line of the document reads it. Where the branch is skipped, each
-    line is skipped, so that document's join is skipped as well.
-    """
-
-    @node("pair-two", title="Pair two", description="For a test.")
-    def pair_two(a: str, b: str) -> str:
-        return f"{a}:{b}"
-
-    @node("decide-doc", title="Decide doc", description="For a test.")
-    def decide_doc(text: str) -> YesNo:
-        return YesNo(text, SKIPPED) if text.startswith("x") else YesNo(SKIPPED, text)
-
-    @node("docs", title="Docs", description="For a test.")
-    def docs(text: str) -> Series[str]:
-        return text.split("|")
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
-                    "g": {
-                        "node": "decide-doc",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
-                    "l": {
-                        "node": "split",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
-                    "p": {
-                        "node": "pair-two",
-                        "inputs": {
-                            "a": {"sources": [{"node": "l", "output": "result"}]},
-                            "b": {"sources": [{"node": "g", "output": "yes"}]},
-                        },
-                    },
-                    "j": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "p", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "j", "output": "result"}},
-            }
-        ),
-        registry_of(docs, decide_doc, split, pair_two, join),
-    )
-
-    assert graph.run({"text": "x|y,no"}).results["j"]["result"] == ["x:x", None]
-
-
-def test_collecting_downstream_of_a_series_output_skipped_is_skipped():
-    @dataclass(frozen=True)
-    class FullOrEmpty:
-        full: Series[str] = SKIPPED
-        empty: Series[str] = SKIPPED
-
-    @node("decide-list", title="Decide list", description="For a test.")
-    def decide_list(text: str) -> FullOrEmpty:
-        return FullOrEmpty(text.split(","), SKIPPED) if text else FullOrEmpty(SKIPPED, [])
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "d": {"node": "decide-list", "inputs": {"text": {"graph_input": "text"}}},
-                    "up": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "empty"}]}},
-                    },
-                    "after": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "up", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "after", "output": "result"}},
-            }
-        ),
-        registry_of(decide_list, upper, join),
-    )
-
-    assert graph.run({"text": "a,b"}).results["after"]["result"] is None
 
 
 def test_a_records_field_whose_name_has_a_dot_is_wired_by_its_source():

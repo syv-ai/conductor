@@ -184,18 +184,23 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     assert ran(PER, files=[]).outputs == {"result": []} and CALLS == {}
 
 
-def test_eleven_contracts_reviewed_all_together_make_one_call_and_one_file_is_collected_as_a_list_of_one():
-    run = ran(TOGETHER, files=FILES)
-    assert CALLS == {"read": 11, "overall": 1} and run.outputs == {"result": "overall(11)"}
-    assert ran(TOGETHER, files=FILES[:1]).outputs == {"result": "overall(1)"}
-
-
-def test_both_in_one_graph_review_each_contract_and_then_all_of_them_once():
-    run = ran(BOTH, files=FILES)
-    assert CALLS == {"read": 11, "review": 11, "overall": 1} and run.outputs == {
-        "result": "overall(11)"
-    }
-    assert ran(BOTH, files=FILES[:1]).outputs == {"result": "overall(1)"}
+@pytest.mark.parametrize(
+    ("record", "calls"),
+    [
+        (TOGETHER, {"read": 11, "overall": 1}),
+        (BOTH, {"read": 11, "review": 11, "overall": 1}),
+    ],
+    ids=[
+        "all-together-make-one-call",
+        "both-in-one-graph-review-each-contract-and-then-all-of-them-once",
+    ],
+)
+def test_eleven_contracts_reviewed_together_or_each_and_then_together_make_one_overall_call_and_one_file_is_a_list_of_one(
+    record: Any, calls: dict[str, int]
+):
+    run = ran(record, files=FILES)
+    assert CALLS == calls and run.outputs == {"result": "overall(11)"}
+    assert ran(record, files=FILES[:1]).outputs == {"result": "overall(1)"}
 
 
 def test_a_compiled_graph_stays_the_same_graph_however_many_files_a_run_is_given():
