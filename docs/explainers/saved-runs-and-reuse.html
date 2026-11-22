@@ -107,7 +107,7 @@ section { padding-top: var(--section); }
 .section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; max-width: var(--col); }
 .staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
 
-.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.25rem; }
 .hero h1 em { font-style: italic; color: var(--accent); }
 .links { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font-size: .9375rem; }
 
@@ -132,6 +132,21 @@ pre.out { color: var(--ink); }
 @media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
 .two > * { min-width: 0; }
 .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+/* three columns side by side, and a wide output that runs in two columns, so a section fits on one screen */
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2rem; align-items: start; }
+@media (max-width: 900px) { .three { grid-template-columns: minmax(0, 1fr); } }
+.three > * { min-width: 0; }
+.three > .stack { gap: .75rem; }
+@media (min-width: 901px) {
+  .two.code-wide { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); }
+  /* a tall column on the right, beside the section's head and the text under it on the left */
+  .two.placed { grid-template-rows: auto 1fr; }
+  .two.placed > * { grid-column: 1; }
+  .two.placed > .right-tall { grid-column: 2; grid-row: 1 / span 2; }
+  .three.last-wide { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.8fr); }
+  .out.cols { column-count: 2; column-gap: 1.5rem; }
+  .hero .beside { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+}
 .prose, figure, .board, .controls { grid-template-columns: minmax(0, 1fr); }
 
 figure { margin: 0; display: grid; gap: .75rem; min-width: 0; }
@@ -435,6 +450,8 @@ graph = Graph.compile(record, registry)</pre>
       <h2 id="saved-h">A saved run keeps one list per output, with one entry per call</h2>
       <p class="muted"><span class="lvl int lead-lvl">Internal</span>In memory, a run keeps one <a href="running-and-streaming.html#outcomes">outcome</a> per call, keyed by the call's <a href="series-and-tables.html#indexes">item indexes</a>. <code>shout</code> has three calls, at <code>(0,)</code>, <code>(1,)</code> and <code>(2,)</code>.</p>
       <p class="muted"><span class="lvl pub lead-lvl">Public</span>The saved JSON has a list of states for each node, a list for each of its outputs, and a list of call fingerprints. A call's place in the lists is its call number.</p>
+      <h3 id="keys">Every key of a saved run</h3>
+      <p class="muted">The saved run on the next screen is the example: it has every top-level key, and each node's <code>states</code>, <code>outputs</code> and <code>fingerprints</code>. What each key holds, which keys are left out when empty, and how a saved run is read back are written out once, in <code>python -m conductor.about saving-a-run</code>.</p>
     </div>
     <figure>
       <div class="diagram">
@@ -471,16 +488,22 @@ graph = Graph.compile(record, registry)</pre>
     </figure>
   </div>
 
-  <div class="two" style="margin-top:3rem">
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="saved-text" aria-labelledby="saved-text-h">
+  <div class="two code-wide">
     <div class="stack">
-      <h3>The finished run as saved</h3>
+      <p class="eyebrow">A run as JSON</p>
+      <h2 id="saved-text-h">The finished run as saved</h2>
       <p class="muted">This run was made on <code>"a\nb\nc"</code> and then saved. <code>to_json()</code> writes it on one line; the sample prints its length first. The sample prints it with <code>dumps</code>, a small helper that indents by 2 and keeps a list that fits on one line on one line. Each entry under <code>fingerprints</code> is a call's fingerprint, taken when the call was made: a hash of the node's code fingerprint and the call's arguments. The code fingerprint hashes the node's id, version, ports, <a href="series-and-tables.html#loop">loops</a> and whether it asks, with the function's parsed source, so it is the same on any Python version. So is the graph fingerprint, which holds no code.</p>
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 saved = run.to_json()
 print(len(saved))
 print(dumps(json.loads(saved)))</pre>
     </div>
-    <pre data-lang="json" class="out">547
+    <pre data-lang="json" class="out cols">547
 {
   "graph": "834e65c8c11714cd",
   "ended_early": null,
@@ -516,9 +539,15 @@ print(dumps(json.loads(saved)))</pre>
 }</pre>
   </div>
 
-  <div class="two" style="margin-top:3rem">
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="saved-back" aria-labelledby="saved-back-h">
+  <div class="three last-wide">
     <div class="stack">
-      <h3>Read back, it is the same run</h3>
+      <p class="eyebrow">A run as JSON</p>
+      <h2 id="saved-back-h">Read back, it is the same run</h2>
       <p class="muted">Compile the same record again, in another process if you like, and load the text. No node is called.</p>
       <pre data-lang="py">back = Run.from_json(saved, Graph.compile(record, registry))
 print(back.status, back.outputs, back.results["shout"]["result"])</pre>
@@ -527,6 +556,8 @@ print(back.status, back.outputs, back.results["shout"]["result"])</pre>
     <div class="stack">
       <h3>A call that isn't done</h3>
       <p class="muted">A call with no outputs has <code>null</code> in every list. Only a done or a waiting call can have a fingerprint. A waiting call says why under <code>questions</code>, which holds what its <a href="asking-a-person.html#walk"><code>Ask</code></a> said, and keeps it there once a person has answered it. The <a href="asking-a-person.html">page on asking a person</a> shows one. A call not made because an input got <code>None</code> says why under <code>none_inputs</code>. A skipped call has the state <code>"skipped"</code>. A failed call has only the nulls, and <code>ended_early</code> holds the <a href="problems.html">problem</a>. Here <code>strip</code> returned <code>None</code> for the blank second part of <code>"a, ,c"</code>, and <code>up(line: str)</code> doesn't take <code>None</code>, so it wasn't called for it.</p>
+    </div>
+    <div class="stack">
       <pre data-lang="py">@registry.node("parts", title="Parts", description="The parts of a text, split at commas.")
 def parts(text: str) -> Series[str]:
     return text.split(",")
@@ -554,8 +585,6 @@ print(dumps(json.loads(blanks.to_json())["outcomes"]["up"]))</pre>
     </div>
   </div>
 
-  <h3 id="keys" style="margin-top:3rem">Every key of a saved run</h3>
-  <p class="muted" style="margin:.5rem 0 0;max-width:var(--col)">The saved run printed above is the example: it has every top-level key, and each node's <code>states</code>, <code>outputs</code> and <code>fingerprints</code>. What each key holds, which keys are left out when empty, and how a saved run is read back are written out once, in <code>python -m conductor.about saving-a-run</code>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -568,51 +597,65 @@ print(dumps(json.loads(blanks.to_json())["outcomes"]["up"]))</pre>
       <h2 id="codec-h">A saved run is checked against its graph when it is read</h2>
       <p class="muted">A saved run comes from <a href="serving-runs.html#the-store">a store</a>, so <code>Run.from_json</code> checks it <a href="overview.html#choices">where it comes in</a>. Any fault in it is one <code>saved_run_unreadable</code>: <code>ctx.where</code> names its place, <code>ctx.reason</code> says why, and <code>ctx.errors</code> holds the one error, with no value in it. A saved run of another graph is <code>saved_run_of_another_graph</code> instead. A graph with <a href="graph-record-and-compiling.html#walls">problems</a> raises those before anything is read.</p>
     </div>
-    <figure>
-      <div class="diagram">
-        <svg viewBox="0 0 860 300" role="img" aria-label="SavedRun is narrowed into a codec for one graph. The text passes through the codec, then the lists are turned into outcomes, then the list lengths are checked against the number of calls. A fault at any step is one saved_run_unreadable problem naming the place.">
-          <defs>
-            <marker id="bh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker>
-            <marker id="bha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head a" d="M0 0 L10 5 L0 10 z"/></marker>
-          </defs>
-          <text class="d-title" x="20" y="24">every graph</text>
-          <rect class="d-box int" x="20" y="36" width="230" height="96" rx="8"/>
-          <text class="d-label" x="36" y="60">SavedRun</text>
-          <text class="d-sub" x="36" y="80">graph: str</text>
-          <text class="d-sub" x="36" y="96">inputs: dict[str, Any]</text>
-          <text class="d-sub" x="36" y="112">outcomes: dict[str, SavedOutcomes]</text>
+    <div class="stack">
+      <figure>
+        <div class="diagram">
+          <svg viewBox="0 0 860 300" role="img" aria-label="SavedRun is narrowed into a codec for one graph. The text passes through the codec, then the lists are turned into outcomes, then the list lengths are checked against the number of calls. A fault at any step is one saved_run_unreadable problem naming the place.">
+            <defs>
+              <marker id="bh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head" d="M0 0 L10 5 L0 10 z"/></marker>
+              <marker id="bha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="d-head a" d="M0 0 L10 5 L0 10 z"/></marker>
+            </defs>
+            <text class="d-title" x="20" y="24">every graph</text>
+            <rect class="d-box int" x="20" y="36" width="230" height="96" rx="8"/>
+            <text class="d-label" x="36" y="60">SavedRun</text>
+            <text class="d-sub" x="36" y="80">graph: str</text>
+            <text class="d-sub" x="36" y="96">inputs: dict[str, Any]</text>
+            <text class="d-sub" x="36" y="112">outcomes: dict[str, SavedOutcomes]</text>
 
-          <path class="d-edge" d="M260 84 L 330 84" marker-end="url(#bh)"/>
-          <text class="d-sub" x="295" y="74" text-anchor="middle">narrowed</text>
+            <path class="d-edge" d="M260 84 L 330 84" marker-end="url(#bh)"/>
+            <text class="d-sub" x="295" y="74" text-anchor="middle">narrowed</text>
 
-          <text class="d-title" x="340" y="24">this graph's codec</text>
-          <rect class="d-box int" x="340" y="36" width="500" height="96" rx="8"/>
-          <text class="d-label" x="356" y="60">SavedRun_834e65c8c11714cd</text>
-          <text class="d-sub" x="356" y="80">graph: Literal["834e65c8c11714cd"]</text>
-          <text class="d-sub" x="356" y="96">inputs: exactly {"text": str}</text>
-          <text class="d-sub" x="356" y="112">outcomes: only lines, shout, join · shout's "result": list[str | None]</text>
+            <text class="d-title" x="340" y="24">this graph's codec</text>
+            <rect class="d-box int" x="340" y="36" width="500" height="96" rx="8"/>
+            <text class="d-label" x="356" y="60">SavedRun_834e65c8c11714cd</text>
+            <text class="d-sub" x="356" y="80">graph: Literal["834e65c8c11714cd"]</text>
+            <text class="d-sub" x="356" y="96">inputs: exactly {"text": str}</text>
+            <text class="d-sub" x="356" y="112">outcomes: only lines, shout, join · shout's "result": list[str | None]</text>
 
-          <text class="d-title" x="20" y="176">from_json, in three steps</text>
-          <rect class="d-box int" x="20" y="190" width="240" height="56" rx="8"/>
-          <text class="d-label" x="36" y="212">1  the codec reads the text</text>
-          <text class="d-sub" x="36" y="230">every key, every value by its type</text>
-          <path class="d-edge" d="M268 218 L 300 218" marker-end="url(#bh)"/>
-          <rect class="d-box int" x="308" y="190" width="250" height="56" rx="8"/>
-          <text class="d-label" x="324" y="212">2  lists become outcomes</text>
-          <text class="d-sub" x="324" y="230">Done, Skipped, NoneInput, Unanswered</text>
-          <path class="d-edge" d="M566 218 L 598 218" marker-end="url(#bh)"/>
-          <rect class="d-box int" x="606" y="190" width="234" height="56" rx="8"/>
-          <text class="d-label" x="622" y="212">3  lengths checked</text>
-          <text class="d-sub" x="622" y="230">one entry per call, node by node</text>
-          <path class="d-edge" d="M140 254 L 140 274 L 720 274 L 720 254" stroke-dasharray="4 4"/>
-          <text class="d-sub" x="430" y="292" text-anchor="middle">any fault is one saved_run_unreadable, with ctx.where naming the place and quoting no value</text>
-        </svg>
-      </div>
-      <p class="small">The dashed boxes are internal. What you get back is the <a href="problems.html">problem</a> under them.</p>
-    </figure>
+            <text class="d-title" x="20" y="176">from_json, in three steps</text>
+            <rect class="d-box int" x="20" y="190" width="240" height="56" rx="8"/>
+            <text class="d-label" x="36" y="212">1  the codec reads the text</text>
+            <text class="d-sub" x="36" y="230">every key, every value by its type</text>
+            <path class="d-edge" d="M268 218 L 300 218" marker-end="url(#bh)"/>
+            <rect class="d-box int" x="308" y="190" width="250" height="56" rx="8"/>
+            <text class="d-label" x="324" y="212">2  lists become outcomes</text>
+            <text class="d-sub" x="324" y="230">Done, Skipped, NoneInput, Unanswered</text>
+            <path class="d-edge" d="M566 218 L 598 218" marker-end="url(#bh)"/>
+            <rect class="d-box int" x="606" y="190" width="234" height="56" rx="8"/>
+            <text class="d-label" x="622" y="212">3  lengths checked</text>
+            <text class="d-sub" x="622" y="230">one entry per call, node by node</text>
+            <path class="d-edge" d="M140 254 L 140 274 L 720 274 L 720 254" stroke-dasharray="4 4"/>
+            <text class="d-sub" x="430" y="292" text-anchor="middle">any fault is one saved_run_unreadable, with ctx.where naming the place and quoting no value</text>
+          </svg>
+        </div>
+        <p class="small">The dashed boxes are internal. What you get back is the <a href="problems.html">problem</a> under them.</p>
+      </figure>
+      <h3>A value is saved by its output's type</h3>
+      <p class="muted">Each value is written by its output's type. A call with no outputs has <code>null</code> in every list. <code>run.outputs_to_json()</code> writes a complete run's <a href="graph-record-and-compiling.html#record">graph outputs</a> by the same types. The <a href="series-and-tables.html#stored">page on Series and tables</a> has how a run stores a <code>Series</code>.</p>
+      <p class="muted">Each value reads back by its declared type, so a date comes back from its text. JSON has no number for <code>inf</code> or <code>nan</code>, so they are written as the texts <code>"Infinity"</code>, <code>"-Infinity"</code> and <code>"NaN"</code>. A <code>float</code> reads the float back. Under <code>Any</code>, the text stays text. <code>bytes</code> are written as base64 text, as in all JSON conductor writes (<code>conductor.JSON_CONFIG</code>).</p>
+    </div>
   </div>
 
-  <div class="two" style="margin-top:3rem">
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="codec-faults" aria-labelledby="codec-faults-h">
+  <div class="section-head">
+    <p class="eyebrow">Reading it back</p>
+    <h2 id="codec-faults-h">Two faults, each one <code>saved_run_unreadable</code></h2>
+  </div>
+  <div class="two">
     <div class="stack">
       <h3>A value of the wrong type</h3>
       <p class="muted">Put <code>7</code> where shout's second result was. shout's <code>result</code> is declared a <code>str</code>.</p>
@@ -638,11 +681,6 @@ except InvalidCallError as e:
     </div>
   </div>
 
-  <div class="prose" style="margin-top:2.5rem">
-    <h3>A value is saved by its output's type</h3>
-    <p class="muted">Each value is written by its output's type. A call with no outputs has <code>null</code> in every list. <code>run.outputs_to_json()</code> writes a complete run's <a href="graph-record-and-compiling.html#record">graph outputs</a> by the same types. The <a href="series-and-tables.html#stored">page on Series and tables</a> has how a run stores a <code>Series</code>.</p>
-    <p class="muted">Each value reads back by its declared type, so a date comes back from its text. JSON has no number for <code>inf</code> or <code>nan</code>, so they are written as the texts <code>"Infinity"</code>, <code>"-Infinity"</code> and <code>"NaN"</code>. A <code>float</code> reads the float back. Under <code>Any</code>, the text stays text. <code>bytes</code> are written as base64 text, as in all JSON conductor writes (<code>conductor.JSON_CONFIG</code>).</p>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -673,6 +711,15 @@ print(dumps(json.loads(fresh.to_json())["reusable"]["shout"]))</pre>
   "fingerprints": ["e122950749707c2ee6a33910", "a20f03b26bcfd54aacb068e5", "11866a76b3e33364fb53774f"],
   "item_indexes": [[0], [1], [2]]
 }</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="again-changed" aria-labelledby="again-changed-h">
+  <div class="section-head">
+    <p class="eyebrow">Running again</p>
+    <h2 id="again-changed-h">Change an input or a constant, and only the calls with new arguments are made</h2>
   </div>
 <script type="text/x-python">
 # A copy of the three nodes that also records each call, and "other": shout with other code.
@@ -716,7 +763,7 @@ registry, other = recording(False), recording(True)
 graph = Graph.compile(record, registry)
 </script>
 
-  <div class="two" style="margin-top:2.5rem">
+  <div class="two">
     <div class="stack">
       <h3>Change a line, then move and repeat them</h3>
       <p class="muted">The second run changes the last line, so only <code>shout("d")</code> is new. In the third, every line was a call last time: <code>d</code> and <code>a</code> have moved, and <code>b</code> is there twice. Each takes an earlier outcome. <code>lines</code> and <code>join</code> got a new text and a new list, so they are called each time. Once every node is complete, nothing is left under <code>reusable</code>.</p>
@@ -745,9 +792,15 @@ print(took(), fourth.outputs)</pre>
     </div>
   </div>
 
-  <div class="two" style="margin-top:2.5rem">
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="matched-by" aria-labelledby="matched-by-h">
+  <div class="two">
     <div class="stack">
-      <h3 id="matched-by">What a call is matched by</h3>
+      <p class="eyebrow">Running again</p>
+      <h2 id="matched-by-h">What a call is matched by</h2>
       <ul class="plain muted">
         <li>A dict a database hands back with its keys in another order still matches.</li>
         <li>The fingerprint is taken once, when the call is made, and kept on its outcome, a saved run's too. So an outcome made before the node's code changed keeps the old code in its fingerprint, and no call of the new code matches it.</li>
@@ -785,12 +838,17 @@ print(took(), fourth.outputs)</pre>
 
 <!-- ============================ ASKING ============================ -->
 <section id="asks" aria-labelledby="asks-h">
-  <div class="section-head">
-    <p class="eyebrow">A node that may ask</p>
-    <h2 id="asks-h">Answers are reused once each and in item order <span class="lvl pub">Public</span></h2>
-    <p class="muted">Two calls with the same arguments may have been answered differently. So a node with <a href="asking-a-person.html#walk"><code>asks=True</code></a> doesn't share one <a href="running-and-streaming.html#outcomes">outcome</a> between them. Each earlier outcome is reused once, by the calls with those arguments, in item order, and then taken out. A <a href="asking-a-person.html#questions">question</a> still waiting goes on waiting at its item's new place. A call beyond the outcomes there were is made again.</p>
-  </div>
   <div class="two">
+    <div class="stack">
+      <div class="section-head">
+      <p class="eyebrow">A node that may ask</p>
+      <h2 id="asks-h">Answers are reused once each and in item order <span class="lvl pub">Public</span></h2>
+      <p class="muted">Two calls with the same arguments may have been answered differently. So a node with <a href="asking-a-person.html#walk"><code>asks=True</code></a> doesn't share one <a href="running-and-streaming.html#outcomes">outcome</a> between them. Each earlier outcome is reused once, by the calls with those arguments, in item order, and then taken out. A <a href="asking-a-person.html#questions">question</a> still waiting goes on waiting at its item's new place. A call beyond the outcomes there were is made again.</p>
+      </div>
+      <p class="muted">Eva is new, so she is asked. The first <code>bo</code> keeps the first answer and the second keeps the second, even though both moved down one place.</p>
+      <p class="muted">The same holds for what such a node returned without asking. Whether a node asks is part of its code fingerprint, so the two kinds of outcome never mix.</p>
+      <p class="muted">An answer is also tied to its outer items. When a node is inside two <a href="series-and-tables.html#loop">loops</a>, say lines inside documents, two documents' identical lines keep their own answers when the documents swap. An answer is tied to the whole document it was given in, so a change anywhere in a document asks again about every line of it.</p>
+    </div>
     <div class="stack">
       <pre data-lang="py">r = NodeRegistry()
 
@@ -811,11 +869,6 @@ print(moved.results["approve"]["result"], [w.id for w in moved.waiting])</pre>
       <p class="out">[True, False]
 [None, True, False] ['approve@0~9976b740']</p>
     </div>
-    <div class="stack">
-      <p class="muted">Eva is new, so she is asked. The first <code>bo</code> keeps the first answer and the second keeps the second, even though both moved down one place.</p>
-      <p class="muted">The same holds for what such a node returned without asking. Whether a node asks is part of its code fingerprint, so the two kinds of outcome never mix.</p>
-      <p class="muted">An answer is also tied to its outer items. When a node is inside two <a href="series-and-tables.html#loop">loops</a>, say lines inside documents, two documents' identical lines keep their own answers when the documents swap. An answer is tied to the whole document it was given in, so a change anywhere in a document asks again about every line of it.</p>
-    </div>
   </div>
 </section>
 
@@ -823,14 +876,16 @@ print(moved.results["approve"]["result"], [w.id for w in moved.waiting])</pre>
 
 <!-- ============================ EDITS ============================ -->
 <section id="edits" aria-labelledby="edits-h">
-  <div class="section-head">
-    <p class="eyebrow">Across an edit</p>
-    <h2 id="edits-h">An edited record can't load the old run, but a new run can reuse its work <span class="lvl pub">Public</span></h2>
-  </div>
-  <div class="two">
+  <div class="three">
     <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Across an edit</p>
+        <h2 id="edits-h">An edited record can't load the old run, but a new run can reuse its work <span class="lvl pub">Public</span></h2>
+      </div>
       <h3>After an edit to the record, loading is refused and reuse goes on</h3>
       <p class="muted">Give <code>join</code> the <a href="graph-record-and-compiling.html#record">constant</a> <code>sep=" "</code>. The <a href="graph-record-and-compiling.html#record">record</a> changed, so the fingerprint changed, and the old saved run won't load into the edited graph. A change to a node's <a href="graph-record-and-compiling.html#record"><code>display</code></a> is left out of the fingerprint, so a saved run still loads after one.</p>
+    </div>
+    <div class="stack">
       <pre data-lang="py">run = graph.run({"text": "a\nb\nc"})
 took()   # set the first run's calls aside
 data = json.loads(record.model_dump_json())
@@ -845,14 +900,26 @@ except InvalidCallError as error:
       <p class="out">834e65c8c11714cd f64023e68fa7dedd
 saved_run_of_another_graph {'graph': 'f64023e68fa7dedd', 'saved': '834e65c8c11714cd'}
 This saved run is of another graph, not this one (f64023e68fa7dedd). Load it into the graph it was saved from.</p>
+    </div>
+    <div class="stack">
       <p class="muted">Start a new run of the edited graph instead, with the old run as <code>previous</code>. Only <code>join</code> is called. <code>lines</code> and <code>shout</code> get the same arguments under the same code.</p>
       <pre data-lang="py">again = edited.with_inputs({"text": "a\nb\nc"}, previous=run).resume()
 print(took(), again.outputs)</pre>
       <p class="out">[('join',)] {'result': 'A! B! C!'}</p>
     </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="edits-code" aria-labelledby="edits-code-h">
+  <div class="three">
     <div class="stack">
-      <h3>After an edit to a node's code, loading works and the node runs again</h3>
-      <p class="muted">Declare <code>shout</code> again under the same id and version, with other code, in a new <a href="nodes-and-types.html#registry">registry</a>, <code>other</code>. Load <code>run</code>, the run on the left, saved. The record is the same, so the graph fingerprint is the same, and the saved run loads. Shout's saved fingerprints were taken with the old code, so no call of the new code matches them. Shout's outcomes stay in the run, but they won't be reused. In the new run, <code>lines</code> is not called. <code>join</code> is, because shout's new results are new arguments for it.</p>
+      <p class="eyebrow">Across an edit</p>
+      <h2 id="edits-code-h">After an edit to a node's code, loading works and the node runs again</h2>
+      <p class="muted">Declare <code>shout</code> again under the same id and version, with other code, in a new <a href="nodes-and-types.html#registry">registry</a>, <code>other</code>. Load <code>run</code>, the first run of the section before, saved. The record is the same, so the graph fingerprint is the same, and the saved run loads. Shout's saved fingerprints were taken with the old code, so no call of the new code matches them. Shout's outcomes stay in the run, but they won't be reused. In the new run, <code>lines</code> is not called. <code>join</code> is, because shout's new results are new arguments for it.</p>
+    </div>
+    <div class="stack">
       <pre data-lang="py">g2 = Graph.compile(record, other)   # other's shout returns line.upper() + mark + mark
 print(graph.fingerprint == g2.fingerprint)
 back = Run.from_json(run.to_json(), g2)
@@ -863,16 +930,15 @@ print(took(), again.outputs)</pre>
 complete ['A!', 'B!', 'C!']
 [('shout', 'a'), ('shout', 'b'), ('shout', 'c'), ('join',)] {'result': 'A!!+B!!+C!!'}</p>
     </div>
-  </div>
-
-  <div class="prose" style="margin-top:2.5rem">
-    <h3 id="kept">What is kept of a previous run</h3>
-    <p class="muted">The rules are in <code>python -m conductor.about running-again</code>. In short: a run made from a previous one keeps a function node's previous outcomes under <code>reusable</code>. It keeps them only when the new graph has a node at the same path, with the same code fingerprint, and a <a href="nodes-and-types.html#context"><code>Policy</code></a> that allows reuse.</p>
-    <ul class="plain muted">
-      <li>It keeps the calls that were made: their results, and a <a href="asking-a-person.html#questions">question</a> still waiting. A skipped call, or one not made because an input got <code>None</code>, has nothing to reuse.</li>
-      <li>It also carries on what the previous run could have reused and didn't, for each node that isn't complete. When a node is complete, its unused reusable outcomes are dropped.</li>
-      <li><code>run.with_forgotten("node")</code> is a run of the same inputs without that node's reusable outcomes, so that node is called again. A node downstream that then gets the same arguments is reused.</li>
-    </ul>
+    <div class="stack">
+      <h3 id="kept">What is kept of a previous run</h3>
+      <p class="muted">The rules are in <code>python -m conductor.about running-again</code>. In short: a run made from a previous one keeps a function node's previous outcomes under <code>reusable</code>. It keeps them only when the new graph has a node at the same path, with the same code fingerprint, and a <a href="nodes-and-types.html#context"><code>Policy</code></a> that allows reuse.</p>
+      <ul class="plain muted">
+        <li>It keeps the calls that were made: their results, and a <a href="asking-a-person.html#questions">question</a> still waiting. A skipped call, or one not made because an input got <code>None</code>, has nothing to reuse.</li>
+        <li>It also carries on what the previous run could have reused and didn't, for each node that isn't complete. When a node is complete, its unused reusable outcomes are dropped.</li>
+        <li><code>run.with_forgotten("node")</code> is a run of the same inputs without that node's reusable outcomes, so that node is called again. A node downstream that then gets the same arguments is reused.</li>
+      </ul>
+    </div>
   </div>
 </section>
 
@@ -880,14 +946,14 @@ complete ['A!', 'B!', 'C!']
 
 <!-- ============================ POLICY ============================ -->
 <section id="policy" aria-labelledby="policy-h">
-  <div class="section-head">
-    <p class="eyebrow">What a node says about itself</p>
-    <h2 id="policy-h">Two settings on <code>Policy</code> <span class="lvl pub">Public</span></h2>
-    <p class="muted"><code>reuse_when_inputs_match=False</code> is for a node that reads the outside world, not only its inputs, like a file read by its path or today's exchange rate. A run made from a previous one calls it for every item, once the <a href="nodes-and-types.html#context">policy</a> is in the graph the new run is made from. <code>Run.from_json</code> checks the policy too. It drops what a saved run could still reuse for a node whose policy says <code>False</code> now.</p>
-    <p class="muted"><code>costs_nothing=True</code> is for a cheap node that touches nothing outside the run. <a href="running-and-streaming.html#start"><code>run.resume(only_costs_nothing=True)</code></a> calls only such nodes, so a host can see how many calls the costly nodes will make before any of them runs.</p>
-  </div>
-  <div class="two">
-    <div class="stack">
+  <div class="two placed">
+    <div class="section-head">
+      <p class="eyebrow">What a node says about itself</p>
+      <h2 id="policy-h">Two settings on <code>Policy</code> <span class="lvl pub">Public</span></h2>
+      <p class="muted"><code>reuse_when_inputs_match=False</code> is for a node that reads the outside world, not only its inputs, like a file read by its path or today's exchange rate. A run made from a previous one calls it for every item, once the <a href="nodes-and-types.html#context">policy</a> is in the graph the new run is made from. <code>Run.from_json</code> checks the policy too. It drops what a saved run could still reuse for a node whose policy says <code>False</code> now.</p>
+      <p class="muted"><code>costs_nothing=True</code> is for a cheap node that touches nothing outside the run. <a href="running-and-streaming.html#start"><code>run.resume(only_costs_nothing=True)</code></a> calls only such nodes, so a host can see how many calls the costly nodes will make before any of them runs.</p>
+    </div>
+    <div class="stack right-tall">
       <pre data-lang="py">calls = []
 registry = NodeRegistry()
 
@@ -918,10 +984,8 @@ print(calls)</pre>
       <p class="out">['files'] ready 2
 ['rate a.pdf', 'rate b.pdf'] complete
 ['rate a.pdf', 'rate b.pdf']</p>
+      <p class="muted">A node that takes the <a href="nodes-and-types.html#context">run's context</a> can't set <code>costs_nothing</code>. Declaring it is a <a href="nodes-and-types.html#faults"><code>NodeDeclarationError</code></a>, <code>costs_nothing_takes_context</code>.</p>
     </div>
-  </div>
-  <div class="prose" style="margin-top:2rem">
-    <p class="muted">A node that takes the <a href="nodes-and-types.html#context">run's context</a> can't set <code>costs_nothing</code>. Declaring it is a <a href="nodes-and-types.html#faults"><code>NodeDeclarationError</code></a>, <code>costs_nothing_takes_context</code>.</p>
   </div>
 </section>
 
