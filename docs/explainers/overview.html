@@ -131,63 +131,70 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .tk-d { color: var(--ink-2); }
 
 /* ---------- map ---------- */
-.map { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 2rem; align-items: start; }
-@media (max-width: 960px) { .map { grid-template-columns: minmax(0, 1fr); } }
-.map-board { min-width: 0; display: grid; gap: 1.5rem; }
-.band { display: grid; gap: .6rem; }
-.band-label { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
-.band-label .eyebrow { color: var(--ink-2); }
-.layers { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: 0 .75rem; }
-.arrow { grid-row: 1 / span 11; position: relative; }
-.arrow::before { content: ""; position: absolute; left: 50%; top: .4rem; bottom: 1.4rem; width: 2px; transform: translateX(-50%); background: linear-gradient(var(--rule), var(--ink-3)); }
-.arrow::after { content: ""; position: absolute; left: 50%; bottom: .6rem; transform: translateX(-50%); border: 7px solid transparent; border-top: 10px solid var(--ink-3); border-bottom: 0; }
-.arrow span { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-90deg); white-space: nowrap; font-size: var(--step--1); color: var(--ink-3); background: var(--paper); padding: 0 .4rem; letter-spacing: .06em; }
-.layer { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .3rem 0; border-top: 1px dashed var(--rule); }
-.layer:nth-child(2) { border-top: 0; }
-.layer .sep { color: var(--ink-3); font-size: var(--step--1); }
-.row { display: flex; flex-wrap: wrap; gap: .5rem; }
+/* One package at a time, chosen by the tabs. Its modules stand in columns and read left to right: a module
+   imports only from the columns to its right. The details of the picked module go in the strip under the board. */
+.map { display: grid; gap: 1rem; }
+.map-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .5rem 2rem; border-bottom: 1px solid var(--rule); }
+.map-tabs { display: flex; flex-wrap: wrap; gap: .25rem; }
+.map-head .legend { padding-bottom: .55rem; }
+.map-tab { font: 500 .9375rem var(--font-mono); color: var(--ink-2); background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: .5rem .9rem .55rem; cursor: pointer; display: inline-flex; align-items: center; gap: .5rem; }
+.map-tab::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pkg); }
+.map-tab:hover { color: var(--ink); }
+.map-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--pkg); }
+.map-source { max-width: 100ch; }
+.board { display: grid; grid-template-columns: var(--cols); align-items: stretch; overflow-x: auto; }
+.col { display: flex; flex-direction: column; justify-content: center; gap: .4rem; padding: 1.6rem .4rem .5rem; border-left: 1px dashed var(--rule); min-width: 0; position: relative; }
+.col:first-child { border-left: 0; padding-left: 0; }
+.col.two { display: grid; grid-template-columns: repeat(2, minmax(max-content, 1fr)); align-content: center; }
+.col-head { position: absolute; top: 0; left: .4rem; right: .4rem; font-size: .6875rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col:first-child .col-head { left: 0; }
+.col.ext { background: var(--int-soft); border-radius: 8px; border-left: 0; padding-inline: .5rem; margin-left: .4rem; }
+.col.ext .col-head { left: .5rem; }
 .tile {
-  font: 500 0.875rem/1.2 var(--font-mono); color: var(--ink); background: var(--surface);
-  border: 1px solid var(--rule); border-radius: 8px; padding: .55rem .8rem; cursor: pointer;
-  display: inline-flex; align-items: center; gap: .5rem; transition: background .2s, border-color .2s, opacity .2s, transform .2s;
+  font: 500 .78125rem/1.2 var(--font-mono); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 7px; padding: .4rem .5rem; cursor: pointer; width: 100%;
+  display: flex; align-items: center; gap: .45rem; text-align: left; transition: background .2s, border-color .2s, opacity .2s;
 }
 .tile::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--pkg); flex: none; }
+.tile span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile:hover { border-color: var(--ink-3); }
 .tile.int { border-style: dashed; border-color: var(--int); }
-.tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
-.tile.below { border-color: var(--accent); }
-.tile.above { opacity: .42; }
-.tile.wide { padding-block: .7rem; }
-.companions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
-@media (max-width: 520px) { .companions { grid-template-columns: minmax(0, 1fr); } }
-.companions .tile { width: 100%; justify-content: flex-start; flex-wrap: wrap; text-align: left; }
-.companions .tile small { flex-basis: 100%; font-family: var(--font-body); color: var(--ink-3); font-size: .75rem; padding-left: 1.05rem; }
-.legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: var(--step--1); color: var(--ink-2); }
-.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: .4rem; background: var(--pkg); vertical-align: middle; }
-.legend .box { width: 18px; height: 12px; border-radius: 3px; border: 1px solid var(--ink-3); background: none; }
+.tile[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); border-style: solid; }
+.tile.marked { border-color: var(--accent); border-style: solid; }
+.tile.dim { opacity: .4; }
+.axis { display: flex; align-items: center; gap: .6rem; font-size: var(--step--1); color: var(--ink-3); }
+.axis .line { flex: 1; height: 2px; background: linear-gradient(to right, var(--rule), var(--ink-3)); position: relative; }
+.axis .line::after { content: ""; position: absolute; right: -2px; top: -6px; border: 7px solid transparent; border-left: 10px solid var(--ink-3); border-right: 0; }
+.axis .down { display: none; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem 1.25rem; font-size: var(--step--1); color: var(--ink-2); }
+.legend .box { display: inline-block; width: 18px; height: 12px; border-radius: 3px; border: 1px solid var(--ink-3); vertical-align: middle; margin-right: .4rem; }
 .legend .box.int { border-style: dashed; border-color: var(--int); }
-.legend .box.below { border-color: var(--accent); background: var(--surface); }
-.levels { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: 2.5rem; font-size: var(--step--1); color: var(--ink-2); }
-.levels p { display: flex; align-items: baseline; gap: .6rem; }
-.levels .lvl, .names-head .lvl, .choice details p > .lvl:first-child { margin-left: 0; }
-
-.panel { position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--bar-h, 0px) + 1rem); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.4rem 1.4rem 1.5rem; display: grid; gap: .9rem; min-width: 0; }
-@media (max-width: 960px) { .panel { position: static; } }
-.panel .name { font-family: var(--font-mono); font-size: 1.125rem; font-weight: 500; word-break: break-word; }
-.panel .where { font-size: var(--step--1); color: var(--ink-3); }
-.panel .job { font-size: 1.0625rem; line-height: 1.5; }
-.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
-.chip { font-family: var(--font-mono); font-size: .75rem; background: var(--accent-soft); color: var(--ink); padding: .2rem .5rem; border-radius: 5px; }
-.chip.int { background: var(--int-soft); color: var(--int); }
-.names { display: grid; gap: .45rem; }
-.names-head { font-size: .8125rem; color: var(--ink-2); display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
-.panel .name .lvl { font-size: .6875rem; }
+.legend .box.marked { border-color: var(--accent); background: var(--surface); }
+.strip { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr); gap: .5rem 2rem; align-items: start; }
+.strip > div { display: grid; gap: .4rem; min-width: 0; }
+.strip .name { font-family: var(--font-mono); font-size: 1.0625rem; font-weight: 500; overflow-wrap: anywhere; }
+.strip .name .lvl { font-size: .6875rem; }
+.strip .where { font-size: var(--step--1); color: var(--ink-3); overflow-wrap: anywhere; }
+.strip dl { margin: 0; display: grid; gap: .4rem; }
+.strip dt { font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.strip dd { margin: 0; font-size: .9375rem; color: var(--ink-2); }
 .pr-tag { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--step--1); font-weight: 600; color: var(--ink); }
 .pr-tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--pkg); }
-.panel dl { margin: 0; display: grid; gap: .55rem; }
-.panel dt { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
-.panel dd { margin: 0; font-size: .9375rem; color: var(--ink-2); }
-.panel .note { font-size: .875rem; color: var(--ink-2); border-left: 2px solid var(--rule); padding-left: .75rem; }
+@media (max-width: 760px) {
+  .board { grid-template-columns: minmax(0, 1fr); overflow-x: visible; }
+  .col, .col.two { display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; border-left: 0; border-top: 1px dashed var(--rule); padding: 1.5rem 0 .5rem; }
+  .col:first-child { border-top: 0; }
+  .col.ext { margin: .4rem 0 0; padding-inline: .5rem; }
+  .col-head { left: 0; }
+  .tile { width: auto; }
+  .axis .right { display: none; }
+  .axis .down { display: inline; }
+  .axis .line { display: none; }
+  .strip { grid-template-columns: minmax(0, 1fr); }
+}
+.levels { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: 2.5rem; font-size: var(--step--1); color: var(--ink-2); }
+.levels p { display: flex; align-items: baseline; gap: .6rem; }
+.levels .lvl, .choice details p > .lvl:first-child { margin-left: 0; }
 
 /* ---------- walk-through ---------- */
 .walk { display: grid; gap: 1.5rem; }
@@ -337,6 +344,38 @@ body { margin: 0; }
   }
 }
 </style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  html[data-sections="snap"] {
+    scroll-snap-type: y mandatory;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
 </head>
 <body>
 <nav class="sbar" aria-label="Conductor series" data-page="1">
@@ -391,6 +430,48 @@ body { margin: 0; }
   btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
   document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
 })();
 </script>
 <!-- /series-bar -->
@@ -479,39 +560,27 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
 <section id="map" aria-labelledby="map-h">
   <div class="section-head prose">
     <p class="eyebrow">The map</p>
-    <h2 id="map-h">The public modules in front of the engine's layers</h2>
-    <p class="muted">A host imports only the public modules on top. The engine behind them is the packages under <code class="int" title="Internal">conductor._internal</code>, in the layers that the import-linter contract in <code>pyproject.toml</code> declares: that contract is the source of this map, and a test checks the code against it. A package imports only from the layers below it, and packages on one line import none of each other. Tap a package to see where it is, where it is described and the package it ships in.</p>
+    <h2 id="map-h">Three packages, each read left to right</h2>
+    <p class="muted">A module imports only from the columns to its right. Pick one to see what it imports.</p>
   </div>
 
   <div class="map">
-    <div class="map-board" id="board">
-      <div class="band">
-        <div class="band-label"><span class="eyebrow">Public modules</span><span class="lvl pub">Public</span><span class="small">what a host imports</span></div>
-        <div class="row" id="row-public"></div>
+    <div class="map-head">
+      <div class="map-tabs" role="tablist" aria-label="Package">
+        <button class="map-tab" type="button" role="tab" id="tab-core" data-pkg="core" aria-controls="board" aria-selected="true" style="--pkg:var(--pkg-core)">conductor</button>
+        <button class="map-tab" type="button" role="tab" id="tab-nodes" data-pkg="nodes" aria-controls="board" aria-selected="false" tabindex="-1" style="--pkg:var(--pkg-nodes)">conductor-nodes</button>
+        <button class="map-tab" type="button" role="tab" id="tab-providers" data-pkg="providers" aria-controls="board" aria-selected="false" tabindex="-1" style="--pkg:var(--pkg-providers)">conductor-providers</button>
       </div>
-
-      <div class="band">
-        <div class="band-label"><span class="eyebrow">The engine in <code class="int" title="Internal">conductor._internal</code></span><span class="lvl int">Internal</span><span class="small">top layer first</span></div>
-        <div class="layers" id="layers">
-          <div class="arrow" aria-hidden="true"><span>imports go down</span></div>
-        </div>
-      </div>
-
-      <div class="band">
-        <div class="band-label"><span class="eyebrow">Companions</span><span class="lvl pub">Public</span><span class="small">separate packages that import only the public modules</span></div>
-        <div class="companions" id="row-companions"></div>
-      </div>
-
       <div class="legend" aria-label="Legend">
-        <span><i style="--pkg:var(--pkg-core)"></i>The core, syv-conductor</span>
-        <span><i style="--pkg:var(--pkg-nodes)"></i>syv-conductor-nodes</span>
-        <span><i style="--pkg:var(--pkg-providers)"></i>syv-conductor-providers</span>
-        <span><i class="box below"></i>an accent outline marks what the selected package may import</span>
+        <span><i class="box"></i>public</span>
+        <span><i class="box int"></i>internal</span>
+        <span><i class="box marked"></i>what the picked module imports</span>
       </div>
-      <p class="small">A solid outline is public and a dashed one is internal.</p>
     </div>
-
-    <aside class="panel" id="panel" aria-live="polite"></aside>
+    <p class="map-source small" id="map-source"></p>
+    <div class="board" id="board" role="tabpanel" aria-labelledby="tab-core"></div>
+    <div class="axis" aria-hidden="true"><span class="right">imports go right</span><span class="down">imports go down</span><span class="line"></span></div>
+    <div class="strip" id="strip" aria-live="polite"></div>
   </div>
 </section>
 
@@ -856,10 +925,11 @@ print(run.outputs)</pre>
   document.querySelectorAll("pre[data-lang]").forEach((pre) => { if (!pre.closest(".walk-src")) paint(pre); });
 
   /* ======================= THE MAP ======================= */
+  /* One package per tab, its modules in columns that read left to right. The engine's layers are the import-linter
+     contract in pyproject.toml, which tests/test_core/test_layers.py checks the code against; the companions'
+     columns are their files' own imports. What each module does is said in a few words, or where it is written. */
   const DIST = { core: "var(--pkg-core)", nodes: "var(--pkg-nodes)", providers: "var(--pkg-providers)" };
-  const DIST_NAME = { core: "The core, syv-conductor", nodes: "syv-conductor-nodes", providers: "syv-conductor-providers" };
-  /* The panel's "Read it with" is written as HTML: page() links a page of the series. What each package does and
-     which names it has are not copied here; the panel says where they are written. */
+  const DIST_NAME = { core: "syv-conductor", nodes: "syv-conductor-nodes", providers: "syv-conductor-providers" };
   const PAGES = {
     "A node and its types": "nodes-and-types.html",
     "The graph record and compiling": "graph-record-and-compiling.html",
@@ -869,114 +939,168 @@ print(run.outputs)</pre>
     "Saved runs and reuse": "saved-runs-and-reuse.html",
     "Running and streaming": "running-and-streaming.html",
     "Problems": "problems.html",
-    "The nodes": "standard-nodes.html",
+    "The standard nodes": "standard-nodes.html",
     "Serving runs": "serving-runs.html",
   };
-  const page = (t) => '<a href="' + PAGES[t] + '">' + t + "</a>";
+  const page = (t, at) => '<a href="' + PAGES[t] + (at ? "#" + at : "") + '">' + t + "</a>";
   const about = (slug) => "<code>python -m conductor.about" + (slug ? " " + slug : "") + "</code>";
-  const PUBLIC = [
-    { id: "conductor", dist: "core", where: "conductor/__init__.py", read: "Start here.", told: "Its names, each with its docstring: " + about("conductor") + "." },
-    { id: "conductor.widgets", dist: "core", where: "conductor/widgets.py", read: page("A node and its types") + ".", told: "Its names, each with its docstring: " + about("conductor-widgets") + "." },
-    { id: "conductor.events", dist: "core", where: "conductor/events.py", read: page("Running and streaming") + ".", told: "Its names, each with its docstring: " + about("conductor-events") + "." },
-    { id: "conductor.testing", dist: "core", where: "conductor/testing/", read: page("A node and its types") + ". Its problems are in " + page("Problems") + ".", told: "Its names, each with its docstring: " + about("conductor-testing") + "." },
-    { id: "conductor.about", dist: "core", where: "conductor/about/", read: "Read the reference early. It's the quickest way to see what conductor promises.", told: "It is the reference: " + about() + " prints it, and " + about("sections") + " lists its sections." },
-  ];
-  /* The layers, top first, as the import-linter contract in pyproject.toml declares them; that contract is the
-     source, and tests/test_core/test_layers.py checks the code against it. */
+  const names = (slug) => "Its names, each with its docstring: " + about(slug) + ".";
+  const AGENTS = "What it does: <code>AGENTS.md</code>, the Layout section.";
+
+  /* conductor: the five public modules, then the engine's layers, top first. */
   const LAYERS = [
     ["make_graph"], ["registry", "run"], ["graph"], ["node"], ["ask", "record"], ["series", "port", "context"], ["table"],
     ["types"], ["problem"], ["base"], ["utils"],
   ];
-  const ENGINE = {
-    make_graph: { read: page("The graph record and compiling") + "." },
-    registry: { read: page("The graph record and compiling") + "." },
-    run: { read: page("Running and streaming") + ", " + page("Saved runs and reuse") + ", " + page("Asking a person") + ", " + page("Series and tables") + " and " + page("Subgraphs") + " each read a part of it." },
-    graph: { read: page("The graph record and compiling") + ", then " + page("Subgraphs") + "." },
-    node: { read: page("A node and its types") + "." },
-    ask: { read: page("Asking a person") + "." },
-    record: { read: page("The graph record and compiling") + "." },
-    series: { read: page("Series and tables") + "." },
-    port: { read: page("A node and its types") + "." },
-    context: { read: page("A node and its types") + "." },
-    table: { read: page("Series and tables") + "." },
-    types: { read: page("A node and its types") + "." },
-    problem: { read: page("Problems") + "." },
-    base: { read: page("A node and its types") + "." },
-    utils: { read: "Read it with problem, whose messages use it most." },
+  const ENGINE_READ = {
+    make_graph: page("The graph record and compiling", "make"), registry: page("The graph record and compiling"),
+    run: page("Running and streaming") + ", then " + page("Saved runs and reuse"), graph: page("The graph record and compiling", "compiling"),
+    node: page("A node and its types"), ask: page("Asking a person"), record: page("The graph record and compiling", "record"),
+    series: page("Series and tables"), port: page("A node and its types", "outputs"), context: page("A node and its types", "context"),
+    table: page("Series and tables", "table"), types: page("A node and its types", "types"), problem: page("Problems"),
+    base: page("A node and its types"), utils: "With problem, whose messages use it most.",
   };
-  const COMPANIONS = [
-    { id: "conductor-nodes", pkg: "syv-conductor-nodes, import conductor_nodes", dist: "nodes", where: "packages/conductor-nodes/", read: page("The nodes") + ", after the core.", told: "Its nodes, module by module: <code>packages/conductor-nodes/README.md</code>." },
-    { id: "conductor-providers", pkg: "syv-conductor-providers, import conductor_providers", dist: "providers", where: "packages/conductor-providers/", read: page("Serving runs") + ".", told: "How it serves runs: " + about("serving-runs") + ". Its files: <code>AGENTS.md</code>, the Layout section." },
-  ];
+  const core = {
+    source: "The engine's layers are the import-linter contract in <code>pyproject.toml</code>; a test checks the code against it. A host imports only the five public modules.",
+    cols: [{ head: "public", mods: [
+      { id: "conductor", where: "conductor/__init__.py", what: names("conductor"), read: "Start here.", imports: "Re-exports names from the engine's packages." },
+      { id: "conductor.widgets", where: "conductor/widgets.py", what: names("conductor-widgets"), read: page("A node and its types"), imports: "Defines its own names." },
+      { id: "conductor.events", where: "conductor/events.py", what: names("conductor-events"), read: page("Running and streaming", "stream"), imports: "Re-exports names from the engine's packages." },
+      { id: "conductor.testing", where: "conductor/testing/", what: names("conductor-testing"), read: page("A node and its types") + ", then " + page("Problems"), imports: "Defines its own names." },
+      { id: "conductor.about", where: "conductor/about/", what: "The reference: " + about() + " prints it.", read: "Early: it is what conductor promises.", imports: "Serves its own pages." },
+    ] }].concat(LAYERS.map((ids, i) => ({ head: "layer " + (i + 1), mods: ids.map((id) => (
+      { id, int: true, where: "conductor/_internal/" + id + "/", what: AGENTS, read: ENGINE_READ[id], layer: i }
+    )) }))),
+  };
 
-  const all = {};
-  const order = []; // engine packages, top to bottom, with their layer index
-  function tile(id, dist, extra) {
-    const b = document.createElement("button");
-    b.type = "button"; b.className = "tile" + (extra || ""); b.dataset.id = id;
-    b.style.setProperty("--pr", DIST[dist]); b.setAttribute("aria-pressed", "false");
-    b.textContent = id;
-    b.addEventListener("click", () => select(id));
-    return b;
-  }
-  PUBLIC.forEach((p) => { all[p.id] = Object.assign({ kind: "public" }, p); $("#row-public").append(tile(p.id, p.dist)); });
-  const layersEl = $("#layers");
-  LAYERS.forEach((ids, i) => {
-    const row = document.createElement("div"); row.className = "layer"; row.style.gridColumn = "2";
-    ids.forEach((id, j) => {
-      if (j) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "|"; s.setAttribute("aria-hidden", "true"); row.append(s); }
-      all[id] = Object.assign({ kind: "engine", layer: i, dist: "core", where: "_internal/" + id + "/" }, ENGINE[id], { id });
-      row.append(tile(id, "core", " int"));
-    });
-    layersEl.append(row);
-  });
-  COMPANIONS.forEach((c) => {
-    all[c.id] = Object.assign({ kind: "companion" }, c);
-    const t = tile(c.id, c.dist, " wide");
-    const s = document.createElement("small"); s.textContent = c.pkg; t.append(s);
-    $("#row-companions").append(t);
-  });
+  /* conductor-nodes: flat. The package gathers its eight modules' registries, and each module imports only
+     conductor's public modules. */
+  const NODES_AT = "packages/conductor-nodes/src/conductor_nodes/";
+  const nodeMod = (id, what, uses, at) => ({ id, where: NODES_AT + id + ".py", what, read: page("The standard nodes", at || "modules"), uses });
+  const nodes = {
+    source: "Flat: one module per kind of node, each with its own <code>registry</code>. Drawn from the files' imports.",
+    cols: [
+      { head: "package", mods: [{ id: "conductor_nodes", where: NODES_AT + "__init__.py", what: "<code>registry</code>: every node, each module's registry added in.", read: page("The standard nodes"),
+        uses: ["control", "json_ops", "logic", "math", "regex_ops", "series", "tables", "text", "conductor"] }] },
+      { head: "modules", two: true, mods: [
+        nodeMod("control", "Nodes that send a value one way or another.", ["conductor"], "control"),
+        nodeMod("json_ops", "Nodes for JSON.", ["conductor", "conductor.widgets"]),
+        nodeMod("logic", "Nodes that answer yes or no.", ["conductor"]),
+        nodeMod("math", "Nodes for arithmetic.", ["conductor"]),
+        nodeMod("regex_ops", "Nodes for regular expressions.", ["conductor", "conductor.widgets"]),
+        nodeMod("series", "Nodes that start and end a loop.", ["conductor"], "loops"),
+        nodeMod("tables", "<code>table-collect</code>: a loop's rows back into one table.", ["conductor"], "loops"),
+        nodeMod("text", "Nodes for text.", ["conductor", "conductor.widgets"]),
+      ] },
+      { head: "conductor", ext: true, mods: [{ id: "conductor" }, { id: "conductor.widgets" }] },
+    ],
+  };
 
+  /* conductor-providers: one package, fastapi; its columns are its files' imports. */
+  const FASTAPI_AT = "packages/conductor-providers/src/conductor_providers/fastapi/";
+  const file = (id, what, uses, at, pub) => ({ id, int: !pub, where: FASTAPI_AT + id + ".py", what, read: page("Serving runs", at), uses });
+  const providers = {
+    source: "One package, <code>conductor_providers.fastapi</code>; a host imports its names from there. Drawn from the files' imports.",
+    cols: [
+      { head: "package", mods: [{ id: "fastapi", where: FASTAPI_AT + "__init__.py", what: "<code>run_router</code>, the <code>Worker</code> under it and the <code>RunStore</code> they keep runs in.", read: page("Serving runs"),
+        uses: ["router", "worker", "store", "state", "problems"] }] },
+      { head: "", mods: [file("router", "<code>run_router</code>: the HTTP routes over a worker.", ["bodies", "problems", "state", "store", "worker", "conductor"], "routes")] },
+      { head: "", mods: [file("worker", "<code>Worker</code>: starts, answers, declines, resumes and cancels stored runs.", ["held_run", "problems", "state", "store", "conductor"], "one-run")] },
+      { head: "", mods: [
+        file("held_run", "<code>HeldRun</code>: one worker's lease on one run.", ["problems", "store", "conductor", "conductor.events"], "leases"),
+        file("testing", "<code>check_run_store</code>: one test of your store.", ["state", "store", "conductor"], "the-store", true),
+      ] },
+      { head: "", mods: [file("store", "<code>RunStore</code>, which the host writes, and the row it keeps.", ["problems", "state", "conductor", "conductor.events"], "the-store")] },
+      { head: "", mods: [file("state", "The JSON the worker keeps in a run's row.", ["problems", "conductor"], "row")] },
+      { head: "", mods: [
+        file("problems", "The worker's three problem codes and their HTTP status.", ["conductor"], "routes"),
+        file("bodies", "The request bodies the routes read.", ["conductor"], "routes"),
+      ] },
+      { head: "conductor", ext: true, mods: [{ id: "conductor" }, { id: "conductor.events" }] },
+    ],
+  };
+  const PACKAGES = { core, nodes, providers };
+  const FIRST = { core: "graph", nodes: "conductor_nodes", providers: "worker" };
+
+  const board = $("#board"), strip = $("#strip");
   const LVL = { pub: '<span class="lvl pub">Public</span>', int: '<span class="lvl int">Internal</span>' };
-  const told = (p) => p.kind === "engine"
-    ? "What it does: <code>AGENTS.md</code>, the Layout section. Its surface is the <code>__all__</code> of its <code>__init__.py</code>."
-    : p.told;
-
-  const panel = $("#panel");
-  function select(id) {
-    const p = all[id];
-    document.querySelectorAll(".tile").forEach((t) => {
-      const q = all[t.dataset.id];
-      t.setAttribute("aria-pressed", String(t.dataset.id === id));
-      t.classList.remove("below", "above");
-      if (p.kind === "engine" && q.kind === "engine" && q.id !== id) {
-        if (q.layer > p.layer) t.classList.add("below");
-        else t.classList.add("above");
-      }
-      if (p.kind === "public" && q.kind === "engine") t.classList.add("below");
-      if (p.kind === "companion" && q.kind === "public") t.classList.add("below");
+  let pkg = "core", mods = {};
+  function drawPackage(name) {
+    pkg = name; mods = {};
+    const P = PACKAGES[name];
+    $("#map-source").innerHTML = P.source;
+    document.querySelectorAll(".map-tab").forEach((t) => {
+      const on = t.dataset.pkg === name;
+      t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1;
+      if (on) board.setAttribute("aria-labelledby", t.id);
+    });
+    board.style.setProperty("--cols", P.cols.map((c, i) => c.ext ? "auto" : "minmax(max-content, 1fr)").join(" "));
+    board.replaceChildren(...P.cols.map((c, i) => {
+      const col = document.createElement("div"); col.className = "col" + (c.ext ? " ext" : "") + (c.two ? " two" : "");
+      const head = document.createElement("div"); head.className = "col-head"; head.textContent = c.head; col.append(head);
+      c.mods.forEach((m) => {
+        const key = (c.ext ? "ext:" : "") + m.id;
+        mods[key] = Object.assign({ key, col: i, ext: !!c.ext, dist: c.ext ? "core" : name }, m);
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "tile" + (m.int ? " int" : ""); b.dataset.key = key;
+        b.style.setProperty("--pkg", DIST[c.ext ? "core" : name]); b.setAttribute("aria-pressed", "false");
+        const s = document.createElement("span"); s.textContent = m.id; b.append(s);
+        b.addEventListener("click", () => select(key));
+        col.append(b);
+      });
+      return col;
+    }));
+    select(FIRST[name]);
+  }
+  /* What a module imports: for conductor every layer to its right (the contract says "may"); for a companion the
+     modules its file imports. */
+  function importsOf(m) {
+    if (pkg === "core") {
+      if (m.layer === undefined) return Object.values(mods).filter((q) => q.layer !== undefined).map((q) => q.key);
+      return Object.values(mods).filter((q) => q.layer > m.layer).map((q) => q.key);
+    }
+    return (m.uses || []).map((u) => mods[u] && !u.startsWith("conductor") ? u : "ext:" + u);
+  }
+  const list = (keys) => keys.map((k) => "<code>" + esc(mods[k].id) + "</code>").join(", ");
+  function select(key) {
+    const m = mods[key], to = importsOf(m);
+    const by = m.ext || pkg !== "core" ? Object.values(mods).filter((q) => importsOf(q).includes(key)).map((q) => q.key) : [];
+    board.querySelectorAll(".tile").forEach((t) => {
+      const k = t.dataset.key;
+      t.setAttribute("aria-pressed", String(k === key));
+      t.classList.toggle("marked", to.includes(k));
+      t.classList.toggle("dim", k !== key && !to.includes(k) && !by.includes(k));
     });
     let imports;
-    if (p.kind === "engine") {
-      const below = Object.values(all).filter((q) => q.kind === "engine" && q.layer > p.layer).map((q) => q.id);
-      imports = below.length ? "May import " + below.join(", ") + "." : "Imports nothing of conductor's. Every other package may use it.";
-      if (id === "graph") imports += " The contract also lets graph/type.py import run (its ignore_imports).";
-    } else if (p.kind === "public") imports = (id === "conductor" || id === "conductor.events")
-      ? "Re-exports names from the engine's packages, each from the package that defines it."
-      : id === "conductor.about" ? "Re-exports none of the engine's names. It serves its own pages."
-      : "Defines its own names.";
-    else imports = "Imports only conductor's public modules.";
-    panel.innerHTML =
-      '<div><p class="name">' + esc(p.id) + (p.kind === "engine" ? LVL.int : LVL.pub) + "</p>" +
-      '<p class="where">' + (p.kind === "engine" ? '<code class="int" title="Internal">' + esc(p.where) + "</code>" : esc(p.where)) + "</p></div>" +
-      '<p class="job">' + told(p) + "</p>" +
-      "<dl>" +
-      '<div><dt>Ships in</dt><dd><span class="pr-tag" style="--pkg:' + DIST[p.dist] + '"><i></i>' + DIST_NAME[p.dist] + "</span></dd></div>" +
-      "<div><dt>Read it with</dt><dd>" + p.read + "</dd></div>" +
-      "<div><dt>Imports</dt><dd>" + esc(imports) + "</dd></div>" +
-      "</dl>";
+    if (pkg === "core") {
+      imports = m.imports || (to.length ? "May import " + list(to) + "." : "Nothing of conductor's.");
+      if (m.id === "graph") imports += " Its <code>type.py</code> may also import run (the contract's one exception).";
+    } else imports = to.length ? list(to) + "." : "Nothing of conductor's.";
+    if (m.ext) {
+      strip.innerHTML = '<div><p class="name">' + esc(m.id) + LVL.pub + '</p><p class="where">another package</p></div>' +
+        "<dl><div><dt>Imported here by</dt><dd>" + list(by) + ".</dd></div></dl>" +
+        "<dl><div><dt>Read it on</dt><dd>The conductor tab.</dd></div></dl>";
+      return;
+    }
+    strip.innerHTML =
+      '<div><p class="name">' + esc(m.id) + (m.int ? LVL.int : LVL.pub) + '</p><p class="where">' + esc(m.where) + "</p>" +
+      '<p><span class="pr-tag" style="--pkg:' + DIST[m.dist] + '"><i></i>' + DIST_NAME[m.dist] + "</span></p></div>" +
+      "<dl><div><dt>What</dt><dd>" + m.what + "</dd></div><div><dt>Read it with</dt><dd>" + m.read + "</dd></div></dl>" +
+      "<dl><div><dt>Imports</dt><dd>" + imports + "</dd></div>" +
+      (by.length ? "<div><dt>Imported by</dt><dd>" + list(by) + ".</dd></div>" : "") + "</dl>";
   }
-  select("graph");
+  const tabs = Array.from(document.querySelectorAll(".map-tab"));
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => drawPackage(t.dataset.pkg));
+    t.addEventListener("keydown", (e) => {
+      const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      const next = tabs[(i + step + tabs.length) % tabs.length];
+      next.focus(); drawPackage(next.dataset.pkg);
+    });
+  });
+  drawPackage("core");
 
   /* ======================= THE WALK-THROUGH ======================= */
   const STEPS = [

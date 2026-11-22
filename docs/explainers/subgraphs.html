@@ -292,6 +292,38 @@ body { margin: 0; }
   }
 }
 </style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  html[data-sections="snap"] {
+    scroll-snap-type: y mandatory;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
 </head>
 <body>
 <nav class="sbar" aria-label="Conductor series" data-page="6">
@@ -346,6 +378,48 @@ body { margin: 0; }
   btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
   document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
 })();
 </script>
 <!-- /series-bar -->
