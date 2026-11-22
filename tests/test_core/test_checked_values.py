@@ -185,12 +185,7 @@ def test_an_answer_is_what_its_types_own_check_gives_whatever_its_class():
         raise Ask("Which square?")
 
     waiting = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"g": {"node": "square"}},
-                "outputs": {"result": {"node": "g", "output": "result"}},
-            }
-        ),
+        make_graph(("g", square)),
         registry_of(square),
     ).run()
     answered = waiting.with_answers(waiting.waiting[0].id, {"side": 2}).resume()
@@ -209,12 +204,7 @@ def test_an_asks_choice_is_what_its_types_own_check_gives_as_an_answer_is():
         raise Ask("Which square?", choices=[{"side": 2}])
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"g": {"node": "square"}},
-                "outputs": {"result": {"node": "g", "output": "result"}},
-            }
-        ),
+        make_graph(("g", square)),
         registry_of(square),
     ).run()
 
@@ -371,12 +361,10 @@ def test_a_hook_that_gives_the_one_output_result_is_returned_as_a_mapping():
         return {"result": "hi"}
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"c": {"node": "named-result"}},
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
+        {
+            "nodes": {"c": {"node": "named-result"}},
+            "outputs": {"result": {"node": "c", "output": "result"}},
+        },
         registry_of(named_result),
     )
 
@@ -409,15 +397,13 @@ def _computed(returned: Any) -> Any:
         return returned
 
     return Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"c": {"node": "computed"}},
-                "outputs": {
-                    "name": {"node": "c", "output": "name"},
-                    "age": {"node": "c", "output": "age"},
-                },
-            }
-        ),
+        {
+            "nodes": {"c": {"node": "computed"}},
+            "outputs": {
+                "name": {"node": "c", "output": "name"},
+                "age": {"node": "c", "output": "age"},
+            },
+        },
         registry_of(computed),
     ).run()
 
@@ -473,15 +459,13 @@ def test_a_mapping_may_leave_a_branch_out_as_an_answer_may():
         return {"long": "a line"}
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"r": {"node": "routed_by_hook"}},
-                "outputs": {
-                    "long": {"node": "r", "output": "long"},
-                    "short": {"node": "r", "output": "short"},
-                },
-            }
-        ),
+        {
+            "nodes": {"r": {"node": "routed_by_hook"}},
+            "outputs": {
+                "long": {"node": "r", "output": "long"},
+                "short": {"node": "r", "output": "short"},
+            },
+        },
         registry_of(routed_by_hook),
     ).run()
 
@@ -790,14 +774,10 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_giv
     )
     with pytest.raises(InvalidCallError) as given:
         Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"lines": {}},
-                    "nodes": {
-                        "t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}
-                    },
-                }
-            ),
+            {
+                "inputs": {"lines": {}},
+                "nodes": {"t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}},
+            },
             registry_of(total),
         ).run({"lines": yes_no})
     assert [p.type for p in given.value.problems] == ["invalid_input"]
@@ -823,15 +803,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
     given = pl.DataFrame({"level": [1], "score": [3]}).with_columns(pl.lit(True).alias(column))
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"rows": {}},
-                    "nodes": {
-                        "c": {"node": "count_rows", "inputs": {"rows": {"graph_input": "rows"}}}
-                    },
-                    "outputs": {"result": {"node": "c", "output": "result"}},
-                }
-            ),
+            make_graph(("c", count_rows)),
             registry_of(count_rows),
         ).run({"rows": given})
     assert [(p.type, p.ctx.get("column")) for p in refused.value.problems] == [
@@ -899,18 +871,7 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_item():
         return n
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "a": {"node": "numbers"},
-                    "b": {
-                        "node": "at_least_five",
-                        "inputs": {"n": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+        make_graph(("a", numbers), ("b", at_least_five)),
         registry_of(numbers, at_least_five),
     ).run()
 
@@ -1001,18 +962,7 @@ def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatc
         return int(rows["result"].sum())
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "a": {"node": "texts"},
-                    "b": {
-                        "node": "total",
-                        "inputs": {"rows": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+        make_graph(("a", texts), ("b", total)),
         registry_of(texts, total),
     )
 
@@ -1099,21 +1049,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
         return "ok"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"scores": {}, "people": {}},
-                "nodes": {
-                    "t": {
-                        "node": "tally",
-                        "inputs": {
-                            "scores": {"graph_input": "scores"},
-                            "people": {"graph_input": "people"},
-                        },
-                    }
-                },
-                "outputs": {"result": {"node": "t", "output": "result"}},
-            }
-        ),
+        make_graph(("t", tally)),
         registry_of(tally),
     )
 
@@ -1166,14 +1102,11 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_delays_no_other_call()
         return 1
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"s": {"node": "slow"}, "o": {"node": "other"}},
-                "outputs": {
-                    "o_result": {"node": "o", "output": "result"},
-                    "s_result": {"node": "s", "output": "result"},
-                },
-            }
+        make_graph(
+            ("s", slow),
+            ("o", other),
+            edges=[],
+            outputs={"o_result": "o.result", "s_result": "s.result"},
         ),
         registry_of(slow, other),
     )
@@ -2321,8 +2254,7 @@ def _taking(hint: Any) -> tuple[Graph[None], NodeRegistry]:
 
     take.__annotations__ = {"value": hint, "return": hint}
     definition = node("take", title="Take", description="For a test.")(take)
-    local_registry = NodeRegistry()
-    local_registry.add(definition)
+    local_registry = registry_of(definition)
     return Graph.compile(make_graph(definition), local_registry), local_registry
 
 

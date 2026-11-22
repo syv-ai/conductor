@@ -31,6 +31,8 @@ from conductor import (
 )
 from conductor.testing import check_registry
 
+from tests.test_core.nodes import registry_of
+
 
 @dataclass(frozen=True)
 class Caller:
@@ -180,8 +182,7 @@ def test_a_registry_names_the_class_of_the_context_and_a_filtered_registry_keeps
 def test_a_subregistry_naming_the_same_class_or_none_is_added():
     registry = app_registry(sign)
     registry.add_subregistry(app_registry(fetch))
-    prebuilt = NodeRegistry()
-    prebuilt.add(upper)
+    prebuilt = registry_of(upper)
     registry.add_subregistry(prebuilt)
     assert registry.context_type is AppContext and [definition.id for definition in registry] == [
         "sign",
@@ -289,8 +290,7 @@ def test_a_class_that_is_not_the_registrys_nor_a_base_of_it_does_not_fit():
 
 
 def test_a_node_that_takes_a_context_on_a_registry_that_names_no_class_is_a_problem():
-    registry = NodeRegistry()
-    registry.add(sign)
+    registry = registry_of(sign)
     [problem] = Graph.compile(make_graph(sign), registry).problems
     assert (problem.type, problem.loc) == ("context_does_not_fit_no_context_type", ("sign", "ctx"))
     assert "NodeRegistry(context_type=" in problem.msg
@@ -360,8 +360,7 @@ def test_a_context_of_another_class_is_refused_at_the_start_of_a_run():
 
 
 def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
-    registry = NodeRegistry()
-    registry.add(upper)
+    registry = registry_of(upper)
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(make_graph(upper), registry).run({"text": "a"}, context=IDA)  # type: ignore[arg-type]
     assert [(p.type, p.ctx) for p in refused.value.problems] == [

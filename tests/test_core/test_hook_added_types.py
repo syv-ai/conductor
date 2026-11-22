@@ -7,7 +7,9 @@ then take ``**added: type``. It gets the type on the edge into each added input,
 from typing import Any
 
 import pytest
-from conductor import Graph, GraphRecord, NodeDeclarationError, NodeRegistry, Series, node
+from conductor import Graph, NodeDeclarationError, Series, node
+
+from tests.test_core.nodes import registry_of
 
 
 def _columns(names: list[str]) -> dict[str, Any]:
@@ -39,9 +41,7 @@ def words() -> Series[str]:
     return ["a", "b"]
 
 
-REGISTRY = NodeRegistry()
-for _definition in (pass_on, number, words):
-    REGISTRY.add(_definition)
+REGISTRY = registry_of(pass_on, number, words)
 
 
 def _compiled(source: tuple[str, str], target: str, names: list[str], **constants: Any):
@@ -63,7 +63,7 @@ def _compiled(source: tuple[str, str], target: str, names: list[str], **constant
         "w": {"node": "words"},
         "p": {"node": "pass-on", "inputs": inputs},
     }
-    return Graph.compile(GraphRecord.model_validate({"nodes": nodes}), REGISTRY)
+    return Graph.compile({"nodes": nodes}, REGISTRY)
 
 
 def _output_types(graph) -> dict[str, str | None]:
@@ -147,8 +147,7 @@ def test_each_hook_parameter_receives_a_constant_an_arriving_type_or_the_added_t
     def c(names: list[str], first: Any, **values: Any) -> dict[str, Any]:
         return {}
 
-    registry = NodeRegistry()
-    registry.add(c, number)
+    registry = registry_of(c, number)
     nodes = {
         "n": {"node": "number"},
         "c": {
@@ -161,7 +160,7 @@ def test_each_hook_parameter_receives_a_constant_an_arriving_type_or_the_added_t
             },
         },
     }
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes}), registry)
+    graph = Graph.compile({"nodes": nodes}, registry)
     assert graph.problems == []
     assert called == {
         "compute_added_inputs": {"names": ["a", "b"]},

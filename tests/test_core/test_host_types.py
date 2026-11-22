@@ -22,7 +22,6 @@ from conductor import (
     Ask,
     Graph,
     NodeDeclarationError,
-    NodeRegistry,
     Run,
     Series,
     Table,
@@ -51,6 +50,7 @@ from pydantic import (
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic_core import core_schema
 
+from tests.test_core.nodes import registry_of
 from tests.test_core.test_nodes import declared
 
 
@@ -140,8 +140,7 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
     def short(text: Text) -> Text:
         return text
 
-    registry = NodeRegistry()
-    registry.add(short)
+    registry = registry_of(short)
     graph = Graph.compile(make_graph(short), registry)
 
     assert type(graph.run({"text": "hello"}).outputs["result"]) is Text
@@ -167,8 +166,7 @@ def test_an_edge_may_join_a_type_to_one_that_accepts_it_and_not_the_other_way() 
     def in_celsius(celsius: Celsius) -> float:
         return celsius.degrees
 
-    registry = NodeRegistry()
-    registry.add(measure, read, warmth, in_celsius)
+    registry = registry_of(measure, read, warmth, in_celsius)
     accepted = Graph.compile(make_graph(measure, read), registry)
     refused = Graph.compile(make_graph(warmth, in_celsius), registry)
 
@@ -180,8 +178,7 @@ def test_a_generic_pydantic_model_is_named_by_its_declared_id_and_its_arguments(
     def f(a: Box[int], b: Box[str]) -> str:
         return ""
 
-    registry = NodeRegistry()
-    registry.add(declared(f))
+    registry = registry_of(declared(f))
     assert [i.type for i in declared(f).describe().inputs] == ["box[int]", "box[str]"]
     assert {"box[int]", "box[str]"} <= set(registry.types)
 
@@ -359,8 +356,7 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
     def made() -> dict[str, Any]:
         return {}
 
-    registry = NodeRegistry()
-    registry.add(made)
+    registry = registry_of(made)
     (problem,) = Graph.compile(
         make_graph(made, outputs={"result": "made.result"}), registry
     ).problems
@@ -409,8 +405,7 @@ def test_pydantics_own_types_and_the_standard_librarys_need_no_declaration(
         return value
 
     definition = node("passes", title="Passes", description="For a test.")(passes)
-    registry = NodeRegistry()
-    registry.add(definition)
+    registry = registry_of(definition)
     graph = Graph.compile(make_graph(definition), registry)
     run = graph.run({"value": given})
 
@@ -440,8 +435,7 @@ def test_a_marker_class_is_read_as_the_class_of_its_values_with_its_check() -> N
     def closest(address: IPvAnyAddress, day: PastDate) -> str:
         return f"{address} {day}"
 
-    registry = NodeRegistry()
-    registry.add(stamp, aware, plain, closest)
+    registry = registry_of(stamp, aware, plain, closest)
     graph = Graph.compile(
         make_graph(
             stamp,
@@ -467,8 +461,7 @@ def test_a_value_of_pydantics_own_class_built_by_hand_is_still_checked() -> None
     def size() -> ByteSize:
         return ByteSize(-5)
 
-    registry = NodeRegistry()
-    registry.add(size)
+    registry = registry_of(size)
     run = Graph.compile(make_graph(size), registry).run()
 
     assert (run.status, run.cause.type) == ("failed", "invalid_output")
@@ -588,8 +581,7 @@ def test_a_hosts_subclass_of_a_class_conductor_names_is_its_own_type() -> None:
     def now() -> datetime.datetime:
         return datetime.datetime(2026, 1, 2, 3, 4)
 
-    registry = NodeRegistry()
-    registry.add(fetch, now)
+    registry = registry_of(fetch, now)
     graph = Graph.compile(make_graph(fetch), registry)
     run = graph.run({"site": "https://a.example", "at": "2026-01-02T03:04:00"})
     titles = {described.id: described.title for described in registry.describe().types}
@@ -629,8 +621,7 @@ def test_a_node_returning_a_declared_dataclass_has_one_output_an_edge_reads_whol
     def plot(point: Point) -> str:
         return f"{point.x},{point.y}"
 
-    registry = NodeRegistry()
-    registry.add(locate, parts, north, plot)
+    registry = registry_of(locate, parts, north, plot)
     record = make_graph(
         locate,
         north,
@@ -693,8 +684,7 @@ def test_a_node_returning_a_declared_dataclass_is_answered_with_one_value() -> N
     def pick(name: str) -> Point:
         raise Ask("Where is it?")
 
-    registry = NodeRegistry()
-    registry.add(pick)
+    registry = registry_of(pick)
     graph = Graph.compile(make_graph(pick), registry)
     run = graph.run({"name": "home"})
     (waiting,) = run.waiting
@@ -755,8 +745,7 @@ def test_a_series_of_rows_with_a_hosts_class_in_a_cell_runs_and_its_saved_run_re
     rows = node("rows", title="Rows", description="For a test.", asks=given == "answered")(
         asks if given == "answered" else returns
     )
-    registry = NodeRegistry()
-    registry.add(rows)
+    registry = registry_of(rows)
     graph = Graph.compile(make_graph(rows), registry)
     run = graph.run({})
     if given == "answered":
@@ -860,8 +849,7 @@ def test_a_series_of_rows_gives_a_hosts_class_in_a_cell_whether_the_node_returne
 
     rows = node("rows", title="Rows", description="For a test.")(returns)
     counts = node("counts", title="Counts", description="For a test.")(takes)
-    registry = NodeRegistry()
-    registry.add(rows, counts)
+    registry = registry_of(rows, counts)
     graph = Graph.compile(
         make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
     )
@@ -888,8 +876,7 @@ def test_a_table_keeps_a_hosts_class_in_a_cell_as_its_fields_or_its_value(
         return pl.DataFrame([kept]) if returned == "frame" else [value]  # type: ignore[return-value]
 
     table = node("table", title="Table", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(table)
+    registry = registry_of(table)
     graph = Graph.compile(make_graph(table), registry)
     run = graph.run({})
 
@@ -906,8 +893,7 @@ def test_a_frames_column_of_python_objects_is_read_by_each_objects_class() -> No
         def table() -> Table[MoneyRow]:
             return pl.DataFrame({"money": pl.Series(cells, dtype=pl.Object)})
 
-        registry = NodeRegistry()
-        registry.add(table)
+        registry = registry_of(table)
         return Graph.compile(make_graph(table), registry).run({})
 
     refused = returns([object()])
@@ -953,8 +939,7 @@ def test_a_cell_a_model_changes_is_the_changed_value_in_the_table_the_series_and
 
     rows = node("rows", title="Rows", description="For a test.")(returns)
     counts = node("counts", title="Counts", description="For a test.")(takes)
-    registry = NodeRegistry()
-    registry.add(rows, counts)
+    registry = registry_of(rows, counts)
     graph = Graph.compile(
         make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
     )
@@ -1008,8 +993,7 @@ def test_a_frame_returned_for_a_series_of_rows_reads_each_cell_once(
         return len(rows)
 
     counts = node("counts", title="Counts", description="For a test.")(takes)
-    registry = NodeRegistry()
-    registry.add(rows, counts)
+    registry = registry_of(rows, counts)
     graph = Graph.compile(
         make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
     )
@@ -1063,8 +1047,7 @@ def test_a_model_or_none_cell_holding_none_runs_and_reads_back(
         return rows.height
 
     rows = node("rows", title="Rows", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(rows)
+    registry = registry_of(rows)
     nodes, edges = [rows], []
     if taken:
         counts = node("counts", title="Counts", description="For a test.")(takes)
@@ -1188,8 +1171,7 @@ def test_a_table_keeps_a_cell_by_the_fields_its_type_declares_at_any_depth(
         return [{name: value}]  # type: ignore[return-value]
 
     table = node("table", title="Table", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(table)
+    registry = registry_of(table)
     graph = Graph.compile(make_graph(table), registry)
     run = graph.run({})
 
@@ -1208,8 +1190,7 @@ def _any_table(cells: list[Any]) -> Any:
         return [{"cell": one} for one in cells]  # type: ignore[return-value]
 
     table = node("table", title="Table", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(table)
+    registry = registry_of(table)
     return Graph.compile(make_graph(table), registry)
 
 
@@ -1298,8 +1279,7 @@ def test_a_series_of_rows_whose_cell_leaves_out_a_not_required_key_reads_back(
         return rows  # type: ignore[return-value]
 
     node_rows = node("rows", title="Rows", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(node_rows)
+    registry = registry_of(node_rows)
     graph = Graph.compile(make_graph(node_rows), registry)
     run = graph.run({})
 
@@ -1364,8 +1344,7 @@ def test_a_series_of_rows_of_a_cell_a_table_does_not_keep_is_taken_as_a_list_and
         return rows  # type: ignore[return-value]
 
     node_rows = node("rows", title="Rows", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(node_rows)
+    registry = registry_of(node_rows)
     graph = Graph.compile(make_graph(node_rows), registry)
     run = graph.run({})
 
@@ -1397,8 +1376,7 @@ def test_a_table_cell_whose_type_holds_itself_is_kept_as_deep_as_its_value(retur
         return pl.DataFrame({"deep": [value]}) if returned == "frame" else [{"deep": value}]  # type: ignore[return-value]
 
     table = node("table", title="Table", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(table)
+    registry = registry_of(table)
     graph = Graph.compile(make_graph(table), registry)
     run = graph.run({})
 
@@ -1417,8 +1395,7 @@ def test_a_table_column_whose_type_can_not_be_hashed_is_kept() -> None:
     def table() -> Table[NotedRow]:
         return [{"text": "a"}]  # type: ignore[return-value]
 
-    registry = NodeRegistry()
-    registry.add(table)
+    registry = registry_of(table)
     graph = Graph.compile(make_graph(table), registry)
     run = graph.run({})
 
@@ -1446,8 +1423,7 @@ def test_rows_of_a_wider_row_into_a_table_input_keep_only_the_tables_fields(retu
 
     rows = node("rows", title="Rows", description="For a test.")(returns)
     counts = node("counts", title="Counts", description="For a test.")(takes)
-    registry = NodeRegistry()
-    registry.add(rows, counts)
+    registry = registry_of(rows, counts)
     graph = Graph.compile(
         make_graph(rows, counts, edges=[("rows.result", "counts.rows")]), registry
     )
@@ -1466,8 +1442,7 @@ def test_a_frame_with_two_columns_of_python_objects_names_the_one_with_no_json_f
             }
         )
 
-    registry = NodeRegistry()
-    registry.add(table)
+    registry = registry_of(table)
     refused = Graph.compile(make_graph(table), registry).run({})
 
     assert refused.cause is not None
@@ -1488,8 +1463,7 @@ def test_a_node_whose_two_outputs_hold_the_same_model_returns_both() -> None:
     def accounts() -> _PaidAndOwed:
         return _PaidAndOwed(paid=row, owed=row)
 
-    registry = NodeRegistry()
-    registry.add(accounts)
+    registry = registry_of(accounts)
 
     assert Graph.compile(make_graph(accounts), registry).run({}).outputs == {
         "paid": row,
@@ -1524,8 +1498,7 @@ def test_a_series_of_rows_with_named_values_in_a_cell_is_declared_and_runs(
     def named() -> Series[row]:  # type: ignore[valid-type]
         return returned  # type: ignore[no-any-return]
 
-    registry = NodeRegistry()
-    registry.add(named)
+    registry = registry_of(named)
     graph = Graph.compile(make_graph(named), registry)
     run = graph.run({})
 
@@ -1558,8 +1531,7 @@ def test_a_plain_dataclass_in_a_row_is_read_by_the_rows_config_and_its_saved_run
     def labels() -> Series[StrippedRow]:
         raise Ask("Which labels?")
 
-    registry = NodeRegistry()
-    registry.add(labels)
+    registry = registry_of(labels)
     graph = Graph.compile(make_graph(labels), registry)
     run = graph.run({})
     run = run.with_answers(run.waiting[0], [{"label": {"text": "  a  "}}]).resume()
@@ -1576,8 +1548,7 @@ def test_a_plain_dataclass_in_a_frame_for_a_series_of_rows_is_read_by_the_rows_c
     def labels() -> Series[StrippedRow]:
         return pl.DataFrame({"label": [{"text": "  a  "}]})  # type: ignore[return-value]
 
-    registry = NodeRegistry()
-    registry.add(labels)
+    registry = registry_of(labels)
     graph = Graph.compile(make_graph(labels), registry)
     run = graph.run({})
 
@@ -1601,8 +1572,7 @@ def test_a_return_whose_two_outputs_hold_one_plain_dataclass_under_two_configs_i
     def two_labels() -> _StrippedAndKept:
         return _StrippedAndKept(stripped=stripped, kept=kept)
 
-    registry = NodeRegistry()
-    registry.add(two_labels)
+    registry = registry_of(two_labels)
     graph = Graph.compile(make_graph(two_labels), registry)
 
     assert graph.run({}).outputs == {"stripped": stripped, "kept": kept}

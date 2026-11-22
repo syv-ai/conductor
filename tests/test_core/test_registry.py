@@ -29,6 +29,8 @@ from conductor import (
 from conductor.widgets import Textarea
 from pytest import LogCaptureFixture
 
+from tests.test_core.nodes import registry_of
+
 
 @host_type("registry-test-text", title="Text")
 class Txt(str):
@@ -60,12 +62,6 @@ def echo(
 @node("upper", title="Uppercase", description="Uppercases text", category="test")
 def upper_node(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
     return Txt(text.upper())
-
-
-def _registry_with(*definitions: Any) -> NodeRegistry:
-    registry = NodeRegistry()
-    registry.add(*definitions)
-    return registry
 
 
 def _node(node_id: str, **declared: Any) -> Any:
@@ -451,9 +447,7 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
     registry.add(_node("kept"), _node("dropped"))
     narrowed = registry.filter(lambda definition: definition.id == "kept")
 
-    graph = Graph.compile(
-        GraphRecord.model_validate({"nodes": {"d": {"node": "dropped"}}, "outputs": {}}), narrowed
-    )
+    graph = Graph.compile({"nodes": {"d": {"node": "dropped"}}, "outputs": {}}, narrowed)
 
     assert [problem.type for problem in graph.problems] == ["unknown_node"]
 
@@ -780,7 +774,7 @@ def test_a_registry_is_a_container_and_not_a_mapping():
     """
     from collections.abc import Container, Mapping
 
-    registry = _registry_with(echo)
+    registry = registry_of(echo)
 
     assert isinstance(registry, Container) and not isinstance(registry, Mapping)
     assert not hasattr(registry, "get") and not hasattr(registry, "items")

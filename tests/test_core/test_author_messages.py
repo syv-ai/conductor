@@ -9,7 +9,9 @@ import typing
 from typing import Any, TypedDict
 
 import pytest
-from conductor import Graph, GraphRecord, NodeRegistry, Series, Table, make_graph, node
+from conductor import Graph, NodeRegistry, Series, Table, make_graph, node
+
+from tests.test_core.nodes import registry_of
 
 
 class Contact(TypedDict):
@@ -70,8 +72,7 @@ def questions(about: Any = None) -> Series[str]: ...
 def ask(question: str, document: str) -> str: ...
 
 
-REGISTRY = NodeRegistry()
-for _definition in (
+REGISTRY = registry_of(
     contacts,
     csv,
     tags,
@@ -83,8 +84,7 @@ for _definition in (
     documents,
     questions,
     ask,
-):
-    REGISTRY.add(_definition)
+)
 
 
 def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
@@ -186,26 +186,11 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"path": {}},
-                "nodes": {
-                    "read": {"node": "csv", "inputs": {"path": {"graph_input": "path"}}},
-                    "lines": {
-                        "node": "lines",
-                        "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
-                    },
-                    "send": {
-                        "node": "send",
-                        "inputs": {
-                            "to": {
-                                "sources": [{"node": "lines", "output": "result", "field": "email"}]
-                            }
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "send", "output": "result"}},
-            }
+        make_graph(
+            ("read", csv),
+            lines,
+            send,
+            edges=[("read.result", "lines.table"), ("lines.result.email", "send.to")],
         ),
         registry,
     )
@@ -255,19 +240,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
     registry.add_subregistry(REGISTRY)
     registry.add(amounts)
     (found,) = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"path": {}},
-                "nodes": {
-                    "a": {"node": "amounts", "inputs": {"path": {"graph_input": "path"}}},
-                    "r": {
-                        "node": "report",
-                        "inputs": {"table": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "r", "output": "result"}},
-            }
-        ),
+        make_graph(("a", amounts), ("r", report)),
         registry,
     ).problems
     assert found.type == "type_mismatch" and found.ctx["got"] == "Table[name: str, amount: str]"
@@ -296,25 +269,15 @@ def test_two_series_that_do_not_nest_are_refused_and_the_message_says_how_to_pai
 
 def test_wiring_an_item_of_one_series_into_the_node_that_returns_the_other_pairs_them():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"folder": {}},
-                "nodes": {
-                    "docs": {"node": "documents", "inputs": {"folder": {"graph_input": "folder"}}},
-                    "list": {
-                        "node": "questions",
-                        "inputs": {"about": {"sources": [{"node": "docs", "output": "result"}]}},
-                    },
-                    "ask": {
-                        "node": "ask",
-                        "inputs": {
-                            "question": {"sources": [{"node": "list", "output": "result"}]},
-                            "document": {"sources": [{"node": "docs", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "ask", "output": "result"}},
-            }
+        make_graph(
+            ("docs", documents),
+            ("list", questions),
+            ask,
+            edges=[
+                ("docs.result", "list.about"),
+                ("list.result", "ask.question"),
+                ("docs.result", "ask.document"),
+            ],
         ),
         REGISTRY,
     )
@@ -343,19 +306,17 @@ def test_a_hook_reads_the_row_type_of_the_table_arriving():
     registry.add_subregistry(REGISTRY)
     registry.add(look)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"path": {}},
-                "nodes": {
-                    "read": {"node": "contacts", "inputs": {"path": {"graph_input": "path"}}},
-                    "look": {
-                        "node": "look",
-                        "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"path": {}},
+            "nodes": {
+                "read": {"node": "contacts", "inputs": {"path": {"graph_input": "path"}}},
+                "look": {
+                    "node": "look",
+                    "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "look", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "look", "output": "result"}},
+        },
         registry,
     )
     assert graph.is_runnable and seen == [(Contact,)]

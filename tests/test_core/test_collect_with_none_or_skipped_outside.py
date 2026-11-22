@@ -33,7 +33,6 @@ from conductor import (
     SKIPPED,
     Ask,
     Graph,
-    GraphRecord,
     NodeRegistry,
     Run,
     Series,
@@ -582,9 +581,7 @@ def test_forty_stages_of_alternatives_in_the_loop_are_decided_node_by_node_not_p
         }
         before = [f"x{stage}.result", f"y{stage}.result"]
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {"nodes": {**nodes, "n": {"node": "count", "inputs": {"values": sources(*before)}}}}
-        ),
+        {"nodes": {**nodes, "n": {"node": "count", "inputs": {"values": sources(*before)}}}},
         REGISTRY,
     )
     assert not graph.problems, graph.problems
@@ -746,48 +743,44 @@ def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_fl
     input, wired to the summary, gets only that document's summary, never all of them.
     """
     flat = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
-                    "u": {
-                        "node": "up",
-                        "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "c": {
-                        "node": "chars",
-                        "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "x": {
-                        "node": "maybe",
-                        "inputs": {"a": {"sources": [{"node": "c", "output": "result"}]}},
-                    },
-                    "j": {
-                        "node": "both",
-                        "inputs": {
-                            "a": {"sources": [{"node": "u", "output": "result"}]},
-                            "b": {"sources": [{"node": "x", "output": "result"}]},
-                        },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
+                "u": {
+                    "node": "up",
+                    "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
+                },
+                "c": {
+                    "node": "chars",
+                    "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
+                },
+                "x": {
+                    "node": "maybe",
+                    "inputs": {"a": {"sources": [{"node": "c", "output": "result"}]}},
+                },
+                "j": {
+                    "node": "both",
+                    "inputs": {
+                        "a": {"sources": [{"node": "u", "output": "result"}]},
+                        "b": {"sources": [{"node": "x", "output": "result"}]},
                     },
                 },
-            }
-        ),
+            },
+        },
         REGISTRY,
     )
     in_subgraph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
-                    "e": {
-                        "node": "summary-and-letters",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
+                "e": {
+                    "node": "summary-and-letters",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-            }
-        ),
+            },
+        },
         REGISTRY,
     )
     assert not flat.problems and not in_subgraph.problems
@@ -869,18 +862,16 @@ def approve(a: str) -> str:
 
 def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_read_back() -> None:
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
-                    "q": {
-                        "node": "approve",
-                        "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}},
+                "q": {
+                    "node": "approve",
+                    "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-            }
-        ),
+            },
+        },
         REGISTRY,
     )
     waiting = graph.run({"text": "a b"})
@@ -931,24 +922,22 @@ def test_a_node_wired_to_a_subgraphs_per_word_and_per_letter_outputs_is_called_p
     Each call gets that word's letters. Its other input, which takes one value, gets that word's.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "e": {
-                        "node": "words-up-and-letters",
-                        "inputs": {"text": {"graph_input": "text"}},
-                    },
-                    "n": {
-                        "node": "both",
-                        "inputs": {
-                            "a": {"sources": [{"node": "e", "output": "words"}]},
-                            "b": {"sources": [{"node": "e", "output": "letters"}]},
-                        },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "e": {
+                    "node": "words-up-and-letters",
+                    "inputs": {"text": {"graph_input": "text"}},
+                },
+                "n": {
+                    "node": "both",
+                    "inputs": {
+                        "a": {"sources": [{"node": "e", "output": "words"}]},
+                        "b": {"sources": [{"node": "e", "output": "letters"}]},
                     },
                 },
-            }
-        ),
+            },
+        },
         REGISTRY,
     )
     assert not graph.problems

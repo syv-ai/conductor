@@ -96,13 +96,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import input_entry
-
-
-def registry_of(*definitions):
-    registry = NodeRegistry()
-    registry.add(*definitions)
-    return registry
+from tests.test_core.nodes import input_entry, registry_of
 
 
 def compiled_graph(*definitions, record=None, constants=None, outputs=None):
@@ -2532,7 +2526,7 @@ def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
 
 
 def test_a_fields_choices_on_its_plain_type_title_its_values_and_limit_what_it_takes():
-    from conductor import Ask, InvalidCallError, NodeRegistry, make_graph
+    from conductor import Ask, InvalidCallError, make_graph
 
     titled = (Choice("low", "Lav"), Choice("high", "Høj"))
 
@@ -2550,8 +2544,7 @@ def test_a_fields_choices_on_its_plain_type_title_its_values_and_limit_what_it_t
 
     assert priority.describe().inputs[0].choices == (Choice("low", "Lav"), Choice("high", "Høj"))
     assert size.describe().inputs[0].choices == (Choice("S", "S"), Choice("M", "M"))
-    registry = NodeRegistry()
-    registry.add(size, rate)
+    registry = registry_of(size, rate)
     with pytest.raises(InvalidCallError):
         Graph.compile(make_graph(size), registry).run({"name": "XL"})
     assert Graph.compile(make_graph(size), registry).run({"name": "M"}).outputs == {"result": "M"}
@@ -2682,29 +2675,24 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
     def glue(text: str, names: str = "a,b", **columns: str) -> str:
         return text + "".join(columns.values())
 
-    registry = NodeRegistry()
-    registry.add(glue)
+    registry = registry_of(glue)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"g": {"node": "glue", "inputs": {"text": {"constant": "t"}}}},
-                "outputs": {"result": {"node": "g", "output": "result"}},
-            }
-        ),
+        {
+            "nodes": {"g": {"node": "glue", "inputs": {"text": {"constant": "t"}}}},
+            "outputs": {"result": {"node": "g", "output": "result"}},
+        },
         registry,
     )
     assert graph.problems == [] and graph.run().outputs == {"result": "txx"}
     (problem,) = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "g": {
-                        "node": "glue",
-                        "inputs": {"text": {"constant": "t"}, "names": {"constant": "boom"}},
-                    }
+        {
+            "nodes": {
+                "g": {
+                    "node": "glue",
+                    "inputs": {"text": {"constant": "t"}, "names": {"constant": "boom"}},
                 }
             }
-        ),
+        },
         registry,
     ).problems
     assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"], problem.msg) == (
@@ -2727,12 +2715,10 @@ def test_a_hooks_own_ctx_is_kept_whole_beside_the_reason_and_the_code(ctx: dict[
         return names
 
     (problem,) = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}},
-                "outputs": {},
-            }
-        ),
+        {
+            "nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}},
+            "outputs": {},
+        },
         registry_of(glue),
     ).problems
     assert problem.ctx == {
@@ -2757,12 +2743,10 @@ def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_e
         return names
 
     (problem,) = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}},
-                "outputs": {},
-            }
-        ),
+        {
+            "nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}},
+            "outputs": {},
+        },
         registry_of(glue),
     ).problems
     assert (raised.problems[0].type, problem.ctx["error"]) == (code, code)
@@ -2773,8 +2757,7 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
     def ask_model(prompt: str, model: str = "small") -> str:
         return f"{model}:{prompt}"
 
-    registry = NodeRegistry()
-    registry.add(ask_model)
+    registry = registry_of(ask_model)
     fixed = Graph.compile(make_graph(ask_model, constants={"ask-model.model": "big"}), registry)
     assert list(fixed.inputs) == ["prompt"] and fixed.run({"prompt": "hi"}).outputs == {
         "result": "big:hi"

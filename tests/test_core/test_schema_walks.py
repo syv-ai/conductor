@@ -18,7 +18,6 @@ from conductor import (
     Graph,
     InvalidCallError,
     NodeDeclarationError,
-    NodeRegistry,
     Run,
     host_type,
     make_graph,
@@ -26,6 +25,8 @@ from conductor import (
 )
 from pydantic import BaseModel, ConfigDict, Discriminator, GetPydanticSchema, WrapValidator
 from pydantic_core import core_schema
+
+from tests.test_core.nodes import registry_of
 
 
 @host_type("walks-reading", title="Reading")
@@ -101,8 +102,7 @@ def _graph(function: Callable[..., Any], **hints: Any) -> Graph[None]:
     """Declares ``function`` as a node with ``hints`` as its annotations, and compiles a graph of it alone."""
     function.__annotations__ = hints
     definition = node("take", title="Take", description="For a test.")(function)
-    registry = NodeRegistry()
-    registry.add(definition)
+    registry = registry_of(definition)
     return Graph.compile(make_graph(definition), registry)
 
 

@@ -17,7 +17,6 @@ import pytest
 from conductor import (
     Ask,
     Graph,
-    GraphRecord,
     InvalidCallError,
     Problem,
     Run,
@@ -190,25 +189,23 @@ def _edge(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def take(x: hint) -> str:  # type: ignore[valid-type]
         return "ok"
 
-    record = GraphRecord.model_validate(
-        {
-            "nodes": {
-                "a": {"node": "give"},
-                "b": {
-                    "node": "take",
-                    "inputs": {"x": {"sources": [{"node": "a", "output": "result"}]}},
-                },
+    record = {
+        "nodes": {
+            "a": {"node": "give"},
+            "b": {
+                "node": "take",
+                "inputs": {"x": {"sources": [{"node": "a", "output": "result"}]}},
             },
-            "outputs": {"result": {"node": "b", "output": "result"}},
-        }
-    )
+        },
+        "outputs": {"result": {"node": "b", "output": "result"}},
+    }
     return [Graph.compile(record, registry_of(give, take)).run().cause]
 
 
 def _giving(definition: Any) -> list[Problem]:
     return [
         Graph.compile(
-            GraphRecord.model_validate({"nodes": {"g": {"node": definition.id}}}),
+            {"nodes": {"g": {"node": definition.id}}},
             registry_of(definition),
         )
         .run()
@@ -254,12 +251,10 @@ def _saved_output(hint: Any, good: Any, bad: Any) -> list[Problem]:
 
     definition = node("give", title="Give", description="For a test.")(give)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"g": {"node": "give"}},
-                "outputs": {"result": {"node": "g", "output": "result"}},
-            }
-        ),
+        {
+            "nodes": {"g": {"node": "give"}},
+            "outputs": {"result": {"node": "g", "output": "result"}},
+        },
         registry_of(definition),
     )
     saved = graph.run().to_json().replace(f'"result":[{_json(good)}]', f'"result":[{_json(bad)}]')

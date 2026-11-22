@@ -21,6 +21,7 @@ from conductor import (
     Param,
     Series,
     Upgrade,
+    make_graph,
     node,
     subgraph,
 )
@@ -503,11 +504,7 @@ def test_a_subgraph_whose_node_is_switched_off_offers_no_port_only_that_node_ser
     assert part.input_names == ("text",)
     assert part.output_names == ("result",)
     graph = Graph.compile(
-        {
-            "inputs": {"text": {}},
-            "nodes": {"part": {"node": "off-part", "inputs": {"text": {"graph_input": "text"}}}},
-            "outputs": {"result": {"node": "part", "output": "result"}},
-        },
+        make_graph(("part", part)),
         registry_of(upper, exclaim, part),
     )
     assert graph.is_runnable

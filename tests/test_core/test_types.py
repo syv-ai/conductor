@@ -19,10 +19,8 @@ from annotated_types import LowerCase, Predicate, Timezone, Unit
 from conductor import (
     Ask,
     Graph,
-    GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
-    NodeRegistry,
     Param,
     Run,
     Series,
@@ -83,7 +81,7 @@ def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **va
         nodes[target_node]["inputs"][name] = {"sources": [{"node": source_node, "output": output}]}
     outputs = {name: {"node": "q", "output": name} for name in definition.outputs}
     graph = Graph.compile(
-        GraphRecord.model_validate({"nodes": nodes, "outputs": outputs}),
+        {"nodes": nodes, "outputs": outputs},
         registry_of(definition, *more),
     )
     assert not graph.problems, graph.problems
@@ -107,12 +105,7 @@ def test_a_limit_on_a_hosts_text_refuses_a_constant_over_it() -> None:
         return text
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"q": {"node": "short", "inputs": {"text": {"constant": "too long"}}}},
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+        make_graph(("q", short), constants={"q.text": "too long"}),
         registry_of(short),
     )
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
@@ -136,18 +129,7 @@ def test_a_model_output_cannot_be_wired_into_a_json_value_input() -> None:
         return str(value)
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "m": {"node": "money"},
-                    "j": {
-                        "node": "json",
-                        "inputs": {"value": {"sources": [{"node": "m", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "j", "output": "result"}},
-            }
-        ),
+        make_graph(("m", money), ("j", json)),
         registry_of(money, json),
     )
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
@@ -169,22 +151,10 @@ def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
     def take(offer: Offer) -> Offer:
         return offer
 
-    registry = NodeRegistry()
-    registry.add(money, take)
+    registry = registry_of(money, take)
     registry.describe()
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "m": {"node": "money"},
-                    "t": {
-                        "node": "take",
-                        "inputs": {"offer": {"sources": [{"node": "m", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "t", "output": "result"}},
-            }
-        ),
+        make_graph(("m", money), ("t", take)),
         registry,
     )
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
@@ -227,12 +197,7 @@ def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:
         return sum(numbers)
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"q": {"node": "total", "inputs": {"numbers": {"constant": [True]}}}},
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+        make_graph(("q", total), constants={"q.numbers": [True]}),
         registry_of(total),
     )
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
@@ -255,17 +220,15 @@ def test_a_list_of_whole_numbers_can_be_wired_into_a_list_of_numbers_but_never_a
 
     assert _run(mean, ints, edges=[["ints.result", "q.numbers"]]).outputs == {"result": 1.5}
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "i": {"node": "ints"},
-                    "w": {
-                        "node": "words",
-                        "inputs": {"texts": {"sources": [{"node": "i", "output": "result"}]}},
-                    },
-                }
+        {
+            "nodes": {
+                "i": {"node": "ints"},
+                "w": {
+                    "node": "words",
+                    "inputs": {"texts": {"sources": [{"node": "i", "output": "result"}]}},
+                },
             }
-        ),
+        },
         registry_of(ints, words),
     )
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
@@ -295,28 +258,24 @@ def test_a_list_into_an_input_that_takes_a_list_is_the_plain_mismatch_as_a_call_
     taking.__annotations__ = {"x": takes, "return": int}
     registry.add(node("takes", title="Takes", description="For a test.")(taking))
     wired = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "i": {"node": "ints"},
-                    "t": {
-                        "node": "takes",
-                        "inputs": {"x": {"sources": [{"node": "i", "output": "result"}]}},
-                    },
-                }
+        {
+            "nodes": {
+                "i": {"node": "ints"},
+                "t": {
+                    "node": "takes",
+                    "inputs": {"x": {"sources": [{"node": "i", "output": "result"}]}},
+                },
             }
-        ),
+        },
         registry,
     )
     assert [problem.type for problem in wired.problems] == ["type_mismatch"]
     given = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {}},
-                "nodes": {"t": {"node": "takes", "inputs": {"x": {"graph_input": "x"}}}},
-                "outputs": {"result": {"node": "t", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"x": {}},
+            "nodes": {"t": {"node": "takes", "inputs": {"x": {"graph_input": "x"}}}},
+            "outputs": {"result": {"node": "t", "output": "result"}},
+        },
         registry,
     )
     with pytest.raises(InvalidCallError) as refused:
@@ -336,16 +295,14 @@ def test_a_pydantic_type_keeps_the_limits_it_has() -> None:
 
     for wrong in ({"times": 0}, {"times": 1, "least": 1}, {"times": 1, "word": ""}):
         graph = Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "nodes": {
-                        "q": {
-                            "node": "count",
-                            "inputs": {name: {"constant": value} for name, value in wrong.items()},
-                        }
+            {
+                "nodes": {
+                    "q": {
+                        "node": "count",
+                        "inputs": {name: {"constant": value} for name, value in wrong.items()},
                     }
                 }
-            ),
+            },
             registry_of(count),
         )
         assert [problem.type for problem in graph.problems] == ["invalid_value"], wrong
@@ -757,14 +714,7 @@ def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
         return stock.count
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "q": {"node": "restock", "inputs": {"stock": {"constant": {"count": -1}}}}
-                },
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+        make_graph(("q", restock), constants={"q.stock": {"count": -1}}),
         registry_of(restock),
     )
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
@@ -877,17 +827,15 @@ def test_a_record_with_a_date_is_no_json_value() -> None:
 
     def problems(source: Any) -> list[str]:
         graph = Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "nodes": {
-                        "s": {"node": source.id},
-                        "j": {
-                            "node": "json",
-                            "inputs": {"value": {"sources": [{"node": "s", "output": "result"}]}},
-                        },
-                    }
+            {
+                "nodes": {
+                    "s": {"node": source.id},
+                    "j": {
+                        "node": "json",
+                        "inputs": {"value": {"sources": [{"node": "s", "output": "result"}]}},
+                    },
                 }
-            ),
+            },
             registry_of(source, json),
         )
         return [problem.type for problem in graph.problems]
@@ -910,22 +858,18 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
 
     def compiled(field: str) -> Any:
         return Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "nodes": {
-                        "a": {"node": "address"},
-                        "s": {
-                            "node": "shout",
-                            "inputs": {
-                                "text": {
-                                    "sources": [{"node": "a", "output": "result", "field": field}]
-                                }
-                            },
+            {
+                "nodes": {
+                    "a": {"node": "address"},
+                    "s": {
+                        "node": "shout",
+                        "inputs": {
+                            "text": {"sources": [{"node": "a", "output": "result", "field": field}]}
                         },
                     },
-                    "outputs": {"result": {"node": "s", "output": "result"}},
-                }
-            ),
+                },
+                "outputs": {"result": {"node": "s", "output": "result"}},
+            },
             registry_of(address, shout),
         )
 

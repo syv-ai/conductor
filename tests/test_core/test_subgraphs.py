@@ -34,7 +34,6 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeError,
-    NodeRegistry,
     Policy,
     Run,
     Series,
@@ -53,6 +52,8 @@ from conductor.events import (
     RunEnd,
 )
 from pydantic import MISSING
+
+from tests.test_core.nodes import registry_of
 
 CALLS: Counter[str] = Counter()
 AT_ONCE = {"now": 0, "peak": 0}
@@ -399,8 +400,7 @@ INNER = {
     },
 }
 
-REGISTRY = NodeRegistry()
-for _definition in (
+REGISTRY = registry_of(
     words,
     sentences,
     chars,
@@ -426,8 +426,7 @@ for _definition in (
     note,
     show,
     pair,
-):
-    REGISTRY.add(_definition)
+)
 for _id, _record in INNER.items():
     REGISTRY.add(
         subgraph(_id, title=_id.capitalize(), description=f"The {_id} node.")(
@@ -796,11 +795,7 @@ def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node(
 
 
 def test_an_output_two_loops_deep_is_the_same_nested_list_alone_and_inside_a_subgraph():
-    alone = (
-        Graph.compile(GraphRecord.model_validate(INNER["deep-inner"]), REGISTRY)
-        .run({"text": "ab cd"})
-        .outputs["result"]
-    )
+    alone = Graph.compile(INNER["deep-inner"], REGISTRY).run({"text": "ab cd"}).outputs["result"]
     assert alone == [["A", "B"], ["C", "D"]]  # two loops deep: a list for each word, in item order
     graph = compile_graph(
         {"e": "deep-inner", "n": "count", "x": "exclaim"},
@@ -1669,9 +1664,7 @@ def _split_and_upper(loop_inside_the_subgraph: bool) -> Graph[Any]:
 
     Either way ``upper`` is called once per word, and it is ``s/upper`` in a run.
     """
-    registry = NodeRegistry()
-    for definition in (words, upper):
-        registry.add(definition)
+    registry = registry_of(words, upper)
     inner = (
         make_graph(words, upper, edges=[("words.result", "upper.text")])
         if loop_inside_the_subgraph
@@ -1749,24 +1742,21 @@ def test_a_subgraph_with_no_output_completes_when_its_inner_nodes_do_and_not_bef
 
 
 def test_a_subgraph_of_no_nodes_runs_to_empty_results_as_a_graph_of_no_nodes_does():
-    registry = NodeRegistry()
-    registry.add(upper)
+    registry = registry_of(upper)
     registry.add(
         subgraph("nothing", title="Nothing", description="The nothing node.")(
             GraphRecord.model_validate({"nodes": {}})
         )
     )
-    alone = Graph.compile(GraphRecord.model_validate({"nodes": {}}), registry).run()
+    alone = Graph.compile({"nodes": {}}, registry).run()
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "e": {"node": "nothing"},
-                },
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                "e": {"node": "nothing"},
+            },
+        },
         registry,
     )
     run = graph.run({"text": "x"})

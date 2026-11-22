@@ -35,7 +35,6 @@ from conductor import (
     Deprecation,
     ExternalError,
     Graph,
-    GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -44,6 +43,7 @@ from conductor import (
     Series,
     Table,
     Waiting,
+    make_graph,
     node,
 )
 from conductor.events import (
@@ -59,6 +59,8 @@ from conductor.events import (
     RunStart,
 )
 from pydantic import BaseModel, TypeAdapter, ValidationError
+
+from tests.test_core.nodes import registry_of
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 LIBRARY = Path(conductor.__file__).parent
@@ -126,23 +128,19 @@ def test_a_compiled_graph_prints_a_one_line_summary():
     assert (
         repr(
             Graph.compile(
-                GraphRecord.model_validate(
-                    {
-                        "inputs": {"value": {}},
-                        "nodes": {
-                            "s": {"node": "scale", "inputs": {"value": {"graph_input": "value"}}}
-                        },
-                    }
-                ),
+                {
+                    "inputs": {"value": {}},
+                    "nodes": {
+                        "s": {"node": "scale", "inputs": {"value": {"graph_input": "value"}}}
+                    },
+                },
                 registry,
             )
         )
         == "<Graph of 1 node, runnable>"
     )
     assert (
-        repr(
-            Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "nope"}}}), registry)
-        )
+        repr(Graph.compile({"nodes": {"s": {"node": "nope"}}}, registry))
         == "<Graph of 1 node, 1 problem>"
     )
 
@@ -178,16 +176,14 @@ def test_skipped_is_one_object_that_prints_as_its_name():
 def _misspelt() -> Graph:
     """A graph whose one node is given a constant for ``facter``, an input it doesn't have."""
     return Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {
-                        "node": "scale",
-                        "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
-                    }
+        {
+            "nodes": {
+                "s": {
+                    "node": "scale",
+                    "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
                 }
             }
-        ),
+        },
         _registry(),
     )
 
@@ -220,20 +216,18 @@ def test_a_problem_read_back_refuses_a_key_it_does_not_have():
 
 def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "a": {"node": "hello", "inputs": {"name": {"constant": "x"}}},
-                    "b": {
-                        "node": "scale",
-                        "inputs": {
-                            "facter": {"constant": 2},
-                            "value": {"sources": [{"node": "a", "output": "reslt"}]},
-                        },
+        {
+            "nodes": {
+                "a": {"node": "hello", "inputs": {"name": {"constant": "x"}}},
+                "b": {
+                    "node": "scale",
+                    "inputs": {
+                        "facter": {"constant": 2},
+                        "value": {"sources": [{"node": "a", "output": "reslt"}]},
                     },
-                }
+                },
             }
-        ),
+        },
         _registry(),
     )
 
@@ -245,17 +239,15 @@ def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
 
 def test_an_edge_to_a_missing_output_says_what_the_node_has():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "a": {"node": "hello", "inputs": {"name": {"constant": "x"}}},
-                    "b": {
-                        "node": "scale",
-                        "inputs": {"value": {"sources": [{"node": "a", "output": "reslt"}]}},
-                    },
-                }
+        {
+            "nodes": {
+                "a": {"node": "hello", "inputs": {"name": {"constant": "x"}}},
+                "b": {
+                    "node": "scale",
+                    "inputs": {"value": {"sources": [{"node": "a", "output": "reslt"}]}},
+                },
             }
-        ),
+        },
         _registry(),
     )
 
@@ -270,16 +262,14 @@ def test_an_edge_to_a_missing_output_says_what_the_node_has():
 def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
     """A host may send problems straight to a browser, so a problem never shows what a person typed."""
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {
-                        "node": "scale",
-                        "inputs": {"value": {"constant": 1.0}, "factor": {"constant": "seventy"}},
-                    }
+        {
+            "nodes": {
+                "s": {
+                    "node": "scale",
+                    "inputs": {"value": {"constant": 1.0}, "factor": {"constant": "seventy"}},
                 }
             }
-        ),
+        },
         _registry(),
     )
 
@@ -313,19 +303,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
         return n
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"upto": {}},
-                "nodes": {
-                    "n": {"node": "numbers", "inputs": {"upto": {"graph_input": "upto"}}},
-                    "e": {
-                        "node": "each",
-                        "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
-        ),
+        make_graph(("n", numbers), ("e", each)),
         registry,
     ).run({"upto": 3})
 
@@ -508,18 +486,12 @@ def _streamed_events() -> list[Any]:
         return x * math.inf
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"f_x": {}, "s_x": {}},
-                "nodes": {
-                    "f": {"node": "frame", "inputs": {"x": {"graph_input": "f_x"}}},
-                    "s": {"node": "same", "inputs": {"x": {"graph_input": "s_x"}}},
-                },
-                "outputs": {
-                    "f_result": {"node": "f", "output": "result"},
-                    "s_result": {"node": "s", "output": "result"},
-                },
-            }
+        make_graph(
+            ("f", frame),
+            ("s", same),
+            edges=[],
+            inputs={"f_x": "f.x", "s_x": "s.x"},
+            outputs={"f_result": "f.result", "s_result": "s.result"},
         ),
         registry,
     )
@@ -936,9 +908,7 @@ def test_english_and_other_libraries_words_are_not_a_host_word(line):
 def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
     from conductor import NodeRegistry
 
-    empty = Graph.compile(
-        GraphRecord.model_validate({"nodes": {"x": {"node": "read"}}}), NodeRegistry()
-    ).problems[0]
+    empty = Graph.compile({"nodes": {"x": {"node": "read"}}}, NodeRegistry()).problems[0]
     assert (empty.ctx["choices"], empty.msg) == (
         [],
         "The registry has no node 'read'. Add it to the registry, or use one the registry has: none.",
@@ -949,7 +919,6 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     from conductor import (
         GraphDescription,
         NodeDescription,
-        NodeRegistry,
         PortDescription,
         RegistryDescription,
         node,
@@ -959,8 +928,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     def upper(text: str) -> str:
         return text.upper()
 
-    registry = NodeRegistry()
-    registry.add(upper)
+    registry = registry_of(upper)
     described = registry.describe()
     assert isinstance(described, RegistryDescription) and isinstance(
         described.nodes[0], NodeDescription
@@ -970,13 +938,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     ].json_schema == {"type": "string"}
     assert isinstance(
         Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"text": {}},
-                    "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
-                    "outputs": {"result": {"node": "u", "output": "result"}},
-                }
-            ),
+            make_graph(("u", upper)),
             registry,
         ).describe(),
         GraphDescription,

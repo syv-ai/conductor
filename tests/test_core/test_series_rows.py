@@ -398,19 +398,17 @@ def test_a_series_of_rows_returned_per_item_inside_a_subgraph_reaches_a_series_i
     )
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}},
-                    "count": {
-                        "node": "count",
-                        "inputs": {"found": {"sources": [{"node": "e", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}},
+                "count": {
+                    "node": "count",
+                    "inputs": {"found": {"sources": [{"node": "e", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "count", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "count", "output": "result"}},
+        },
         registry,
     )
     RECEIVED.clear()

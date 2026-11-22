@@ -3107,19 +3107,17 @@ def test_two_branching_nodes_inside_one_subgraph_each_choose_their_own_branch():
 
 def test_a_subgraph_node_wired_from_upstream_needs_every_other_input_wired_too():
     inner = as_subgraph("pairer", {"id": "p", "node": "pair"})
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {
-                "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                "e": {
-                    "node": "pairer",
-                    "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}},
-                },
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            "e": {
+                "node": "pairer",
+                "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}},
             },
-            "outputs": {"p": {"node": "e", "output": "result"}},
-        }
-    )
+        },
+        "outputs": {"p": {"node": "e", "output": "result"}},
+    }
     compiled = Graph.compile(record, registry_of(upper, pair, inner))
 
     assert [(p.type, p.loc) for p in compiled.problems] == [("input_has_no_value", ("e", "b"))]
@@ -3440,13 +3438,11 @@ def test_a_subgraph_node_listed_before_its_upstream_node_compiles_and_runs_the_s
     }
     for outer in ({"docs": docs, "sub": sub}, {"sub": sub, "docs": docs}):
         compiled = Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"text": {}},
-                    "nodes": outer,
-                    "outputs": {"result": {"node": "sub", "output": "result"}},
-                }
-            ),
+            {
+                "inputs": {"text": {}},
+                "nodes": outer,
+                "outputs": {"result": {"node": "sub", "output": "result"}},
+            },
             registry,
         )
         assert compiled.problems == []

@@ -13,15 +13,15 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     Graph,
-    GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
-    NodeRegistry,
     Param,
     Series,
     make_graph,
     node,
 )
+
+from tests.test_core.nodes import registry_of
 
 
 @node("word", title="Word", description="For a test.")
@@ -43,27 +43,19 @@ def parts(text: str, width: int) -> dict[str, Any]:
     return {f"part{i}": text for i in range(width)}
 
 
-def _registry(*definitions: Any) -> NodeRegistry:
-    registry = NodeRegistry()
-    registry.add(*definitions)
-    return registry
-
-
-REGISTRY = _registry(word, pad, parts)
+REGISTRY = registry_of(word, pad, parts)
 
 
 def _problems(
     inputs: dict[str, Any], node_id: str = "pad", declared: dict[str, Any] | None = None
 ) -> list[tuple[str, tuple[str | int, ...]]]:
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}, **(declared or {})},
-            "nodes": {
-                "w": {"node": "word", "inputs": {"text": {"graph_input": "text"}}},
-                "p": {"node": node_id, "inputs": {"text": {"constant": "a"}, **inputs}},
-            },
-        }
-    )
+    record = {
+        "inputs": {"text": {}, **(declared or {})},
+        "nodes": {
+            "w": {"node": "word", "inputs": {"text": {"graph_input": "text"}}},
+            "p": {"node": node_id, "inputs": {"text": {"constant": "a"}, **inputs}},
+        },
+    }
     return [(p.type, p.loc) for p in Graph.compile(record, REGISTRY).problems]
 
 
@@ -86,17 +78,15 @@ def test_an_input_that_takes_only_a_constant_refuses_an_edge_and_a_graph_input(
 
 
 def test_the_problem_says_what_the_record_gave_and_what_to_give():
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"w": {}},
-            "nodes": {
-                "p": {
-                    "node": "parts",
-                    "inputs": {"text": {"constant": "a"}, "width": {"graph_input": "w"}},
-                }
-            },
-        }
-    )
+    record = {
+        "inputs": {"w": {}},
+        "nodes": {
+            "p": {
+                "node": "parts",
+                "inputs": {"text": {"constant": "a"}, "width": {"graph_input": "w"}},
+            }
+        },
+    }
     [problem] = Graph.compile(record, REGISTRY).problems
     assert problem.ctx == {"node_id": "p", "input": "width", "given": "graph_input"}
     assert (
@@ -113,9 +103,7 @@ def test_a_constant_and_the_declared_default_are_taken():
 
 def test_an_input_a_hook_reads_with_no_value_has_no_value_and_is_told_to_take_a_constant():
     [problem] = Graph.compile(
-        GraphRecord.model_validate(
-            {"nodes": {"p": {"node": "parts", "inputs": {"text": {"constant": "a"}}}}}
-        ),
+        {"nodes": {"p": {"node": "parts", "inputs": {"text": {"constant": "a"}}}}},
         REGISTRY,
     ).problems
     assert (problem.type, problem.loc) == ("input_has_no_value_constant_only", ("p", "width"))
@@ -136,11 +124,11 @@ def test_make_graph_never_makes_it_a_graph_input():
         return text[:at]
 
     record = make_graph(cut, constants={"cut.at": 2})
-    graph = Graph.compile(record, _registry(cut))
+    graph = Graph.compile(record, registry_of(cut))
     assert list(graph.inputs) == ["text"] and graph.run({"text": "abc"}).outputs == {"result": "ab"}
     left_open = make_graph(cut)
     assert list(left_open.nodes["cut"].inputs) == ["text"]
-    assert [(p.type, p.loc) for p in Graph.compile(left_open, _registry(cut)).problems] == [
+    assert [(p.type, p.loc) for p in Graph.compile(left_open, registry_of(cut)).problems] == [
         ("input_has_no_value_constant_only", ("cut", "at"))
     ]
 
@@ -205,16 +193,14 @@ def test_a_param_given_none_feeds_one_graph_input_with_one_given_nothing():
 
     said.__annotations__["n"] = Annotated[int, Param(title=None)]
     said_node = node("said", title="Said", description="For a test.")(said)
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"n": {}},
-            "nodes": {
-                "a": {"node": "plain", "inputs": {"n": {"graph_input": "n"}}},
-                "b": {"node": "said", "inputs": {"n": {"graph_input": "n"}}},
-            },
-        }
-    )
-    assert Graph.compile(record, _registry(plain, said_node)).problems == []
+    record = {
+        "inputs": {"n": {}},
+        "nodes": {
+            "a": {"node": "plain", "inputs": {"n": {"graph_input": "n"}}},
+            "b": {"node": "said", "inputs": {"n": {"graph_input": "n"}}},
+        },
+    }
+    assert Graph.compile(record, registry_of(plain, said_node)).problems == []
 
 
 def test_a_series_item_can_take_only_a_constant():
@@ -224,21 +210,19 @@ def test_a_series_item_can_take_only_a_constant():
 
     [_, at] = pick.describe().inputs
     assert at.constant_only and at.is_series
-    record = GraphRecord.model_validate(
-        {
-            "nodes": {
-                "w": {"node": "word", "inputs": {"text": {"constant": "1"}}},
-                "p": {
-                    "node": "pick",
-                    "inputs": {
-                        "text": {"constant": "abc"},
-                        "at": {"sources": [{"node": "w", "output": "result"}]},
-                    },
+    record = {
+        "nodes": {
+            "w": {"node": "word", "inputs": {"text": {"constant": "1"}}},
+            "p": {
+                "node": "pick",
+                "inputs": {
+                    "text": {"constant": "abc"},
+                    "at": {"sources": [{"node": "w", "output": "result"}]},
                 },
-            }
+            },
         }
-    )
-    assert [(p.type, p.loc) for p in Graph.compile(record, _registry(word, pick)).problems] == [
+    }
+    assert [(p.type, p.loc) for p in Graph.compile(record, registry_of(word, pick)).problems] == [
         ("input_takes_only_a_constant", ("p", "at"))
     ]
 
@@ -269,15 +253,13 @@ def test_an_input_a_hook_adds_can_take_only_a_constant(
     entry: dict[str, Any] | None, found: tuple[str, str | None] | None
 ):
     inputs = {"count": {"constant": 1}, **({} if entry is None else {"setting0": entry})}
-    record = GraphRecord.model_validate(
-        {
-            "nodes": {
-                "w": {"node": "word", "inputs": {"text": {"constant": "a"}}},
-                "s": {"node": "set", "inputs": inputs},
-            }
+    record = {
+        "nodes": {
+            "w": {"node": "word", "inputs": {"text": {"constant": "a"}}},
+            "s": {"node": "set", "inputs": inputs},
         }
-    )
-    graph = Graph.compile(record, _registry(word, settings))
+    }
+    graph = Graph.compile(record, registry_of(word, settings))
     assert [(p.type, p.loc, p.ctx.get("given")) for p in graph.problems] == (
         [] if found is None else [(found[0], ("s", "setting0"), found[1])]
     )
@@ -293,22 +275,20 @@ def test_a_refused_edge_decides_no_type():
     def either[T](x: Annotated[T, Param(constant_only=True)], y: T) -> T:
         return y
 
-    record = GraphRecord.model_validate(
-        {
-            "nodes": {
-                "w": {"node": "word", "inputs": {"text": {"constant": "a"}}},
-                "n": {"node": "number", "inputs": {"text": {"constant": "a"}}},
-                "e": {
-                    "node": "either",
-                    "inputs": {
-                        "x": {"sources": [{"node": "w", "output": "result"}]},
-                        "y": {"sources": [{"node": "n", "output": "result"}]},
-                    },
+    record = {
+        "nodes": {
+            "w": {"node": "word", "inputs": {"text": {"constant": "a"}}},
+            "n": {"node": "number", "inputs": {"text": {"constant": "a"}}},
+            "e": {
+                "node": "either",
+                "inputs": {
+                    "x": {"sources": [{"node": "w", "output": "result"}]},
+                    "y": {"sources": [{"node": "n", "output": "result"}]},
                 },
-            }
+            },
         }
-    )
-    graph = Graph.compile(record, _registry(word, number, either))
+    }
+    graph = Graph.compile(record, registry_of(word, number, either))
     assert [p.type for p in graph.problems] == ["input_takes_only_a_constant"]
     described = graph.describe().nodes["e"]
     assert [f.port.type for f in described.inputs] == ["int", "int"]
