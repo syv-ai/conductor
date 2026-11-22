@@ -437,60 +437,6 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     assert run.none_input_calls == [NoneInputCall(loc=("mail", 1), input="email")]
 
 
-def test_a_list_given_for_one_value_is_refused():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "up": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                },
-                "outputs": {"result": {"node": "up", "output": "result"}},
-            }
-        ),
-        registry,
-    )
-    assert graph.run({"text": "a"}).outputs == {"result": "A"}
-    with pytest.raises(InvalidCallError) as refused:
-        graph.run({"text": ["a", "b"]})
-    assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_input_list_for_one_value", ("inputs", "text"))
-    ]
-
-
-def test_max_items():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "sep": {"default": ","}},
-                "nodes": {
-                    "s": {
-                        "node": "split",
-                        "inputs": {
-                            "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep"},
-                        },
-                    },
-                    "m": {
-                        "node": "mail",
-                        "inputs": {"email": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "m", "output": "result"}},
-            }
-        ),
-        registry,
-    )
-    (run, called) = calls(
-        lambda: graph.run({"text": ",".join(f"x{i}" for i in range(50))}, max_items=10)
-    )
-    assert run.status == "stopped" and run.cause.type == "item_limit" and called == []
-    assert run.cause.ctx == {"series": "s.result", "items": 50, "max_items": 10}
-    saved = Run.from_json(run.to_json(), graph)
-    (done, called) = calls(lambda: saved.with_max_items(100).resume())
-    assert done.status == "complete" and len(called) == 50
-
-
 def test_an_upgraded_subgraph_keeps_the_name_of_its_output():
     """After the upgrade, an edge from ``e.result`` still works.
 

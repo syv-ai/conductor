@@ -5,6 +5,7 @@ test picks one place where a hint could be read two ways, and checks that it is 
 """
 
 import datetime
+import math
 from decimal import Decimal
 from enum import Enum, IntEnum
 from ipaddress import IPv4Address
@@ -14,6 +15,7 @@ from uuid import UUID
 
 import polars as pl
 import pytest
+from annotated_types import LowerCase, Predicate, Timezone, Unit
 from conductor import (
     Ask,
     Graph,
@@ -29,12 +31,13 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor.widgets import Widget
+from conductor.widgets import Textarea, Widget
 from pydantic import (
     AfterValidator,
     BaseModel,
     ConfigDict,
     Discriminator,
+    Field,
     GetCoreSchemaHandler,
     JsonValue,
     model_validator,
@@ -349,68 +352,93 @@ def test_a_pydantic_type_keeps_the_limits_it_has() -> None:
     assert _run(count, times=3).outputs == {"result": "aaaaaa"}
 
 
-def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> None:
-    from pydantic import Field
+_LIMIT = Field(ge=0)
 
-    limit = Field(ge=0)
-    hints = (
-        Annotated[int, limit],
-        Annotated[int, limit] | None,
+
+class _LimitedRow(TypedDict):
+    times: Annotated[int, _LIMIT]
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        Annotated[int, _LIMIT],
+        Annotated[int, _LIMIT] | None,
         Annotated[int, Field(title="Times")],
-        Annotated[Annotated[int, limit], Param(title="Times")],
-        Series[Annotated[int, limit]],
-        list[Annotated[int, limit]],
-        dict[str, Annotated[int, limit]],
-    )
-    for hint in hints:
-        with pytest.raises(
-            NodeDeclarationError,
-            match=r"value: the hint uses pydantic's Field\(\.\.\.\).*Annotated\[int, Param\(ge=0\)\]",
-        ) as raised:
-            node("count", title="Count", description="For a test.")(_returning_its_input(hint))
-        assert raised.value.problems[0].type == "pydantic_field_in_hint", hint
-
-    class Row(TypedDict):
-        times: Annotated[int, limit]
-
-    for returned in (Annotated[int, limit], Table[Row]):  # an output, and a column of a table
-        with pytest.raises(NodeDeclarationError) as raised:
-            node("count", title="Count", description="For a test.")(_returning(returned))
-        assert raised.value.problems[0].type == "pydantic_field_in_hint", returned
+        Annotated[Annotated[int, _LIMIT], Param(title="Times")],
+        Series[Annotated[int, _LIMIT]],
+        list[Annotated[int, _LIMIT]],
+        dict[str, Annotated[int, _LIMIT]],
+    ],
+    ids=["alone", "optional", "a-title", "inside-a-param", "in-a-series", "in-a-list", "in-a-dict"],
+)
+def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write(hint: Any) -> None:
+    with pytest.raises(
+        NodeDeclarationError,
+        match=r"value: the hint uses pydantic's Field\(\.\.\.\).*Annotated\[int, Param\(ge=0\)\]",
+    ) as raised:
+        node("count", title="Count", description="For a test.")(_returning_its_input(hint))
+    assert raised.value.problems[0].type == "pydantic_field_in_hint"
 
 
-def test_a_field_of_a_bare_typed_dict_is_held_to_the_rules_a_column_of_a_table_row_is() -> None:
+@pytest.mark.parametrize(
+    "returned",
+    [Annotated[int, _LIMIT], Table[_LimitedRow]],
+    ids=["an-output", "a-column-of-a-table"],
+)
+def test_a_pydantic_field_in_an_output_is_refused(returned: Any) -> None:
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("count", title="Count", description="For a test.")(_returning(returned))
+    assert raised.value.problems[0].type == "pydantic_field_in_hint"
+
+
+@host_type("tabby", title="Tabby")
+class _Tabby(BaseModel, frozen=True):
+    kind: Literal["tabby"]
+
+
+@host_type("siamese", title="Siamese")
+class _Siamese(BaseModel, frozen=True):
+    kind: Literal["siamese"]
+
+
+@pytest.mark.parametrize("held_in", ["alone", "a-table", "a-list"])
+@pytest.mark.parametrize(
+    ("kind", "hint"),
+    [
+        ("pydantic_field_in_hint", Annotated[int, Field(ge=0)]),
+        (
+            "pydantic_discriminator_in_hint",
+            Annotated[_Tabby | _Siamese, Field(discriminator="kind")],
+        ),
+        ("timezone_in_hint", Annotated[datetime.datetime, Timezone(None)]),
+        ("unit_in_hint", Annotated[float, Unit("m")]),
+        ("predicate_alias_in_hint", Annotated[str, LowerCase]),
+        ("type_not_supported_set", set[int]),
+    ],
+    ids=[
+        "a-pydantic-field",
+        "a-pydantic-discriminator",
+        "a-timezone",
+        "a-unit",
+        "a-predicate-alias",
+        "a-set",
+    ],
+)
+def test_a_field_of_a_bare_typed_dict_is_held_to_the_rules_a_column_of_a_table_row_is(
+    kind: str, hint: Any, held_in: str
+) -> None:
     """A hint a node may not write is refused at the same depth in a ``TypedDict`` input as in a table's row."""
-    import math
+    record = TypedDict("Record", {"part": hint})  # type: ignore[misc]
+    declared = {"alone": record, "a-table": Table[record], "a-list": list[record]}[held_in]  # type: ignore[valid-type]
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("count", title="Count", description="For a test.")(_returning_its_input(declared))
+    assert raised.value.problems[0].type == kind
 
-    from annotated_types import LowerCase, Predicate, Timezone, Unit
-    from pydantic import Field
 
-    @host_type("tabby", title="Tabby")
-    class Tabby(BaseModel, frozen=True):
-        kind: Literal["tabby"]
-
-    @host_type("siamese", title="Siamese")
-    class Siamese(BaseModel, frozen=True):
-        kind: Literal["siamese"]
-
-    faults = {
-        "pydantic_field_in_hint": Annotated[int, Field(ge=0)],
-        "pydantic_discriminator_in_hint": Annotated[Tabby | Siamese, Field(discriminator="kind")],
-        "timezone_in_hint": Annotated[datetime.datetime, Timezone(None)],
-        "unit_in_hint": Annotated[float, Unit("m")],
-        "predicate_alias_in_hint": Annotated[str, LowerCase],
-        "type_not_supported_set": set[int],
-    }
-    for kind, hint in faults.items():
-        record = TypedDict("Record", {"part": hint})  # type: ignore[misc]
-        for declared in (record, Table[record], list[record]):  # type: ignore[valid-type]
-            with pytest.raises(NodeDeclarationError) as raised:
-                node("count", title="Count", description="For a test.")(
-                    _returning_its_input(declared)
-                )
-            assert raised.value.problems[0].type == kind, (kind, declared)
-    # a predicate pydantic checks, written as the metadata itself, is taken
+def test_a_predicate_pydantic_checks_written_as_the_metadata_itself_is_taken_in_a_bare_typed_dict() -> (
+    None
+):
     taken = TypedDict("Taken", {"part": Annotated[float, Predicate(math.isfinite)]})  # type: ignore[misc]
     node("count", title="Count", description="For a test.")(_returning_its_input(taken))
 
@@ -429,36 +457,29 @@ def test_a_series_limit_is_for_its_items_inside_a_list_too() -> None:
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
-def test_choices_a_converting_check_moves_off_are_refused_when_the_node_is_declared() -> None:
+def _shouted(value: str) -> str:
+    return value + "!"
+
+
+@pytest.mark.parametrize(
+    "hint",
+    [
+        Annotated[str, AfterValidator(_shouted), Param(choices=["a"])],
+        Annotated[str, Param(choices=["a"]), AfterValidator(_shouted)],
+        Series[Annotated[str, AfterValidator(_shouted), Param(choices=["a"])]],
+        list[Series[Annotated[str, AfterValidator(_shouted), Param(choices=["a"])]]],
+    ],
+    ids=["check-first", "param-first", "on-a-series", "on-a-series-inside-a-list"],
+)
+def test_choices_a_converting_check_moves_off_are_refused_when_the_node_is_declared(
+    hint: Any,
+) -> None:
     """A check that converts a value, like one that adds ``"!"``, would make every choice refuse itself, so the
-    choices are read through the type's whole check and refused at ``@node``, not at every call."""
-
-    def shouted(value: str) -> str:
-        return value + "!"
-
-    for hint in (
-        Annotated[str, AfterValidator(shouted), Param(choices=["a"])],
-        Annotated[str, Param(choices=["a"]), AfterValidator(shouted)],
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            node("count", title="Count", description="For a test.")(_returning_its_input(hint))
-        assert raised.value.problems[0].type == "choices_invalid", hint
-
-
-def test_choices_a_converting_check_moves_off_are_refused_on_a_series_inside_a_list() -> None:
-    """A Series' items are read as one type wherever the Series is, so a converting check's choices are refused in a
-    list of Series as on a Series port."""
-
-    def shouted(value: str) -> str:
-        return value + "!"
-
-    for hint in (
-        Series[Annotated[str, AfterValidator(shouted), Param(choices=["a"])]],
-        list[Series[Annotated[str, AfterValidator(shouted), Param(choices=["a"])]]],
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            node("count", title="Count", description="For a test.")(_returning_its_input(hint))
-        assert raised.value.problems[0].type == "choices_invalid", hint
+    choices are read through the type's whole check and refused at ``@node``, not at every call. A Series' items
+    are read as one type wherever the Series is, so they are refused in a list of Series as on a Series port."""
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("count", title="Count", description="For a test.")(_returning_its_input(hint))
+    assert raised.value.problems[0].type == "choices_invalid"
 
 
 def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discriminator_to_write() -> (
@@ -949,18 +970,22 @@ def test_a_host_type_names_the_other_classes_it_takes() -> None:
     ] == ["celsius", "kelvin"]
 
 
-def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -> None:
-    from conductor.widgets import Textarea
-
-    for hint in (
+@pytest.mark.parametrize(
+    "hint",
+    [
         Annotated[str, Textarea()],
         Series[Annotated[str, Textarea()]],
         Annotated[str, Textarea()] | None,
-    ):
-        with pytest.raises(NodeDeclarationError, match=r"Param\(widget=") as raised:
-            node("note", title="Note", description="For a test.")(_returning_its_input(hint))
-        assert raised.value.problems[0].type == "widget_outside_param"
+    ],
+    ids=["alone", "in-a-series", "optional"],
+)
+def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes(hint: Any) -> None:
+    with pytest.raises(NodeDeclarationError, match=r"Param\(widget=") as raised:
+        node("note", title="Note", description="For a test.")(_returning_its_input(hint))
+    assert raised.value.problems[0].type == "widget_outside_param"
 
+
+def test_a_widget_written_in_param_is_shown_to_a_host() -> None:
     @node("note", title="Note", description="For a test.")
     def note(text: Annotated[str, Param(widget=Textarea())]) -> str:
         return text

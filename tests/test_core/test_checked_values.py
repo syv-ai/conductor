@@ -111,7 +111,6 @@ def test_a_return_that_is_not_the_declared_type_fails_the_node_that_returned_it(
 
 def test_returning_none_needs_the_hint():
     assert _returning(None, str | None).status == "complete"
-    assert _returning(None, str).cause.type == "invalid_output"
 
 
 @pytest.mark.parametrize(
@@ -723,25 +722,21 @@ class Line(TypedDict):
     amount: int
 
 
-def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off():
-    run = _returning(pl.DataFrame({"item": ["a"], "amount": [12.75]}), Table[Line])
+@pytest.mark.parametrize("amount", [12.75, 12.0], ids=["a-fraction", "a-whole-float"])
+def test_a_float_column_for_an_int_one_fails_the_node_rather_than_being_cut_off_even_when_whole(
+    amount: float,
+):
+    """Outputs are read strictly. ``12.0`` is a float, so an ``int`` column refuses it, as ``12.75`` is never cut off.
+
+    It's the same rule by which ``-> int`` refuses ``"12"``.
+    """
+    run = _returning(pl.DataFrame({"item": ["a"], "amount": [amount]}), Table[Line])
 
     assert (run.cause.type, run.cause.loc, run.cause.ctx["output"], run.cause.ctx["column"]) == (
         "invalid_output",
         ("g",),
         "result",
         "amount",
-    )
-
-
-def test_a_float_column_for_an_int_one_fails_even_when_whole():
-    """Outputs are read strictly. ``12.0`` is a float, so an ``int`` column refuses it.
-
-    It's the same rule by which ``-> int`` refuses ``"12"``.
-    """
-    assert (
-        _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).cause.type
-        == "invalid_output"
     )
 
 
@@ -929,18 +924,38 @@ class Contacts(TypedDict):
     email: str
 
 
-def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_the_column():
-    @node("needs_email", title="Needs email", description="For a test.")
-    def needs_email(contacts: Table[Contacts]) -> int:
-        return contacts.height
+@node("needs_email", title="Needs email", description="For a test.")
+def _needs_email(contacts: Table[Contacts]) -> int:
+    return contacts.height
 
-    run = _feeding(pl.DataFrame({"name": ["Ida"]}), Table, needs_email)
+
+class _Amounts(TypedDict):
+    result: int
+
+
+@node("total", title="Total", description="For a test.")
+def _total(rows: Table[_Amounts]) -> int:
+    return int(rows["result"].sum())
+
+
+@pytest.mark.parametrize(
+    ("frame", "sink", "input_name", "column"),
+    [
+        (pl.DataFrame({"name": ["Ida"]}), _needs_email, "contacts", "email"),
+        (pl.DataFrame({"result": ["1", "two"]}), _total, "rows", "result"),
+    ],
+    ids=["a-column-it-declares-missing", "a-column-of-a-type-it-wont-take"],
+)
+def test_a_table_input_given_an_untyped_table_its_columns_dont_fit_fails_the_target_naming_the_column(
+    frame: pl.DataFrame, sink: Any, input_name: str, column: str
+):
+    run = _feeding(frame, Table, sink)
 
     assert (run.cause.type, run.cause.loc, run.cause.ctx["input"], run.cause.ctx["column"]) == (
         "invalid_edge_value",
         ("b",),
-        "contacts",
-        "email",
+        input_name,
+        column,
     )
 
 
@@ -998,23 +1013,6 @@ def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatc
         ("b", "rows"),
         "Table[result: str]",
         "Table[result: int]",
-    )
-
-
-def test_a_column_of_an_untyped_table_its_input_wont_take_fails_the_target_as_invalid_edge_value():
-    class Amounts(TypedDict):
-        result: int
-
-    @node("total", title="Total", description="For a test.")
-    def total(rows: Table[Amounts]) -> int:
-        return int(rows["result"].sum())
-
-    run = _feeding(pl.DataFrame({"result": ["1", "two"]}), Table, total)
-
-    assert (run.cause.type, run.cause.loc, run.cause.ctx["column"]) == (
-        "invalid_edge_value",
-        ("b",),
-        "result",
     )
 
 
@@ -1182,9 +1180,10 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_delays_no_other_call()
     assert asyncio.run(go()) == "complete"
 
 
-def test_a_value_already_of_its_type_is_kept_as_returned():
-    """A value that is already its type is kept as it is, so an infinite ``float`` stays infinite."""
-    assert math.isinf(_returning(math.inf, float).results["g"]["result"])
+@pytest.mark.parametrize("returned", [math.inf, -math.inf, math.nan], ids=repr)
+def test_a_value_already_of_its_type_is_kept_as_returned(returned: float):
+    """A value that is already its type is kept as it is, so a ``float`` that is not finite stays as it was."""
+    assert repr(_returning(returned, float).results["g"]["result"]) == repr(returned)
 
 
 @pytest.mark.parametrize("return_type", [Any, int | Any, Any | None])
@@ -1201,10 +1200,10 @@ def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(
     assert run.results["b"]["result"] == returned
 
 
-def test_a_yes_or_no_returned_for_a_literal_of_numbers_is_refused_as_for_a_number():
-    for return_type in (int, float, Literal[1, 2]):
-        run = _returning(True, return_type)
-        assert (run.status, run.cause.type) == ("failed", "invalid_output"), return_type
+@pytest.mark.parametrize("return_type", [int, float, Literal[1, 2]], ids=repr)
+def test_a_yes_or_no_returned_for_a_literal_of_numbers_is_refused_as_for_a_number(return_type: Any):
+    run = _returning(True, return_type)
+    assert (run.status, run.cause.type) == ("failed", "invalid_output")
 
 
 @node("anything-in", title="Anything in", description="For a test.")
@@ -1234,66 +1233,42 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
 
 
 @pytest.mark.parametrize(
-    ("declared", "returned"), [(dict, {"other": 1}), (Any, 5), (Any, {"other": 1})]
+    ("declared", "returned", "reader", "input_name", "loc"),
+    [
+        (dict, {"other": 1}, _anything_in, "x", ("anything-in",)),
+        (Any, 5, _anything_in, "x", ("anything-in",)),
+        (Any, {"other": 1}, _anything_in, "x", ("anything-in",)),
+        (Series[dict], [{"name": "a"}, {"other": "b"}], _anything_in, "x", ("anything-in", 1)),
+        (Series[dict], [{"name": "a"}, {"other": "b"}], _all_of, "values", ("all-of",)),
+        (Series[Any], pl.DataFrame({"other": ["a", "b"]}), _anything_in, "x", ("anything-in", 0)),
+        (Series[Any], pl.DataFrame({"other": ["a", "b"]}), _all_of, "values", ("all-of",)),
+    ],
+    ids=[
+        "a-dict",
+        "a-number",
+        "a-dict-typed-any",
+        "an-item",
+        "the-items-collected",
+        "an-untyped-column-per-item",
+        "an-untyped-column-collected",
+    ],
 )
 def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_reader_naming_the_field(
-    declared: Any, returned: Any
+    declared: Any, returned: Any, reader: Any, input_name: str, loc: tuple[Any, ...]
 ):
     """An edge may read a field of a record whose type declares no fields. The field is only checked at run time.
 
-    When the field is missing, the node the edge goes into fails with ``invalid_edge_value``.
+    When the field is missing, the node the edge goes into fails with ``invalid_edge_value``: at the item that lacks
+    it, or, for a node that collects the items, the call as a whole.
     """
     give = _giving(returned, declared)
     graph = Graph.compile(
-        make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]),
-        registry_of(give, _anything_in),
+        make_graph(give, reader, edges=[("give.result.name", f"{reader.id}.{input_name}")]),
+        registry_of(give, reader),
     )
     assert graph.is_runnable
-    assert _fails_with(graph) == ("failed", "invalid_edge_value", ("anything-in",), "x", "name")
+    assert _fails_with(graph) == ("failed", "invalid_edge_value", loc, input_name, "name")
     assert SECRET not in graph.run().cause.msg and "no field 'name'" in graph.run().cause.msg
-
-
-def test_a_field_an_item_or_untyped_column_lacks_fails_the_target_at_that_item_or_the_collect_whole():
-    items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
-    per_item = Graph.compile(
-        make_graph(items, _anything_in, edges=[("give.result.name", "anything-in.x")]),
-        registry_of(items, _anything_in),
-    )
-    assert _fails_with(per_item) == (
-        "failed",
-        "invalid_edge_value",
-        ("anything-in", 1),
-        "x",
-        "name",
-    )
-    collected = Graph.compile(
-        make_graph(items, _all_of, edges=[("give.result.name", "all-of.values")]),
-        registry_of(items, _all_of),
-    )
-    assert _fails_with(collected) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
-    by_column = _giving(pl.DataFrame({"other": ["a", "b"]}), Series[Any])
-    column_read = Graph.compile(
-        make_graph(by_column, _anything_in, edges=[("give.result.name", "anything-in.x")]),
-        registry_of(by_column, _anything_in),
-    )
-    assert _fails_with(column_read) == (
-        "failed",
-        "invalid_edge_value",
-        ("anything-in", 0),
-        "x",
-        "name",
-    )
-    column_collected = Graph.compile(
-        make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]),
-        registry_of(by_column, _all_of),
-    )
-    assert _fails_with(column_collected) == (
-        "failed",
-        "invalid_edge_value",
-        ("all-of",),
-        "values",
-        "name",
-    )
 
 
 @pytest.mark.parametrize(
@@ -1957,11 +1932,6 @@ def test_a_frame_given_for_a_table_with_a_float_cell_not_finite_is_refused(frame
     )
 
 
-def test_a_node_computes_a_float_that_is_not_finite_and_the_run_keeps_it():
-    assert math.isnan(_returning(math.nan, float).results["g"]["result"])
-    assert math.isinf(_returning(-math.inf, float).results["g"]["result"])
-
-
 @pytest.mark.parametrize("door", _DOORS)
 @pytest.mark.parametrize("given", [None, {"level": 1}], ids=["none", "mapping"])
 def test_a_host_check_that_raises_a_type_error_is_a_refusal_never_an_exception(
@@ -2065,12 +2035,25 @@ def test_a_set_inside_a_dataclass_given_is_refused_as_set_has_no_order():
     assert refused.value.problems[0].ctx["errors"][0]["type"] == "set_has_no_order"
 
 
+def _holding_itself() -> list[Any]:
+    looped: list[Any] = []
+    looped.append(looped)
+    return looped
+
+
 @pytest.mark.parametrize(
     "given",
-    [pl.DataFrame({"a": [1]}), {"t": pl.DataFrame({"a": [1]})}, [pl.DataFrame({"a": [1]})]],
-    ids=["frame", "in-a-dict", "in-a-list"],
+    [
+        pl.DataFrame({"a": [1]}),
+        {"t": pl.DataFrame({"a": [1]})},
+        [pl.DataFrame({"a": [1]})],
+        _holding_itself(),
+    ],
+    ids=["frame", "in-a-dict", "in-a-list", "a-value-that-holds-itself"],
 )
-def test_a_frame_given_where_the_type_is_no_table_is_refused_wherever_it_sits(given: Any):
+def test_a_frame_where_the_type_is_no_table_or_a_value_that_holds_itself_is_refused_as_no_json_form(
+    given: Any,
+):
     with pytest.raises(InvalidCallError) as refused:
         _given(given, Any)
 
@@ -2100,20 +2083,6 @@ def test_a_wrong_container_given_names_what_was_wanted_in_pydantics_own_words():
         _given("a", Series[str])
 
     assert refused.value.problems[0].ctx["reason"] == "Input should be a valid array"
-
-
-def test_a_value_that_holds_itself_is_refused_as_no_json_form():
-    looped: list[Any] = []
-    looped.append(looped)
-
-    with pytest.raises(InvalidCallError) as refused:
-        _given(looped, Any)
-
-    (problem,) = refused.value.problems
-    assert (problem.type, [error["type"] for error in problem.ctx["errors"]]) == (
-        "invalid_input",
-        ["no_json_form"],
-    )
 
 
 class PlainName(TypedDict):

@@ -235,6 +235,11 @@ def test_an_id_that_is_no_word_or_is_one_of_conductors_own_is_refused_by_its_own
         ({"id": 5, "title": None}, [("string_type", ["id"]), ("string_type", ["title"])]),
         ({"id": "thing", "title": ""}, [("blank_text", ["title"])]),
         ({"id": "thing", "title": "   "}, [("blank_text", ["title"])]),
+        # accepts is a list of classes
+        ({"id": "thing", "title": "Thing", "accepts": ["celsius"]}, [("is_type", ["accepts", 0])]),
+        ({"id": "thing", "title": "Thing", "accepts": None}, [("tuple_type", ["accepts"])]),
+        ({"id": "thing", "title": "Thing", "accepts": int}, [("tuple_type", ["accepts"])]),
+        ({"id": "thing", "title": "Thing", "accepts": 5}, [("tuple_type", ["accepts"])]),
         # every fault in one pass, as on a node
         (
             {"id": "a b", "title": " ", "accepts": [1]},
@@ -250,19 +255,6 @@ def test_an_argument_it_cant_take_is_an_invalid_declaration_argument_as_on_a_nod
     arguments: dict[str, Any], faults: list[tuple[str, list[str]]]
 ) -> None:
     assert _faults(lambda: host_type(**arguments)) == faults
-
-
-def test_accepts_given_something_other_than_classes_fails_at_the_class_statement() -> None:
-    def build() -> None:
-        @host_type("thing", title="Thing", accepts=["celsius"])  # type: ignore[list-item]
-        class Thing(BaseModel, frozen=True):
-            pass
-
-    (problem,) = _refused(build).problems
-    assert (problem.type, [(e["type"], e["loc"]) for e in problem.ctx["errors"]]) == (
-        "invalid_declaration_argument",
-        [("is_type", ["accepts", 0])],
-    )
 
 
 def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> None:
@@ -376,16 +368,6 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
         "compute_hook_returned_invalid",
         "type_not_named",
     )
-
-
-@pytest.mark.parametrize("accepts", [None, int, 5], ids=repr)
-def test_accepts_that_is_no_list_of_classes_fails_at_the_class_statement(accepts: Any) -> None:
-    def build() -> None:
-        @host_type("thing", title="Thing", accepts=accepts)
-        class Thing(BaseModel, frozen=True):
-            pass
-
-    assert _refused(build).problems[0].type == "invalid_declaration_argument"
 
 
 def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused() -> None:
@@ -1146,6 +1128,21 @@ class HiddenRow(TypedDict):
 
 #: A row type whose cell's class has a rule for how it is written, a value of it, and the cell as a table keeps it:
 #: by the fields the class declares, as they are.
+type _Wallet = Money
+
+
+class MoniesPairRow(TypedDict):
+    cell: tuple[Money, Money]
+
+
+class MoneyListRow(TypedDict):
+    cell: list[Money]
+
+
+class WalletAliasRow(TypedDict):
+    cell: _Wallet
+
+
 _WRITTEN_BY_FIELDS = [
     (PricedRow, Priced(amount=1), {"amount": 1.0}),
     (DoubledRow, Doubled(a=1), {"a": 1}),
@@ -1156,16 +1153,33 @@ _WRITTEN_BY_FIELDS = [
 
 @pytest.mark.parametrize(
     ("row", "value", "kept"),
-    _WRITTEN_BY_FIELDS,
-    ids=["a field serializer", "a computed field", "an excluded field", "a subclass"],
+    [
+        *_WRITTEN_BY_FIELDS,
+        (MoneyListRow, [NotedMoney(amount=1, note="n")], [{"amount": 1.0}]),
+        (
+            MoniesPairRow,
+            (NotedMoney(amount=1, note="n"), Money(amount=2)),
+            [{"amount": 1.0}, {"amount": 2.0}],
+        ),
+        (WalletAliasRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
+    ],
+    ids=[
+        "a field serializer",
+        "a computed field",
+        "an excluded field",
+        "a subclass",
+        "a subclass in a list",
+        "a subclass in a tuple",
+        "a subclass through an alias",
+    ],
 )
 @pytest.mark.parametrize("returned", ["list", "frame"])
-def test_a_table_keeps_a_cell_by_the_fields_its_type_declares(
-    row: Any, value: Any, kept: dict[str, Any], returned: str
+def test_a_table_keeps_a_cell_by_the_fields_its_type_declares_at_any_depth(
+    row: Any, value: Any, kept: Any, returned: str
 ) -> None:
     """A cell is kept as its declared type's fields, as they are: a field serializer isn't applied, a computed field
-    isn't added, an excluded field is kept, and a subclass is kept as the declared class. Its saved run reads back
-    the same."""
+    isn't added, an excluded field is kept, and a subclass is kept as the class its column's type declares, wherever
+    the type puts it. Its saved run reads back the same."""
     (name,) = row.__annotations__
 
     def returns() -> Table[row]:  # type: ignore[valid-type]
@@ -1183,54 +1197,8 @@ def test_a_table_keeps_a_cell_by_the_fields_its_type_declares(
     assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
 
 
-type _Wallet = Money
-
-
-class MoniesPairRow(TypedDict):
-    cell: tuple[Money, Money]
-
-
-class MoneyListRow(TypedDict):
-    cell: list[Money]
-
-
-class WalletAliasRow(TypedDict):
-    cell: _Wallet
-
-
 class AnyRow(TypedDict):
     cell: Any
-
-
-@pytest.mark.parametrize(
-    ("row", "value", "kept"),
-    [
-        (MoneyListRow, [NotedMoney(amount=1, note="n")], [{"amount": 1.0}]),
-        (
-            MoniesPairRow,
-            (NotedMoney(amount=1, note="n"), Money(amount=2)),
-            [{"amount": 1.0}, {"amount": 2.0}],
-        ),
-        (WalletAliasRow, NotedMoney(amount=1, note="n"), {"amount": 1.0}),
-    ],
-    ids=["a subclass in a list", "a subclass in a tuple", "a subclass through an alias"],
-)
-def test_a_table_keeps_a_cell_by_its_declared_types_at_any_depth(
-    row: Any, value: Any, kept: Any
-) -> None:
-    """A subclass is kept as the class its column's type declares wherever the type puts it."""
-
-    def returns() -> Table[row]:  # type: ignore[valid-type]
-        return [{"cell": value}]  # type: ignore[return-value]
-
-    table = node("table", title="Table", description="For a test.")(returns)
-    registry = NodeRegistry()
-    registry.add(table)
-    graph = Graph.compile(make_graph(table), registry)
-    run = graph.run({})
-
-    assert run.outputs["result"].to_dicts() == [{"cell": kept}]
-    assert Run.from_json(run.to_json(), graph).to_json() == run.to_json()
 
 
 def _any_table(cells: list[Any]) -> Any:

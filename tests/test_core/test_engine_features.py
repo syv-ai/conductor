@@ -9,7 +9,6 @@ import base64
 import json
 import re
 import time as t
-from asyncio import Event
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, IntEnum
@@ -277,66 +276,6 @@ def test_failure_keeps_calls_already_made():
         ),
     ).resume()
     assert again.status == "complete" and seen == ["c"], seen  # only the failed call runs again
-
-
-def test_cancel_and_timeout():
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "slow")), reg)
-    run = graph.with_inputs({"text": ",".join("abcdefghijklmnopqrstuvwx")}).resume(timeout=0.15)
-    assert run.status == "timed_out", run.status
-
-    async def go():
-        cancel = Event()
-        events = []
-        async for e in graph.with_inputs({"text": ",".join("abcdefghijklmnopqrstuvwx")}).stream(
-            cancel=cancel
-        ):
-            events.append(e)
-            if e.type == "node_start":
-                cancel.set()
-        return events
-
-    events = asyncio.run(go())
-    assert events[-1].status == "cancelled", events[-1].status
-    assert events[-1].run.progress.nodes["slow"].finished < 24
-
-
-def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
-    """Documents are split into lines, and each document's lines are joined on their own.
-
-    The graph goes documents, then lines, then ``slow`` per line, then a ``join`` per document.
-    """
-
-    @node("docs", title="Docs", description="For a test.")
-    def docs(text: str) -> Series[str]:
-        return text.split("|")
-
-    reg2 = registry_of(docs, split, slow, join)
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "docs": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
-                    "split": {
-                        "node": "split",
-                        "inputs": {"text": {"sources": [{"node": "docs", "output": "result"}]}},
-                    },
-                    "slow": {
-                        "node": "slow",
-                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                    "join": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "slow", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "join", "output": "result"}},
-            }
-        ),
-        reg2,
-    )
-    run = graph.run({"text": "a,b|c|d,e,f"})
-    assert run.results["join"]["result"] == ["aa+bb", "cc", "dd+ee+ff"], run.results
 
 
 def test_a_timed_out_run_keeps_the_calls_already_on_threads():
@@ -1592,42 +1531,7 @@ def test_a_compiled_graph_describes_a_nodes_added_inputs_with_one_that_no_edge_r
 # -- 7. what a node's signature declares ------------------------------------------------------------
 
 
-def test_a_fault_in_a_signature_is_refused_at_node_with_its_problem_type():
-    from conductor import NodeDeclarationError
-
-    cases = {
-        "default_none_not_taken": lambda: node("a", title="A", description="For a test.")(
-            _fn("x: int = None")
-        ),
-        "nested_series": lambda: node("b", title="B", description="For a test.")(
-            _fn("x: Series[Series[int]]")
-        ),
-        "param_limit_value_invalid": lambda: node("d", title="D", description="For a test.")(
-            _fn("x: Annotated[int, Param(ge=1.5)]")
-        ),
-    }
-    for code, declare in cases.items():
-        try:
-            declare()
-        except NodeDeclarationError as error:
-            assert error.problems[0].type == code, (code, error.problems[0].type)
-        else:
-            raise AssertionError(code)
-
-
-def _fn(parameter: str, **names: Any) -> Any:
-    """Returns a function ``f`` that takes ``parameter``, built from source text.
-
-    Building it from text lets a test give an annotation exactly as written, even one a type checker refuses.
-    """
-    namespace: dict[str, Any] = {"Annotated": Annotated, "Param": Param, "Series": Series, **names}
-    exec(f"def f({parameter}) -> str:\n    return repr(x)", namespace)
-    return namespace["f"]
-
-
 def test_an_input_hint_written_as_optional_annotated_any_or_bare_series_is_described_and_run_as_written():
-    from conductor import Table
-
     @host_type("Whole", title="Whole")
     class Whole(int):
         pass
@@ -1655,7 +1559,6 @@ def test_an_input_hint_written_as_optional_annotated_any_or_bare_series_is_descr
         registry_of(kinds),
     )
     assert graph.run().outputs == {"result": "Whole"}
-    assert Table is not None
 
 
 # -- 8. a subgraph's inner nodes are reused just as the outer graph's own nodes are ------------

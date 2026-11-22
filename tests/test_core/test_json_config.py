@@ -4,15 +4,11 @@ from typing import TypedDict
 
 import conductor
 import pytest
-from conductor import JSON_CONFIG, Graph, NodeRegistry, host_type, make_graph, node
+from conductor import JSON_CONFIG, Graph, host_type, make_graph, node
 from pydantic import BaseModel, ConfigDict, with_config
 from typing_extensions import TypedDict as ExtensionsTypedDict
 
-
-def _registry(*definitions):
-    registry = NodeRegistry()
-    registry.add(*definitions)
-    return registry
+from tests.test_core.nodes import registry_of
 
 
 def test_json_config_is_a_public_name():
@@ -29,7 +25,7 @@ def test_a_host_model_built_from_json_config_is_taken_and_reads_bytes_as_base64(
     def attachment_size(file: Attachment) -> int:
         return len(file.data)
 
-    graph = Graph.compile(make_graph(attachment_size), _registry(attachment_size))
+    graph = Graph.compile(make_graph(attachment_size), registry_of(attachment_size))
     assert graph.problems == []
     run = graph.run({"file": {"data": b"hello"}})
     assert run.outputs["result"] == 5
@@ -60,6 +56,6 @@ def test_a_typed_dict_built_with_json_config_is_taken_and_reads_bytes_as_base64(
     def attachment_size(file: Attachment) -> int:
         return len(file["data"])
 
-    graph = Graph.compile(make_graph(attachment_size), _registry(attachment_size))
+    graph = Graph.compile(make_graph(attachment_size), registry_of(attachment_size))
     assert graph.problems == []
     assert graph.run({"file": {"data": "__4="}}).outputs["result"] == 2
