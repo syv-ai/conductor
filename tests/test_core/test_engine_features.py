@@ -1596,7 +1596,7 @@ def test_a_fault_in_a_signature_is_refused_at_node_with_its_problem_type():
             _fn("x: Series[Series[int]]")
         ),
         "param_limit_value_invalid": lambda: node("d", title="D", description="For a test.")(
-            _fn('x: Annotated[int, Param(ge="a")]')
+            _fn("x: Annotated[int, Param(ge=1.5)]")
         ),
     }
     for code, declare in cases.items():

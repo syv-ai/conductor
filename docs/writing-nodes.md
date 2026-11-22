@@ -633,7 +633,7 @@ except InvalidCallError as refused:
     # That isn't a valid answer to 'colour': Extra inputs are not permitted.
 ```
 
-An `Ask` whose choices or default don't fit fails the node the same way, with one [`invalid_ask`](problems.md#invalid_ask) that lists every fault.
+An `Ask` whose prompt isn't text, or whose choices or default don't fit, fails the node the same way, with one [`invalid_ask`](problems.md#invalid_ask) that lists every fault.
 
 `Ask` is a `BaseException`, not an `Exception`, so an `except Exception` in your node doesn't catch it by mistake. What each return type asks, and the rules for answers, are in `python -m conductor.about asking-a-person`.
 

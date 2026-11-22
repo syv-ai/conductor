@@ -44,12 +44,13 @@ Asking a person isn't an error. A node raises ``Ask``, its call waits, and the r
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Self, cast
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import BaseModel, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, PydanticKnownError
 from pydantic_core.core_schema import ErrorType
 
@@ -271,16 +272,24 @@ def arguments_reason(faults: list[dict[str, Any]]) -> str:
 def _steps_given(given: Any, steps: list[str | int]) -> list[str | int] | None:
     """Returns the steps of a fault's ``loc`` that name a place in ``given``, walking ``given`` along them.
 
-    A step is a key of a mapping, as text, or an index of a sequence. Pydantic's label of a union's member, ``"dict"``
-    or ``"list"`` in a ``JsonValue``, names no place and is left out, so ``{"a": [1, (2,)]}`` is refused at
-    ``["a", 1]``. A step that is neither is a key that isn't text: its own fault ends at ``"[key]"``, and a fault
-    under it gives ``None``. A step into anything else, such as a model, is kept as pydantic wrote it.
+    A step is a field of a dataclass or a model, by its name, a key of a mapping, as text, or an index of a sequence.
+    Pydantic's label of a union's member, ``"dict"`` or ``"list"`` in a ``JsonValue``, names no place and is left
+    out, so ``{"a": [1, (2,)]}`` is refused at ``["a", 1]``. A step that is neither is a key that isn't text: its own
+    fault ends at ``"[key]"``, and a fault under it gives ``None``. So ``Upgrade(renamed_inputs={1: "x"})`` is
+    refused at ``["renamed_inputs", "[key]"]``. A step into anything else is kept as pydantic wrote it.
     """
     kept: list[str | int] = []
     for at, step in enumerate(steps):
         if step == "[key]":
             return [*kept, "[key]"]
-        if isinstance(given, Mapping):
+        if isinstance(given, BaseModel) or (
+            dataclasses.is_dataclass(given) and not isinstance(given, type)
+        ):
+            if not (isinstance(step, str) and hasattr(given, step)):
+                return [*kept, *steps[at:]]
+            kept.append(step)
+            given = getattr(given, step)
+        elif isinstance(given, Mapping):
             if isinstance(step, str) and step in given:
                 kept.append(step)
                 given = given[step]

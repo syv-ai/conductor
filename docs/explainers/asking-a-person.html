@@ -921,7 +921,7 @@ stopped = run_alone(who, ticket="T1")
 print(stopped.status, stopped.cause.type)
 print(stopped.cause.msg)</pre>
       <pre class="out">failed invalid_ask
-The node's Ask doesn't fit its outputs: the choices for 'result' are wrong (Input should be a valid string). Fix the Ask.</pre>
+The node's Ask is wrong: the choices for 'result' are wrong (Input should be a valid string). Fix the Ask.</pre>
     </div>
   </div>
   <p class="small" style="margin-top:.75rem">The rules an answer and an <code>Ask</code> are held to are in <code>python -m conductor.about asking-a-person</code>, and every problem they give, with its <code>ctx</code>, is on the <a href="../problems/">problems page</a>.</p>

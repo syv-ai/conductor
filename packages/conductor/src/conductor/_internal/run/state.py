@@ -24,12 +24,12 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, Self
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, model_validator
 
 from conductor._internal.base import ConductorModel, ItemIndexes, NodePath
-from conductor._internal.problem import Problem, run_problems
+from conductor._internal.problem import Problem, conductor_error, run_problems
 
 from .blueprint import outcome_loc
 from .outcome import Unanswered
@@ -77,6 +77,16 @@ class Declined:
     reason: str | None = None
 
 
+#: The one problem that ends a run early with each of these statuses: a series over the item limit stops it, a cancel
+#: cancels it, and the timeout times it out. A failed run has no such code: it ends with the problem its call failed
+#: with, and a node's ``NodeError`` may give that any code.
+_CAUSE_OF_STATUS = {
+    "stopped": run_problems.item_limit.code,
+    "cancelled": run_problems.run_cancelled.code,
+    "timed_out": run_problems.run_timed_out.code,
+}
+
+
 class EndedEarly(ConductorModel):
     """How a run ended before it was complete, and why.
 
@@ -86,6 +96,12 @@ class EndedEarly(ConductorModel):
     A decline keeps the call declined, in ``declined``, and no ``cause``: its ``answer_declined`` is made from the
     call whenever the run's cause is asked for (``cause_of``), so the decline has one source. The call itself has no
     outcome any more, so it waits on nothing, and ``again`` calls it afresh.
+
+    Any other status keeps its ``cause`` and no declined call. A stopped, cancelled or timed-out run keeps the one
+    problem that ends a run that way (``_CAUSE_OF_STATUS``). A failed run keeps the problem of the call that failed,
+    so its cause is at a call: its ``loc`` isn't empty, as a cancel's and a timeout's is. pydantic refuses any other
+    ``EndedEarly`` when it is made, so a saved run that holds one is refused where it is read
+    (``saved_run_unreadable``, at ``ended_early``).
 
     Attributes:
         status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
@@ -98,6 +114,28 @@ class EndedEarly(ConductorModel):
     status: Literal["failed", "stopped", "cancelled", "timed_out", "declined"]
     cause: Problem | None = None
     declined: Declined | None = None
+
+    @model_validator(mode="after")
+    def _one_a_run_writes(self) -> Self:
+        """Refuses an early end no run writes, as the class says.
+
+        Raises:
+            PydanticCustomError: ``saved_lists_disagree``, since only a saved run can give one: its message names no
+                value.
+        """
+        if (self.status == "declined") != (self.declined is not None):
+            wrong = "a run keeps a declined call when, and only when, it is declined"
+        elif (self.cause is None) != (self.declined is not None):
+            wrong = "a declined run keeps no cause, and any other run that ended early keeps one"
+        elif self.cause is not None and (
+            self.cause.type != code
+            if (code := _CAUSE_OF_STATUS.get(self.status)) is not None
+            else not self.cause.loc
+        ):
+            wrong = f"a {self.status} run can't have this cause"
+        else:
+            return self
+        raise conductor_error("saved_lists_disagree", wrong)
 
 
 #: How the last ``resume()`` left a run. ``"running"`` for a copy made while it was still going, such as a
@@ -135,8 +173,8 @@ def cause_of(ended_early: EndedEarly, outcomes: RunOutcomes) -> Problem:
     Any other is the ``cause`` it keeps.
 
     Raises:
-        RuntimeError: A run that ended early other than by a decline keeps no cause. That's a bug: every place that
-            ends a run early gives one, and a saved run without it isn't read back.
+        RuntimeError: A run that ended early other than by a decline keeps no cause. ``EndedEarly`` refuses one, so
+            that's a bug.
     """
     if (declined := ended_early.declined) is not None:
         node = outcomes.blueprint.function_nodes[declined.node_path]
