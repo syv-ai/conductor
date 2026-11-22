@@ -625,7 +625,6 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
     <p class="eyebrow">One run from start to finish</p>
     <h2 id="walk-h">Approving invoices with a pause for a person<span class="lvl pub">Public</span></h2>
     <div class="walk-intro">
-      <p class="muted">This is the README's invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write and what it prints.</p>
       <div class="controls">
         <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
         <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
@@ -1196,7 +1195,9 @@ print(run.outputs)</pre>
     cur = (i + STEPS.length) % STEPS.length;
     const s = STEPS[cur];
     text.innerHTML =
-      '<div class="step-cap"><p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
+      '<div class="step-cap">' +
+      (cur === 0 ? '<p class="muted">This is the README\'s invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write and what it prints.</p>' : "") +
+      '<p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
       "<h3>" + esc(s.title) + "</h3>" +
       '<p class="cap">' + linked(s.cap) + (s.more ? ' See <a href="' + s.more[1] + '">' + esc(s.more[0]) + "</a>." : "") + "</p>" +
       (s.long ? '<p class="state small">State: ' + esc(s.d.doc[0]) + "; " + esc(s.d.doc[1]) + ".</p>" : "") + "</div>" +
