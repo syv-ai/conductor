@@ -139,7 +139,9 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .rail button.seen { border-top-color: var(--ink-3); }
 .stage { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
 @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
-.stage-text { min-width: 0; display: grid; gap: 1rem; }
+.stage-text { min-width: 0; display: grid; gap: .75rem; }
+.stage-code { display: grid; gap: .75rem; align-content: start; }
+.walk-side { display: grid; gap: 1rem; }
 .stage-text h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
 .stage-text .cap { color: var(--ink-2); max-width: 60ch; }
 .fade { animation: fade .45s ease both; }
@@ -159,7 +161,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 /* each code line hangs: a wrapped line goes on 2ch past its own indent */
 .ln { display: block; }
 figure { margin: 0; display: grid; gap: .75rem; }
-figcaption { font-size: var(--step--1); color: var(--ink-3); max-width: 70ch; }
+figcaption, .caption { font-size: var(--step--1); color: var(--ink-3); max-width: 70ch; }
 .d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
 .d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
 .d-title { font: 600 11px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
@@ -255,6 +257,22 @@ figcaption { font-size: var(--step--1); color: var(--ink-3); max-width: 70ch; }
 
 footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; }
 footer p { max-width: 90ch; }
+
+/* a section in columns side by side (three unless --c3 says otherwise), so it fits one screen; one column at 900px and below */
+.columns { display: grid; grid-template-columns: var(--c3, minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)); gap: 1.75rem; align-items: start; }
+.columns > * { min-width: 0; }
+.columns > div { display: grid; gap: .75rem; align-content: start; }
+.columns .section-head { margin-bottom: .5rem; }
+@media (max-width: 900px) { .columns { grid-template-columns: minmax(0, 1fr); } }
+/* code in a dense column: a step smaller, so a long sample fits beside its output */
+.dense pre { font-size: .75rem; line-height: 1.5; }
+.ex-pair { display: grid; gap: .6rem; }
+.host-head { margin-bottom: 1rem; }
+@media (min-width: 901px) { #host .rules { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 2rem; } }
+#answering .diagram { padding: .75rem; }
+#answering .diagram svg { max-width: 340px; margin-inline: auto; }
+.dense .answer-btn { padding: .4rem .7rem; }
+.dense .tab { padding: .35rem .65rem; font-size: .75rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -486,10 +504,70 @@ body { margin: 0; }
 
 <!-- ============================ WALK ============================ -->
 <section id="walk" aria-labelledby="walk-h">
+  <div class="walk columns" style="--c3: minmax(0, .9fr) minmax(0, 1.15fr) minmax(0, .95fr)">
+  <div>
   <div class="section-head prose">
     <p class="eyebrow">One question, start to finish</p>
     <h2 id="walk-h">A run where one of three lines is too long <span class="lvl pub">Public</span></h2>
     <p class="muted"><code>lines</code> splits a text, <code>approve</code> runs once per line, and <code>count</code> collects the answers. A short line is approved by the node. A long one is asked about. Every output here is printed by this code.</p>
+  </div>
+  <div class="stage-text" id="stage-text"></div>
+  </div>
+  <div class="stage-code dense" id="stage-code"></div>
+  <div class="walk-side">
+    <nav class="rail" id="rail" aria-label="Steps"></nav>
+    <div class="diagram" aria-hidden="true">
+        <svg viewBox="0 0 440 330" id="dia">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink-3)"/></marker>
+            <marker id="arr-slow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--slow)"/></marker>
+          </defs>
+          <text class="d-title" x="14" y="22">graph</text>
+          <path class="d-edge e1" d="M98 118 C 120 118, 120 66, 146 66"/>
+          <path class="d-edge e1" d="M98 118 C 120 118, 120 118, 146 118"/>
+          <path class="d-edge e1" d="M98 118 C 120 118, 120 170, 146 170"/>
+          <path class="d-edge e2" d="M262 66 C 290 66, 290 118, 318 118"/>
+          <path class="d-edge e2" d="M262 118 C 290 118, 290 118, 318 118"/>
+          <path class="d-edge e2" d="M262 170 C 290 170, 290 118, 318 118"/>
+          <g class="d-node n-lines"><rect x="14" y="98" width="84" height="40" rx="8"/><text class="d-label" x="56" y="116" text-anchor="middle">lines</text><text class="d-sub" x="56" y="131" text-anchor="middle">once</text></g>
+          <g class="d-node n-a0"><rect x="146" y="48" width="116" height="36" rx="8"/><text class="d-label" x="204" y="64" text-anchor="middle">approve@0</text><text class="d-sub" x="204" y="78" text-anchor="middle">"ok"</text></g>
+          <g class="d-node n-a1"><rect class="d-pulse" x="146" y="100" width="116" height="36" rx="8"/><rect x="146" y="100" width="116" height="36" rx="8"/><text class="d-label" x="204" y="116" text-anchor="middle">approve@1</text><text class="d-sub" x="204" y="130" text-anchor="middle">"this is long"</text></g>
+          <g class="d-node n-a2"><rect x="146" y="152" width="116" height="36" rx="8"/><text class="d-label" x="204" y="168" text-anchor="middle">approve@2</text><text class="d-sub" x="204" y="182" text-anchor="middle">"fine"</text></g>
+          <g class="d-node n-count"><rect x="318" y="98" width="108" height="40" rx="8"/><text class="d-label" x="372" y="116" text-anchor="middle">count</text><text class="d-sub" x="372" y="131" text-anchor="middle">collects</text></g>
+          <text class="d-badge okc b-a0 hidden-el" x="268" y="46">True</text>
+          <text class="d-badge askc b-ask hidden-el" x="268" y="98">Ask</text>
+          <text class="d-badge okc b-ans hidden-el" x="268" y="98">True (answer)</text>
+          <text class="d-badge okc b-a2 hidden-el" x="268" y="150">True</text>
+          <text class="d-badge okc b-count hidden-el" x="426" y="152" text-anchor="end">'3 of 3 approved'</text>
+
+          <g class="d-extra person hidden-el">
+            <text class="d-title" x="14" y="222">a person</text>
+            <path class="d-edge ask p-out" d="M204 136 L204 232" marker-end="url(#arr-slow)"/>
+            <text class="d-arrow-label p-out-l" x="212" y="196">run.waiting</text>
+            <g class="d-plain"><rect x="146" y="234" width="280" height="30" rx="7"/></g>
+            <text class="d-label" x="158" y="253">Approve 'this is long'?</text>
+            <text class="d-sub" x="414" y="253" text-anchor="end">bool</text>
+          </g>
+          <g class="d-extra p-back hidden-el">
+            <path class="d-edge" d="M120 249 C 100 249, 100 118, 144 118" marker-end="url(#arr)"/>
+            <text class="d-arrow-label" x="22" y="190">run.with_answers</text>
+          </g>
+
+          <text class="d-title" x="14" y="290">the run</text>
+          <g class="d-doc">
+            <rect x="14" y="298" width="412" height="26" rx="7"/>
+            <text class="d-label" id="doc-line" x="26" y="315">not started</text>
+          </g>
+        </svg>
+    </div>
+    <div class="controls">
+      <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
+      <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
+      <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
+      <span class="count" id="count">1 / 7</span>
+      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+    </div>
+  </div>
   </div>
 <script type="text/x-python">
 import json
@@ -600,77 +678,24 @@ print(done.status, done.outputs)</pre><pre class="out">complete {'result': '3 of
 print(loaded.with_answers(loaded.waiting[0].id, False).resume().outputs)
 print(run.with_answers("approve@1", True).resume().outputs)</pre><pre class="out">{'result': '2 of 3 approved'}
 {'result': '3 of 3 approved'}</pre></template>
-  <div class="walk">
-    <nav class="rail" id="rail" aria-label="Steps"></nav>
-    <div class="stage">
-      <div class="stage-text" id="stage-text"></div>
-      <div class="diagram" aria-hidden="true">
-        <svg viewBox="0 0 440 330" id="dia">
-          <defs>
-            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink-3)"/></marker>
-            <marker id="arr-slow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--slow)"/></marker>
-          </defs>
-          <text class="d-title" x="14" y="22">graph</text>
-          <path class="d-edge e1" d="M98 118 C 120 118, 120 66, 146 66"/>
-          <path class="d-edge e1" d="M98 118 C 120 118, 120 118, 146 118"/>
-          <path class="d-edge e1" d="M98 118 C 120 118, 120 170, 146 170"/>
-          <path class="d-edge e2" d="M262 66 C 290 66, 290 118, 318 118"/>
-          <path class="d-edge e2" d="M262 118 C 290 118, 290 118, 318 118"/>
-          <path class="d-edge e2" d="M262 170 C 290 170, 290 118, 318 118"/>
-          <g class="d-node n-lines"><rect x="14" y="98" width="84" height="40" rx="8"/><text class="d-label" x="56" y="116" text-anchor="middle">lines</text><text class="d-sub" x="56" y="131" text-anchor="middle">once</text></g>
-          <g class="d-node n-a0"><rect x="146" y="48" width="116" height="36" rx="8"/><text class="d-label" x="204" y="64" text-anchor="middle">approve@0</text><text class="d-sub" x="204" y="78" text-anchor="middle">"ok"</text></g>
-          <g class="d-node n-a1"><rect class="d-pulse" x="146" y="100" width="116" height="36" rx="8"/><rect x="146" y="100" width="116" height="36" rx="8"/><text class="d-label" x="204" y="116" text-anchor="middle">approve@1</text><text class="d-sub" x="204" y="130" text-anchor="middle">"this is long"</text></g>
-          <g class="d-node n-a2"><rect x="146" y="152" width="116" height="36" rx="8"/><text class="d-label" x="204" y="168" text-anchor="middle">approve@2</text><text class="d-sub" x="204" y="182" text-anchor="middle">"fine"</text></g>
-          <g class="d-node n-count"><rect x="318" y="98" width="108" height="40" rx="8"/><text class="d-label" x="372" y="116" text-anchor="middle">count</text><text class="d-sub" x="372" y="131" text-anchor="middle">collects</text></g>
-          <text class="d-badge okc b-a0 hidden-el" x="268" y="46">True</text>
-          <text class="d-badge askc b-ask hidden-el" x="268" y="98">Ask</text>
-          <text class="d-badge okc b-ans hidden-el" x="268" y="98">True (answer)</text>
-          <text class="d-badge okc b-a2 hidden-el" x="268" y="150">True</text>
-          <text class="d-badge okc b-count hidden-el" x="426" y="152" text-anchor="end">'3 of 3 approved'</text>
-
-          <g class="d-extra person hidden-el">
-            <text class="d-title" x="14" y="222">a person</text>
-            <path class="d-edge ask p-out" d="M204 136 L204 232" marker-end="url(#arr-slow)"/>
-            <text class="d-arrow-label p-out-l" x="212" y="196">run.waiting</text>
-            <g class="d-plain"><rect x="146" y="234" width="280" height="30" rx="7"/></g>
-            <text class="d-label" x="158" y="253">Approve 'this is long'?</text>
-            <text class="d-sub" x="414" y="253" text-anchor="end">bool</text>
-          </g>
-          <g class="d-extra p-back hidden-el">
-            <path class="d-edge" d="M120 249 C 100 249, 100 118, 144 118" marker-end="url(#arr)"/>
-            <text class="d-arrow-label" x="22" y="190">run.with_answers</text>
-          </g>
-
-          <text class="d-title" x="14" y="290">the run</text>
-          <g class="d-doc">
-            <rect x="14" y="298" width="412" height="26" rx="7"/>
-            <text class="d-label" id="doc-line" x="26" y="315">not started</text>
-          </g>
-        </svg>
-      </div>
-    </div>
-    <div class="controls">
-      <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
-      <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
-      <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
-      <span class="count" id="count">1 / 7</span>
-      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
-    </div>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ QUESTIONS ============================ -->
 <section id="questions" aria-labelledby="q-h">
+  <div class="columns" style="--c3: minmax(0, .75fr) minmax(0, 1.25fr); align-items: center">
+  <div>
   <div class="section-head prose">
     <p class="eyebrow">What is asked</p>
     <h2 id="q-h">The return type is the question</h2>
     <p class="muted">The answer fills the node's outputs, so each output is one question. The <code>Ask</code> adds only what is known as the node runs.</p>
   </div>
-
-  <figure>
-    <div class="diagram">
+  <p class="d-key-line"><span><i></i>a solid box is public</span><span><i class="int"></i>a dashed box is internal</span></p>
+  <p class="caption" id="q-caption">One internal function, <code class="int" title="Internal">as_asked</code>, builds the question. The host is shown that question, and <code class="int" title="Internal">AnswerValidator</code> checks the answer against it. The <code>Ask</code>'s choices replace the output's own. Its default is filled in, and the question is then not required. On a node of one output, the question is always required, even when its output is a <a href="nodes-and-types.html#outputs">branch</a>. A default there is only what a host fills the answer in with.</p>
+  </div>
+  <div>
+    <figure class="diagram" aria-describedby="q-caption">
       <svg class="wide-dia" viewBox="0 0 760 200" role="img" aria-label="as_asked, inside conductor, builds each question from the output's own description plus the Ask's choices and default. The same question is shown to the host and is what the answer is checked against.">
         <defs>
           <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--ink-3)"/></marker>
@@ -697,24 +722,33 @@ print(run.with_answers("approve@1", True).resume().outputs)</pre><pre class="out
         <text class="d-label" x="556" y="140">AnswerValidator</text>
         <text class="d-sub" x="556" y="160">what the answer must fit</text>
       </svg>
-    </div>
-    <p class="d-key-line"><span><i></i>a solid box is public</span><span><i class="int"></i>a dashed box is internal</span></p>
-    <figcaption>One internal function, <code class="int" title="Internal">as_asked</code>, builds the question. The host is shown that question, and <code class="int" title="Internal">AnswerValidator</code> checks the answer against it. The <code>Ask</code>'s choices replace the output's own. Its default is filled in, and the question is then not required. On a node of one output, the question is always required, even when its output is a <a href="nodes-and-types.html#outputs">branch</a>. A default there is only what a host fills the answer in with.</figcaption>
-  </figure>
+    </figure>
+  </div>
+  </div>
 
-  <div class="explorer" style="margin-top:2.5rem">
-    <div class="tabs" role="tablist" id="q-tabs" aria-label="Return types"></div>
-    <div class="ex-body">
-      <div>
-        <p class="eyebrow">The node, and an answer to it</p>
-        <div id="q-code"></div>
-        <p class="ex-note" id="q-note"></p>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ SHAPES ============================ -->
+<section id="shapes" aria-labelledby="shapes-h">
+  <div class="explorer columns dense" style="--c3: minmax(0, .9fr) minmax(0, 1.15fr) minmax(0, .95fr)">
+    <div>
+      <div class="section-head">
+        <p class="eyebrow">What is asked, type by type</p>
+        <h2 id="shapes-h">What each return type asks</h2>
       </div>
-      <div>
-        <p class="eyebrow">The question, as <code>run.waiting</code> writes it</p>
-        <div id="q-json"></div>
-        <p class="small">Printed from <code>model_dump(mode="json")</code> in the series' JSON layout (two-space indent, a short list on one line), with <code>title</code>, <code>description</code>, <code>widget</code>, <code>type_variables</code>, <code>loops</code> and <code>constant_only</code> left out to save room. A node with several questions prints them as a list. <code>run_alone(node, ...)</code> runs a graph of that one node.</p>
-      </div>
+      <div class="tabs" role="tablist" id="q-tabs" aria-label="Return types"></div>
+      <p class="ex-note" id="q-note"></p>
+      <p class="small">The question is printed from <code>model_dump(mode="json")</code> in the series' JSON layout (two-space indent, a short list on one line), with <code>title</code>, <code>description</code>, <code>widget</code>, <code>type_variables</code>, <code>loops</code> and <code>constant_only</code> left out to save room. A node with several questions prints them as a list. <code>run_alone(node, ...)</code> runs a graph of that one node.</p>
+    </div>
+    <div>
+      <p class="eyebrow">The node, and an answer to it</p>
+      <div id="q-code" class="stage-code"></div>
+    </div>
+    <div>
+      <p class="eyebrow">The question, as <code>run.waiting</code> writes it</p>
+      <div id="q-json"></div>
     </div>
   </div>
   <!-- each tab's node, the question it asks and an answer to it; the explorer's script shows one tab at a time -->
@@ -895,14 +929,13 @@ def ack(text: str) -&gt; None:
 
 <!-- ============================ ANSWERING ============================ -->
 <section id="answering" aria-labelledby="a-h">
+  <div class="columns" style="--c3: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .95fr)">
+  <div>
   <div class="section-head prose">
     <p class="eyebrow">Answering</p>
     <h2 id="a-h">An answer is checked before anything is stored <span class="lvl pub">Public</span></h2>
     <p class="muted"><code>run.with_answers(waiting, value)</code> answers one call, and <code>run.with_answers({id: value, ...})</code> answers several. Each returns a new run, and nothing runs until <code>resume()</code>. A node with one question takes a plain value. A node with several takes a mapping by question name.</p>
   </div>
-
-  <div class="two">
-    <div>
       <figure>
         <div class="diagram">
           <svg viewBox="0 0 420 300" role="img" aria-label="For each question, an answer that gives it is read by its type and choices. A question left out gets its default; without one, a question that isn't required is a branch not chosen; a required one is a fault.">
@@ -934,8 +967,8 @@ def ack(text: str) -&gt; None:
         </div>
         <figcaption>What one question of a node with several gets from a mapping answer. The <code>required</code> and <code>default</code> a host is shown say in advance which branch a question takes.</figcaption>
       </figure>
-    </div>
-    <div>
+  </div>
+    <div class="dense">
       <p class="eyebrow">Try an answer</p>
       <pre data-lang="py">@dataclass(frozen=True)
 class Closing:
@@ -951,6 +984,8 @@ def close(ticket: str) -&gt; Closing:
 
 closing = run_alone(close, ticket="T-7")</pre>
       <div class="answers" id="answers"></div>
+    </div>
+    <div class="dense">
       <div class="verdict" id="verdict" aria-live="polite"></div>
     </div>
   </div>
@@ -976,32 +1011,24 @@ invalid_answer ('close',)
   That isn't a valid answer: Input should be a valid dictionary.
   ctx: {'waiting_id': 'close', 'reason': 'Input should be a valid dictionary', 'errors': [{'type': 'dict_type', 'loc': [], 'msg': 'Input should be a valid dictionary'}]}</pre><p class="small">A node of several questions is answered with a mapping by question name. This fault is about the answer as a whole, so it names no question.</p></template>
 
-  <div class="two" style="margin-top:2.5rem">
-    <div>
-      <h3 id="answer-group">An answer is read as its JSON text would be</h3>
-      <pre data-lang="py">confirming = run_alone(confirm, ticket="T1")
-refused(lambda: confirming.with_answers("confirm", "yes"))</pre>
-      <pre class="out">invalid_answer ('confirm',)
-  That isn't a valid answer: Input should be a valid boolean.
-  ctx: {'waiting_id': 'confirm', 'reason': 'Input should be a valid boolean', 'errors': [{'type': 'bool_type', 'loc': [], 'msg': 'Input should be a valid boolean'}]}</pre>
-    </div>
-    <div>
-      <h3>The <code>Ask</code> is checked when it is raised</h3>
-      <pre data-lang="py">@node("who", title="Who", description="...", asks=True)
-def who(ticket: str) -&gt; str:
-    raise Ask(f"Who takes {ticket}?", choices=[1, 2])
+</section>
 
-stopped = run_alone(who, ticket="T1")
-print(stopped.status, stopped.cause.type)
-print(stopped.cause.msg)</pre>
-      <pre class="out">failed invalid_ask
-The node's Ask doesn't fit its outputs: the choices for 'result' are wrong (Input should be a valid string). Fix the Ask.</pre>
-    </div>
-  </div>
-  <p class="small" style="margin-top:.75rem">The rules an answer and an <code>Ask</code> are held to are in <code>python -m conductor.about asking-a-person</code>, and every problem they give, with its <code>ctx</code>, is on the <a href="../problems/">problems page</a>.</p>
+<div class="staff" aria-hidden="true"></div>
 
-  <div class="two" id="declining" style="margin-top:2.5rem">
+<!-- ============================ DECLINING ============================ -->
+<section id="declining" aria-labelledby="d-h">
+  <div class="columns" style="--c3: minmax(0, .85fr) minmax(0, 1.15fr) minmax(0, 1fr)">
     <div>
+      <div class="section-head prose">
+        <p class="eyebrow">Refused, or declined</p>
+        <h2 id="d-h">A refused answer changes nothing, and a decline ends the run</h2>
+      </div>
+      <h3>A decline ends the run for good, and <code>again()</code> asks again</h3>
+      <p class="muted">A decline is not an answer: a person said no. The run is <code>declined</code>, with <code>answer_declined</code> as its <code>cause</code>, and nothing waits any more. Every call made before keeps its <a href="running-and-streaming.html#outcomes">outcome</a>. To reject one item and let the run go on, answer it instead.</p>
+      <p class="muted"><code>run.again()</code> starts a new run that reuses what this one ran and calls the declined node again, so it asks again, under the same id. A reason that isn't text is refused, and the run is left as it was. The rules are under "Declining" in <code>python -m conductor.about asking-a-person</code>.</p>
+      <p class="small">The rules an answer and an <code>Ask</code> are held to are in <code>python -m conductor.about asking-a-person</code>, and every problem they give, with its <code>ctx</code>, is on the <a href="../problems/">problems page</a>.</p>
+    </div>
+    <div class="dense">
       <p class="eyebrow">Declining the walk-through's question</p>
       <pre data-lang="py">declined = run.with_decline(run.waiting[0], reason="Too long to judge")
 print(declined.status, declined.cause.type, declined.cause.loc)
@@ -1021,10 +1048,27 @@ print(run.status)</pre>
   ctx: {'waiting_id': 'approve@1~23c82614', 'errors': [{'type': 'string_type', 'loc': [], 'msg': 'Input should be a valid string'}]}
 waiting</pre>
     </div>
-    <div>
-      <h3>A decline ends the run for good, and <code>again()</code> asks again</h3>
-      <p class="muted">A decline is not an answer: a person said no. The run is <code>declined</code>, with <code>answer_declined</code> as its <code>cause</code>, and nothing waits any more. Every call made before keeps its <a href="running-and-streaming.html#outcomes">outcome</a>. To reject one item and let the run go on, answer it instead.</p>
-      <p class="muted"><code>run.again()</code> starts a new run that reuses what this one ran and calls the declined node again, so it asks again, under the same id. A reason that isn't text is refused, and the run is left as it was. The rules are under "Declining" in <code>python -m conductor.about asking-a-person</code>.</p>
+    <div class="dense">
+      <div class="ex-pair">
+      <h3 id="answer-group">An answer is read as its JSON text would be</h3>
+      <pre data-lang="py">confirming = run_alone(confirm, ticket="T1")
+refused(lambda: confirming.with_answers("confirm", "yes"))</pre>
+      <pre class="out">invalid_answer ('confirm',)
+  That isn't a valid answer: Input should be a valid boolean.
+  ctx: {'waiting_id': 'confirm', 'reason': 'Input should be a valid boolean', 'errors': [{'type': 'bool_type', 'loc': [], 'msg': 'Input should be a valid boolean'}]}</pre>
+      </div>
+      <div class="ex-pair">
+      <h3>The <code>Ask</code> is checked when it is raised</h3>
+      <pre data-lang="py">@node("who", title="Who", description="...", asks=True)
+def who(ticket: str) -&gt; str:
+    raise Ask(f"Who takes {ticket}?", choices=[1, 2])
+
+stopped = run_alone(who, ticket="T1")
+print(stopped.status, stopped.cause.type)
+print(stopped.cause.msg)</pre>
+      <pre class="out">failed invalid_ask
+The node's Ask doesn't fit its outputs: the choices for 'result' are wrong (Input should be a valid string). Fix the Ask.</pre>
+      </div>
     </div>
   </div>
 </section>
@@ -1033,12 +1077,20 @@ waiting</pre>
 
 <!-- ============================ IDS ============================ -->
 <section id="ids" aria-labelledby="id-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr)">
+  <div>
   <div class="section-head prose">
     <p class="eyebrow">The waiting id</p>
     <h2 id="id-h">An id names the call and the question <span class="lvl pub">Public</span></h2>
     <p class="muted">A host stores the id and sends it back with the answer, maybe days later. The id below is the inner <code>approve</code> of a <a href="subgraphs.html#open">subgraph</a> <code>check</code>, for the second line of the second document. Tap a part.</p>
   </div>
 
+  <div class="anatomy">
+    <div class="idline" id="idline" aria-label="check@1/approve@1~a8e00c69"></div>
+    <p class="id-explain" id="id-explain" aria-live="polite"></p>
+  </div>
+  </div>
+  <div>
   <pre data-lang="py">@registry.node("docs", title="Docs", description="Splits a text into documents.")
 def docs(text: str) -&gt; Series[str]:
     return text.split("\n---\n")
@@ -1049,26 +1101,31 @@ registry.add(check)
 checking = Graph.compile(make_graph(docs, check, edges=[("docs.result", "check.text")]), registry)
 print([w.id for w in checking.run({"text": "ok\nfine\n---\nyes\nthis is long"}).waiting])</pre>
   <pre class="out">['check@1/approve@1~a8e00c69']</pre>
-
-  <div class="anatomy">
-    <div class="idline" id="idline" aria-label="check@1/approve@1~a8e00c69"></div>
-    <p class="id-explain" id="id-explain" aria-live="polite"></p>
   </div>
+  </div>
+</section>
 
-  <div class="explorer" style="margin-top:2.5rem">
-    <p class="eyebrow">What an old id meets</p>
-    <p class="muted prose">The run asked about <code>"a long line\nok"</code> and waits under <code>approve@0~0451ee1e</code>. Then something changes, and the host answers with the id it saved.</p>
-    <div class="tabs" role="tablist" id="id-tabs" aria-label="What changed"></div>
-    <div class="ex-body">
-      <div>
-        <p class="eyebrow">The host's code</p>
-        <div id="id-code"></div>
-        <p class="ex-note" id="id-note"></p>
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ OLD IDS ============================ -->
+<section id="old-ids" aria-labelledby="old-h">
+  <div class="explorer columns dense" style="--c3: minmax(0, .9fr) minmax(0, 1.1fr) minmax(0, 1fr)">
+    <div>
+      <div class="section-head prose">
+        <p class="eyebrow">What an old id meets</p>
+        <h2 id="old-h">An answer by an old id finds the call, or is refused</h2>
       </div>
-      <div>
-        <p class="eyebrow">Printed</p>
-        <div id="id-out"></div>
-      </div>
+      <p class="muted">The run asked about <code>"a long line\nok"</code> and waits under <code>approve@0~0451ee1e</code>. Then something changes, and the host answers with the id it saved.</p>
+      <div class="tabs" role="tablist" id="id-tabs" aria-label="What changed"></div>
+    </div>
+    <div>
+      <p class="eyebrow">The host's code</p>
+      <div id="id-code"></div>
+      <p class="ex-note" id="id-note"></p>
+    </div>
+    <div>
+      <p class="eyebrow">Printed</p>
+      <div id="id-out"></div>
     </div>
   </div>
   <!-- each tab's code and what it prints; the explorer's script shows one tab at a time -->
@@ -1106,13 +1163,22 @@ refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre cla
 
 <!-- ============================ SAVED ============================ -->
 <section id="saved" aria-labelledby="s-h">
-  <div class="section-head prose">
-    <p class="eyebrow">Saved and resumed</p>
-    <h2 id="s-h">A waiting call is a few bytes of JSON</h2>
-    <p class="muted">A call that asked is saved with its prompt, the choices and defaults the <code>Ask</code> set, and the call's fingerprint, taken when the call was made. It has no outputs yet. Once a person answers or declines, the run keeps the question for <code>run.asked</code>.</p>
-  </div>
-  <div class="two labelled">
-    <div>
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, .95fr) minmax(0, 1.05fr)">
+    <div class="dense">
+    <div class="section-head prose">
+      <p class="eyebrow">Saved and resumed</p>
+      <h2 id="s-h">A waiting call is a few bytes of JSON</h2>
+      <p class="muted">A call that asked is saved with its prompt, the choices and defaults the <code>Ask</code> set, and the call's fingerprint, taken when the call was made. It has no outputs yet. Once a person answers or declines, the run keeps the question for <code>run.asked</code>.</p>
+    </div>
+      <h3>Running again keeps the answers</h3>
+      <p class="muted">A node that may ask <a href="saved-runs-and-reuse.html#asks">reuses its earlier outcomes</a> in item order. Answer <code>False</code> about <code>"a long line"</code>, then run again with a line put in front. Nothing is asked.</p>
+      <pre data-lang="py">before = graph.run({"text": "a long line\nok"})
+before = before.with_answers(before.waiting[0], False).resume()
+after = before.again({"text": "new\na long line\nok"})
+print(after.status, after.results["approve"], after.waiting)</pre>
+      <pre class="out">complete {'result': [True, False, True]} []</pre>
+    </div>
+    <div class="dense">
       <p class="eyebrow">The <code>approve</code> part of the walk-through's <code>run.to_json()</code></p>
       <pre data-lang="py">print(dumps(json.loads(run.to_json())["outcomes"]["approve"]))</pre>
       <pre data-lang="json" class="out">{
@@ -1132,8 +1198,9 @@ refused(lambda: finished.with_answers("approve@0~0451ee1e", True))</pre><pre cla
   }
 }</pre>
       <p class="muted">An <code>Ask</code> that set no choices or default saves only its prompt.</p>
+      <p class="small">What status a run has after an answer is under "The status" in <code>python -m conductor.about running</code>, and what a later run reuses is in <code>python -m conductor.about running-again</code>.</p>
     </div>
-    <div>
+    <div class="dense">
       <p class="eyebrow">Load, answer, resume</p>
       <pre data-lang="py">loaded = Run.from_json(run.to_json(), graph)
 print([w.id for w in loaded.waiting])
@@ -1146,32 +1213,23 @@ print([(a.question.prompt, a.answer) for a in answered.asked])</pre>
       <p class="muted"><code>run.asked</code> lists every call a person answered or declined: the question as they were shown it, and their reply. A host that keeps runs as a record reads it, from a run read back too. The call's arguments aren't saved with it, only their fingerprint. <code>run.waiting</code> works the arguments out again from the <a href="running-and-streaming.html#outcomes">outcomes</a> upstream that the call read, and those don't change while it waits. The id is hashed from the saved fingerprint and the node's code fingerprint now. So the question a loaded run shows is the one first asked, id included, while the node's code is the same.</p>
     </div>
   </div>
-
-  <div class="two" style="margin-top:2.5rem">
-    <div>
-      <h3>Running again keeps the answers</h3>
-      <p class="muted">A node that may ask <a href="saved-runs-and-reuse.html#asks">reuses its earlier outcomes</a> in item order. Answer <code>False</code> about <code>"a long line"</code>, then run again with a line put in front. Nothing is asked.</p>
-    </div>
-    <div>
-      <pre data-lang="py">before = graph.run({"text": "a long line\nok"})
-before = before.with_answers(before.waiting[0], False).resume()
-after = before.again({"text": "new\na long line\nok"})
-print(after.status, after.results["approve"], after.waiting)</pre>
-      <pre class="out">complete {'result': [True, False, True]} []</pre>
-    </div>
-  </div>
-  <p class="small" style="margin-top:.75rem">What status a run has after an answer is under "The status" in <code>python -m conductor.about running</code>, and what a later run reuses is in <code>python -m conductor.about running-again</code>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ HOST ============================ -->
 <section id="host" aria-labelledby="h-h">
+  <div class="columns host-head" style="--c3: minmax(0, 1fr) minmax(0, 1fr); align-items: end">
   <div class="section-head prose">
     <p class="eyebrow">What a host is shown</p>
     <h2 id="h-h">A host sees a question before, during and after a run <span class="lvl pub">Public</span></h2>
   </div>
-  <div class="rules">
+  <div>
+  <h3 id="ask-problems">The problems</h3>
+  <p class="muted">A node that asks wrongly ends its run with a problem as the <code>cause</code>, and an answer or a decline the run can't take is refused with one. Every kind, with its <code>ctx</code> and an example, is on the <a href="../problems/">problems page</a> (<code>python -m conductor.about problems</code>). The samples above show <code>invalid_answer</code>, <code>invalid_ask</code>, <code>invalid_decline_reason</code>, <code>not_waiting</code>, <code>answer_stale</code> and <code>answer_given_twice</code> as they print.</p>
+  </div>
+  </div>
+  <div class="rules dense">
     <div class="rule">
       <h3>Before a run, <code>registry.describe()</code> says which nodes may ask</h3>
       <p>So does a definition's own <code>describe()</code>, and <code>graph.asks</code> for a compiled graph. A <a href="subgraphs.html#open">subgraph</a> asks when a node inside it does.</p>
@@ -1202,8 +1260,6 @@ print(waiting.id, waiting.loc, waiting.prompt, waiting.inputs)</pre>
       <pre class="out">approve@1~23c82614 ('approve', 1) Approve 'this is long'? {'line': 'this is long'}</pre>
     </div>
   </div>
-  <h3 id="ask-problems" style="margin-top:2rem">The problems</h3>
-  <p class="muted" style="margin-top:.5rem">A node that asks wrongly ends its run with a problem as the <code>cause</code>, and an answer or a decline the run can't take is refused with one. Every kind, with its <code>ctx</code> and an example, is on the <a href="../problems/">problems page</a> (<code>python -m conductor.about problems</code>). The samples above show <code>invalid_answer</code>, <code>invalid_ask</code>, <code>invalid_decline_reason</code>, <code>not_waiting</code>, <code>answer_stale</code> and <code>answer_given_twice</code> as they print.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -1316,7 +1372,7 @@ print(waiting.id, waiting.loc, waiting.prompt, waiting.inputs)</pre>
       d: { s: "saved", doc: "saved, loaded, answered by id" } },
   ];
 
-  const rail = $("#rail"), text = $("#stage-text"), dia = $("#dia");
+  const rail = $("#rail"), text = $("#stage-text"), code = $("#stage-code"), dia = $("#dia");
   STEPS.forEach((s, i) => {
     const b = document.createElement("button");
     b.type = "button"; b.innerHTML = "<b>" + (i + 1) + "</b>" + esc(s.short);
@@ -1357,8 +1413,9 @@ print(waiting.id, waiting.loc, waiting.prompt, waiting.inputs)</pre>
       '<p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
       "<h3>" + esc(s.title) + "</h3>" +
       '<p class="cap">' + linked(s.cap) + "</p>";
-    fill(text, "walk-" + cur);
-    if (!reduced) { text.classList.remove("fade"); void text.offsetWidth; text.classList.add("fade"); }
+    code.replaceChildren();
+    fill(code, "walk-" + cur);
+    if (!reduced) [text, code].forEach((el) => { el.classList.remove("fade"); void el.offsetWidth; el.classList.add("fade"); });
     rail.querySelectorAll("button").forEach((b, j) => {
       if (j === cur) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
       b.classList.toggle("seen", j < cur);
