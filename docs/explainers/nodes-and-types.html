@@ -1378,7 +1378,7 @@ except NodeDeclarationError as error:
     <p class="eyebrow">The registry</p>
     <h2 id="reg-h">A registry holds the nodes a host offers <span class="lvl pub">Public</span></h2>
     <p class="muted"><code>@registry.node</code> takes the same arguments as <code>@node</code> and also adds the node. <code>add</code> takes definitions made elsewhere, and <code>add_subregistry</code> copies another registry's nodes in.</p>
-    <p class="muted">A node that comes in gets the registry's defaults, and the registry holds a copy, so <code>lower</code> keeps its own empty tags. <code>add</code> raises on an id that is already there, and a misspelt id raises too. How defaults merge, and why there is one way to add and swap a node, is in <a href="../design/">the design guide</a>, under "The front door and the registry". Every method is in the reference: <code>python -m conductor.about conductor</code>.</p>
+    <p class="muted">A node that comes in gets the registry's defaults, and the registry holds a copy, so <code>lower</code> keeps its own empty tags. <code>add</code> raises on an id that is already there, and a misspelt id raises too. Every method is in the reference: <code>python -m conductor.about conductor</code>.</p>
   </div>
     <div class="s3-code">
       <pre data-lang="py">text = NodeRegistry(category="Text", tags=["acme"], extra={"tier": "free"})
@@ -1430,7 +1430,7 @@ KeyError "'uper' is not registered here; the ids are upper, lower"
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part <span class="lvl pub">Public</span></h2>
   </div>
-  <div class="prose"><p class="muted">Why a definition is frozen and registers nothing, why <code>Param</code> is the one spelling of a limit, why a class's id is declared, why <code>@host_type</code> is a decorator with a list of <code>accepts</code>, and why compiling never upgrades, is in <a href="../design/">the design guide</a>: "The front door and the registry", "The graph record and <code>make_graph</code>" and "Where conductor meets pydantic". Three more choices are this page's own.</p></div>
+  <div class="prose"><p class="muted">The rules are in <code>python -m conductor.about the-node-contract</code> and <code>types</code>. Three choices are this page's own.</p></div>
   <div class="choices">
     <article class="choice">
       <h3>A declaration fault raises at import, and a graph fault becomes a <code>Problem</code></h3>

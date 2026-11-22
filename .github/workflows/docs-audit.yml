@@ -65,7 +65,7 @@ jobs:
               README.md
               packages/conductor/src/conductor/about/llms.txt
               docs/OVERVIEW.md, docs/writing-nodes.md, docs/subgraphs.md,
-              docs/serving-runs.md, docs/design.md
+              docs/serving-runs.md
               skills/*/SKILL.md, skills/*/REFERENCE.md
 
           Look for drift:

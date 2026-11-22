@@ -1173,7 +1173,7 @@ complete</pre>
   <div class="section-head">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part</h2>
-    <p class="muted">Why nodes run on the scheduler's own thread unless they ask for threads, why <code>concurrency</code> counts across the whole process, why only failures from outside are retried, why one blueprint serves every run, and why events carry counts and checkpoints come from the stream: the <a href="../design/#the-engine">design guide's engine section</a> and its <a href="../design/#saved-runs-checkpoints-and-events">section on saved runs, checkpoints and events</a> say. Why a node's own exception goes to the log is under <a href="../design/#graph-and-run"><code>Graph</code> and <code>Run</code></a>. The choices below are the rest.</p>
+    <p class="muted">The rules are in <code>python -m conductor.about running</code>, <code>retries-and-timeouts</code> and <code>events</code>. The choices below are the ones this page shows.</p>
   </div>
   <div class="choices">
     <article class="choice">

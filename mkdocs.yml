@@ -6,7 +6,6 @@ nav:
   - How it works: OVERVIEW.md
   - A graph inside a graph: subgraphs.md
   - Serving runs over HTTP: serving-runs.md
-  - The design, for reviewers: design.md
   - Illustrated pages: explainers.md
   - Problem codes: problems.md
 markdown_extensions:

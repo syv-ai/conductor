@@ -1249,7 +1249,7 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
   <div class="section-head">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">Design choices</h2>
-    <p class="muted">Why the host writes the store, and what it costs, is in <a href="../design/#the-companion-packages">the design guide</a>. Why every change is a compare-and-set on <code>rev</code>, and how a kill, a deploy, a store outage and two answers at once play out, is in <a href="../serving-runs/#many-workers">Serving runs over HTTP</a>, which also says why a run you may not see answers as one that isn't there and why replies to a running run are queued. The choices below are the ones this page shows.</p>
+    <p class="muted">How a kill, a deploy, a store outage and two answers at once play out is in <a href="../serving-runs/#many-workers">Serving runs over HTTP</a>, which also says why a run you may not see answers as one that isn't there and why replies to a running run are queued. The rules are in <code>python -m conductor.about serving-runs</code>. The choices below are the ones this page shows.</p>
   </div>
   <div class="choices">
     <article class="choice">
