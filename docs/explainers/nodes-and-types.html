@@ -383,10 +383,13 @@ body { margin: 0; }
     & .page > .wrap > .staff { display: none; }
     & .page > .wrap > footer { margin-top: 0; }
   }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
   html[data-sections="snap"] {
-    scroll-snap-type: y mandatory;
+    scroll-snap-type: y proximity;
     & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
     & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
   }
   /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
      set by the script). Its paper and the hairline on its top run the page's whole width. */
@@ -487,6 +490,21 @@ body { margin: 0; }
       else b.style.removeProperty("--stick");
     });
   };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
   document.addEventListener("DOMContentLoaded", function () {
     blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
     pin();

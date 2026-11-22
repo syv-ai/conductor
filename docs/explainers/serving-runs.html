@@ -241,16 +241,16 @@ footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid 
 /* a section in columns side by side (three unless --c3 says otherwise), so it fits one screen; one column at 900px and below */
 .columns { display: grid; grid-template-columns: var(--c3, minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)); gap: 1.25rem 1.75rem; align-items: start; }
 .columns > * { min-width: 0; }
-.columns > div { display: grid; gap: .75rem; align-content: start; }
+.columns > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; align-content: start; }
 .columns .section-head { margin-bottom: 0; }
 .columns + .columns, .columns + pre { margin-top: 1.25rem; }
 .span-2 { grid-column: span 2; }
 @media (max-width: 900px) { .columns { grid-template-columns: minmax(0, 1fr); } .span-2 { grid-column: auto; } }
 /* code in a dense column: a step smaller, so a long sample fits beside its output */
 .dense pre { font-size: .75rem; line-height: 1.5; }
-/* a long sample read down one column, then the next (--cc of them); one column at 900px and below */
+/* a long sample read down two columns, the second starting between blocks (data-break); one column at 900px and below */
 @media (min-width: 901px) {
-  pre.in-columns { column-count: var(--cc, 2); column-gap: 1.5rem; column-rule: 1px solid var(--rule); }
+  pre.in-columns { column-count: 2; column-gap: 1.5rem; column-rule: 1px solid var(--rule); }
   pre.in-columns .ln { break-inside: avoid; }
   .dense pre.in-columns { line-height: 1.45; }
 }
@@ -336,10 +336,13 @@ body { margin: 0; }
     & .page > .wrap > .staff { display: none; }
     & .page > .wrap > footer { margin-top: 0; }
   }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
   html[data-sections="snap"] {
-    scroll-snap-type: y mandatory;
+    scroll-snap-type: y proximity;
     & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
     & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
   }
   /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
      set by the script). Its paper and the hairline on its top run the page's whole width. */
@@ -440,6 +443,21 @@ body { margin: 0; }
       else b.style.removeProperty("--stick");
     });
   };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
   document.addEventListener("DOMContentLoaded", function () {
     blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
     pin();
@@ -608,10 +626,9 @@ body { margin: 0; }
   <div class="section-head">
     <p class="eyebrow">testing.py</p>
     <h2 id="store-h">Writing a store and testing it <span class="lvl pub">Public</span></h2>
-    <p class="muted">Here is a store kept in a dict, which every sample below runs on, and <code>check_run_store</code> run on it and on a store that gets <code>update</code> wrong. What a store must do is written once, in <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> and in <code>python -m conductor.about serving-runs</code> (its part "The store").</p>
   </div>
   <div>
-  <p class="muted"><code>add_event</code> has to check the owner and append in one statement. A worker whose lease ran out may still be adding events while another takes the run over, and its events must not land among the new owner's. <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> has a SQLite store that does this in one <code>INSERT ... WHERE EXISTS</code>, and the suite runs that page's store through <code>check_run_store</code>.</p>
+    <p class="muted">Here is a store kept in a dict, which every sample below runs on, and <code>check_run_store</code> run on it and on a store that gets <code>update</code> wrong. What a store must do is written once, in <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> and in <code>python -m conductor.about serving-runs</code> (its part "The store").</p>
   </div>
   </div>
   <div class="columns">
@@ -625,7 +642,7 @@ import json
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.testing import check_run_store
 </script>
-      <pre data-lang="py" class="in-columns">class DictStore:
+      <pre data-lang="py" class="in-columns" data-break="    async def expired">class DictStore:
     def __init__(self, log=None):
         self.rows, self.bodies, self.log = {}, {}, log
 
@@ -674,6 +691,7 @@ for fault in await check_run_store(ForgetsTheRev()):
     print("ForgetsTheRev:", fault)</pre>
       <pre class="out">DictStore: []
 ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given, and give False otherwise</pre>
+      <p class="small"><code>add_event</code> has to check the owner and append in one statement. A worker whose lease ran out may still be adding events while another takes the run over, and its events must not land among the new owner's. <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> has a SQLite store that does this in one <code>INSERT ... WHERE EXISTS</code>, and the suite runs that page's store through <code>check_run_store</code>.</p>
     </div>
   </div>
 </section>
@@ -682,6 +700,8 @@ ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only whi
 
 <!-- ============================ ONE RUN ============================ -->
 <section id="one-run" aria-labelledby="one-run-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr)">
+  <div>
   <div class="section-head">
     <p class="eyebrow">Sample 1</p>
     <h2 id="one-run-h">One run through a worker</h2>
@@ -697,9 +717,10 @@ from conductor_providers.fastapi import Worker
 def dumps(value):
     return json.dumps(value, indent=2)
 </script>
-      <pre data-lang="py" class="in-columns" style="--cc: 3">registry = NodeRegistry()
+      <pre data-lang="py">registry = NodeRegistry()
 
-@registry.node("approve", title="Approve", description="Approves an amount, or asks.", asks=True)
+@registry.node("approve", title="Approve",
+                description="Approves an amount, or asks.", asks=True)
 def approve(amount: int) -> bool:
     if amount &lt; 1000:
         return True
@@ -714,36 +735,44 @@ def counting(*args, **kwargs):
 Graph.compile = counting
 
 async def until_stopped(worker, run_id):
-    while (view := await worker.read(run_id, allows=lambda m: True)).status == "running":
+    while (
+        view := await worker.read(run_id, allows=lambda m: True)
+    ).status == "running":
         await asyncio.sleep(0.01)
-    return view
-
-async def main():
+    return view</pre>
+  </div>
+  </div>
+  <div class="sample dense">
+      <pre data-lang="py">async def main():
     store = DictStore()
     worker = Worker(store, nodes_for=lambda metadata: registry)
     async with worker.serving():
-        view = await worker.create(make_graph(approve), {"amount": 5000}, {"user": "anna"},
-            allows=lambda m: True)
+        view = await worker.create(make_graph(approve), {"amount": 5000},
+            {"user": "anna"}, allows=lambda m: True)
         print("create -&gt;", view.status, view.waiting)
         print("compiles after create:", compiles)
         view = await worker.resume(view.id, allows=lambda m: True)
         view = await until_stopped(worker, view.id)
-        print("read   -&gt;", view.status, [w.id for w in view.waiting], view.waiting[0].prompt)
+        print("read   -&gt;", view.status, [w.id for w in view.waiting],
+            view.waiting[0].prompt)
         print("compiles after the first resume call:", compiles)
         row = store.rows[view.id]
         print("row.state =", dumps(json.loads(row.state)))
         print("row.owner =", row.owner, " row.lease_until =", row.lease_until)
-        answered = await worker.answer(view.id, {view.waiting[0].id: True}, allows=lambda m: True)
+        answered = await worker.answer(view.id, {view.waiting[0].id: True},
+            allows=lambda m: True)
         print("answer -&gt;", answered.status)
         view = await until_stopped(worker, view.id)
         print("read   -&gt;", view.status, view.outputs)
         print("compiles after answer and second resume call:", compiles)
         print("events:")
         async for n, body in await worker.events(view.id, allows=lambda m: True):
-            print(" ", n, json.loads(body)["type"], json.loads(body).get("status", ""))
+            print(" ", n, json.loads(body)["type"],
+                json.loads(body).get("status", ""))
 
 asyncio.run(main())
 Graph.compile = staticmethod(real)  # as it was</pre>
+  </div>
   </div>
 </section>
 
@@ -1098,6 +1127,7 @@ run_start events: 2  run_end events: 1</pre>
     <p class="muted">Each route calls one method of the worker. The routes, their bodies and what each answers are listed in <a href="../serving-runs/#the-routes">Serving runs over HTTP</a>, and in <code>python -m conductor.about serving-runs</code> (its part "The routes"). Sample 4, <code>routes_sample.py</code>, drives a run through them in process, over httpx's ASGI transport.</p>
   </div>
 
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1.25fr)">
   <div class="sample dense">
       <script type="text/x-python">
 import httpx
@@ -1106,7 +1136,7 @@ from fastapi import FastAPI, Header
 from conductor_providers.fastapi import SERVING_PROBLEMS, run_router
 from conductor_providers.fastapi.problems import STATUS
 </script>
-      <pre data-lang="py" class="in-columns" style="--cc: 3">def run_metadata(x_user: str = Header("anna")) -> dict[str, str]:
+      <pre data-lang="py">def run_metadata(x_user: str = Header("anna")) -> dict[str, str]:
     return {"user": x_user}
 
 def own_runs(x_user: str = Header("anna")):
@@ -1114,49 +1144,78 @@ def own_runs(x_user: str = Header("anna")):
 
 app = FastAPI()
 app.include_router(run_router(Worker(DictStore(), nodes_for=lambda m: registry),
-    metadata=run_metadata, run_filter=own_runs))
-
-async def drive():
+    metadata=run_metadata, run_filter=own_runs))</pre>
+  </div>
+  <div class="sample dense">
+      <pre data-lang="py">async def drive():
     async with app.router.lifespan_context(app), httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as c:
         graph = make_graph(approve).model_dump(mode="json")
-        r = await c.post("/runs", json={"graph": graph, "inputs": {"amount": 5000}})
-        print("POST /runs", r.status_code, "keys:", list(r.json()), "status:", r.json()["status"])
+        r = await c.post("/runs",
+            json={"graph": graph, "inputs": {"amount": 5000}})
+        print("POST /runs", r.status_code, "keys:", list(r.json()),
+            "status:", r.json()["status"])
         run_id = r.json()["id"]
-        while (v := (await c.get(f"/runs/{run_id}")).json())["status"] == "running":
+        while (
+            v := (await c.get(f"/runs/{run_id}")).json()
+        )["status"] == "running":
             await asyncio.sleep(0.01)
         print("GET /runs/{id}, four of its keys:")
-        print(dumps({k: v[k] for k in ("status", "cause", "outputs", "refused")}))
+        print(dumps({k: v[k]
+            for k in ("status", "cause", "outputs", "refused")}))
         print("waiting ids:", [w["id"] for w in v["waiting"]])
-        for label, req in [
-            ("GET as bo", c.get(f"/runs/{run_id}", headers={"x-user": "bo"})),
-            ("GET unknown id", c.get("/runs/nonesuch")),
-            ("POST resume (waiting run)", c.post(f"/runs/{run_id}/resume")),
-            ("POST answers, wrong type", c.post(f"/runs/{run_id}/answers",
-                json={v["waiting"][0]["id"]: "yes please"})),
-            ("POST declines, stale id", c.post(f"/runs/{run_id}/declines",
-                json={"waiting_id": "approve~00000000"})),
-        ]:
-            r = await req
-            print(label, r.status_code, [(p["type"], p["ctx"]) for p in r.json()["detail"]])
-        r = await c.post(f"/runs/{run_id}/declines",
-            json={"waiting_id": v["waiting"][0]["id"], "reason": "Over budget"})
-        print("POST declines", r.status_code, r.json()["status"])
-        r = await c.post(f"/runs/{run_id}/resume")
-        print("POST resume (declined run)", r.status_code, [(p["type"], p["ctx"]) for p in r.json()["detail"]])
-        v = (await c.get(f"/runs/{run_id}")).json()
-        print("GET after the decline", v["status"], v["cause"]["type"], v["cause"]["ctx"], "waiting:", v["waiting"])
-        r = await c.get(f"/runs/{run_id}/events")
-        print("event types:", [json.loads(line[5:])["type"] for line in r.text.splitlines()
-            if line.startswith("data:")])
+        await refusals(c, run_id, v)</pre>
+  </div>
+  </div>
+</section>
 
-asyncio.run(drive())
+<div class="staff" aria-hidden="true"></div>
+
+<section id="routes-refusals" aria-labelledby="routes-refusals-h">
+  <div class="columns" style="--c3: minmax(0, 1.4fr) minmax(0, 1fr)">
+  <div class="sample dense">
+      <div class="section-head">
+        <p class="eyebrow">Sample 4, the refusals</p>
+        <h2 id="routes-refusals-h">Each route asked a way it refuses</h2>
+      </div>
+      <pre data-lang="py">async def refusals(c, run_id, v):
+    for label, req in [
+        ("GET as bo", c.get(f"/runs/{run_id}", headers={"x-user": "bo"})),
+        ("GET unknown id", c.get("/runs/nonesuch")),
+        ("POST resume (waiting run)", c.post(f"/runs/{run_id}/resume")),
+        ("POST answers, wrong type", c.post(f"/runs/{run_id}/answers",
+            json={v["waiting"][0]["id"]: "yes please"})),
+        ("POST declines, stale id", c.post(f"/runs/{run_id}/declines",
+            json={"waiting_id": "approve~00000000"})),
+    ]:
+        r = await req
+        print(label, r.status_code,
+            [(p["type"], p["ctx"]) for p in r.json()["detail"]])
+    r = await c.post(f"/runs/{run_id}/declines",
+        json={"waiting_id": v["waiting"][0]["id"], "reason": "Over budget"})
+    print("POST declines", r.status_code, r.json()["status"])
+    r = await c.post(f"/runs/{run_id}/resume")
+    print("POST resume (declined run)", r.status_code,
+        [(p["type"], p["ctx"]) for p in r.json()["detail"]])
+    v = (await c.get(f"/runs/{run_id}")).json()
+    print("GET after the decline", v["status"], v["cause"]["type"],
+        v["cause"]["ctx"], "waiting:", v["waiting"])
+    r = await c.get(f"/runs/{run_id}/events")
+    print("event types:", [json.loads(line[5:])["type"]
+        for line in r.text.splitlines() if line.startswith("data:")])</pre>
+  </div>
+  <div class="sample dense">
+      <p class="muted"><code>drive()</code> hands the waiting run to <code>refusals()</code>, which calls each route a way it refuses, then declines the run and reads its events. The last lines read the responses each route declares in the app's OpenAPI schema.</p>
+      <pre data-lang="py">asyncio.run(drive())
 paths = app.openapi()["paths"]
-print("responses of /runs/{run_id}", list(paths["/runs/{run_id}"]["get"]["responses"]))
-print("responses of /runs/{run_id}/resume", list(paths["/runs/{run_id}/resume"]["post"]["responses"]))
+print("responses of /runs/{run_id}",
+    list(paths["/runs/{run_id}"]["get"]["responses"]))
+print("responses of /runs/{run_id}/resume",
+    list(paths["/runs/{run_id}/resume"]["post"]["responses"]))
 print("SERVING_PROBLEMS:", [kind.code for kind in SERVING_PROBLEMS])
 print("STATUS:", STATUS)</pre>
+  </div>
   </div>
 </section>
 
@@ -1334,6 +1393,11 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
     }).join("");
   }
   document.querySelectorAll("pre[data-lang]").forEach((p) => { hang(p, highlight(p.textContent)); });
+  /* A sample read in two columns starts its second column at the line its data-break begins with, between blocks. */
+  document.querySelectorAll("pre.in-columns[data-break]").forEach((p) => {
+    const at = Array.from(p.querySelectorAll(".ln")).find((l) => l.textContent.startsWith(p.dataset.break));
+    if (at) at.style.breakBefore = "column";
+  });
   document.querySelectorAll("pre.out").forEach((p) => { hang(p, esc(p.textContent)); });
 
   /* ======================= THE ROW ======================= */

@@ -394,10 +394,13 @@ body { margin: 0; }
     & .page > .wrap > .staff { display: none; }
     & .page > .wrap > footer { margin-top: 0; }
   }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
   html[data-sections="snap"] {
-    scroll-snap-type: y mandatory;
+    scroll-snap-type: y proximity;
     & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
     & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
   }
   /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
      set by the script). Its paper and the hairline on its top run the page's whole width. */
@@ -498,6 +501,21 @@ body { margin: 0; }
       else b.style.removeProperty("--stick");
     });
   };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
   document.addEventListener("DOMContentLoaded", function () {
     blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
     pin();
@@ -993,10 +1011,10 @@ print(run.outputs)</pre>
     source: "The engine's layers are the import-linter contract in <code>pyproject.toml</code>; a test checks the code against it. A host imports only the five public modules.",
     cols: [{ head: "public", mods: [
       { id: "conductor", where: "conductor/__init__.py", what: names("conductor"), read: "Start here.", imports: "Re-exports names from the engine's packages." },
-      { id: "conductor.widgets", where: "conductor/widgets.py", what: names("conductor-widgets"), read: page("A node and its types"), imports: "Defines its own names." },
-      { id: "conductor.events", where: "conductor/events.py", what: names("conductor-events"), read: page("Running and streaming", "stream"), imports: "Re-exports names from the engine's packages." },
-      { id: "conductor.testing", where: "conductor/testing/", what: names("conductor-testing"), read: page("A node and its types") + ", then " + page("Problems"), imports: "Defines its own names." },
-      { id: "conductor.about", where: "conductor/about/", what: "The reference: " + about() + " prints it.", read: "Early: it is what conductor promises.", imports: "Serves its own pages." },
+      { id: "conductor.widgets", where: "conductor/widgets.py", what: names("conductor-widgets"), read: page("A node and its types"), imports: "Its own names, on <code>base</code>'s model class." },
+      { id: "conductor.events", where: "conductor/events.py", what: names("conductor-events"), read: page("Running and streaming", "stream"), imports: "Re-exports names from <code>run</code>." },
+      { id: "conductor.testing", where: "conductor/testing/", what: names("conductor-testing"), read: page("A node and its types") + ", then " + page("Problems"), imports: "Its own names, built on <code>graph</code>, <code>node</code>, <code>port</code>, <code>problem</code>, <code>record</code>, <code>registry</code>, <code>table</code>, <code>types</code> and <code>utils</code>." },
+      { id: "conductor.about", where: "conductor/about/", what: "The reference: " + about() + " prints it.", read: "Early: it is what conductor promises.", imports: "Serves its own pages, with <code>problem</code>'s catalogues." },
     ] }].concat(LAYERS.map((ids, i) => ({ head: "layer " + (i + 1), mods: ids.map((id) => (
       { id, int: true, where: "conductor/_internal/" + id + "/", what: AGENTS, read: ENGINE_READ[id], layer: i }
     )) }))),
