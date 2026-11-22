@@ -274,7 +274,14 @@ def _faults(
         # a string deprecation was taken, and failed only at registry.describe()
         ({"deprecation": "soon"}, [("is_instance_of", ["deprecation"])]),
         ({"replaces": "x"}, [("not_a_node", ["replaces"])]),
-        ({"upgrade": {}}, [("is_instance_of", ["upgrade"])]),
+        ({"upgrade": {}}, [("dataclass_exact_type", ["upgrade"])]),
+        # an Upgrade's fields were taken as given, and failed only at registry.upgrade
+        ({"upgrade": Upgrade(renamed_inputs=5)}, [("dict_type", ["upgrade", "renamed_inputs"])]),  # type: ignore[arg-type]
+        (
+            {"upgrade": Upgrade(renamed_outputs={"old": 1})},  # type: ignore[dict-item]
+            [("string_type", ["upgrade", "renamed_outputs", "old"])],
+        ),
+        ({"upgrade": Upgrade(rewrite=5)}, [("callable_type", ["upgrade", "rewrite"])]),  # type: ignore[arg-type]
         ({"title": ""}, [("blank_text", ["title"])]),
         ({"title": "   "}, [("blank_text", ["title"])]),
         ({"description": ""}, [("blank_text", ["description"])]),
@@ -306,6 +313,27 @@ def test_an_argument_of_the_wrong_type_is_refused_where_a_node_or_a_subgraph_is_
     ],
 )
 def test_a_blank_title_or_description_of_a_param_is_refused_as_a_nodes_is(arguments, faults):
+    assert _faults(lambda: Param(**arguments), ()) == faults
+
+
+@pytest.mark.parametrize(
+    ("arguments", "faults"),
+    [
+        # widget=5 was an AttributeError when the node was declared
+        ({"widget": 5}, [("model_type", ["widget"])]),
+        # these were taken, and meant nothing
+        ({"constant_only": "yes"}, [("bool_type", ["constant_only"])]),
+        ({"min_length": True}, [("bool_is_not_a_number", ["min_length"])]),
+        ({"pattern": 5}, [("string_type", ["pattern"])]),
+        (
+            {"widget": "x", "max_length": "3"},
+            [("model_type", ["widget"]), ("int_type", ["max_length"])],
+        ),
+    ],
+)
+def test_every_field_of_a_param_is_held_to_its_type_where_it_is_written(arguments, faults):
+    """A ``Param`` is held to its own annotations, strictly, as ``@node``'s arguments are. Its choices are the one
+    field left to the type it limits, which reads them (``choices_invalid``)."""
     assert _faults(lambda: Param(**arguments), ()) == faults
 
 
@@ -2510,7 +2538,7 @@ def test_a_limit_its_type_cannot_take_is_refused_naming_the_type_as_written():
 
 
 def test_a_wrongly_typed_limit_is_refused_as_a_bound():
-    def f(x: Annotated[int, Param(ge="a")]) -> int:
+    def f(x: Annotated[int, Param(ge=1.5)]) -> int:
         return x
 
     with pytest.raises(NodeDeclarationError) as raised:

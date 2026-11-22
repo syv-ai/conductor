@@ -596,7 +596,7 @@ class Type:
                 else read
             )
             adapter = TypeAdapter(given, config=JSON_CONFIG)
-        # a limit of the wrong kind for the type, like ge="a" on an int
+        # a limit that does not fit the type, like ge=1.5 on an int
         except SchemaError as error:
             raise NodeDeclarationError(
                 declaration_problems.param_limit_value_invalid(

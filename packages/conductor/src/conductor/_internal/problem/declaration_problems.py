@@ -149,7 +149,7 @@ def param_limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
 
 @DECLARATION_PROBLEMS.problem
 def param_limit_value_invalid(*, limits: str, type: str, reason: str) -> str:
-    """A ``Param`` sets a limit to the wrong kind of value for the type, such as ``ge="a"`` on an ``int``.
+    """A ``Param`` sets a limit to a value that doesn't fit the type, such as ``ge=1.5`` on an ``int``.
 
     To fix it, give each limit a value of the input's type, such as a number for ``ge`` on an ``int``.
 
@@ -159,7 +159,7 @@ def param_limit_value_invalid(*, limits: str, type: str, reason: str) -> str:
         reason: pydantic's reason why it can't build the type with those limits.
 
     Example:
-        def narrow(number: Annotated[int, Param(ge="a")]) -> int:  # type: ignore[arg-type]
+        def narrow(number: Annotated[int, Param(ge=1.5)]) -> int:
             return number
 
 

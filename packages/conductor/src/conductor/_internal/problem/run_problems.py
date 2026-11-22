@@ -161,12 +161,12 @@ def node_error(*loc: str | int) -> str:
 
 @RUN_PROBLEMS.problem
 def invalid_ask(*loc: str | int, reason: str, errors: list[dict[str, Any]]) -> str:
-    """A node raised an ``Ask`` whose choices or default don't fit the node's outputs.
+    """A node raised an ``Ask`` whose prompt isn't text, or whose choices or default don't fit the node's outputs.
 
     The answer to an ``Ask`` becomes the node's outputs. So its choices and its default must be values the outputs'
     types take, and the default an answer a person could give. In the example, ``confirm`` returns a ``bool``, and
     ``"maybe"`` isn't one. Every fault is reported at once, in ``ctx.errors``, each ``loc`` starting with
-    ``choices`` or ``default``, then the output's name, then a choice's index. A key of the mapping that is no output
+    ``prompt``, ``choices`` or ``default``, then the output's name, then a choice's index. A key of the mapping that is no output
     is ``"[key]"`` there, never quoted, since data may have built it.
 
     To fix it, fix the ``Ask``. ``ctx.reason`` says which part doesn't fit first. A node of several outputs takes

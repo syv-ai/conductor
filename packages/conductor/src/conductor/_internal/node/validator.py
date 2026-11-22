@@ -433,7 +433,7 @@ class DeclarationArguments(TypedDict, total=False):
     compute_added_inputs: Callable[..., Any] | None
     compute_outputs: Callable[..., Any] | None
     replaces: Annotated[NodeDefinition, PlainValidator(_a_definition)] | None
-    upgrade: InstanceOf[Upgrade] | None
+    upgrade: Upgrade | None
     asks: bool
 
 
@@ -445,7 +445,8 @@ class DeclarationValidator(Validator[Mapping[str, Any], DeclarationArguments]):
 
     Each argument is held to its annotation, strictly, so ``tags="abc"``, ``version=True``, ``policy={}`` and
     ``extra={"when": date.today()}`` are refused where the node is declared, never later. ``extra`` is JSON a host is
-    shown: its values are JSON values, and a number in it is finite. The id is refused if it isn't a name
+    shown: its values are JSON values, and a number in it is finite. An ``Upgrade``'s own fields are held to its
+    annotations too, so ``Upgrade(renamed_inputs=5)`` is refused here. The id is refused if it isn't a name
     (``not_a_name``), and a title or description that is empty or only whitespace (``blank_text``). What the
     arguments say together, such as whether ``replaces=`` names the same node, is checked after it, by the caller.
 

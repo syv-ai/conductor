@@ -581,6 +581,23 @@ def test_an_asks_choices_are_a_list_so_text_a_set_or_an_iterator_is_refused(
     )
 
 
+def test_an_asks_prompt_is_text_so_a_number_is_invalid_ask() -> None:
+    """The prompt is what a person reads, so it is held to ``str`` strictly, as the choices and the default are held
+    to the outputs' types."""
+
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick() -> str:
+        raise Ask(5)  # type: ignore[arg-type]
+
+    run = _once(pick)[1]
+    assert (run.status, run.waiting) == ("failed", [])
+    assert (run.cause.type, run.cause.ctx["reason"], run.cause.ctx["errors"]) == (
+        "invalid_ask",
+        "the prompt is wrong (Input should be a valid string)",
+        [{"type": "string_type", "loc": ["prompt"], "msg": "Input should be a valid string"}],
+    )
+
+
 @dataclass(frozen=True)
 class Assignment:
     owner: str
