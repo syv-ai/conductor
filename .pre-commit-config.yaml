@@ -21,15 +21,22 @@ repos:
       - id: classes-imported-by-name
         name: a class is imported by name and written bare
         language: system
-        entry: .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_core/test_imports_by_name.py
+        entry: uv run --frozen python -m pytest -q -p no:cacheprovider tests/test_core/test_imports_by_name.py
         files: ^(packages/[^/]+/src|tests)/.*\.py$
         pass_filenames: false
       - id: public-definitions-have-docstrings
         name: every public class and module-level function has a docstring
         language: system
-        entry: .venv/bin/python -m pytest -q -p no:cacheprovider tests/test_core/test_docstrings.py
+        entry: uv run --frozen python -m pytest -q -p no:cacheprovider tests/test_core/test_docstrings.py
         files: ^packages/[^/]+/src/.*\.py$
         pass_filenames: false
+      # One line per paragraph and list item; the rules are in the script, which never changes a word.
+      - id: format-markdown
+        name: Markdown is written one line per paragraph
+        entry: python3 scripts/format_markdown.py
+        language: system
+        files: (\.md|/llms\.txt)$
+        pass_filenames: true
       - id: no-plan-references
         name: code and docs say what the code does, not which plan or decision it came from
         language: pygrep

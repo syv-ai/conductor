@@ -8,6 +8,7 @@ A general-purpose Python library that runs graphs of typed nodes. It serves any 
 
 - `packages/conductor-nodes/` (`syv-conductor-nodes`, import `conductor_nodes`): nodes that only compute, a registry per module.
 - `packages/conductor-providers/` (`syv-conductor-providers`, import `conductor_providers`): `fastapi`, the routes that serve runs (`run_router`) over a `Worker`, which keeps runs in the `RunStore` a host writes and gives each run's metadata back to the host's `nodes_for`, `context` and run filter, with `fastapi.testing.check_run_store`, one test for a host's store. Its files: `router.py` the routes, `bodies.py` the request bodies, `problems.py` the worker's three codes and their HTTP status, `store.py` the row (`StoredRun`), the row as the worker reads it (`RunRow`, the host's row with its JSON read), the store, and `GuardedStore`, the worker's one door to the store, which reads each row once and writes it back, `state.py` the JSON the worker keeps in a row, with the replies queued while a run runs, one entry per reply, each to one waiting id, `worker.py` the worker, `held_run.py` one worker's lease on one run, `testing.py` the store check.
+- `scripts/format_markdown.py`: the Markdown fixer a commit hook runs, which writes each paragraph and list item on one line and never changes a word.
 - `tests/`: `test_core`, `test_nodes` (the node package), `test_providers` (`docs/serving-runs.md` on two uvicorn workers, and event JSON).
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 
