@@ -140,6 +140,11 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .viewer { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1.5rem 2.5rem; align-items: start; }
 @media (max-width: 1060px) { .viewer { grid-template-columns: minmax(0, 1fr); } }
 .viewer > * { min-width: 0; }
+/* the model: its head, the views and the drawing on the left; the words and the code of each view on the right */
+.open-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 1.5rem 2.5rem; align-items: start; }
+.open-grid .section-head { margin-bottom: 0; }
+.open-grid .pair { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+@media (max-width: 1060px) { .open-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---------- the opening diagram ---------- */
 .seg { justify-self: start; display: inline-flex; flex-wrap: wrap; gap: .25rem; background: var(--surface); border-radius: 999px; padding: .25rem; box-shadow: var(--shadow); }
@@ -187,6 +192,23 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 .form p { font-size: .9375rem; color: var(--ink-2); }
 
 /* ---------- call explorer ---------- */
+/* loops: the head and what it says, the drawing and its sample, the problem and its sample, side by side */
+.loops-grid { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 1.5rem 2rem; align-items: start; }
+.loops-grid .section-head, .palette-pair .section-head { margin-bottom: 0; }
+.palette-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+@media (max-width: 900px) { .palette-pair { grid-template-columns: minmax(0, 1fr); } }
+.loops-grid .diagram svg { min-width: 0; }
+@media (max-width: 1060px) { .loops-grid { grid-template-columns: minmax(0, 1fr); } .loops-grid .diagram svg { min-width: 560px; } }
+/* places: the four forms beside the sample that prints them */
+.places-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem 2.5rem; align-items: start; }
+.places-grid .section-head { margin-bottom: 1rem; }
+.places-grid .forms { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.5rem; }
+.places-sample .pair { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+.places-sample .pair .stack { gap: .5rem; }
+.places-sample .label { margin-bottom: 0; }
+@media (max-width: 1060px) { .places-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) { .places-grid .forms { grid-template-columns: minmax(0, 1fr); } }
+.explorer .section-head { margin-bottom: 1rem; }
 .explorer { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
 @media (max-width: 960px) { .explorer { grid-template-columns: minmax(0, 1fr); } }
 .grid-wrap { min-width: 0; overflow-x: auto; }
@@ -292,6 +314,41 @@ body { margin: 0; }
   }
 }
 </style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
+  html[data-sections="snap"] {
+    scroll-snap-type: y proximity;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
 </head>
 <body>
 <nav class="sbar" aria-label="Conductor series" data-page="6">
@@ -348,6 +405,63 @@ body { margin: 0; }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
 })();
 </script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
+})();
+</script>
 <!-- /series-bar -->
 <div class="page">
 <div class="wrap">
@@ -381,20 +495,18 @@ body { margin: 0; }
 
 <!-- ============================ ONE NODE, OPENED ============================ -->
 <section id="open" aria-labelledby="open-h">
+<div class="open-grid">
+<div class="stack">
   <div class="section-head prose">
     <p class="eyebrow">The model</p>
     <h2 id="open-h">Three views of one subgraph</h2>
     <p class="muted"><code>loud</code> is the subgraph <code>strip &rarr; shout</code>. The outer graph splits a text into lines, runs <code>loud</code>'s nodes once per line, and joins the results. The first view is what you wire. The other two are how conductor <a href="graph-record-and-compiling.html#compiling">compiles</a> and runs it. Every output on this page is what the code beside it prints.</p>
   </div>
-
-  <div class="stack" style="gap:1.25rem">
     <div class="seg" role="group" aria-label="View">
       <button type="button" data-s="a" aria-pressed="true">The outer graph</button>
       <button type="button" data-s="b" aria-pressed="false">Compiled</button>
       <button type="button" data-s="c" aria-pressed="false">The run blueprint</button>
     </div>
-
-    <div class="viewer">
     <figure style="margin:0;min-width:0">
     <div class="diagram">
       <svg viewBox="0 0 800 290" id="open-dia" data-s="a" role="img" aria-label="The subgraph loud drawn closed as one node, then opened as its own compiled graph, then flattened into the run blueprint with loud/strip and loud/shout called once per line.">
@@ -471,8 +583,9 @@ body { margin: 0; }
       <figcaption class="small" style="margin-top:.6rem">Blue boxes are function nodes. A run calls only these. Pills are a graph's own inputs and outputs. In the <a href="running-and-streaming.html#start">blueprint</a>, <code>#n</code> is the order a run tries the function nodes in.</figcaption>
       <p class="small">A solid outline is public and a dashed one is internal.</p>
     </figure>
+</div>
+<div class="stack">
       <div class="state-text" id="state-text" aria-live="polite"></div>
-    </div>
 <div id="state-code">
 <script type="text/x-python">
 import json
@@ -552,7 +665,8 @@ print(list(json.loads(run.to_json())["outcomes"]))</pre>
 </div>
 </div>
 </div>
-  </div>
+</div>
+</div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -611,33 +725,22 @@ subgraph_contains_itself ('self-a', 'x', 'y')</pre>
 
 <!-- ============================ ADDRESSES ============================ -->
 <section id="places" aria-labelledby="places-h">
-  <div class="section-head prose">
+<div class="places-grid">
+<div class="stack">
+  <div class="section-head">
     <p class="eyebrow">Places and ids</p>
     <h2 id="places-h">How a place inside a subgraph is written <span class="lvl pub">Public</span></h2>
     <p class="muted"><a href="problems.html">Problems</a>, <a href="running-and-streaming.html#stream">events</a>, <a href="asking-a-person.html#host">waiting calls</a> and <a href="saved-runs-and-reuse.html#saved">saved runs</a> all say where something happened. There are four ways to write it. Each is a tuple for code and a text for people. The texts use <code>.</code>, <code>/</code>, <code>@</code> and <code>~</code> as separators, so no node id and no input or output name may contain any of them.</p>
   </div>
-
   <div class="forms">
     <div class="form"><b>Node path</b><span class="ex">loud/shout</span><p>A node's id, after the id of each subgraph node it's inside. A run stores a node's outcomes under it.</p></div>
     <div class="form"><b>Item indexes</b><span class="ex">(1,)</span><p>Which call of a node. There is one index per <a href="series-and-tables.html#loop">loop</a> the node is inside, outermost first.</p></div>
     <div class="form"><b>Loc</b><span class="ex">loud@1/shout</span><p>It names one call. Each index goes right after the node that's inside its loop, in the graph where the loop is. As a tuple: <code>("loud", 1, "shout")</code>.</p></div>
     <div class="form"><b>Source</b><span class="ex">loud.result</span><p>Where an edge reads from. It is an output of a node in the same graph, maybe one field of it. It is never a node inside a subgraph.</p></div>
   </div>
-
-  <div class="section-head prose" style="margin-top:3.5rem;margin-bottom:1.5rem">
-    <h3>Every call of one run</h3>
-    <p class="muted">The outer graph is <code>lines &rarr; review</code>, where <code>review</code> is the subgraph <code>strip &rarr; check</code>. <code>strip</code> gives <code>None</code> for a blank line, and <code>check</code> <a href="asking-a-person.html">asks a person</a>. The run got the text <code>"a\n \nc"</code>. Pick a call to see how each part of conductor names it.</p>
-    <p class="small">Every <a href="asking-a-person.html#ids">waiting id</a>, loc, <a href="running-and-streaming.html#outcomes">outcome</a> and prompt is printed by the sample below. The hex after <code>~</code> is the same on any Python version, since the node's code goes into it as its parsed source. The node paths come from <code>run.progress.nodes</code>, and the saved positions from <code>run.to_json()</code>.</p>
-  </div>
-
-  <div class="explorer">
-    <div class="grid-wrap">
-      <div class="calls" id="calls" role="group" aria-label="The calls of the run"></div>
-    </div>
-    <aside class="panel" id="call-panel" aria-live="polite"></aside>
-  </div>
-
-  <div class="pair" style="margin-top:2.5rem">
+</div>
+<div class="stack places-sample">
+  <div class="pair">
     <div class="stack">
       <p class="label">The sample</p>
 <pre data-lang="py">review = subgraph("review", title="Review",
@@ -666,20 +769,46 @@ none input: ('review', 1, 'check') line
 complete {'result': [True, None, False]}</pre>
     </div>
   </div>
+</div>
+</div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="every-call" aria-labelledby="every-call-h">
+  <div class="explorer">
+    <div class="stack">
+  <div class="section-head">
+    <p class="eyebrow">Places and ids</p>
+    <h2 id="every-call-h">Every call of one run</h2>
+    <p class="muted">The outer graph is <code>lines &rarr; review</code>, where <code>review</code> is the subgraph <code>strip &rarr; check</code>. <code>strip</code> gives <code>None</code> for a blank line, and <code>check</code> <a href="asking-a-person.html">asks a person</a>. The run got the text <code>"a\n \nc"</code>. Pick a call to see how each part of conductor names it.</p>
+    <p class="small">Every <a href="asking-a-person.html#ids">waiting id</a>, loc, <a href="running-and-streaming.html#outcomes">outcome</a> and prompt is printed by the sample in the section above. The hex after <code>~</code> is the same on any Python version, since the node's code goes into it as its parsed source. The node paths come from <code>run.progress.nodes</code>, and the saved positions from <code>run.to_json()</code>.</p>
+  </div>
+    <div class="grid-wrap">
+      <div class="calls" id="calls" role="group" aria-label="The calls of the run"></div>
+    </div>
+    </div>
+    <aside class="panel" id="call-panel" aria-live="polite"></aside>
+  </div>
+
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ LOOPS ============================ -->
 <section id="loops" aria-labelledby="loops-h">
-  <div class="beside">
-  <div class="section-head prose">
+  <div class="loops-grid">
+    <div class="stack">
+  <div class="section-head">
     <p class="eyebrow">Loops</p>
     <h2 id="loops-h">A subgraph that loops inside</h2>
     <p class="muted">A node outside reads a subgraph's output as it would read the same node drawn in its own graph. Take <code>per-line</code>, the subgraph <code>documents &rarr; lines &rarr; upper</code>. <code>lines</code> runs once per document and <code>upper</code> once per line (how loops work is on <a href="series-and-tables.html">Series and tables</a>), so the output <code>result</code> is a list of lines for each document.</p>
   </div>
-
-  <figure style="margin:0 0 2rem;min-width:0">
+      <p>An output's description keeps the type of one value, <code>str</code>, and lists its <code>loops</code> outermost first. Each entry is one level of list.</p>
+      <p class="muted"><span class="lvl int">Internal</span> <a href="graph-record-and-compiling.html#compiling">Compiling</a> asks the compiled subgraph node's inner graph for each output's loops, the node that returns it and the <a href="nodes-and-types.html#outputs">branches</a> it needs.</p>
+    </div>
+    <div class="stack">
+  <figure style="margin:0;min-width:0">
   <div class="diagram">
     <svg viewBox="0 0 800 250" role="img" aria-label="Inside per-line, upper sits in two nested loops, over documents.result and lines.result. join outside takes a Series, so it collects the inner loop and runs once per document: per_item_of per-line/documents.result.">
       <defs>
@@ -705,10 +834,6 @@ complete {'result': [True, None, False]}</pre>
   </div>
     <figcaption class="small" style="margin-top:.6rem">Each loop is named by the list it goes over, written as a path from the outer graph. <code>join</code> takes a <a href="series-and-tables.html#loop"><code>Series[str]</code></a>, so it collects the innermost loop and is left inside the outer one. An output's described <code>loops</code> name them from inside the subgraph.</figcaption>
   </figure>
-  </div>
-
-  <div class="pair">
-    <div class="stack">
 <script type="text/x-python">
 import textwrap
 
@@ -757,8 +882,6 @@ per-line/documents.result
 str True ['documents.result', 'lines.result']</pre>
     </div>
     <div class="stack">
-      <p>An output's description keeps the type of one value, <code>str</code>, and lists its <code>loops</code> outermost first. Each entry is one level of list.</p>
-      <p class="muted"><span class="lvl int">Internal</span> <a href="graph-record-and-compiling.html#compiling">Compiling</a> asks the compiled subgraph node's inner graph for each output's loops, the node that returns it and the <a href="nodes-and-types.html#outputs">branches</a> it needs.</p>
       <p class="muted">Two outputs from loops that don't nest can't be paired. When one of them is made inside a subgraph, no edge in the outer graph can fix that, and the <a href="problems.html">problem</a> says so.</p>
       <p class="small">Here <code>pair</code> reads one line of <code>per-line</code> and one line of a <code>lines</code> outside it. The sample prints the problem's <a href="problems.html#kinds"><code>type</code></a> and loc, then <code>series</code> and <code>subgraphs</code> from its <code>ctx</code>, then its message.</p>
 <pre data-lang="py">g = Graph.compile(make_graph(per_line, lines, pair, edges=[
@@ -782,12 +905,17 @@ subgraph so it returns both from the same loop.</pre>
 
 <!-- ============================ PALETTE ============================ -->
 <section id="palette" aria-labelledby="palette-h">
-  <div class="section-head prose">
+  <div class="pair palette-pair">
+    <div class="stack">
+  <div class="section-head">
     <p class="eyebrow">In the palette</p>
     <h2 id="palette-h">A registry describes a subgraph by compiling it</h2>
     <p class="muted">A subgraph's inputs and outputs depend on the nodes its record uses, and those are in the registry. So <code>SubgraphDefinition</code> has no <code>describe()</code> of its own. <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> <a href="graph-record-and-compiling.html#compiling">compiles</a> a one-node graph that uses the subgraph and reads that node's inputs and outputs. It keeps the result until the registry's nodes change. A subgraph whose own graph has <a href="problems.html">problems</a> on the registry's nodes, such as a node the registry doesn't have yet, is left out of <code>registry.describe()</code>, with one warning on the <code>conductor</code> logger.</p>
   </div>
-  <div class="pair">
+      <p>The example is from the user guide, <code>docs/subgraphs.md</code>. <code>each</code> is <a href="standard-nodes.html#control">generic</a>: <code>def each[T](value: Table[T] | list[T]) -> Series[T]</code>.</p>
+      <p class="muted">A subgraph is compiled with nothing wired into it. A type variable at one of its <a href="graph-record-and-compiling.html#record">graph inputs</a> has no edge to bind it, so <code>shout-names</code> offers <code>Table | list</code>, and its edge <code>each.result.name</code> can't be checked until a run. <code>shout-contacts</code> starts with <code>known</code>, whose input says exactly what it takes, so the subgraph offers <code>Table[name: str]</code> and its edges are checked when it's compiled.</p>
+      <p class="muted">The palette entry also says whether the subgraph <a href="asking-a-person.html#walk"><code>asks</code></a>. Here is <code>review</code> from above, added with its two nodes. The rules for a palette entry are in <code>python -m conductor.about the-palette</code>.</p>
+    </div>
     <div class="stack">
 <script type="text/x-python">
 from typing import TypedDict, cast
@@ -823,11 +951,6 @@ registry["shout-names"].describe()</pre>
 <pre class="out">Table | list
 Table[name: str]
 AttributeError: 'SubgraphDefinition' object has no attribute 'describe'</pre>
-    </div>
-    <div class="stack">
-      <p>The example is from the user guide, <code>docs/subgraphs.md</code>. <code>each</code> is <a href="standard-nodes.html#control">generic</a>: <code>def each[T](value: Table[T] | list[T]) -> Series[T]</code>.</p>
-      <p class="muted">A subgraph is compiled with nothing wired into it. A type variable at one of its <a href="graph-record-and-compiling.html#record">graph inputs</a> has no edge to bind it, so <code>shout-names</code> offers <code>Table | list</code>, and its edge <code>each.result.name</code> can't be checked until a run. <code>shout-contacts</code> starts with <code>known</code>, whose input says exactly what it takes, so the subgraph offers <code>Table[name: str]</code> and its edges are checked when it's compiled.</p>
-      <p class="muted">The palette entry also says whether the subgraph <a href="asking-a-person.html#walk"><code>asks</code></a>. Here is <code>review</code> from above, added with its two nodes. The rules for a palette entry are in <code>python -m conductor.about the-palette</code>.</p>
 <pre data-lang="py">registry.add(strip, check, review)
 entry = {d.id: d for d in registry.describe().nodes}["review"]
 print([i.name for i in entry.inputs], [o.name for o in entry.outputs])
@@ -845,7 +968,7 @@ True False False</pre>
   <div class="section-head prose">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">Where the reasons are written</h2>
-    <p class="muted">Why a run calls only the nodes inside, rather than a run per item, is in the reviewer's guide, <a href="../design/#the-engine">docs/design.md, The engine</a>. The user guide, <a href="../subgraphs/">docs/subgraphs.md</a>, says what a subgraph takes and gives, why it is compiled alone (<a href="../subgraphs/#a-subgraph-is-compiled-alone">A subgraph is compiled alone</a>), and how a place inside one is named (<a href="../subgraphs/#finding-what-happened-inside">Finding what happened inside</a>). The rules are in <code>python -m conductor.about the-graph-record</code>.</p>
+    <p class="muted">The user guide, <a href="../subgraphs/">docs/subgraphs.md</a>, says what a subgraph takes and gives, why it is compiled alone (<a href="../subgraphs/#a-subgraph-is-compiled-alone">A subgraph is compiled alone</a>), and how a place inside one is named (<a href="../subgraphs/#finding-what-happened-inside">Finding what happened inside</a>). The rules are in <code>python -m conductor.about the-graph-record</code>.</p>
   </div>
 </section>
 

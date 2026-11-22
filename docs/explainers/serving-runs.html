@@ -114,7 +114,7 @@ section { padding-top: var(--section); }
 .staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
 
 /* hero */
-.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.5rem; }
 .hero h1 em { font-style: italic; color: var(--pkg-providers); }
 .idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
 .idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
@@ -144,7 +144,7 @@ figure { margin: 0; display: grid; gap: .75rem; min-width: 0; }
 .fig { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; overflow-x: auto; }
 .fig svg { width: 100%; height: auto; display: block; }
 @media (max-width: 900px) { .fig svg { min-width: 560px; } }
-figcaption { font-size: .9375rem; color: var(--ink-2); max-width: var(--col); }
+figcaption, .caption { font-size: .9375rem; color: var(--ink-2); max-width: var(--col); }
 .s-box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; }
 .s-host { fill: var(--surface); stroke: var(--ink-3); stroke-width: 1.2; }
 .s-int { fill: var(--int-soft); stroke: var(--int); stroke-width: 1.5; stroke-dasharray: 5 4; }
@@ -221,7 +221,7 @@ td code { white-space: nowrap; }
 td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* choices */
-.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+.choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 2.5rem; }
 @media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
 .choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
 .choice h3 { font-size: 1.125rem; }
@@ -237,6 +237,23 @@ td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .series li a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .2em; }
 .series li a:hover { color: var(--accent); text-decoration-color: currentColor; }
 footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; max-width: 90ch; }
+
+/* a section in columns side by side (three unless --c3 says otherwise), so it fits one screen; one column at 900px and below */
+.columns { display: grid; grid-template-columns: var(--c3, minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)); gap: 1.25rem 1.75rem; align-items: start; }
+.columns > * { min-width: 0; }
+.columns > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; align-content: start; }
+.columns .section-head { margin-bottom: 0; }
+.columns + .columns, .columns + pre { margin-top: 1.25rem; }
+.span-2 { grid-column: span 2; }
+@media (max-width: 900px) { .columns { grid-template-columns: minmax(0, 1fr); } .span-2 { grid-column: auto; } }
+/* code in a dense column: a step smaller, so a long sample fits beside its output */
+.dense pre { font-size: .75rem; line-height: 1.5; }
+/* a long sample read down two columns, the second starting between blocks (data-break); one column at 900px and below */
+@media (min-width: 901px) {
+  pre.in-columns { column-count: 2; column-gap: 1.5rem; column-rule: 1px solid var(--rule); }
+  pre.in-columns .ln { break-inside: avoid; }
+  .dense pre.in-columns { line-height: 1.45; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -301,6 +318,41 @@ body { margin: 0; }
   }
 }
 </style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
+  html[data-sections="snap"] {
+    scroll-snap-type: y proximity;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
 </head>
 <body>
 <nav class="sbar" aria-label="Conductor series" data-page="11">
@@ -357,6 +409,63 @@ body { margin: 0; }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
 })();
 </script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
+})();
+</script>
 <!-- /series-bar -->
 <div class="page">
 <div class="wrap">
@@ -364,9 +473,12 @@ body { margin: 0; }
 <!-- ============================ HERO ============================ -->
 <header class="hero">
   <p class="eyebrow">Conductor &middot; syv-conductor-providers &middot; serving runs</p>
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr); align-items: end">
+  <div>
   <h1>Serving <em>runs</em></h1>
-  <div class="prose">
     <p class="lede">Some runs outlive a request. A node asks a person to approve something and the answer comes tomorrow, or the server is deployed halfway through a long run. <code>syv-conductor-providers</code> keeps such runs in your database and serves them over HTTP, from one server process or ten.</p>
+  </div>
+  <div>
     <p class="muted">It is a separate package, imported as <code>conductor_providers</code>. Everything in it is under <code>conductor_providers.fastapi</code>. You write a store, build a <code>Worker</code> on it, and mount <code>run_router</code> in front of the worker.</p>
     <div class="links">
       <a href="overview.html">The overview</a>
@@ -375,6 +487,12 @@ body { margin: 0; }
       <a href="saved-runs-and-reuse.html">Saved runs and reuse</a>
       <a href="problems.html">Problems</a>
     </div>
+  <div class="legend" aria-label="Key">
+    <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+    <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+  </div>
+  <p class="small" style="max-width:var(--col)">Public here is the <code>__all__</code> of <code>conductor_providers.fastapi</code>, <code>check_run_store</code>, and the routes with their bodies.</p>
+  </div>
   </div>
   <div class="idea">
     <div>
@@ -407,23 +525,23 @@ body { margin: 0; }
 ))</pre>
     </div>
   </div>
-  <div class="legend" aria-label="Key">
-    <p><span class="lvl pub">Public</span>what you import, write or read back</p>
-    <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
-  </div>
-  <p class="small" style="max-width:var(--col)">Public here is the <code>__all__</code> of <code>conductor_providers.fastapi</code>, <code>check_run_store</code>, and the routes with their bodies.</p></header>
+</header>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ PIECES ============================ -->
 <section id="pieces" aria-labelledby="pieces-h">
+  <div class="columns" style="--c3: minmax(0, .7fr) minmax(0, 1.3fr); align-items: center">
+  <div>
   <div class="section-head">
     <p class="eyebrow">How the pieces fit</p>
     <h2 id="pieces-h">The routes call a worker, and the worker calls your store</h2>
     <p class="muted">The worker knows no HTTP, and conductor knows no store.</p>
   </div>
-  <figure>
-    <div class="fig">
+    <div class="d-key-line"><span><i class="yours"></i>yours</span><span><i class="ours"></i>public, conductor_providers</span><span><i class="core"></i>public, conductor</span><span><i class="int"></i>internal</span></div>
+    <p class="caption" id="pieces-caption">A host with routes of its own calls the <code>Worker</code> the way the router does. You never meet <code class="int" title="Internal">GuardedStore</code> or <code class="int" title="Internal">HeldRun</code>.</p>
+  </div>
+    <figure class="fig" aria-describedby="pieces-caption">
       <svg viewBox="0 0 900 330" role="img" aria-label="A request goes to run_router, which calls one Worker method. The Worker reads and writes your RunStore through GuardedStore, and for each run it holds it starts a HeldRun, which calls run.stream in conductor and writes events and checkpoints back to the store.">
         <defs>
           <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker>
@@ -475,10 +593,8 @@ body { margin: 0; }
         <path class="s-line" d="M400 262 C 450 238, 520 236, 560 218" marker-end="url(#ah)"/>
         <text class="s-tiny" x="512" y="236" text-anchor="middle">events, checkpoints, renewals</text>
       </svg>
-    </div>
-    <div class="d-key-line"><span><i class="yours"></i>yours</span><span><i class="ours"></i>public, conductor_providers</span><span><i class="core"></i>public, conductor</span><span><i class="int"></i>internal</span></div>
-    <figcaption>A host with routes of its own calls the <code>Worker</code> the way the router does. You never meet <code class="int" title="Internal">GuardedStore</code> or <code class="int" title="Internal">HeldRun</code>.</figcaption>
-  </figure>
+    </figure>
+  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -506,13 +622,17 @@ body { margin: 0; }
 
 <!-- ============================ THE STORE ============================ -->
 <section id="the-store" aria-labelledby="store-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr)">
   <div class="section-head">
     <p class="eyebrow">testing.py</p>
     <h2 id="store-h">Writing a store and testing it <span class="lvl pub">Public</span></h2>
+  </div>
+  <div>
     <p class="muted">Here is a store kept in a dict, which every sample below runs on, and <code>check_run_store</code> run on it and on a store that gets <code>update</code> wrong. What a store must do is written once, in <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> and in <code>python -m conductor.about serving-runs</code> (its part "The store").</p>
   </div>
-  <div class="two">
-    <div class="sample">
+  </div>
+  <div class="columns">
+    <div class="sample dense span-2">
       <p class="label">store.py, the dict store the samples below use</p>
       <script type="text/x-python">
 import asyncio
@@ -522,7 +642,7 @@ import json
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.testing import check_run_store
 </script>
-      <pre data-lang="py">class DictStore:
+      <pre data-lang="py" class="in-columns" data-break="    async def expired">class DictStore:
     def __init__(self, log=None):
         self.rows, self.bodies, self.log = {}, {}, log
 
@@ -558,7 +678,7 @@ from conductor_providers.fastapi.testing import check_run_store
     async def events(self, run_id, after):
         return [(n, b) for n, b in enumerate(self.bodies[run_id]) if n > after]</pre>
     </div>
-    <div class="sample">
+    <div class="sample dense">
       <p class="label">check.py checks the dict store, and one whose <code>update</code> forgets the <code>rev</code></p>
       <pre data-lang="py">class ForgetsTheRev(DictStore):
     async def update(self, run_id, rev, changes, event=None):
@@ -571,22 +691,23 @@ for fault in await check_run_store(ForgetsTheRev()):
     print("ForgetsTheRev:", fault)</pre>
       <pre class="out">DictStore: []
 ForgetsTheRev: update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given, and give False otherwise</pre>
+      <p class="small"><code>add_event</code> has to check the owner and append in one statement. A worker whose lease ran out may still be adding events while another takes the run over, and its events must not land among the new owner's. <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> has a SQLite store that does this in one <code>INSERT ... WHERE EXISTS</code>, and the suite runs that page's store through <code>check_run_store</code>.</p>
     </div>
   </div>
-  <p class="muted" style="margin-top:1.25rem;max-width:var(--col)"><code>add_event</code> has to check the owner and append in one statement. A worker whose lease ran out may still be adding events while another takes the run over, and its events must not land among the new owner's. <a href="../serving-runs/#writing-a-store">Serving runs over HTTP</a> has a SQLite store that does this in one <code>INSERT ... WHERE EXISTS</code>, and the suite runs that page's store through <code>check_run_store</code>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ ONE RUN ============================ -->
 <section id="one-run" aria-labelledby="one-run-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr)">
+  <div>
   <div class="section-head">
     <p class="eyebrow">Sample 1</p>
     <h2 id="one-run-h">One run through a worker</h2>
     <p class="muted">Here the worker is called directly, as the routes call it, on the store kept in a dict (<a href="#the-store">shown above</a>).</p>
   </div>
-  <div class="two">
-    <div class="sample">
+  <div class="sample dense">
       <p class="label">one_run.py</p>
       <script type="text/x-python">
 from conductor import Ask, Graph, NodeRegistry, make_graph
@@ -598,7 +719,8 @@ def dumps(value):
 </script>
       <pre data-lang="py">registry = NodeRegistry()
 
-@registry.node("approve", title="Approve", description="Approves an amount, or asks.", asks=True)
+@registry.node("approve", title="Approve",
+                description="Approves an amount, or asks.", asks=True)
 def approve(amount: int) -> bool:
     if amount &lt; 1000:
         return True
@@ -613,40 +735,61 @@ def counting(*args, **kwargs):
 Graph.compile = counting
 
 async def until_stopped(worker, run_id):
-    while (view := await worker.read(run_id, allows=lambda m: True)).status == "running":
+    while (
+        view := await worker.read(run_id, allows=lambda m: True)
+    ).status == "running":
         await asyncio.sleep(0.01)
-    return view
-
-async def main():
+    return view</pre>
+  </div>
+  </div>
+  <div class="sample dense">
+      <pre data-lang="py">async def main():
     store = DictStore()
     worker = Worker(store, nodes_for=lambda metadata: registry)
     async with worker.serving():
-        view = await worker.create(make_graph(approve), {"amount": 5000}, {"user": "anna"},
-                                  allows=lambda m: True)
+        view = await worker.create(make_graph(approve), {"amount": 5000},
+            {"user": "anna"}, allows=lambda m: True)
         print("create -&gt;", view.status, view.waiting)
         print("compiles after create:", compiles)
         view = await worker.resume(view.id, allows=lambda m: True)
         view = await until_stopped(worker, view.id)
-        print("read   -&gt;", view.status, [w.id for w in view.waiting], view.waiting[0].prompt)
+        print("read   -&gt;", view.status, [w.id for w in view.waiting],
+            view.waiting[0].prompt)
         print("compiles after the first resume call:", compiles)
         row = store.rows[view.id]
         print("row.state =", dumps(json.loads(row.state)))
         print("row.owner =", row.owner, " row.lease_until =", row.lease_until)
-        answered = await worker.answer(view.id, {view.waiting[0].id: True}, allows=lambda m: True)
+        answered = await worker.answer(view.id, {view.waiting[0].id: True},
+            allows=lambda m: True)
         print("answer -&gt;", answered.status)
         view = await until_stopped(worker, view.id)
         print("read   -&gt;", view.status, view.outputs)
         print("compiles after answer and second resume call:", compiles)
         print("events:")
         async for n, body in await worker.events(view.id, allows=lambda m: True):
-            print(" ", n, json.loads(body)["type"], json.loads(body).get("status", ""))
+            print(" ", n, json.loads(body)["type"],
+                json.loads(body).get("status", ""))
 
 asyncio.run(main())
 Graph.compile = staticmethod(real)  # as it was</pre>
-    </div>
-    <div class="sample">
-      <p class="label">What it printed · the <code>row.state</code> lines <span class="lvl int">Internal</span></p>
+  </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WHAT SAMPLE 1 PRINTED ============================ -->
+<section id="one-run-printed" aria-labelledby="one-run-printed-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr)">
+    <div>
+      <div class="section-head">
+        <p class="eyebrow">Sample 1, what it printed</p>
+        <h2 id="one-run-printed-h">The run waits with no worker holding it</h2>
+      </div>
       <p class="muted"><code>create</code> only stores the run, <code>running</code> and held by no worker, and answers with it. <code>resume</code> takes it and makes the first resume call in the background; had nobody resumed it, the next sweep of a serving worker would have. Each resume call here stores its own <a href="running-and-streaming.html#stream">events</a>, from <code>run_start</code> to <code>run_end</code>, and a follower reads them all with <code>worker.events</code>. A run that stopped running has no owner and no lease.</p>
+    </div>
+    <div class="sample dense">
+      <p class="label">What it printed · the <code>row.state</code> lines <span class="lvl int">Internal</span></p>
       <pre class="out">create -&gt; running []
 compiles after create: 1
 read   -&gt; waiting ['approve~60a01e27'] Approve 5000 kr.?
@@ -715,21 +858,24 @@ events:
         </g>
         </svg>
     </div>
-    <figcaption>A run that is <a href="asking-a-person.html#answering">declined</a> while it isn't running stops after <code>Run.from_json</code>. The worker gives it the decline, and <code>run.stream</code> isn't called. So each load pays for a compile of the whole graph. The compiled <code>Graph</code> is new each time. So what a <code>Graph</code> keeps once built, its <a href="running-and-streaming.html#start">run blueprint</a> and its <a href="saved-runs-and-reuse.html#codec">codec</a> (both internal cached properties), is built again on each load too.</figcaption>
   </figure>
-  <p class="muted" style="margin-top:2rem;max-width:var(--col)"><a href="#one-run">Sample 1</a> counts the compiles as it goes: <code>create</code> compiles the new graph once, each resume call compiles it again, and the <code>answer</code> to a waiting run loads it once more to give it the answers. <code>read</code> loads nothing, since it answers from the row. Which of the worker's other calls load a run, such as <code>again</code> or <code>begin(previous=)</code>, each method's docstring in <code>worker.py</code> says.</p>
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr); margin-top: 1.25rem">
+    <p class="muted">A run that is <a href="asking-a-person.html#answering">declined</a> while it isn't running stops after <code>Run.from_json</code>. The worker gives it the decline, and <code>run.stream</code> isn't called. So each load pays for a compile of the whole graph. The compiled <code>Graph</code> is new each time. So what a <code>Graph</code> keeps once built, its <a href="running-and-streaming.html#start">run blueprint</a> and its <a href="saved-runs-and-reuse.html#codec">codec</a> (both internal cached properties), is built again on each load too.</p>
+  <p class="muted"><a href="#one-run">Sample 1</a> counts the compiles as it goes: <code>create</code> compiles the new graph once, each resume call compiles it again, and the <code>answer</code> to a waiting run loads it once more to give it the answers. <code>read</code> loads nothing, since it answers from the row. Which of the worker's other calls load a run, such as <code>again</code> or <code>begin(previous=)</code>, each method's docstring in <code>worker.py</code> says.</p>
+  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ CAS ============================ -->
 <section id="rev" aria-labelledby="rev-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, .85fr)">
+    <div>
   <div class="section-head">
     <p class="eyebrow">The one rule</p>
     <h2 id="rev-h">Every update is at the <code>rev</code> the writer read</h2>
     <p class="muted"><code>update(run_id, rev, changes)</code> writes only while the row is still at <code>rev</code>, and moves it on by one. Of two writes made from the same read, the second loses. Its writer reads the row again and acts on the run as it is then, except a sweep, which leaves the run to the winner. Your store's part of this is <code>update</code>. Reading the row again is the worker's.</p>
   </div>
-  <div class="two">
     <figure>
       <div class="fig">
         <svg viewBox="0 0 560 300" role="img" aria-label="Two workers read a waiting run at rev 2. Both try to claim it at rev 2. One claim is written and the row moves to rev 3. The other is refused, reads the row again, finds it running, and queues its answer at rev 3.">
@@ -759,9 +905,9 @@ events:
       </div>
       <figcaption>Two workers answer one waiting question at once. One answer starts a resume call. The other waits in the row's <code>state</code> until that call ends, and is then refused as <a href="asking-a-person.html#ids"><code>not_waiting</code></a>.</figcaption>
     </figure>
-    <div class="sample">
+    </div>
+    <div class="sample dense">
       <p class="label">Sample 3, race.py, where both workers answer at once and the store logs each claim and each write of <code>state</code> · the <code>queued</code> lines <span class="lvl int">Internal</span></p>
-      <p class="muted">Each answer loads the run on a thread before it claims, so either worker can win, even on one event loop. Both give the same answer here, so the outcome is the same whichever wins: one claim written, one resume call, and one answer queued and refused. <code>check_run_store</code> sends updates at one <code>rev</code> at once, several times over, and fails a store that lets more than one through.</p>
       <script type="text/x-python">
 every = lambda metadata: True
 
@@ -795,6 +941,9 @@ async def race():
         print("refused:", {k: [p.type for p in v] for k, v in view.refused.items()})
 
 asyncio.run(race())</pre>
+    </div>
+    <div class="sample dense">
+      <p class="label">What it printed</p>
       <pre class="out">  claim at rev 2: written
   claim at rev 2: refused, the row had moved on
   write of state at rev 3: written -&gt; queued:
@@ -802,6 +951,7 @@ asyncio.run(race())</pre>
 both answered: running running
 ended: complete {'result': True}
 refused: {'approve~60a01e27': ['not_waiting']}</pre>
+      <p class="muted">Each answer loads the run on a thread before it claims, so either worker can win, even on one event loop. Both give the same answer here, so the outcome is the same whichever wins: one claim written, one resume call, and one answer queued and refused. <code>check_run_store</code> sends updates at one <code>rev</code> at once, several times over, and fails a store that lets more than one through.</p>
     </div>
   </div>
 </section>
@@ -810,17 +960,25 @@ refused: {'approve~60a01e27': ['not_waiting']}</pre>
 
 <!-- ============================ LEASES ============================ -->
 <section id="leases" aria-labelledby="leases-h">
+  <div class="walk columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr)">
+    <div>
   <div class="section-head">
     <p class="eyebrow">Many workers share one store</p>
     <h2 id="leases-h">A lease passes between two workers</h2>
     <p class="muted">While a worker resumes a run, it is the row's <code>owner</code> and keeps moving <code>lease_until</code> on. Every serving worker sweeps the store three times a lease for rows whose <code>lease_until</code> is past, and claims each at the <code>rev</code> it read. Pick what happens to worker A.</p>
     <p class="muted">The leases and the sweep are internal. You set their pace with the <code>Worker</code>'s <code>lease=</code> (30 seconds by default), and how often a running run is saved with <a href="running-and-streaming.html#checkpoint"><code>checkpoint_every=</code></a> (5 seconds). What a host sees is a run that goes on after its worker shuts down or dies.</p>
   </div>
-  <div class="walk">
     <div class="tabs" id="scen" role="group" aria-label="What happens to worker A"></div>
-    <div class="stage">
       <div class="stage-text" id="lease-text" aria-live="polite"></div>
-      <div class="fig">
+    <div class="controls">
+      <button class="btn" id="l-prev" type="button"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
+      <button class="btn primary" id="l-play" type="button"><svg viewBox="0 0 16 16" id="l-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="l-txt">Play</span></button>
+      <button class="btn" id="l-next" type="button">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
+      <span class="count" id="l-count"></span>
+      <div class="progress" aria-hidden="true"><i id="l-bar"></i></div>
+    </div>
+    </div>
+    <div class="fig">
         <svg viewBox="0 0 640 330" id="lease-svg" role="img" aria-label="Worker A and worker B on either side of one row in the store. The row shows its owner, lease_until, rev and status, and the arrows show which worker writes to it at this step.">
           <g class="w-box" id="wA">
             <rect class="pulse" x="20" y="110" width="150" height="110" rx="12"/>
@@ -854,20 +1012,24 @@ refused: {'approve~60a01e27': ['not_waiting']}</pre>
           <text class="link-label" id="lB-t" x="448" y="236" text-anchor="middle"></text>
           <text class="s-sub" id="foot" x="320" y="314" text-anchor="middle"></text>
         </svg>
-      </div>
-    </div>
-    <div class="controls">
-      <button class="btn" id="l-prev" type="button"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
-      <button class="btn primary" id="l-play" type="button"><svg viewBox="0 0 16 16" id="l-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="l-txt">Play</span></button>
-      <button class="btn" id="l-next" type="button">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
-      <span class="count" id="l-count"></span>
-      <div class="progress" aria-hidden="true"><i id="l-bar"></i></div>
     </div>
   </div>
+</section>
 
-  <div class="two" style="margin-top:3rem">
-    <div class="sample">
-      <p class="label">Sample 2, hand_back.py. Worker A creates and resumes a run of 40 slow items and shuts down after 10 calls. Worker B serves after it. The store prints each update that writes <code>owner</code> with the run's status, so not the renewals.</p>
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ SAMPLE 2 ============================ -->
+<section id="hand-back" aria-labelledby="hand-back-h">
+  <div class="columns" style="--c3: minmax(0, .8fr) minmax(0, 1.2fr) minmax(0, 1fr)">
+    <div>
+      <div class="section-head">
+        <p class="eyebrow">Sample 2</p>
+        <h2 id="hand-back-h">A worker that shuts down hands its run back</h2>
+      </div>
+      <p class="muted">Worker A creates and resumes a run of 40 slow items and shuts down after 10 calls. Worker B serves after it. The store prints each update that writes <code>owner</code> with the run's status, so not the renewals.</p>
+    </div>
+    <div class="sample dense">
+      <p class="label">hand_back.py</p>
       <script type="text/x-python">
 import time
 
@@ -910,7 +1072,7 @@ a = Worker(store, nodes_for=lambda m: registry, lease=0.6)
 b = Worker(store, nodes_for=lambda m: registry, lease=0.6)
 async with a.serving():
     view = await a.create(make_graph(many, slow), {"n": 40}, {"user": "anna"},
-                         allows=lambda m: True)
+        allows=lambda m: True)
     print("created, owner", who(store.rows[view.id].owner))
     await a.resume(view.id, allows=lambda m: True)
     while len(calls) &lt; 10:
@@ -925,9 +1087,8 @@ print("ended:", store.rows[view.id].status, "| calls made:", len(calls), "| dist
 events = [json.loads(body)["type"] for body in store.bodies[view.id]]
 print("run_start events:", events.count("run_start"), " run_end events:", events.count("run_end"))</pre>
     </div>
-    <div class="sample">
+    <div class="sample dense">
       <p class="label">What it printed</p>
-      <p class="muted">Each item was called once. A <code>run_start</code> is stored per resume call, and only the last has a <code>run_end</code>, since a run <a href="running-and-streaming.html#stream">handed back</a> stores none. The log leaves out each update's rev, which depends on timing.</p>
       <pre class="out">created, owner None
   update: owner=A, lease_until=now + lease, status=running, written=True
 A shuts down
@@ -937,6 +1098,7 @@ after A left: status running owner None lease_until 0.0
   update: owner=None, lease_until=None, status=complete, written=True
 ended: complete | calls made: 40 | distinct items: 40
 run_start events: 2  run_end events: 1</pre>
+      <p class="muted">Each item was called once. A <code>run_start</code> is stored per resume call, and only the last has a <code>run_end</code>, since a run <a href="running-and-streaming.html#stream">handed back</a> stores none. The log leaves out each update's rev, which depends on timing.</p>
     </div>
   </div>
 </section>
@@ -957,15 +1119,16 @@ run_start events: 2  run_end events: 1</pre>
 
 <!-- ============================ ROUTES ============================ -->
 <section id="routes" aria-labelledby="routes-h">
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1fr); align-items: end; margin-bottom: 1.25rem">
   <div class="section-head">
     <p class="eyebrow">router.py, bodies.py, problems.py</p>
     <h2 id="routes-h">The routes share one refusal shape</h2>
-    <p class="muted">Each route calls one method of the worker. The routes, their bodies and what each answers are listed in <a href="../serving-runs/#the-routes">Serving runs over HTTP</a>, and in <code>python -m conductor.about serving-runs</code> (its part "The routes"). Here is a run driven through them, in process.</p>
+  </div>
+    <p class="muted">Each route calls one method of the worker. The routes, their bodies and what each answers are listed in <a href="../serving-runs/#the-routes">Serving runs over HTTP</a>, and in <code>python -m conductor.about serving-runs</code> (its part "The routes"). Sample 4, <code>routes_sample.py</code>, drives a run through them in process, over httpx's ASGI transport.</p>
   </div>
 
-  <div class="two">
-    <div class="sample">
-      <p class="label">Sample 4, routes_sample.py, runs the router in process, over httpx's ASGI transport.</p>
+  <div class="columns" style="--c3: minmax(0, 1fr) minmax(0, 1.25fr)">
+  <div class="sample dense">
       <script type="text/x-python">
 import httpx
 from fastapi import FastAPI, Header
@@ -981,54 +1144,98 @@ def own_runs(x_user: str = Header("anna")):
 
 app = FastAPI()
 app.include_router(run_router(Worker(DictStore(), nodes_for=lambda m: registry),
-                              metadata=run_metadata, run_filter=own_runs))
-
-async def drive():
+    metadata=run_metadata, run_filter=own_runs))</pre>
+  </div>
+  <div class="sample dense">
+      <pre data-lang="py">async def drive():
     async with app.router.lifespan_context(app), httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as c:
         graph = make_graph(approve).model_dump(mode="json")
-        r = await c.post("/runs", json={"graph": graph, "inputs": {"amount": 5000}})
-        print("POST /runs", r.status_code, "keys:", list(r.json()), "status:", r.json()["status"])
+        r = await c.post("/runs",
+            json={"graph": graph, "inputs": {"amount": 5000}})
+        print("POST /runs", r.status_code, "keys:", list(r.json()),
+            "status:", r.json()["status"])
         run_id = r.json()["id"]
-        while (v := (await c.get(f"/runs/{run_id}")).json())["status"] == "running":
+        while (
+            v := (await c.get(f"/runs/{run_id}")).json()
+        )["status"] == "running":
             await asyncio.sleep(0.01)
         print("GET /runs/{id}, four of its keys:")
-        print(dumps({k: v[k] for k in ("status", "cause", "outputs", "refused")}))
+        print(dumps({k: v[k]
+            for k in ("status", "cause", "outputs", "refused")}))
         print("waiting ids:", [w["id"] for w in v["waiting"]])
-        for label, req in [
-            ("GET as bo", c.get(f"/runs/{run_id}", headers={"x-user": "bo"})),
-            ("GET unknown id", c.get("/runs/nonesuch")),
-            ("POST resume (waiting run)", c.post(f"/runs/{run_id}/resume")),
-            ("POST answers, wrong type", c.post(f"/runs/{run_id}/answers",
-                                                json={v["waiting"][0]["id"]: "yes please"})),
-            ("POST declines, stale id", c.post(f"/runs/{run_id}/declines",
-                                               json={"waiting_id": "approve~00000000"})),
-        ]:
-            r = await req
-            print(label, r.status_code, [(p["type"], p["ctx"]) for p in r.json()["detail"]])
-        r = await c.post(f"/runs/{run_id}/declines",
-                         json={"waiting_id": v["waiting"][0]["id"], "reason": "Over budget"})
-        print("POST declines", r.status_code, r.json()["status"])
-        r = await c.post(f"/runs/{run_id}/resume")
-        print("POST resume (declined run)", r.status_code, [(p["type"], p["ctx"]) for p in r.json()["detail"]])
-        v = (await c.get(f"/runs/{run_id}")).json()
-        print("GET after the decline", v["status"], v["cause"]["type"], v["cause"]["ctx"], "waiting:", v["waiting"])
-        r = await c.get(f"/runs/{run_id}/events")
-        print("event types:", [json.loads(line[5:])["type"] for line in r.text.splitlines()
-                               if line.startswith("data:")])
+        await refusals(c, run_id, v)</pre>
+  </div>
+  </div>
+</section>
 
-asyncio.run(drive())
+<div class="staff" aria-hidden="true"></div>
+
+<section id="routes-refusals" aria-labelledby="routes-refusals-h">
+  <div class="columns" style="--c3: minmax(0, 1.4fr) minmax(0, 1fr)">
+  <div class="sample dense">
+      <div class="section-head">
+        <p class="eyebrow">Sample 4, the refusals</p>
+        <h2 id="routes-refusals-h">Each route asked a way it refuses</h2>
+      </div>
+      <pre data-lang="py">async def refusals(c, run_id, v):
+    for label, req in [
+        ("GET as bo", c.get(f"/runs/{run_id}", headers={"x-user": "bo"})),
+        ("GET unknown id", c.get("/runs/nonesuch")),
+        ("POST resume (waiting run)", c.post(f"/runs/{run_id}/resume")),
+        ("POST answers, wrong type", c.post(f"/runs/{run_id}/answers",
+            json={v["waiting"][0]["id"]: "yes please"})),
+        ("POST declines, stale id", c.post(f"/runs/{run_id}/declines",
+            json={"waiting_id": "approve~00000000"})),
+    ]:
+        r = await req
+        print(label, r.status_code,
+            [(p["type"], p["ctx"]) for p in r.json()["detail"]])
+    r = await c.post(f"/runs/{run_id}/declines",
+        json={"waiting_id": v["waiting"][0]["id"], "reason": "Over budget"})
+    print("POST declines", r.status_code, r.json()["status"])
+    r = await c.post(f"/runs/{run_id}/resume")
+    print("POST resume (declined run)", r.status_code,
+        [(p["type"], p["ctx"]) for p in r.json()["detail"]])
+    v = (await c.get(f"/runs/{run_id}")).json()
+    print("GET after the decline", v["status"], v["cause"]["type"],
+        v["cause"]["ctx"], "waiting:", v["waiting"])
+    r = await c.get(f"/runs/{run_id}/events")
+    print("event types:", [json.loads(line[5:])["type"]
+        for line in r.text.splitlines() if line.startswith("data:")])</pre>
+  </div>
+  <div class="sample dense">
+      <p class="muted"><code>drive()</code> hands the waiting run to <code>refusals()</code>, which calls each route a way it refuses, then declines the run and reads its events. The last lines read the responses each route declares in the app's OpenAPI schema.</p>
+      <pre data-lang="py">asyncio.run(drive())
 paths = app.openapi()["paths"]
-print("responses of /runs/{run_id}", list(paths["/runs/{run_id}"]["get"]["responses"]))
-print("responses of /runs/{run_id}/resume", list(paths["/runs/{run_id}/resume"]["post"]["responses"]))
+print("responses of /runs/{run_id}",
+    list(paths["/runs/{run_id}"]["get"]["responses"]))
+print("responses of /runs/{run_id}/resume",
+    list(paths["/runs/{run_id}/resume"]["post"]["responses"]))
 print("SERVING_PROBLEMS:", [kind.code for kind in SERVING_PROBLEMS])
 print("STATUS:", STATUS)</pre>
-    </div>
-    <div class="sample">
-      <p class="label">What it printed · the <code>STATUS</code> line <span class="lvl int">Internal</span></p>
+  </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WHAT SAMPLE 4 PRINTED ============================ -->
+<section id="routes-printed" aria-labelledby="routes-printed-h">
+  <div class="columns" style="--c3: minmax(0, .8fr) minmax(0, 1.2fr)">
+    <div>
+      <div class="section-head">
+        <p class="eyebrow">Sample 4, what it printed</p>
+        <h2 id="routes-printed-h">Every refusal is a list of problems, and its first code picks the status</h2>
+      </div>
       <p class="muted">Every refusal here is <code>{"detail": [problem, ...]}</code>, a list of conductor <a href="problems.html">problems</a>, and the first problem's code picks the status from <code class="int" title="Internal">STATUS</code>, which gives 422 to any code it doesn't list. The OpenAPI entries list the statuses each route declares.</p>
       <p class="muted">The decline went to a run that wasn't running, so it was given to the run at once, with no resume call. That is why the events end with a second <code>run_end</code> and no <code>run_start</code> before it.</p>
+    <h3 id="serving-problems">The worker's own codes</h3>
+    <p class="muted"><code>SERVING_PROBLEMS</code> holds them, as sample 4 prints, and everything else a route refuses with is conductor's own, on the <a href="../problems/">problems page</a>. What each of the worker's codes means, with its status and its <code>ctx</code>, is in <a href="../serving-runs/#when-a-call-is-refused">Serving runs over HTTP</a>, which fills them in from the catalogue itself.</p>
+    </div>
+    <div class="sample dense">
+      <p class="label">What it printed · the <code>STATUS</code> line <span class="lvl int">Internal</span></p>
       <pre class="out">POST /runs 202 keys: ['waiting', 'outputs', 'progress', 'id', 'metadata', 'status', 'cause', 'refused'] status: running
 GET /runs/{id}, four of its keys:
 {
@@ -1053,9 +1260,6 @@ SERVING_PROBLEMS: ['no_such_run', 'run_not_resumable', 'raised_outside_a_node']
 STATUS: {'no_such_run': 404, 'run_not_resumable': 409}</pre>
     </div>
   </div>
-
-  <h3 id="serving-problems" style="margin-top:3rem">The worker's own codes</h3>
-  <p class="muted" style="margin:.4rem 0 1rem;max-width:var(--col)"><code>SERVING_PROBLEMS</code> holds them, as sample 4 prints, and everything else a route refuses with is conductor's own, on the <a href="../problems/">problems page</a>. What each of the worker's codes means, with its status and its <code>ctx</code>, is in <a href="../serving-runs/#when-a-call-is-refused">Serving runs over HTTP</a>, which fills them in from the catalogue itself.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -1104,7 +1308,7 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
   <div class="section-head">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">Design choices</h2>
-    <p class="muted">Why the host writes the store, and what it costs, is in <a href="../design/#the-companion-packages">the design guide</a>. Why every change is a compare-and-set on <code>rev</code>, and how a kill, a deploy, a store outage and two answers at once play out, is in <a href="../serving-runs/#many-workers">Serving runs over HTTP</a>, which also says why a run you may not see answers as one that isn't there and why replies to a running run are queued. The choices below are the ones this page shows.</p>
+    <p class="muted">How a kill, a deploy, a store outage and two answers at once play out is in <a href="../serving-runs/#many-workers">Serving runs over HTTP</a>, which also says why a run you may not see answers as one that isn't there and why replies to a running run are queued. The rules are in <code>python -m conductor.about serving-runs</code>. The choices below are the ones this page shows.</p>
   </div>
   <div class="choices">
     <article class="choice">
@@ -1189,6 +1393,11 @@ app.include_router(run_router(worker, metadata=current_member, run_filter=team_r
     }).join("");
   }
   document.querySelectorAll("pre[data-lang]").forEach((p) => { hang(p, highlight(p.textContent)); });
+  /* A sample read in two columns starts its second column at the line its data-break begins with, between blocks. */
+  document.querySelectorAll("pre.in-columns[data-break]").forEach((p) => {
+    const at = Array.from(p.querySelectorAll(".ln")).find((l) => l.textContent.startsWith(p.dataset.break));
+    if (at) at.style.breakBefore = "column";
+  });
   document.querySelectorAll("pre.out").forEach((p) => { hang(p, esc(p.textContent)); });
 
   /* ======================= THE ROW ======================= */

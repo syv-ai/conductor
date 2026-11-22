@@ -110,12 +110,24 @@ code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
 .muted { color: var(--ink-2); }
 .small { font-size: var(--step--1); color: var(--ink-3); }
 section { padding-top: var(--section); }
-.section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; }
+.section-head { display: grid; gap: .75rem; margin-bottom: 1.5rem; }
+/* a section whose parts stand side by side, so it fits on one screen: .cols has two columns, .cols.three three;
+   .l and .r make the left or the right one wider. At 900px and below they stack. */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem 2rem; align-items: start; }
+.cols.l { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.cols.r { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
+.cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); }
+.cols.three.wide-first { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.25fr) minmax(0, .9fr); column-gap: 1.5rem; }
+.cols.three.wide-mid { grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr) minmax(0, 1fr); column-gap: 1.5rem; }
+.cols > * { min-width: 0; }
+.cols > .section-head, .cols .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .cols, .cols.l, .cols.r, .cols.three, .cols.three.wide-first, .cols.three.wide-mid { grid-template-columns: minmax(0, 1fr); } }
 .staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
 .stack { display: grid; gap: 1rem; }
 
 /* ---------- hero ---------- */
-.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.25rem; }
+.hero .prose { max-width: 110ch; }
 .hero h1 em { font-style: italic; color: var(--accent); }
 .backlinks { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font-size: .9375rem; }
 .idea { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
@@ -126,7 +138,7 @@ section { padding-top: var(--section); }
 @media (max-width: 620px) { .idea { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---------- code ---------- */
-pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
 pre.out { color: var(--ink-2); background: transparent; padding: .25rem 0 0 1rem; border-left: 2px solid var(--rule); border-radius: 0; }
 .tk-k { color: var(--code-key); }
 .tk-s { color: var(--code-str); }
@@ -165,7 +177,7 @@ figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
 .toggle button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); }
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 2rem; align-items: start; }
 @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
-.stage-text { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .9rem; align-content: start; }
+.stage-text { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: .6rem; align-content: start; }
 .stage-text h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
 .stage-text .cap { color: var(--ink-2); }
 .stage-text .code-line { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-2); background: var(--code-bg); padding: .55rem .75rem; border-radius: 6px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; }
@@ -237,9 +249,11 @@ td.k-none { box-shadow: inset 0 0 0 1.5px var(--ink-3); color: var(--ink-2); }
 .ev-wrap { overflow-x: auto; }
 
 /* ---------- choices ---------- */
-.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
-@media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
-.choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
+/* the choices flow down three columns, each kept whole */
+.choices { columns: 3; column-gap: 2.5rem; }
+@media (max-width: 1100px) { .choices { columns: 2; } }
+@media (max-width: 820px) { .choices { columns: 1; } }
+.choice { break-inside: avoid; padding-block: .9rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
 .choice h3 { font-size: 1.125rem; }
 .choice p { color: var(--ink-2); }
 .cost { font-size: .875rem; color: var(--ink); background: var(--slow-soft); padding: .55rem .75rem; border-radius: 6px; }
@@ -318,6 +332,41 @@ body { margin: 0; }
   }
 }
 </style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
+  html[data-sections="snap"] {
+    scroll-snap-type: y proximity;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
 </head>
 <body>
 <nav class="sbar" aria-label="Conductor series" data-page="8">
@@ -374,6 +423,63 @@ body { margin: 0; }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
 })();
 </script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
+})();
+</script>
 <!-- /series-bar -->
 <div class="page">
 <div class="wrap">
@@ -417,13 +523,17 @@ body { margin: 0; }
 
 <!-- ============================ START ============================ -->
 <section id="start" aria-labelledby="start-h">
-  <div class="section-head prose">
+  <figure class="cols r">
+    <div class="stack">
+    <div class="section-head">
     <p class="eyebrow">Starting a run</p>
     <h2 id="start-h">A run is made from a graph</h2>
     <p class="muted"><code>graph.with_inputs(...)</code> checks the inputs and returns a run that hasn't started. Its status is <code>ready</code>. <code>run.resume()</code> calls every node that is ready, until the run is complete, waits for a person, fails or hits a limit. <code>graph.run(...)</code> is the two in one call.</p>
   </div>
 
-  <figure>
+      <figcaption>The run you call <code>resume()</code> on keeps its outcomes. The scheduler writes into a copy, and the copy comes back. The <code class="int" title="Internal">RunBlueprint</code> is the graph flattened for running. It holds every function node of the graph and of its <a href="subgraphs.html#open">subgraphs</a>, in the order a run tries them, with what each call reads.</figcaption>
+    <p class="small">Solid boxes are public. The dashed boxes are internal.</p>
+      </div>
     <div class="diagram">
       <svg viewBox="0 0 900 250" role="img" aria-label="graph.with_inputs checks the inputs and makes a ready run, building the blueprint when the graph's first run is made. resume or stream copies the run, runs one Scheduler on the copy, and returns the copy with new outcomes.">
         <defs>
@@ -471,11 +581,14 @@ body { margin: 0; }
         <text class="d-sub" x="829" y="112" text-anchor="middle">complete, waiting, …</text>
       </svg>
     </div>
-    <figcaption>The run you call <code>resume()</code> on keeps its outcomes. The scheduler writes into a copy, and the copy comes back. The <code class="int" title="Internal">RunBlueprint</code> is the graph flattened for running. It holds every function node of the graph and of its <a href="subgraphs.html#open">subgraphs</a>, in the order a run tries them, with what each call reads.</figcaption>
-    <p class="small">Solid boxes are public. The dashed boxes are internal.</p>
   </figure>
+</section>
 
-  <div class="two" style="margin-top:2.5rem">
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ THREE CALLS ============================ -->
+<section id="three-calls" aria-labelledby="three-calls-h">
+  <div class="cols l">
     <div class="sample">
       <p class="label">A sample and what it prints</p>
 <script type="text/x-python">
@@ -525,7 +638,10 @@ complete {'result': 'A!+B!+C!'}
 {'lines': {'result': ['a', 'b', 'c']}, 'shout': {'result': ['A!', 'B!', 'C!']}, 'join': {'result': 'A!+B!+C!'}}</pre>
     </div>
     <div class="stack">
-      <h3>What the three calls show</h3>
+      <div class="section-head">
+        <p class="eyebrow">Starting a run, call by call</p>
+        <h2 id="three-calls-h">What the three calls show</h2>
+      </div>
       <p class="muted">Before any call, <code>shout</code>'s total is <code>None</code>. How many lines there are isn't known until <code>lines</code> returns.</p>
       <p class="muted"><code>resume(only_costs_nothing=True)</code> calls only the nodes whose <a href="nodes-and-types.html#policy"><code>Policy</code></a> says <a href="saved-runs-and-reuse.html#policy"><code>costs_nothing</code></a>. Here that's <code>lines</code>. Afterwards the run is still <code>ready</code>, and the host knows <code>shout</code> will be called three times, before anything costly runs.</p>
       <p class="muted">The next <code>resume()</code> doesn't call <code>lines</code> again, since its call has an outcome. It calls the rest.</p>
@@ -537,22 +653,29 @@ complete {'result': 'A!+B!+C!'}
 
 <!-- ============================ SCHEDULER WALK ============================ -->
 <section id="pass" aria-labelledby="pass-h">
-  <div class="section-head prose">
+  <div class="walk cols">
+    <div class="stack">
+    <div class="section-head">
     <p class="eyebrow">Inside resume()</p>
     <h2 id="pass-h">One pass of the scheduler <span class="lvl int">Internal</span></h2>
     <p class="muted">You write none of this. It decides the order your nodes are called in.</p>
-    <p class="muted">The scheduler keeps a list of calls to try, ordered by each node's place in the graph. It takes the first, gathers its arguments, and makes the call if they are all there. Each outcome it stores puts the calls that read it on the list. A call that collects a <a href="series-and-tables.html#loop">loop</a>, like <code>join</code>, is set aside instead, until no call upstream of it is running for the same item.</p>
     <p class="muted">The steps are a trace of the real scheduler, with <code>{"text": "a\nb\nc"}</code>. Switch <code>shout</code>'s policy to see its calls on threads.</p>
   </div>
-
-  <div class="walk">
     <div class="toggle" role="group" aria-label="shout's policy">
       <button type="button" id="mode-own" aria-pressed="true">shout: Policy()</button>
       <button type="button" id="mode-thr" aria-pressed="false">shout: Policy(concurrency=2)</button>
     </div>
-    <div class="stage">
-      <div class="stage-text" id="stage-text" aria-live="polite"></div>
-      <div class="board">
+    <div class="controls">
+      <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
+      <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
+      <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
+      <span class="count" id="count">1 / 10</span>
+      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+    </div>
+    <div class="stage-text" id="stage-text" aria-live="polite"></div>
+    </div>
+    <div class="stack">
+    <div class="board">
         <svg viewBox="0 0 520 210" role="img" aria-label="The calls of the README graph: lines once, shout three times, join once, coloured by state." id="walk-svg">
           <defs>
             <marker id="wah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" class="d-head"/></marker>
@@ -575,14 +698,8 @@ complete {'result': 'A!+B!+C!'}
           <div class="lane"><span class="eyebrow">set aside</span><div class="chips" id="lane-coll"></div></div>
         </div>
         <p class="small">A dark outline is the call being tried. Warm is running, and dashed warm is made but waiting for a free place. Blue has an outcome. A call is written as the node and its item indexes.</p>
-      </div>
     </div>
-    <div class="controls">
-      <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
-      <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
-      <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
-      <span class="count" id="count">1 / 10</span>
-      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+    <p class="muted">The scheduler keeps a list of calls to try, ordered by each node's place in the graph. It takes the first, gathers its arguments, and makes the call if they are all there. Each outcome it stores puts the calls that read it on the list. A call that collects a <a href="series-and-tables.html#loop">loop</a>, like <code>join</code>, is set aside instead, until no call upstream of it is running for the same item.</p>
     </div>
   </div>
 </section>
@@ -603,10 +720,15 @@ complete {'result': 'A!+B!+C!'}
     <div class="kind"><span class="swatch sw-skip"></span><span><b>Skipped</b><span class="lvl int">Internal</span></span><p>The function wasn't called, because an input gets only <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a>. The node is downstream of a branch that wasn't chosen. Every output is <code>SKIPPED</code>.</p></div>
     <div class="kind"><span class="swatch sw-none"></span><span><b>NoneInput</b><span class="lvl int">Internal</span></span><p>The function wasn't called, because an argument was <code>None</code> and its parameter doesn't take <code>None</code>. <code>run.none_input_calls</code> lists these.</p></div>
   </div>
+</section>
 
-  <div class="two" style="margin-top:2.5rem">
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ OUTCOMES IN ONE RUN ============================ -->
+<section id="outcomes-run" aria-labelledby="outcomes-run-h">
+  <div class="cols l">
     <div class="sample">
-      <p class="label">A sample and what it prints</p>
+      <p class="label">A sample</p>
 <script type="text/x-python">
 registry = NodeRegistry()
 registry.add(lines)
@@ -639,12 +761,17 @@ print(run.status, run.results["approve"]["result"])
 print(run.results["gate"])
 print(run.none_input_calls)
 print([waiting.loc for waiting in run.waiting])</pre>
+    </div>
+    <figure>
+      <div class="section-head">
+        <p class="eyebrow">Four kinds in one run</p>
+        <h2 id="outcomes-run-h">Each call of the run, by its outcome</h2>
+      </div>
+      <p class="label">what it prints</p>
 <pre class="out">waiting [True, None, None, None]
 {'keep': ['ok', None, None, 'ask'], 'drop': [None, None, 'skip', None]}
 [NoneInputCall(loc=('gate', 1), input='line')]
 [('approve', 3)]</pre>
-    </div>
-    <figure>
       <p class="label">the outcome of each call <span class="lvl int">Internal</span></p>
       <div class="grid-wrap">
         <table class="og" aria-label="Each call's outcome, by node and item">
@@ -691,13 +818,19 @@ declined []</pre>
 
 <!-- ============================ POLICY ============================ -->
 <section id="policy" aria-labelledby="policy-h">
-  <div class="section-head prose">
+  <figure class="cols r">
+    <div class="stack">
+    <div class="section-head">
     <p class="eyebrow">Where and how often a call is made</p>
     <h2 id="policy-h">A node's <code>Policy</code> decides its thread, its limit and its retries</h2>
     <p class="muted">A node with <code>concurrency</code> 1 or <code>None</code> and no <code>attempt_timeout</code> is called on the scheduler's own thread, one call at a time. Any other node is called on a pool of threads.</p>
   </div>
 
-  <figure>
+    <figcaption>"Threaded" means <code>concurrency</code> above 1, or an <code>attempt_timeout</code> (<code class="int" title="Internal">Policy.threaded</code>). A place is free when fewer calls of the node are running than its <code>concurrency</code>. With <code>concurrency=None</code> the limit is 1.</figcaption>
+    <p class="small">Every box is internal, so all are dashed. Two arrows name the <a href="nodes-and-types.html#policy"><code>Policy</code></a> fields you set, <code>retry_delay</code> and <code>attempt_timeout</code>.</p>
+  <p class="muted" id="retried">Which failures are retried, how long each retry waits, and who counts the running calls are rules of the reference: <code>python -m conductor.about retries-and-timeouts</code> and <code>python -m conductor.about versions-and-policies</code>. The samples below show them at work. In each, <code>chain(...)</code> stands for <code>Graph.compile(make_graph(...), registry)</code> with a registry of those nodes.</p>
+
+    </div>
     <div class="diagram">
       <svg viewBox="0 0 900 300" role="img" aria-label="An attempt waits to start until fewer than most_at_once calls of its node run. It runs on the scheduler's thread or a pool thread. A retried error sets a retry timer that doubles each time. An attempt past its attempt_timeout fails with timeout.">
         <defs>
@@ -746,14 +879,19 @@ declined []</pre>
         <text class="d-title" x="20" y="28">one call, from attempt to outcome</text>
       </svg>
     </div>
-    <figcaption>"Threaded" means <code>concurrency</code> above 1, or an <code>attempt_timeout</code> (<code class="int" title="Internal">Policy.threaded</code>). A place is free when fewer calls of the node are running than its <code>concurrency</code>. With <code>concurrency=None</code> the limit is 1.</figcaption>
-    <p class="small">Every box is internal, so all are dashed. Two arrows name the <a href="nodes-and-types.html#policy"><code>Policy</code></a> fields you set, <code>retry_delay</code> and <code>attempt_timeout</code>.</p>
   </figure>
+</section>
 
-  <p class="muted" id="retried" style="margin-top:2.5rem; max-width:var(--col)">Which failures are retried, how long each retry waits, and who counts the running calls are rules of the reference: <code>python -m conductor.about retries-and-timeouts</code> and <code>python -m conductor.about versions-and-policies</code>. The samples below show them at work. In each, <code>chain(...)</code> stands for <code>Graph.compile(make_graph(...), registry)</code> with a registry of those nodes.</p>
+<div class="staff" aria-hidden="true"></div>
 
-  <div class="two" style="margin-top:2.5rem">
+<!-- ============================ POLICY AT WORK ============================ -->
+<section id="policy-at-work" aria-labelledby="policy-at-work-h">
+  <div class="cols three wide-first">
     <div class="sample">
+      <div class="section-head">
+        <p class="eyebrow">The policy at work</p>
+        <h2 id="policy-at-work-h">Threads, retries and a timeout</h2>
+      </div>
       <p class="label">A sample and what it prints &middot; the second value printed, <code class="int" title="Internal">policy.threaded</code> <span class="lvl int">Internal</span></p>
 <script type="text/x-python">
 def chain(*definitions):
@@ -799,9 +937,7 @@ async for event in chain(lines, fetch).with_inputs({"text": "a"}).stream():
 {'loc': ['fetch'], 'type': 'node_retry', 'attempt': 2, 'retries': 2, 'delay': 0.02, 'cause': {'type': 'external_failed', 'loc': ['fetch', 0]}}
 {'type': 'run_end', 'status': 'complete', 'cause': None}</pre>
     </div>
-  </div>
-
-  <div class="sample" style="margin-top:2rem; max-width:var(--col)">
+    <div class="sample">
     <p class="label">A sample and what it prints</p>
 <pre data-lang="py">@node("stuck", title="Stuck", description="...",
       policy=Policy(attempt_timeout=0.05, retries=3))
@@ -814,20 +950,24 @@ print(run.status, run.cause.model_dump(mode="json"))</pre>
 <pre class="out">failed {'type': 'timeout', 'loc': ['stuck', 0], 'msg': "The node didn't return within 0.05 seconds, and a timed-out call isn't retried. Its Policy(attempt_timeout=) sets how long it may take.", 'ctx': {'seconds': 0.05}}</pre>
     <p class="small">Three retries are allowed, and none is made. <code>python -m conductor.about retries-and-timeouts</code> says why.</p>
   </div>
+  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ FAILURES ============================ -->
 <section id="failures" aria-labelledby="failures-h">
-  <div class="section-head prose">
-    <p class="eyebrow">When a node raises</p>
-    <h2 id="failures-h">A failure is a <code>Problem</code>, and the run stops starting calls <span class="lvl pub">Public</span></h2>
-    <p class="muted">The first call that fails, and isn't retried, ends the run as <code>failed</code>. Its <a href="problems.html">problem</a> is <code>run.cause</code>. The failed call stores nothing, so the next <code>resume()</code> makes it again. If the stream's <code>cancel</code> was set by then, the run ends <code>cancelled</code> instead. A call past its <code>attempt_timeout</code> still ends it <code>failed</code>, since the timeout isn't the cancel's doing. A node may stop a slow call by raising when it sees the cancel.</p>
-  </div>
-  <div class="two">
+  <div class="cols three wide-mid">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">When a node raises</p>
+        <h2 id="failures-h">A failure is a <code>Problem</code>, and the run stops starting calls <span class="lvl pub">Public</span></h2>
+        <p class="muted">The first call that fails, and isn't retried, ends the run as <code>failed</code>. Its <a href="problems.html">problem</a> is <code>run.cause</code>. The failed call stores nothing, so the next <code>resume()</code> makes it again. If the stream's <code>cancel</code> was set by then, the run ends <code>cancelled</code> instead. A call past its <code>attempt_timeout</code> still ends it <code>failed</code>, since the timeout isn't the cancel's doing. A node may stop a slow call by raising when it sees the cancel.</p>
+      </div>
+      <p class="muted">The third line of <code>parse</code> was never called. With <code>parse</code>'s default policy its calls go in item order on one thread, and the failure of item 1 stopped the run before item 2.</p>
+    </div>
     <div class="sample">
-      <p class="label">A sample and what it prints</p>
+      <p class="label">A sample</p>
 <script type="text/x-python">
 def make_and_run(*definitions_and_inputs):
     *definitions, inputs = definitions_and_inputs
@@ -849,17 +989,17 @@ print(failed.results["parse"]["result"])
 
 refused = make_and_run(lines, check, {"text": "long\nno"})
 print(refused.status, refused.cause.model_dump(mode="json"))</pre>
+      <p class="small"><code>make_and_run</code> stands for <code>Graph.compile(make_graph(...), registry).run(...)</code>.</p>
+      <p class="muted">A <a href="problems.html#failures"><code>NodeError</code></a> is the node's own failure, written by its author. Its code and message are the problem, as <code>too_short</code> shows.</p>
+    </div>
+    <div class="stack">
+      <p class="label">What it prints</p>
 <pre class="out">failed {'type': 'execution_failed', 'loc': ['parse', 1], 'msg': "The node raised ValueError, which isn't retried: only an ExternalError, or a class in Policy(retry_on=), is. Its developer can find the details in the conductor log.", 'ctx': {'error': 'ValueError'}}
 [1, None, None]
 failed {'type': 'too_short', 'loc': ['check', 1], 'msg': 'The line is too short.', 'ctx': {}}</pre>
-      <p class="small"><code>make_and_run</code> stands for <code>Graph.compile(make_graph(...), registry).run(...)</code>.</p>
-    </div>
-    <div class="stack">
       <h3 id="log">What reaches the host and what reaches the log</h3>
       <p class="muted">The problem's <a href="subgraphs.html#places"><code>loc</code></a> names the call. It is the node's id, then its <a href="series-and-tables.html#indexes">item indexes</a>. Inside a <a href="subgraphs.html#open">subgraph</a>, the subgraph node and its item come first.</p>
-      <p class="muted">A <a href="problems.html#failures"><code>NodeError</code></a> is the node's own failure, written by its author. Its code and message are the problem, as <code>too_short</code> shows.</p>
       <p class="muted">Any other exception is written to the <code>conductor</code> logger with its traceback. The problem names only the exception's class, because its text may quote a value the run handled. It is <a href="problems.html#failures"><code>external_failed</code></a> for a class in the node's <code>retry_on</code>, and <a href="problems.html#failures"><code>execution_failed</code></a> for anything else.</p>
-      <p class="muted">The third line of <code>parse</code> was never called. With <code>parse</code>'s default policy its calls go in item order on one thread, and the failure of item 1 stopped the run before item 2.</p>
     </div>
   </div>
 </section>
@@ -868,14 +1008,19 @@ failed {'type': 'too_short', 'loc': ['check', 1], 'msg': 'The line is too short.
 
 <!-- ============================ STREAM ============================ -->
 <section id="stream" aria-labelledby="stream-h">
-  <div class="section-head prose">
+  <figure class="cols r">
+    <div class="stack">
+    <div class="section-head">
     <p class="eyebrow">run.stream()</p>
     <h2 id="stream-h"><code>run.stream()</code> adds a listener to the same scheduler</h2>
     <p class="muted"><code>run.stream()</code> is an async generator. It starts the scheduler on a thread of its own, so a slow node never blocks the host's event loop.</p>
     <p class="muted"><span class="lvl int">Internal</span> The listener, <code class="int" title="Internal">NodeEvents</code>, turns what the scheduler reports about calls into events about nodes. An asyncio queue carries each event to the generator.</p>
   </div>
 
-  <figure>
+    <figcaption>While a scheduler with a <code class="int" title="Internal">stop</code> check waits for threads, it asks that check every 50 milliseconds. Leaving the <code>async for</code> early cancels the run once the generator is closed, so hold it with <code>contextlib.aclosing</code>.</figcaption>
+    <p class="small">Solid boxes are public. They are the loop you write and the events you set. The dashed boxes are internal.</p>
+  <p class="muted">The events are the classes of <code>conductor.events</code>, in the order a run reports them. What each one carries, and when it comes, is in the reference: <code>python -m conductor.about events</code>. <code>run_end</code> and <code>run_checkpoint</code> also hand the host the run itself as <code>event.run</code>, which isn't part of the event's JSON.</p>
+    </div>
     <div class="diagram">
       <svg viewBox="0 0 900 230" role="img" aria-label="The host's event loop reads events from an asyncio queue. The scheduler runs on its own thread, asks stop before each call, and tells NodeEvents what happens. Threaded nodes run on pool threads.">
         <defs>
@@ -917,11 +1062,22 @@ failed {'type': 'too_short', 'loc': ['check', 1], 'msg': 'The line is too short.
         <path class="d-line" d="M780 98 L724 98" marker-end="url(#sa)"/>
       </svg>
     </div>
-    <figcaption>While a scheduler with a <code class="int" title="Internal">stop</code> check waits for threads, it asks that check every 50 milliseconds. Leaving the <code>async for</code> early cancels the run once the generator is closed, so hold it with <code>contextlib.aclosing</code>.</figcaption>
-    <p class="small">Solid boxes are public. They are the loop you write and the events you set. The dashed boxes are internal.</p>
   </figure>
+</section>
 
-  <div class="two" style="margin-top:2.5rem">
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ STREAM ORDER ============================ -->
+<section id="stream-order" aria-labelledby="stream-order-h">
+  <div class="cols r">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">run.stream(), event by event</p>
+        <h2 id="stream-order-h">Why the events come in that order</h2>
+      </div>
+      <p class="muted"><code>lines</code> completes only after <code>join</code> has started. The listener looks for complete nodes when no call is ready, and in this run that first happens after <code>join</code> is called. It's the last step of the walk above.</p>
+      <p class="muted"><code>node_progress</code> comes at most four times a second for each node, plus one last count before the node's <code>node_complete</code> if the count changed. So <code>finished=2</code> shows up only at the end.</p>
+    </div>
     <div class="sample">
       <p class="label">A sample and what it prints</p>
 <script type="text/x-python">
@@ -943,14 +1099,7 @@ asyncio.run(follow())</pre>
 {'loc': ['join'], 'type': 'node_complete', 'count': {'finished': 1, 'waiting': 0, 'skipped': 0, 'none_input': 0, 'known': 1, 'total': 1}, 'reused': 0}
 {'type': 'run_end', 'status': 'complete', 'cause': None}</pre>
     </div>
-    <div class="stack">
-      <h3>Why the events come in that order</h3>
-      <p class="muted"><code>lines</code> completes only after <code>join</code> has started. The listener looks for complete nodes when no call is ready, and in this run that first happens after <code>join</code> is called. It's the last step of the walk above.</p>
-      <p class="muted"><code>node_progress</code> comes at most four times a second for each node, plus one last count before the node's <code>node_complete</code> if the count changed. So <code>finished=2</code> shows up only at the end.</p>
-    </div>
   </div>
-
-  <p class="muted" style="margin-top:2.5rem; max-width:var(--col)">The events are the classes of <code>conductor.events</code>, in the order a run reports them. What each one carries, and when it comes, is in the reference: <code>python -m conductor.about events</code>. <code>run_end</code> and <code>run_checkpoint</code> also hand the host the run itself as <code>event.run</code>, which isn't part of the event's JSON.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -994,9 +1143,18 @@ print(big.with_max_items(10).resume().outputs)</pre>
 {'result': 'A!+B!+C!'}</pre>
     </div>
   </div>
+</section>
 
-  <div class="two" style="margin-top:2rem">
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ CHECKPOINTS ============================ -->
+<section id="checkpoints" aria-labelledby="checkpoints-h">
+  <div class="cols">
     <div class="sample">
+      <div class="section-head">
+        <p class="eyebrow">Checkpoints</p>
+        <h2 id="checkpoints-h">A stream can hand the host a copy to save</h2>
+      </div>
       <p class="label">A sample and what it prints</p>
 <pre data-lang="py">kinds = []
 async for event in ticking.with_inputs({"text": ten_lines}).stream(checkpoint_every=0.05):
@@ -1030,10 +1188,10 @@ complete</pre>
 
 <!-- ============================ CHOICES ============================ -->
 <section id="choices" aria-labelledby="choices-h">
-  <div class="section-head prose">
+  <div class="section-head">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices of this part</h2>
-    <p class="muted">Why nodes run on the scheduler's own thread unless they ask for threads, why <code>concurrency</code> counts across the whole process, why only failures from outside are retried, why one blueprint serves every run, and why events carry counts and checkpoints come from the stream: the <a href="../design/#the-engine">design guide's engine section</a> and its <a href="../design/#saved-runs-checkpoints-and-events">section on saved runs, checkpoints and events</a> say. Why a node's own exception goes to the log is under <a href="../design/#graph-and-run"><code>Graph</code> and <code>Run</code></a>. The choices below are the rest.</p>
+    <p class="muted">The rules are in <code>python -m conductor.about running</code>, <code>retries-and-timeouts</code> and <code>events</code>. The choices below are the ones this page shows.</p>
   </div>
   <div class="choices">
     <article class="choice">
