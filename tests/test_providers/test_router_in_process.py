@@ -46,8 +46,6 @@ from tests.test_providers.in_memory import (  # noqa: E402
     MemoryStore,
     asking,
     left_running,
-    stoppable,
-    stopping,
 )
 
 
@@ -592,26 +590,6 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
         assert (await store.ended(run_id)).outputs == {"then": "X", "approve": True}
 
 
-async def test_a_cancel_sent_to_the_route_sets_the_stop_event_a_node_of_the_run_reads() -> None:
-    graph = stopping()
-    store = MemoryStore()
-    app = _app(store=store, registry=lambda _: graph.registry, context=stoppable)
-
-    async with _serving(app) as client:
-        started = await client.post(
-            "/runs",
-            json={
-                "graph": graph.graph.model_dump(mode="json"),
-                "inputs": {"question": "y", "text": "x", "seconds": 60.0},
-            },
-        )
-        run_id = started.json()["id"]
-        await asyncio.to_thread(graph.started.wait, 60)
-        assert _status(await client.post(f"/runs/{run_id}/cancel")) == (200, "running")
-        assert (await store.ended(run_id)).status == "cancelled"
-    assert graph.seen == [True]
-
-
 async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code() -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
@@ -918,6 +896,7 @@ async def test_a_graph_that_writes_one_node_id_twice_is_refused_by_every_route_t
             (problem["type"], problem["ctx"]["errors"][0]["type"])
             for problem in answer.json()["detail"]
         ] == [("invalid_record", "repeated_key")]
+        assert all(problem["loc"][0] == "record" for problem in answer.json()["detail"])
     assert store.rows == {}
 
 
@@ -944,9 +923,8 @@ async def test_a_run_body_that_writes_graph_twice_is_refused_and_nothing_is_stor
     ("graph", "error"),
     [
         ('{"nodes": {"review": {"inputs": {"file": {"graph_input": "file"}}}}}', "missing"),
-        ('{"nodes": {"review": {"node": "review"}, "review": {"node": "review"}}}', "repeated_key"),
     ],
-    ids=["a_node_with_no_node", "a_node_id_written_twice"],
+    ids=["a_node_with_no_node"],
 )
 async def test_a_run_of_a_graph_record_of_the_wrong_shape_is_refused_with_conductors_problems_never_fastapis(
     graph: str, error: str

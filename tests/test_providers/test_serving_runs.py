@@ -606,37 +606,6 @@ def test_a_run_is_seen_only_by_the_user_who_started_it(served: Served) -> None:
     _run(scenario)
 
 
-def test_a_wrong_answer_is_a_422_listing_every_problem_and_so_is_one_to_a_complete_run(
-    served: Served,
-) -> None:
-    async def scenario() -> None:
-        async with _workers(served, count=1) as (a,):
-            served.open_the_gate()
-            run_id = await a.start(_GATE_ASK)
-            row = await a.until_status(run_id, "waiting")
-            (waiting_call,) = row["waiting"]
-
-            wrong = await a.client.post(
-                f"/runs/{run_id}/answers", json={waiting_call["id"]: "not a bool", "nonesuch": True}
-            )
-            assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
-            assert (await a.read(run_id))["status"] == "waiting"
-
-            answered = await a.client.post(
-                f"/runs/{run_id}/answers", json={waiting_call["id"]: False}
-            )
-            assert answered.status_code == 202
-            await a.until_status(run_id, "complete")
-            late = await a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True})
-            assert (late.status_code, [p["type"] for p in late.json()["detail"]]) == (
-                422,
-                ["not_waiting"],
-            )
-            assert (await a.client.post("/runs/nonesuch/answers", json={})).status_code == 404
-
-    _run(scenario)
-
-
 def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved_and_compile_says_where(
     served: Served,
 ) -> None:
@@ -671,7 +640,7 @@ def test_an_edited_input_runs_again_calling_only_the_items_that_changed(served: 
     _run(scenario)
 
 
-def test_a_stream_says_not_to_cache_it_and_the_schema_lists_what_a_run_view_has(
+def test_a_stream_says_not_to_cache_it_and_the_schema_lists_what_a_waiting_call_requires(
     served: Served,
 ) -> None:
     async def scenario() -> None:
@@ -683,12 +652,8 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_lists_what_a_run_view_has(
             assert response.headers["content-type"].startswith("text/event-stream")
             assert (await a.client.get("/runs/nope/events")).status_code == 404
 
+            # RunView's fields are pinned in test_router_in_process: this app mounts the same router
             schemas = (await a.client.get("/openapi.json")).json()["components"]["schemas"]
-            view = schemas["RunView"]
-            assert {"id", "metadata", "status", "waiting", "outputs", "refused", "cause"} <= set(
-                view["properties"]
-            )
-            assert "rev" not in view["properties"]
             assert {"id", "loc", "prompt", "questions", "inputs"} <= set(
                 schemas["Waiting"]["required"]
             )

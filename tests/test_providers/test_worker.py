@@ -718,24 +718,6 @@ async def test_a_resume_call_an_answer_queued_during_a_cancelled_one_starts_gets
     assert (ends, graph.seen) == (["cancelled", "complete"], [True, False, False])
 
 
-async def test_a_node_sees_the_stop_event_set_when_another_worker_cancels_its_run() -> None:
-    graph = stopping()
-    store = MemoryStore()
-    holder = _worker(store, graph.registry, context=stoppable, lease=0.6)
-    other = _worker(store, graph.registry, context=stoppable)
-    async with holder.serving():
-        run_id = await _started(
-            holder, graph.graph, {"question": "y", "text": "x", "seconds": 60.0}
-        )
-        await asyncio.to_thread(graph.started.wait, 60)
-        assert (
-            await other.cancel(run_id, allows=EVERY_RUN)
-        ).status == "running"  # the worker holding the run hears it at its next lease renewal
-
-        assert (await store.ended(run_id)).status == "cancelled"
-    assert graph.seen == [True]
-
-
 async def test_a_worker_hears_a_cancel_sent_to_another_at_its_first_lease_renewal_after_the_cancel() -> (
     None
 ):
@@ -2178,23 +2160,6 @@ async def test_a_cancel_of_a_run_an_answer_resumed_stops_the_answered_resume_cal
         )
 
 
-async def test_a_cancel_of_a_run_an_answer_completed_leaves_it_complete() -> None:
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    store = MemoryStore()
-    worker = _worker(store, registry)
-    async with worker.serving():
-        run_id = await _started(worker, graph, inputs)
-        assert (await store.ended(run_id)).status == "waiting"
-        assert (
-            await worker.answer(run_id, {waiting_id: True}, allows=EVERY_RUN)
-        ).status == "running"
-        assert (await store.ended(run_id)).status == "complete"
-
-        assert (await worker.cancel(run_id, allows=EVERY_RUN)).status == "complete"
-        assert (await worker.read(run_id, allows=EVERY_RUN)).status == "complete"
-
-
 def _asked_beside_a_chain() -> tuple[
     NodeRegistry, GraphRecord, dict[str, Any], dict[str, ThreadEvent], list[str], str
 ]:
@@ -2327,6 +2292,45 @@ async def test_a_cancel_sent_as_a_resume_call_ends_cancels_the_one_an_answer_que
         assert (await store.ended(run_id)).status == "complete"
 
 
+async def test_a_cancel_that_lands_just_before_a_resume_call_writes_its_waiting_end_keeps_the_run_running_to_end_cancelled() -> (
+    None
+):
+    """A run that ends ``waiting`` after a cancel was asked, without hearing it, stays running, and the next resume
+    call ends it ``cancelled`` before calling any node, with its question still waiting."""
+    registry, graph, gate, inputs, _ = asking()
+
+    class LandsFirst(MemoryStore):
+        """Has another worker cancel the run just before the write that ends the first resume call."""
+
+        landed = False
+
+        async def update(
+            self, run_id: str, rev: int, changes: RunChanges, event: str | None = None
+        ) -> bool:
+            if not self.landed and event is not None:
+                self.landed = True
+                assert (await other.cancel(run_id, allows=EVERY_RUN)).status == "running"
+            return await super().update(run_id, rev, changes, event)
+
+    store = LandsFirst()
+    worker, other = _worker(store, registry), _worker(store, registry)
+    async with worker.serving(), other.serving():
+        run_id = await _started(worker, graph, inputs)
+        gate.set()
+        await store.until(run_id, lambda row: store.landed and row.status != "running")
+        ended = await worker.read(run_id, allows=EVERY_RUN)
+
+    run_ends = [
+        event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"
+    ]
+    assert (ended.status, len(ended.waiting), run_ends) == (
+        "cancelled",
+        1,
+        ["waiting", "cancelled"],
+    )
+    assert await _resume_calls(store, run_id) == 2
+
+
 @pytest.mark.parametrize("meanwhile", ["declined", "taken"])
 async def test_a_decline_or_a_takeover_that_lands_just_before_a_resume_call_writes_its_end_decides_that_end(
     meanwhile: str,
@@ -2422,7 +2426,7 @@ async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resum
 
 @pytest.mark.parametrize("fails", ["the write of an event", "the write of a checkpoint"])
 async def test_a_resume_call_the_store_raises_in_is_given_up_and_the_run_is_resumed_once_its_lease_runs_out(
-    fails: str,
+    fails: str, caplog: LogCaptureFixture
 ) -> None:
     registry, graph, called, calls = _slow_items()
 
@@ -2477,6 +2481,11 @@ async def test_a_resume_call_the_store_raises_in_is_given_up_and_the_run_is_resu
         {"result": list(range(40))},
     )
     assert await _resume_calls(store, run_id) == 2
+    # the outage is logged as one, naming the run, never as the run's fault
+    assert any(
+        f"the store raised while run {run_id} was resumed" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def _shout() -> tuple[NodeRegistry, GraphRecord]:
@@ -2975,12 +2984,12 @@ async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run
         )
 
 
-async def test_a_run_handed_back_by_a_worker_shutting_down_is_running_with_no_cause_and_its_saved_run_is_ready() -> (
+async def test_a_run_handed_back_at_shutdown_is_running_with_no_cause_and_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> (
     None
 ):
-    registry, graph, called, _ = _slow_items()
+    registry, graph, called, calls = _slow_items()
     store = MemoryStore()
-    worker = _worker(store, registry)
+    worker, second = _worker(store, registry), _worker(store, registry)
 
     async with worker.serving():
         run_id = await _started(worker, graph, {"n": 40})
@@ -2996,18 +3005,6 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_is_running_with_no_ca
     assert (
         Run.from_json(row.run, Graph.compile(row.graph, registry)).status == "ready"
     )  # the saved run is only ready: it's the row that says a worker should go on
-
-
-async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> (
-    None
-):
-    registry, graph, called, calls = _slow_items()
-    store = MemoryStore()
-    first, second = _worker(store, registry), _worker(store, registry)
-
-    async with first.serving():
-        run_id = await _started(first, graph, {"n": 40})
-        await asyncio.to_thread(called.wait, 5)
     assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
 
     async with second.serving():

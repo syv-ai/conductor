@@ -427,56 +427,44 @@ def test_scenario_3_without_the_name_a_table_input_takes_the_invoices_of_each_do
 CONTRACTS = [File(name=f"{n}.pdf", text=f"contract {n}") for n in range(11)]
 
 
-def test_scenario_4_each_contract_alone():
-    ASKED.clear()
-    graph = Graph.compile(
-        make_graph(
-            upload,
-            llm,
-            edges=[("upload.result.text", "llm.text")],
-            constants={"llm.prompt": "Summarise:"},
+@pytest.mark.parametrize(
+    ("nodes", "edges", "constants", "result", "asked"),
+    [
+        (
+            (upload, llm),
+            [("upload.result.text", "llm.text")],
+            {"llm.prompt": "Summarise:"},
+            [f"Summarise: {contract.text}" for contract in CONTRACTS],
+            11,
         ),
-        REGISTRY,
-    )
-    assert len(graph.run({"files": CONTRACTS}).outputs["result"]) == 11 and len(ASKED) == 11
-
-
-def test_scenario_4_all_contracts_together():
-    ASKED.clear()
-    graph = Graph.compile(
-        make_graph(
-            upload,
-            llm_all,
-            edges=[("upload.result.text", "llm-all.texts")],
-            constants={"llm-all.prompt": "Compare"},
+        (
+            (upload, llm_all),
+            [("upload.result.text", "llm-all.texts")],
+            {"llm-all.prompt": "Compare"},
+            "Compare 11 texts",
+            1,
         ),
-        REGISTRY,
-    )
-    assert (
-        graph.run({"files": CONTRACTS}).outputs == {"result": "Compare 11 texts"}
-        and len(ASKED) == 1
-    )
-
-
-def test_scenario_4_each_contract_and_then_all_of_them():
-    ASKED.clear()
-    graph = Graph.compile(
-        make_graph(
-            upload,
-            llm,
-            llm_all,
-            edges=[
-                ("upload.result.text", "llm.text"),
-                ("llm.result", "llm-all.texts"),
-            ],
-            constants={"llm.prompt": "Summarise:", "llm-all.prompt": "Give an overview of"},
+        (
+            (upload, llm, llm_all),
+            [("upload.result.text", "llm.text"), ("llm.result", "llm-all.texts")],
+            {"llm.prompt": "Summarise:", "llm-all.prompt": "Give an overview of"},
+            "Give an overview of 11 texts",
+            12,
         ),
-        REGISTRY,
-    )
-    assert (
-        graph.run({"files": CONTRACTS}).outputs == {"result": "Give an overview of 11 texts"}
-        and len(ASKED) == 12
-    )
+    ],
+    ids=["each contract alone", "all contracts together", "each contract and then all of them"],
+)
+def test_scenario_4_contracts_each_alone_all_together_or_both(
+    nodes: tuple[Any, ...],
+    edges: list[tuple[str, str]],
+    constants: dict[str, str],
+    result: Any,
+    asked: int,
+):
+    ASKED.clear()
+    graph = Graph.compile(make_graph(*nodes, edges=edges, constants=constants), REGISTRY)
+
+    assert (graph.run({"files": CONTRACTS}).outputs, len(ASKED)) == ({"result": result}, asked)
 
 
 # -- 6. documents, their lines, a count per document; b.pdf gives 0: 3 nodes --------------------------------

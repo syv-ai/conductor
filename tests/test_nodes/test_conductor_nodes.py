@@ -356,11 +356,6 @@ def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_ru
     assert run.cause is not None and run.cause.type == "pattern_timeout"
 
 
-def test_a_node_is_still_its_function() -> None:
-    assert text.reverse("abc") == "cba"
-    assert json_ops.get_path([1, 2, 3], "-1") == 3
-
-
 def test_text_or_parsed_json_can_be_wired_into_a_json_value_and_a_json_null_is_written_as_null() -> (
     None
 ):

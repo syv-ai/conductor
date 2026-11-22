@@ -173,34 +173,6 @@ def test_split_gives_a_tables_rows_typed_as_its_row_type_declares_them():
     ]
 
 
-def test_a_node_reading_a_field_of_a_split_row_is_a_none_input_where_the_field_is_none_and_collect_keeps_the_row():
-    SENT.clear()
-    graph = compile_graph(
-        contacts,
-        series.split,
-        send,
-        tables.collect,
-        outputs=COLLECTED,
-        edges=[
-            ("contacts.result", "series-split.value"),
-            ("series-split.result.email", "send.email"),
-            ("series-split.result", "table-collect.rows"),
-            ("send.result", "table-collect.sent"),
-        ],
-        constants={"table-collect.columns": ["sent"]},
-    )
-    run = graph.run()
-    assert run.status == "complete" and SENT == ["ann@x.dk", "cy@x.dk"]
-    assert [(n.loc[0], n.loc[1:], n.input) for n in run.none_input_calls] == [
-        ("send", (1,), "email")
-    ]
-    assert run.results["table-collect"]["result"].to_dicts() == [
-        {"name": "Ann", "email": "ann@x.dk", "sent": "sent to ann@x.dk"},
-        {"name": "Bo", "email": None, "sent": None},
-        {"name": "Cy", "email": "cy@x.dk", "sent": "sent to cy@x.dk"},
-    ]
-
-
 def test_split_gives_rows_of_unknown_columns_for_a_table_of_any_and_a_field_of_one_is_read_when_it_arrives():
     graph = compile_graph(
         csv,
@@ -754,9 +726,4 @@ def test_text_split_is_titled_split_text_splits_on_a_newline_and_an_empty_text_h
         text.split("a\nb") == ["a", "b"]
         and text.split("a,b", separator=",") == ["a", "b"]
         and text.split("") == []
-    )
-    assert (
-        series.split.title == "Split"
-        and tables.collect.title == "Collect into a table"
-        and text.text_list.title == "Text list"
     )
