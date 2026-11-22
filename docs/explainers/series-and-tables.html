@@ -1,0 +1,1553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Series and Tables</title>
+<style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
+<style>
+/* =====================================================================
+   DESIGN TOKENS: copied whole from the series' overview page.
+   Layout: one reading column (about 76ch) that widens to 1360px for the
+   widgets, diagrams, code and tables; sections are separated by space and a faint
+   staff of rules, never by boxes.
+   ===================================================================== */
+:root {
+  /* colour, light */
+  --paper: #f3f5f8;          /* page ground, a cool grey with a blue bias */
+  --surface: #ffffff;        /* the few things that are objects: tiles, code */
+  --ink: #142033;            /* text */
+  --ink-2: #48566a;          /* secondary text */
+  --ink-3: #75839a;          /* captions, axis labels */
+  --rule: #dbe1ea;           /* hairlines and the staff */
+  --accent: #2a4fd6;         /* the selected thing, links */
+  --accent-soft: #e3e9fc;    /* fill behind ink text, never behind accent text */
+  --old: #a3adbb;            /* 1.12.2 in the chart */
+  --slow: #b1530b;           /* the one row that got slower */
+  --slow-soft: #fbeadb;
+  --ok: #1d7a4e;
+  --code-bg: #f8f9fb;
+  --code-key: #2a4fd6;
+  --code-str: #1d7a4e;
+  --code-com: #7b8798;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
+
+  /* type */
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+  --step-4: clamp(2.75rem, 7vw, 4.75rem);
+
+  /* space and shape */
+  --col: 76ch;
+  --wide: 1360px;
+  --gap: 1.25rem;
+  --section: clamp(4.5rem, 10vw, 8rem);
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20, 32, 51, .05), 0 6px 24px rgba(20, 32, 51, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+    --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+    --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+    --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+  --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+  --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --code-bg: #111821;
+  --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+
+/* ===================== end of design tokens ===================== */
+
+/* public and internal */
+:root { --int: #6b7689; --int-soft: #eef1f5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --int: #9aa5b8; --int-soft: #1d2533; } }
+:root[data-theme="dark"] { --int: #9aa5b8; --int-soft: #1d2533; }
+.lvl { display: inline-block; font-family: var(--font-body); font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 4px; vertical-align: .15em; margin-left: .5rem; }
+.lvl.pub { background: var(--accent-soft); color: var(--ink); }
+.lvl.int { background: var(--int-soft); color: var(--int); }
+code.int { color: var(--int); text-decoration: underline dotted; text-underline-offset: .2em; }
+.legend { display: flex; flex-wrap: wrap; gap: .5rem 2rem; font-size: .9375rem; color: var(--ink-2); }
+.legend .lvl, p > .lvl:first-child, .label > .lvl:first-child { margin-left: 0; margin-right: .5rem; }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 4rem; }
+.wrap { max-width: var(--wide); margin-inline: auto; }
+.prose { max-width: var(--col); display: grid; gap: 1rem; }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 400; }
+h1 { font-family: var(--font-display); font-size: var(--step-4); line-height: 1.02; letter-spacing: -0.01em; }
+h2 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.1; }
+h3 { font-family: var(--font-body); font-size: var(--step-1); font-weight: 600; line-height: 1.3; }
+p { margin: 0; }
+ul.plain { margin: 0; padding-left: 1.1rem; display: grid; gap: .45rem; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.eyebrow { font-size: var(--step--1); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: var(--step-1); color: var(--ink-2); line-height: 1.55; }
+.muted { color: var(--ink-2); }
+.small { font-size: var(--step--1); color: var(--ink-3); }
+section { padding-top: var(--section); }
+.section-head { display: grid; gap: .6rem; margin-bottom: 1.5rem; max-width: var(--col); }
+.staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
+
+/* hero */
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero h1 em { font-style: italic; color: var(--accent); }
+.crumbs { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: .9375rem; }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
+.idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
+.idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
+.idea .term b { font-weight: 400; color: var(--accent); }
+@media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+
+/* code */
+pre .ln { display: block; }
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: visible; margin: 0; tab-size: 4; }
+pre.out { color: var(--ink-2); background: none; padding: .25rem 1rem .5rem; border-left: 2px solid var(--ok); border-radius: 0; }
+.tk-k { color: var(--code-key); }
+.tk-s { color: var(--code-str); }
+.tk-c { color: var(--code-com); font-style: italic; }
+.tk-d { color: var(--ink-2); }
+.sample { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; min-width: 0; }
+.sample .label { font-size: var(--step--1); color: var(--ink-3); }
+
+/* two columns: words beside a sample or a figure */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 2.5rem; align-items: start; }
+@media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+.split > * { min-width: 0; }
+/* a section's words, then a second sample under them, beside a first sample */
+.blocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: auto 1fr; gap: .75rem 2.5rem; align-items: start; }
+.blocks > * { min-width: 0; }
+.blocks > .section-head { margin-bottom: 0; }
+.limit-top > .stack-col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+.limit-top > .stack-col > .section-head { margin-bottom: 0; }
+.limit-top input[type=range] { width: 7rem; }
+.blocks > :nth-child(2) { grid-column: 2; grid-row: 1 / 3; }
+.blocks > :nth-child(3) { grid-column: 1; grid-row: 2; }
+@media (max-width: 900px) { .blocks { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; } .blocks > * { grid-column: auto !important; grid-row: auto !important; } }
+/* a section's head beside its widget */
+.head-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1rem 2.5rem; align-items: start; margin-bottom: 1.5rem; }
+.head-row > * { min-width: 0; }
+.head-row > .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .head-row { grid-template-columns: minmax(0, 1fr); } }
+/* a section's words beside its sample: the words and what the sample prints on the left, the code on the right.
+   A long sample comes in two parts, side by side (.duo.three). The page keeps the order code, then output, so a
+   reader on a narrow screen and the samples' test read them as one after the other. */
+.duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); grid-template-rows: auto auto 1fr; gap: 1rem 2.5rem; align-items: start; }
+.duo.three { grid-template-columns: minmax(0, .85fr) minmax(0, 1fr) minmax(0, 1fr); gap: 1rem 1.75rem; }
+.duo > *, .duo > .sample > * { min-width: 0; }
+.duo > .sample { display: contents; }
+.duo > :first-child { grid-column: 1; grid-row: 1; }
+.duo pre[data-lang]:not(.out) { grid-column: 2; grid-row: 1 / 4; }
+.duo pre.out { grid-column: 1; grid-row: 2; }
+.duo .after { grid-column: 1; grid-row: 3; }
+/* .right: the output, and a note, under the code */
+.duo:is(.right, .three) > :first-child { grid-row: 1 / 4; }
+.duo.right pre[data-lang]:not(.out) { grid-row: 1; }
+.duo.right pre.out { grid-column: 2; grid-row: 2; }
+.duo.right .after { grid-column: 2; grid-row: 3; }
+/* .three: the code in two parts side by side, the output and a note under the second */
+.duo.three pre[data-lang]:not(.out) ~ pre[data-lang]:not(.out) { grid-column: 3; grid-row: 1; }
+.duo.three pre.out { grid-column: 3; grid-row: 2; }
+.duo.three .after { grid-column: 3; grid-row: 3; }
+/* a label that says what an output is goes right above it */
+.duo.three .lead-in { grid-column: 3; grid-row: 2; }
+.duo.three .lead-in + pre.out { grid-row: 3; }
+@media (max-width: 900px) {
+  .duo, .duo.three { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .duo > *, .duo > .sample > * { grid-column: auto !important; grid-row: auto !important; }
+}
+
+/* figures */
+figure { margin: 0; display: grid; gap: .75rem; min-width: 0; }
+.diagram { min-width: 0; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; }
+.diagram svg { width: 100%; height: auto; display: block; }
+@media (max-width: 900px) { .diagram { overflow-x: auto; } .diagram svg { min-width: 560px; } }
+/* a diagram with its caption and readout beside it, on a wide screen */
+figure.side { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 1.25rem 2.5rem; align-items: start; }
+figure.side > .aside { display: grid; gap: 1.25rem; align-content: start; min-width: 0; }
+@media (max-width: 900px) { figure.side { grid-template-columns: minmax(0, 1fr); } }
+.readout.stack { grid-template-columns: minmax(0, 1fr); }
+figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
+.d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
+.d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
+.d-title { font: 600 11px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+.d-box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; }
+.d-box.acc { fill: var(--accent-soft); stroke: var(--accent); }
+.d-box.ok { stroke: var(--ok); }
+.d-box.off { opacity: .35; }
+.d-box.int { stroke: var(--int); stroke-dasharray: 5 4; }
+.d-edge { stroke: var(--ink-3); stroke-width: 1.5; fill: none; }
+.d-edge.acc { stroke: var(--accent); }
+.d-edge.live { stroke: var(--accent); stroke-dasharray: 5 5; animation: flow 1s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -10; } }
+.d-cell { cursor: pointer; }
+.d-cell:hover .d-box { stroke: var(--ink-3); }
+.d-cell.sel .d-box { fill: var(--accent-soft); stroke: var(--accent); }
+.d-arrow { fill: var(--ink-3); }
+.d-arrow.acc { fill: var(--accent); }
+.pop { animation: pop .4s ease both; }
+@keyframes pop { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* widgets */
+.widget { display: grid; gap: 1.25rem; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+.seg { display: inline-flex; background: var(--surface); border-radius: 999px; box-shadow: var(--shadow); padding: 3px; flex-wrap: wrap; }
+.seg button { font: 500 .8125rem/1 var(--font-mono); color: var(--ink-2); background: none; border: 0; border-radius: 999px; padding: .55rem .85rem; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.ctl-label { font-size: var(--step--1); color: var(--ink-3); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+input[type=range] { accent-color: var(--accent); width: 10rem; }
+.readout { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+@media (max-width: 760px) { .readout { grid-template-columns: minmax(0, 1fr); } }
+.readout > div { min-width: 0; display: grid; gap: .3rem; align-content: start; }
+.readout dt { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.readout dd { margin: 0; font-family: var(--font-mono); font-size: .875rem; word-break: break-word; }
+.chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+.chip { font: 500 .8125rem/1 var(--font-mono); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .5rem .8rem; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--slow-soft); border-color: var(--slow); }
+.status { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.1; }
+.status.stopped { color: var(--slow); }
+.status.complete { color: var(--ok); }
+
+/* kinds of input */
+.kinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0 2rem; }
+.kind { padding-block: 1rem; border-top: 1px solid var(--rule); display: grid; gap: .35rem; align-content: start; min-width: 0; }
+.kind b { font-family: var(--font-mono); font-weight: 500; font-size: .9375rem; }
+.kind p { color: var(--ink-2); font-size: .9375rem; }
+
+/* choices */
+.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+@media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
+.choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
+.choice h3 { font-size: 1.125rem; }
+.choice p { color: var(--ink-2); }
+.cost { font-size: .875rem; color: var(--ink); background: var(--slow-soft); padding: .55rem .75rem; border-radius: 6px; }
+.cost b { font-weight: 600; }
+
+footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; max-width: 90ch; }
+footer code { color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!-- the series bar: the reading order and back/next, the same on every page of the series -->
+<style id="series-bar-css">
+:root { --bar-h: 44px; }
+html { scroll-padding-top: calc(var(--bar-h) + 12px); }
+body { margin: 0; }
+.sbar { position: sticky; top: 0; z-index: 60; height: var(--bar-h); display: flex; align-items: center; gap: .75rem; padding: 0 max(16px, calc((100vw - var(--wide, 1360px)) / 2)); background: color-mix(in srgb, var(--paper) 88%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(10px); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--rule); font-family: var(--font-body); font-size: .8125rem; color: var(--ink-2); }
+.sbar a { color: inherit; text-decoration: none; }
+.sbar a:hover { color: var(--accent); }
+.sbar-home { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sbar-order { position: relative; flex: 1; min-width: 0; display: flex; justify-content: center; }
+.sbar-btn { font: inherit; color: var(--ink); background: none; border: 0; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; display: inline-flex; gap: .5rem; align-items: baseline; max-width: 100%; }
+.sbar-btn:hover, .sbar-btn[aria-expanded="true"] { background: var(--accent-soft); }
+.sbar-num { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.sbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbar-caret { color: var(--ink-3); font-size: .7rem; }
+.sbar-list { position: absolute; top: calc(var(--bar-h) - 6px); left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 32px)); margin: 0; padding: .4rem; list-style: none; background: var(--surface); border-radius: 10px; box-shadow: 0 8px 32px rgba(20, 32, 51, .18); counter-reset: sb; }
+.sbar-list[hidden] { display: none; }
+.sbar-list li { counter-increment: sb; }
+.sbar-list a { display: flex; gap: .75rem; padding: .45rem .6rem; border-radius: 6px; color: var(--ink); }
+.sbar-list a::before { content: counter(sb); font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); min-width: 1.25rem; text-align: right; }
+.sbar-list a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-list a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.sbar-list small { margin-left: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: .7rem; }
+.sbar-step { display: flex; gap: .25rem; white-space: nowrap; }
+.sbar-step a, .sbar-step span { padding: .35rem .6rem; border-radius: 6px; }
+.sbar-step a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-step span { color: var(--ink-3); opacity: .5; }
+@media (max-width: 640px) { .sbar-home { display: none; } .sbar-order { position: static; } .sbar-title { max-width: 9rem; } .sbar-step .sbar-word { display: none; } }
+@media print { .sbar { display: none; } }
+</style>
+<style id="series-layout">
+/* Columns side by side end level: a row is as tall as its tallest column, and the box at the foot of each
+   shorter column grows to the row's bottom. Rows are the pages' classes for columns side by side; a box is a
+   code block (pre), an output (.out), a figure or a cost (.cost). A diagram or a pre that is a column on its
+   own just stretches with the row. Inside a row, a column's own prose goes above its box; text about the
+   whole row goes below the row. At 900px and below the columns stack, and no height is forced. */
+@media (min-width: 901px) {
+  :is(.idea, .two, .pair, .split, .beside, .stage, .ex-body, .choices, figure.side, .viewer, .sig, .fail-grid, .ctrl-row, .facts, .shape) {
+    /* Every column stretches to the row's height. A text column with no box just stretches. */
+    align-items: stretch;
+    /* A stretched column keeps its parts packed at the top, as they were; the spare height goes below them. */
+    & > * { align-content: start; }
+    /* A column that ends in a box, and a figure that is a column, stack their parts so one can grow. */
+    & > :where(:has(> :is(pre, .out, figure, .cost):last-child), figure),
+    & > * > :where(figure:last-child) { display: flex; flex-direction: column; }
+    /* The box grows only when it ends its column: text or a control under a box would leave a gap above it.
+       A row with a pre as a column on its own (a long JSON beside a short sample) or with a live widget's
+       .controls is left out, so its short box keeps its own height. */
+    &:not(:has(> pre, .controls)) > * > :is(pre, .out, figure, .cost):last-child { flex-grow: 1; }
+    /* A figure hands its spare height to the diagram in it, above its caption. */
+    & > figure > :not(figcaption, p),
+    & > * > figure:last-child > :not(figcaption, p) { flex-grow: 1; }
+    /* Columns of a label, a box and a note (.ex-body, and a row marked .labelled) share the row's three
+       tracks, so the boxes start and end level even when the labels or notes above and under them differ. */
+    &:is(.ex-body, .labelled) > div { display: grid; grid-template-rows: subgrid; grid-row: span 3; }
+  }
+}
+</style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
+  html[data-sections="snap"] {
+    scroll-snap-type: y proximity;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
+</head>
+<body>
+<nav class="sbar" aria-label="Conductor series" data-page="4">
+  <a class="sbar-home" href="overview.html">Conductor</a>
+  <div class="sbar-order">
+    <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
+    <ol class="sbar-list" id="sbar-list" hidden></ol>
+  </div>
+  <div class="sbar-step"></div>
+</nav>
+<script id="series-bar-js">
+(function () {
+  var PAGES = [
+    ["Overview", "overview.html"],
+    ["A node and its types", "nodes-and-types.html"],
+    ["The graph record and compiling", "graph-record-and-compiling.html"],
+    ["Series and tables", "series-and-tables.html"],
+    ["Asking a person", "asking-a-person.html"],
+    ["Subgraphs", "subgraphs.html"],
+    ["Saved runs and reuse", "saved-runs-and-reuse.html"],
+    ["Running and streaming", "running-and-streaming.html"],
+    ["Problems", "problems.html"],
+    ["The standard nodes", "standard-nodes.html"],
+    ["Serving runs", "serving-runs.html"]
+  ];
+  var bar = document.querySelector(".sbar");
+  if (!bar) return;
+  var here = parseInt(bar.getAttribute("data-page"), 10) - 1;
+  var url = function (i) { return PAGES[i][1]; };
+  bar.querySelector(".sbar-num").textContent = (here + 1) + " / " + PAGES.length;
+  bar.querySelector(".sbar-title").textContent = PAGES[here][0];
+  var list = bar.querySelector(".sbar-list");
+  PAGES.forEach(function (p, i) {
+    var li = document.createElement("li"), a = document.createElement("a");
+    a.href = url(i);
+    a.textContent = p[0];
+    if (i === here) a.setAttribute("aria-current", "page");
+    li.appendChild(a); list.appendChild(li);
+  });
+  var step = bar.querySelector(".sbar-step");
+  var link = function (i, label, word, rel) {
+    var html = label.replace("WORD", '<span class="sbar-word">' + word + "</span>");
+    if (i < 0 || i >= PAGES.length) { var s = document.createElement("span"); s.innerHTML = html; s.setAttribute("aria-hidden", "true"); return s; }
+    var a = document.createElement("a"); a.href = url(i); a.rel = rel;
+    a.title = PAGES[i][0]; a.innerHTML = html;
+    return a;
+  };
+  step.appendChild(link(here - 1, "← WORD", "Back", "prev"));
+  step.appendChild(link(here + 1, "WORD →", "Next", "next"));
+  var btn = bar.querySelector(".sbar-btn");
+  var open = function (yes) { list.hidden = !yes; btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+  btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
+  document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
+})();
+</script>
+<!-- /series-bar -->
+<div class="page">
+<div class="wrap">
+
+<!-- ============================ HERO ============================ -->
+<header class="hero">
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; page 4 of 11</p>
+  <h1>Series <em>and</em> tables</h1>
+  <div class="prose">
+    <p class="lede">A node's types say how many values it deals with. <code>str</code> is one value. <code>Series[str]</code> is many values of one type, and each value in it is an item. <code>Table[R]</code> is a whole table, passed along an edge as one value. From those types alone, conductor works out whether a node is called once or once per item.</p>
+    <p class="muted">Every sample output and widget state on this page is what the code it shows prints.</p>
+  </div>
+  <div class="crumbs">
+    <a href="overview.html">&larr; The overview</a>
+  </div>
+  <div class="idea" aria-label="The three types">
+    <div>
+      <p class="term"><b>Series[T]</b> is many values.</p>
+      <p class="muted">Wired to an input that takes one <code>T</code>, it starts a loop. That node is called once per item. The node itself gets a plain <code>list</code>, and a type checker sees one too.</p>
+    </div>
+    <div>
+      <p class="term"><b>Table[R]</b> is one value.</p>
+      <p class="muted">A <code>TypedDict</code> <code>R</code> names its columns, and a bare <code>Table</code> takes any columns. Inside the node it is a <code>polars.DataFrame</code>. It never starts a loop.</p>
+    </div>
+    <div>
+      <p class="term"><b>list[T]</b> is one value too.</p>
+      <p class="muted">A list given to an input of one <code>str</code> is refused. It does not start a loop.</p>
+    </div>
+  </div>
+  <div class="legend" aria-label="Key">
+    <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+    <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+  </div>
+</header>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ THE LOOP ============================ -->
+<section id="loop" aria-labelledby="loop-h">
+  <div class="section-head">
+    <p class="eyebrow">A loop</p>
+    <h2 id="loop-h">A loop calls a node once per item, then once for all of them <span class="lvl pub">Public</span></h2>
+    <p class="muted"><code>lines</code> returns a <code>Series[str]</code>. <code>shout</code> takes one <code>str</code>, so it is called once per line. <code>join</code> takes a <code>Series[str]</code>, so it collects the loop. It waits until every call of <code>shout</code> has an <a href="running-and-streaming.html#outcomes">outcome</a>. Then it is called once with all of them, in item order. Change the number of lines, or what <code>join</code> takes, and see what the run did.</p>
+  </div>
+
+  <div class="widget">
+    <figure class="side">
+      <div class="diagram"><svg id="loop-svg" viewBox="0 0 640 300" role="img" aria-label="lines returns a Series. shout is called once per item. join is called once, or once per item."></svg></div>
+      <div class="aside">
+        <div class="controls">
+          <span class="ctl-label">lines</span>
+          <input type="range" id="loop-n" min="0" max="5" value="3" aria-label="How many lines">
+          <span class="mono" id="loop-n-out">3</span>
+          <span class="ctl-label" style="margin-left:.75rem">join takes</span>
+          <div class="seg" role="group" aria-label="What join takes">
+            <button type="button" id="loop-collect" aria-pressed="true">texts: Series[str]</button>
+            <button type="button" id="loop-per" aria-pressed="false">texts: str</button>
+          </div>
+        </div>
+        <figcaption id="loop-cap"></figcaption>
+        <dl class="readout stack">
+          <div><dt>calls, from run.progress</dt><dd id="loop-calls"></dd></div>
+          <div><dt>shout.result</dt><dd id="loop-shout"></dd></div>
+          <div><dt id="loop-join-h">join.result</dt><dd id="loop-join"></dd></div>
+        </dl>
+      </div>
+    </figure>
+  </div>
+
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="progress" aria-labelledby="progress-h">
+  <div class="duo">
+    <div class="prose section-head">
+      <p class="eyebrow">A loop</p>
+      <h2 id="progress-h">Progress through a loop</h2>
+      <p class="muted">How many calls <code>shout</code> will have depends on how many lines <code>lines</code> returns. The first line the sample prints is the count of <code>shout</code> before <code>lines</code> has returned, and the last is the count after it returned three lines.</p>
+      <p class="muted">With no lines, <code>shout</code> is never called, and <code>join</code> is still called, with an empty list.</p>
+      <p class="muted"><a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a> says which series each node runs per item of, in <code>per_item_of</code>. An editor can show that before anything runs.</p>
+    </div>
+    <div class="sample">
+      <pre data-lang="py" data-name="loop">from conductor import Graph, NodeRegistry, Series, make_graph
+
+registry = NodeRegistry()
+
+@registry.node("lines", title="Lines", description="Splits a text into lines.")
+def lines(text: str) -> Series[str]:
+    return text.splitlines()
+
+@registry.node("shout", title="Shout", description="Writes a line in capitals.")
+def shout(line: str, mark: str = "!") -> str:
+    return line.upper() + mark
+
+@registry.node("join", title="Join", description="Joins texts into one.")
+def join(texts: Series[str]) -> str:
+    return " ".join(texts)
+
+graph = Graph.compile(
+    make_graph(lines, shout, join, edges=[("lines.result", "shout.line"), ("shout.result", "join.texts")]),
+    registry,
+)
+print(graph.with_inputs({"text": "a\nb\nc"}).progress.nodes["shout"])
+run = graph.run({"text": "a\nb\nc"})
+print(run.results["shout"])
+print(run.outputs)
+print({n: d.per_item_of for n, d in graph.describe().nodes.items()})
+print(run.progress.nodes["shout"])</pre>
+      <pre class="out">finished=0 waiting=0 skipped=0 none_input=0 known=0 total=None
+{'result': ['A!', 'B!', 'C!']}
+{'result': 'A! B! C!'}
+{'join': None, 'lines': None, 'shout': 'lines.result'}
+finished=3 waiting=0 skipped=0 none_input=0 known=3 total=3</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ ITEM INDEXES ============================ -->
+<section id="indexes" aria-labelledby="idx-h">
+  <div class="section-head">
+    <p class="eyebrow">Item indexes</p>
+    <h2 id="idx-h">How a call is named <span class="lvl pub">Public</span></h2>
+    <p class="muted">A node inside a loop can return a <code>Series</code> too. Here each document has lines of its own, so the loop over the lines sits inside the loop over the documents. A call's item indexes are one index per loop it is inside, outermost first. Tap a call to see how it is named.</p>
+  </div>
+
+  <div class="split">
+    <figure>
+      <div class="diagram"><svg id="idx-svg" viewBox="0 0 600 300" role="img" aria-label="docs returns two documents. lines is called once per document, approve once per line of each document, and count once per document."></svg></div>
+      <figcaption>The text <code>"a,b|c"</code> has two documents. The first has two lines and the second has one. <code>count</code> collects the lines, which ends only the inner loop, so it is called once per document.</figcaption>
+    </figure>
+    <dl class="readout" style="grid-template-columns:minmax(0,1fr)" id="idx-read" aria-live="polite">
+    </dl>
+  </div>
+
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="which-call" aria-labelledby="which-call-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">Item indexes</p>
+      <h2 id="which-call-h">Three ways to say which call</h2>
+      <ul class="plain muted">
+        <li><b>Item indexes</b> are the indexes alone: <code>(0, 1)</code> is line 1 of document 0. A node inside no loop has <code>()</code>.</li>
+        <li><b>A <a href="subgraphs.html#places">loc</a></b> puts each index right after the id of the node inside that loop, in the graph where the loop is: <code>("approve", 0, 1)</code>. A <a href="problems.html">problem</a> names a call by its loc, and so does <a href="running-and-streaming.html#outcomes"><code>run.none_input_calls</code></a>.</li>
+        <li><b>The text</b> joins node ids with <code>/</code> and puts <code>@</code> before each index: <code>approve@0@1</code>. A <a href="asking-a-person.html#ids">waiting call&rsquo;s id</a> is that text, then <code>~</code> and a fingerprint of the call: the node's code, the call's inputs and its item in each loop.</li>
+      </ul>
+      <p class="muted">Inside a <a href="subgraphs.html#open">subgraph</a>, the index goes after the subgraph node when the loop is in the outer graph. The inner node <code>shout</code> of a subgraph node <code>loud</code> that runs per line is <code>("loud", 1, "shout")</code>, written <code>loud@1/shout</code>. That is why no node id or name may contain <code>.</code>, <code>/</code>, <code>@</code> or <code>~</code>.</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python" data-name="loop-widget">
+# The loop widget's other choice: a join that takes one text, so it runs once per line.
+@registry.node("join-one", title="Join one", description="Wraps one text.")
+def join_one(texts: str) -> str:
+    return f"<{texts}>"
+</script>
+      <pre data-lang="py">from conductor import Ask, Graph, NodeRegistry, Series, make_graph
+
+registry = NodeRegistry()
+
+@registry.node("docs", title="Documents", description="Splits a text into documents.")
+def docs(text: str) -> Series[str]:
+    return text.split("|")
+
+@registry.node("lines", title="Lines", description="Splits a document into lines.")
+def lines(doc: str) -> Series[str]:
+    return doc.split(",")
+
+@registry.node("approve", title="Approve", description="Asks about one line.", asks=True)
+def approve(line: str) -> bool:
+    raise Ask(f"Approve {line}?")
+
+@registry.node("count", title="Count", description="Counts what it is given.")
+def count(answers: Series[bool]) -> int:
+    return len(answers)</pre>
+      <pre data-lang="py">graph = Graph.compile(
+    make_graph(docs, lines, approve, count, edges=[
+        ("docs.result", "lines.doc"), ("lines.result", "approve.line"), ("approve.result", "count.answers")]),
+    registry,
+)
+print({n: d.per_item_of for n, d in graph.describe().nodes.items()})
+run = graph.run({"text": "a,b|c"})
+print([w.id.split("~")[0] for w in run.waiting])
+print([w.prompt for w in run.waiting])
+run = run.with_answers({w.id: True for w in run.waiting}).resume()
+print(run.results["approve"]["result"])
+print(run.results["count"]["result"])</pre>
+      <pre class="out">{'approve': 'lines.result', 'count': 'docs.result', 'docs': None, 'lines': 'docs.result'}
+['approve@0@0', 'approve@0@1', 'approve@1@0']
+['Approve a?', 'Approve b?', 'Approve c?']
+[[True, True], [True]]
+[2, 1]</pre>
+      <p class="small after">The sample cuts the fingerprint after <code>~</code> off each waiting id, so it prints only how each call is named.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ HOW AN INPUT READS ============================ -->
+<section id="inputs" aria-labelledby="in-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="in-h">Compiling decides where each input gets its value</h2>
+      <p class="muted">Every run of the graph uses what <a href="graph-record-and-compiling.html#compiling">compiling</a> decided. In <a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a>, each input's <code>source</code> is an <a href="graph-record-and-compiling.html#compiling"><code>InputSource</code></a>: a <code>mode</code>, and the series it reads from. The sample adds a heading, worked out once, to the loop above. <code>python -m conductor.about compiling</code> lists every mode.</p>
+      <p class="muted"><code>shout.line</code> gets one item of <code>lines.result</code> per call. <code>shout.heading</code> comes from <code>title</code>, which runs once outside the loop, so every call of <code>shout</code> gets the same heading. Nothing is copied. <code>join.texts</code> collects the loop. The constant and the input's own default are both a <code>constant</code>.</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">registry = NodeRegistry()</script>
+      <pre data-lang="py">@registry.node("lines", title="Lines", description="Splits a text into lines.")
+def lines(text: str) -&gt; Series[str]:
+    return text.split("\n")
+
+@registry.node("title", title="Title", description="Writes a heading.")
+def title(text: str) -&gt; str:
+    return text.upper()
+
+@registry.node("shout", title="Shout", description="Writes a line in capitals, under a heading.")
+def shout(line: str, heading: str, mark: str = "!") -&gt; str:
+    return f"{heading}: {line.upper()}{mark}"
+
+@registry.node("join", title="Join", description="Joins texts into one.")
+def join(texts: Series[str]) -&gt; str:
+    return " ".join(texts)
+</pre>
+      <pre data-lang="py">graph = Graph.compile(
+    make_graph(lines, title, shout, join, constants={"title.text": "notes"}, edges=[
+        ("lines.result", "shout.line"), ("title.result", "shout.heading"), ("shout.result", "join.texts")]),
+    registry,
+)
+for node_id, described in graph.describe().nodes.items():
+    for one in described.inputs:
+        print(f"{node_id}.{one.port.name:8} {one.source.mode:12} {one.source.series}")
+print(graph.run({"text": "a\nb"}).outputs)</pre>
+      <pre class="out">join.texts    collected    lines.result
+lines.text     graph_input  None
+shout.line     item         lines.result
+shout.heading  outer_value  None
+shout.mark     constant     None
+title.text     constant     None
+{'result': 'NOTES: A! NOTES: B!'}</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="one-or-many" aria-labelledby="one-or-many-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="one-or-many-h">The type decides how many values an input takes <span class="lvl pub">Public</span></h2>
+      <p class="muted">One value is never a list of one. An edge that gives each call one value, wired to a <code>Series</code> input, is the compile problem <code>type_mismatch_series_given_one_value</code> at that input, and the graph doesn't run. A list the caller gives to an input of one <code>str</code> is refused with <code>invalid_input_list_for_one_value</code>.</p>
+      <figure>
+        <div class="diagram"><svg viewBox="0 0 780 290" role="img" aria-label="An edge that reads one item gives the call at item index i the item i of the stored Series. An input wired straight to the Series reads it whole. An input that collects a loop reads each call's outcome in item order.">
+          <defs>
+            <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow acc" d="M0 0 10 5 0 10z"/></marker>
+          </defs>
+          <text class="d-title" x="20" y="24">lines @ ()</text>
+          <rect class="d-box int" x="20" y="38" width="200" height="104" rx="10"/>
+          <text class="d-sub" x="36" y="60">result: a stored Series</text>
+          <rect class="d-box acc" x="36" y="74" width="52" height="28" rx="6"/><text class="d-label" x="62" y="93" text-anchor="middle">[0] a</text>
+          <rect class="d-box" x="94" y="74" width="52" height="28" rx="6"/><text class="d-label" x="120" y="93" text-anchor="middle">[1] b</text>
+          <rect class="d-box" x="152" y="74" width="52" height="28" rx="6"/><text class="d-label" x="178" y="93" text-anchor="middle">[2] c</text>
+          <text class="d-sub" x="36" y="126">with a field: cell(name, i)</text>
+
+          <text class="d-title" x="290" y="24">one call per item</text>
+          <path class="d-edge acc" d="M88 88 C 200 60, 240 58, 288 58" marker-end="url(#ar2)"/>
+          <text class="d-sub" x="254" y="48" text-anchor="middle">item i</text>
+          <rect class="d-box acc" x="290" y="38" width="150" height="40" rx="8"/>
+          <text class="d-label" x="365" y="56" text-anchor="middle">shout @ (0,)</text><text class="d-sub" x="365" y="71" text-anchor="middle">line = "a"</text>
+          <rect class="d-box" x="290" y="86" width="150" height="34" rx="8"/><text class="d-label" x="365" y="108" text-anchor="middle">shout @ (1,)</text>
+          <rect class="d-box" x="290" y="128" width="150" height="34" rx="8"/><text class="d-label" x="365" y="150" text-anchor="middle">shout @ (2,)</text>
+
+          <text class="d-title" x="560" y="24">collects the loop</text>
+          <path class="d-edge" d="M440 58 C 500 58, 500 100, 558 100" marker-end="url(#ar1)"/>
+          <path class="d-edge" d="M440 103 L 558 103"/>
+          <path class="d-edge" d="M440 145 C 500 145, 500 106, 558 106"/>
+          <rect class="d-box" x="560" y="80" width="200" height="46" rx="8"/>
+          <text class="d-label" x="660" y="99" text-anchor="middle">join @ ()</text>
+          <text class="d-sub" x="660" y="115" text-anchor="middle">each outcome, in item order</text>
+
+          <text class="d-title" x="290" y="214">wired straight to the Series</text>
+          <path class="d-edge" d="M120 142 C 120 250, 240 250, 288 250" marker-end="url(#ar1)"/>
+          <text class="d-sub" x="200" y="272" text-anchor="middle">the whole list</text>
+          <rect class="d-box" x="290" y="228" width="210" height="44" rx="8"/>
+          <text class="d-label" x="395" y="247" text-anchor="middle">a node with texts: Series[str]</text>
+          <text class="d-sub" x="395" y="263" text-anchor="middle">wired to lines.result, @ ()</text>
+        </svg></div>
+        <div class="aside">
+          <figcaption>An edge that reads one item gives each call the item at its own index.</figcaption>
+          <p class="small">A solid outline is public and a dashed one is internal. The dashed box is the Series as the run keeps it.</p>
+        </div>
+      </figure>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">from conductor import InvalidCallError
+
+registry = NodeRegistry()</script>
+      <pre data-lang="py">@registry.node("shout", title="Shout", description="Writes a word in capitals.")
+def shout(word: str) -> str:
+    return word.upper()
+
+@registry.node("join", title="Join", description="Joins texts into one.")
+def join(texts: Series[str]) -> str:
+    return "+".join(texts)
+
+graph = Graph.compile(make_graph(shout, join, edges=[("shout.result", "join.texts")]), registry)
+(problem,) = graph.problems                       # one value into a Series input
+print(problem.type, problem.loc, {k: problem.ctx[k] for k in ("input", "source", "item")})
+try:
+    Graph.compile(make_graph(shout), registry).run({"word": ["a", "b"]})   # a list given to an input of one value
+except InvalidCallError as e:
+    print([(p.type, p.loc) for p in e.problems])</pre>
+      <pre class="out">type_mismatch_series_given_one_value ('join', 'texts') {'input': 'texts', 'source': 'shout.result', 'item': 'str'}
+[('invalid_input_list_for_one_value', ('inputs', 'word'))]</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="one-or-many-refusals" aria-labelledby="refusals-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="refusals-h">A Series into a list is refused</h2>
+      <p class="muted">A <code>Series</code> output wired to an input that takes a plain <code>list</code> is refused, the other way round from the section above. The edge gives that input one item per call, and one item isn't a list. Compiling reports <code>type_mismatch_series_into_list</code>, and its message says the fix: declare the input <code>Series[T]</code>, which takes every item as one list.</p>
+      <p class="muted">The rules are in <code>python -m conductor.about one-or-many</code>, and each code on <a href="../problems/">the problems page</a>.</p>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">@registry.node("words", title="Words", description="Splits a text into words.")
+def words(text: str) -&gt; Series[str]:
+    return text.split()
+
+@registry.node("joinlist", title="Join list", description="Joins a list of texts.")
+def joinlist(texts: list[str]) -&gt; str:
+    return "+".join(texts)
+
+@registry.node("joinall", title="Join all", description="Joins every text.")
+def joinall(texts: Series[str]) -&gt; str:
+    return "+".join(texts)
+
+(problem,) = Graph.compile(make_graph(words, joinlist), registry).problems   # a list[str] input after a Series[str]
+print(problem.type, problem.loc, problem.ctx)
+print(problem.msg)
+print(Graph.compile(make_graph(words, joinall), registry).run({"text": "a b c"}).outputs)   # the fix: Series[str]</pre>
+      <pre class="out">type_mismatch_series_into_list ('joinlist', 'texts') {'node_id': 'joinlist', 'input': 'texts', 'source': 'words.result', 'got': 'Series[str]', 'expected': 'list[str]', 'item': 'str'}
+'words.result' gives Series[str], but 'joinlist.texts' takes list[str]. To take every item as one list, declare the input Series[str] in place of list[str].
+{'result': 'a+b+c'}</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="not-nested" aria-labelledby="not-nested-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="not-nested-h">Two series that don't nest never pair up</h2>
+      <p class="muted">Two series that are not one inside the other never pair up item by item. Compiling reports <code>series_not_nested</code> at the node where they meet. To fix it, put one inside the other, or give one of them whole to a <code>Series</code> input.</p>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">@registry.node("greet", title="Greet", description="Greets a person by name.")
+def greet(name: str, greeting: str) -> str:
+    return f"{greeting} {name}"
+
+record = make_graph(
+    words, words, greet,
+    edges=[("words-1.result", "greet.name"), ("words-2.result", "greet.greeting")],
+    inputs={"names": "words-1.text", "greetings": "words-2.text"},
+)
+(problem,) = Graph.compile(record, registry).problems
+print(problem.type, problem.loc, problem.ctx["series"])</pre>
+      <pre class="out">series_not_nested ('greet',) ['words-1.result', 'words-2.result']</pre>
+      <p class="small after">The samples run with their imports and a <code>registry</code>, and the <code>series_not_nested</code> one with <code>words(text: str) -&gt; Series[str]</code>, which splits on spaces.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ COLLECTING ============================ -->
+<section id="collect" aria-labelledby="col-h">
+  <div class="head-row">
+  <div class="section-head">
+    <p class="eyebrow">What collecting leaves out</p>
+    <h2 id="col-h">Two lists from one loop stay paired <span class="lvl pub">Public</span></h2>
+    <p class="muted"><code>email</code> runs per name and returns <code>str | None</code>. <code>pair</code> collects the names and the emails into two <code>Series[str]</code> inputs. <code>keep</code> collects the emails into a <code>Series[str | None]</code>. Take a name's email away and watch what each node gets.</p>
+  </div>
+
+  <div class="widget">
+    <div class="controls">
+      <span class="ctl-label">no email for</span>
+      <div class="chips" id="col-chips"></div>
+    </div>
+    <dl class="readout">
+      <div><dt>email.result, per name</dt><dd id="col-email"></dd></div>
+      <div><dt>pair.result</dt><dd id="col-pair"></dd></div>
+      <div><dt>keep.result</dt><dd id="col-keep"></dd></div>
+    </dl>
+  </div>
+  </div>
+
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="left-out" aria-labelledby="left-out-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">What collecting leaves out</p>
+      <h2 id="left-out-h">Which items are left out</h2>
+      <p class="muted">An item with no value is left out of a <code>Series[X]</code> input. When a node has two such inputs collected from one loop, an item with no value in either is dropped from both, so <code>names[i]</code> and <code>emails[i]</code> are still the same item. <code>Series[X | None]</code> keeps the item's place as <code>None</code>.</p>
+      <p class="muted">What collecting does when no item could have a value, as when every call is downstream of <a href="nodes-and-types.html#outputs">a branch that wasn&rsquo;t chosen</a>, is in <code>python -m conductor.about one-or-many</code>, under "What collecting leaves out".</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">@registry.node("names", title="Names", description="Splits a text into names.")
+def names(text: str) -> Series[str]:
+    return text.split(",")</script>
+      <pre data-lang="py">@registry.node("email", title="Email", description="Finds a name's email, if there is one.")
+def email(name: str) -> str | None:
+    return None if name == "Bo" else f"{name.lower()}@a.dk"
+
+@registry.node("pair", title="Pair", description="Pairs names with emails.")
+def pair(names: Series[str], emails: Series[str]) -> list[str]:
+    return [f"{n} &lt;{e}&gt;" for n, e in zip(names, emails, strict=True)]
+
+@registry.node("keep", title="Keep", description="Keeps the gaps.")
+def keep(emails: Series[str | None]) -> list[str | None]:
+    return emails</pre>
+      <pre data-lang="py">graph = Graph.compile(
+    make_graph(names, email, pair, keep, edges=[
+        ("names.result", "email.name"), ("names.result", "pair.names"),
+        ("email.result", "pair.emails"), ("email.result", "keep.emails")],
+        outputs={"pair": "pair.result", "keep": "keep.result"}),
+    registry,
+)
+print({n: d.per_item_of for n, d in graph.describe().nodes.items()})
+print(graph.run({"text": "Ida,Bo,Al"}).outputs)</pre>
+      <pre class="out">{'email': 'names.result', 'keep': None, 'names': None, 'pair': None}
+{'keep': ['ida@a.dk', None, 'al@a.dk'], 'pair': ['Ida &lt;ida@a.dk&gt;', 'Al &lt;al@a.dk&gt;']}</pre>
+      <script type="text/x-python" data-name="collect-widget">
+# The collecting widget's graph: the graph above, with an email that leaves out the names in without_email.
+without_email: set[str] = set()
+widget_registry = NodeRegistry()
+widget_registry.add(names, pair, keep)
+
+@widget_registry.node("email", title="Email", description="Finds a name's email, if there is one.")
+def email_unless_left_out(name: str) -> str | None:
+    return None if name in without_email else f"{name.lower()}@a.dk"
+
+widget_graph = Graph.compile(
+    make_graph(names, email_unless_left_out, pair, keep, edges=[
+        ("names.result", "email.name"), ("names.result", "pair.names"),
+        ("email.result", "pair.emails"), ("email.result", "keep.emails")],
+        outputs={"pair": "pair.result", "keep": "keep.result"}),
+    widget_registry,
+)
+</script>
+      <p class="small after">The sample runs with a node <code>names(text: str) -&gt; Series[str]</code>, which splits on commas.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ STORED ============================ -->
+<section id="stored" aria-labelledby="st-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">What a node returns for a Series</p>
+      <h2 id="st-h">A node may return a frame for a Series of rows</h2>
+      <p class="muted">What a node returns for a <code>Series</code> output is checked by the output's type. For <code>Series[R]</code>, with <code>R</code> a <code>TypedDict</code>, or for <code>Series[dict]</code>, <code>Series[dict[str, Any]]</code> or <code>Series[Any]</code>, a node may return a <code>polars.DataFrame</code> instead of a list.</p>
+      <h3>What a Series is read from <span class="lvl pub">Public</span></h3>
+      <p class="muted">From Python, a node may return a tuple, a range or a <code>polars.Series</code>, such as a column of a table. Each is read as a list of its values. A set is refused, because its order can change from one process to the next. The rule is in <code>python -m conductor.about types</code>.</p>
+      <p class="muted">A type checker sees <code>Series[T]</code> as <code>list[T]</code>, so it wants a list returned. The engine accepts the others.</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">import polars as pl
+
+registry = NodeRegistry()</script>
+      <pre data-lang="py">RETURNS = {"list": ["a", "b"], "tuple": ("a", "b"), "range": range(2), "polars.Series": pl.Series(["a", "b"]), "set": {"a", "b"}}
+
+@registry.node("give", title="Give", description="Returns one of the values above.")
+def give(kind: str) -> Series[str | int]:
+    return RETURNS[kind]
+
+graph = Graph.compile(make_graph(give), registry)
+for kind in RETURNS:
+    run = graph.run({"kind": kind})
+    if run.status == "complete":
+        print(f"{kind:14} -> {run.outputs['result']}")
+    else:
+        print(f"{kind:14} -> {run.status}, {run.cause.type}: {run.cause.ctx['errors'][0]['type'] if 'errors' in run.cause.ctx else run.cause.ctx}")</pre>
+      <pre class="out">list           -> ['a', 'b']
+tuple          -> ['a', 'b']
+range          -> [0, 1]
+polars.Series  -> ['a', 'b']
+set            -> failed, invalid_output: set_has_no_order</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="kept" aria-labelledby="kept-h">
+  <div class="section-head">
+    <p class="eyebrow">What a node returns for a Series</p>
+    <h2 id="kept-h">A run keeps a Series as a list or as a frame <span class="lvl int">Internal</span></h2>
+    <p class="muted">A list becomes a <code class="int" title="Internal">SeriesItems</code>. A frame is kept as it is, as <code class="int" title="Internal">SeriesRows</code>. Both have the same methods, so the code that reads a stored Series never checks which one it has.</p>
+  </div>
+
+  <figure class="side">
+    <div class="diagram"><svg viewBox="0 0 820 300" role="img" aria-label="A list becomes SeriesItems. A frame returned for a Series of rows becomes SeriesRows. Both answer the same reads.">
+      <defs>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
+      </defs>
+      <text class="d-title" x="20" y="24">the node returns</text>
+      <rect class="d-box" x="20" y="44" width="190" height="56" rx="8"/>
+      <text class="d-label" x="36" y="66">a list, tuple, range</text>
+      <text class="d-sub" x="36" y="84">or polars.Series</text>
+      <rect class="d-box" x="20" y="186" width="190" height="56" rx="8"/>
+      <text class="d-label" x="36" y="208">a polars.DataFrame</text>
+      <text class="d-sub" x="36" y="226">for a Series of rows</text>
+
+      <path class="d-edge" d="M210 72 L 282 72" marker-end="url(#ar3)"/>
+      <path class="d-edge" d="M210 214 L 282 214" marker-end="url(#ar3)"/>
+      <text class="d-sub" x="246" y="62" text-anchor="middle">checked</text>
+      <text class="d-sub" x="246" y="204" text-anchor="middle">as Table[R]</text>
+
+      <text class="d-title" x="284" y="24">the run keeps</text>
+      <rect class="d-box int" x="284" y="44" width="236" height="56" rx="8"/>
+      <text class="d-label" x="300" y="66">SeriesItems</text>
+      <text class="d-sub" x="300" y="84">the list, with SKIPPED in place</text>
+      <rect class="d-box int" x="284" y="186" width="236" height="56" rx="8"/>
+      <text class="d-label" x="300" y="208">SeriesRows</text>
+      <text class="d-sub" x="300" y="226">the frame, a column made a list once</text>
+
+      <path class="d-edge" d="M520 72 C 550 72, 550 150, 572 150" marker-end="url(#ar3)"/>
+      <path class="d-edge" d="M520 214 C 550 214, 550 150, 572 150" marker-end="url(#ar3)"/>
+
+      <text class="d-title" x="574" y="24">what reads it</text>
+      <rect class="d-box int" x="574" y="44" width="230" height="212" rx="10"/>
+      <text class="d-label" x="590" y="72">stored[i]</text><text class="d-sub" x="700" y="72">one item, per call</text>
+      <text class="d-label" x="590" y="104">cell(name, i)</text><text class="d-sub" x="726" y="104">one field</text>
+      <text class="d-label" x="590" y="136">as_list()</text><text class="d-sub" x="700" y="136">a Series input</text>
+      <text class="d-label" x="590" y="168">as_table_input()</text><text class="d-sub" x="726" y="168">a Table</text>
+      <text class="d-label" x="590" y="200">field_as_list(name)</text>
+      <text class="d-label" x="590" y="232">for_saving()</text><text class="d-sub" x="700" y="232">a saved run</text>
+    </svg></div>
+    <div class="aside">
+      <figcaption>A <code>Table</code> input wired to <code class="int" title="Internal">SeriesRows</code> gets the frame itself, so no dict is made for it. A Series input gets plain dicts either way.</figcaption>
+      <p class="small">A solid outline is public and a dashed one is internal.</p>
+    </div>
+  </figure>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="why-frame" aria-labelledby="why-frame-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">What a node returns for a Series</p>
+      <h2 id="why-frame-h">Why keep the frame</h2>
+      <p class="muted">An edge that names a field reads one column of the frame, and a column that no edge reads stays in the frame until the run is saved.</p>
+      <p class="muted">The frame is checked as a <code>Table[Contact]</code> when the node returns it, so it has exactly <code>Contact</code>'s columns. The <code>phone</code> column is gone before anything reads it. A <a href="saved-runs-and-reuse.html#saved">saved run</a> writes <code class="int" title="Internal">SeriesRows</code> as a table's JSON, and <code class="int" title="Internal">SeriesItems</code> as a JSON array.</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">import json
+from typing import TypedDict
+
+
+def dumps(value, level=0, column=0):
+    """JSON with an indent of 2, and a list that fits on one line of 80 kept on one line."""
+    one = json.dumps(value)
+    if not isinstance(value, (list, dict)) or not value or (isinstance(value, list) and column + len(one) <= 80):
+        return one
+    pad = "  " * (level + 1)
+    if isinstance(value, dict):
+        heads = [f"{pad}{json.dumps(key)}: " for key in value]
+        body = [head + dumps(item, level + 1, len(head)) for head, item in zip(heads, value.values())]
+        return "{\n" + ",\n".join(body) + "\n" + "  " * level + "}"
+    body = [pad + dumps(item, level + 1, len(pad)) for item in value]
+    return "[\n" + ",\n".join(body) + "\n" + "  " * level + "]"
+
+
+registry = NodeRegistry()</script>
+      <pre data-lang="py">class Contact(TypedDict):
+    name: str
+    email: str | None
+
+FRAME = pl.DataFrame({"name": ["Ida", "Bo"], "email": ["ida@a.dk", None], "phone": ["1234", "5678"]})
+
+@registry.node("as-frame", title="As frame", description="Returns the contacts as a table.")
+def as_frame(text: str) -> Series[Contact]:
+    return FRAME  # a table may stand for a Series of its rows
+
+@registry.node("as-list", title="As list", description="Returns the contacts as a list.")
+def as_list(text: str) -> Series[Contact]:
+    return [{"name": "Ida", "email": "ida@a.dk"}, {"name": "Bo", "email": None}]
+
+@registry.node("greet", title="Greet", description="Greets one contact.")
+def greet(name: str) -> str:
+    return f"hi {name}"
+</pre>
+      <pre data-lang="py">saved = {}
+for source in (as_frame, as_list):
+    graph = Graph.compile(
+        make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]), registry
+    )
+    run = graph.run({"text": "x"})
+    stored = run._outcomes.of((source.id,))[()].outputs["result"]   # internal: how the run keeps it
+    print(source.id, type(stored).__name__, run.results["greet"]["result"])
+    saved[source.id] = json.loads(run.to_json())["outcomes"][source.id]["outputs"]["result"]</pre>
+      <p class="label small lead-in"><span class="lvl int">Internal</span>printed &middot; the class names <code class="int" title="Internal">SeriesRows</code> and <code class="int" title="Internal">SeriesItems</code>, read from <code class="int" title="Internal">run._outcomes</code></p>
+      <pre class="out">as-frame SeriesRows ['hi Ida', 'hi Bo']
+as-list SeriesItems ['hi Ida', 'hi Bo']</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="saved-form" aria-labelledby="saved-form-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">What a node returns for a Series</p>
+      <h2 id="saved-form-h">A saved run writes both forms as JSON</h2>
+      <p class="muted">A <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a> item has no JSON form, so <code class="int" title="Internal">for_saving()</code> writes it as <code>None</code> and lists its index beside the Series. A frame has no <code>SKIPPED</code> row.</p>
+      <p class="label small"><span class="lvl pub">Public</span>printed &middot; the <code>result</code> of each source as <code>run.to_json()</code> saves it, printed by a small formatter <code>dumps</code>: an indent of 2, and a list that fits on one line kept on one line</p>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">print(dumps(saved))</pre>
+      <pre class="out">{
+  "as-frame": [
+    {
+      "columns": [
+        {
+          "name": "name",
+          "type": "str",
+          "values": ["Ida", "Bo"]
+        },
+        {
+          "name": "email",
+          "type": "str",
+          "values": ["ida@a.dk", null]
+        }
+      ]
+    }
+  ],
+  "as-list": [
+    [{"name": "Ida", "email": "ida@a.dk"}, {"name": "Bo", "email": null}]
+  ]
+}</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ TABLE ============================ -->
+<section id="table" aria-labelledby="tb-h">
+  <div class="section-head">
+    <p class="eyebrow">A whole table as one value</p>
+    <h2 id="tb-h">Every form of a table becomes one frame</h2>
+    <p class="muted">A table can arrive as a <code>polars.DataFrame</code>, as a list of rows with one dict per row, or as the JSON conductor writes for a table. Whatever the form, a <code>Table[R]</code> reaches the node as a frame with exactly the columns <code>R</code> names, each of its declared type. That holds for a caller's value, a constant, <a href="asking-a-person.html#answering">a person&rsquo;s answer</a>, collected rows and a node's own return. A constant is JSON, so it is never a frame. The rules are in <code>python -m conductor.about types</code> and, for which tables fit, <code>python -m conductor.about one-or-many</code>.</p>
+  </div>
+
+  <figure class="side">
+    <div class="diagram"><svg viewBox="0 0 820 250" role="img" aria-label="A frame, a list of rows or conductor's JSON are read by the table schema into a frame with R's columns, then each column is converted to the type a saved run reads back">
+      <defs>
+        <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
+      </defs>
+      <text class="d-title" x="20" y="24">the forms</text>
+      <rect class="d-box" x="20" y="40" width="200" height="44" rx="8"/><text class="d-label" x="36" y="67">polars.DataFrame</text>
+      <rect class="d-box" x="20" y="102" width="200" height="44" rx="8"/><text class="d-label" x="36" y="122">[{"customer": "Ida",</text><text class="d-label" x="44" y="138">"amount": 100}]</text>
+      <rect class="d-box" x="20" y="164" width="200" height="44" rx="8"/><text class="d-label" x="36" y="184">{"columns": [{"name",</text><text class="d-label" x="44" y="200">"type", "values"}]}</text>
+      <path class="d-edge" d="M220 62 C 250 62, 250 124, 282 124" marker-end="url(#ar4)"/>
+      <path class="d-edge" d="M220 124 L 282 124" marker-end="url(#ar4)"/>
+      <path class="d-edge" d="M220 186 C 250 186, 250 124, 282 124" marker-end="url(#ar4)"/>
+
+      <text class="d-title" x="284" y="24">read by R</text>
+      <rect class="d-box acc" x="284" y="84" width="200" height="80" rx="10"/>
+      <text class="d-label" x="300" y="108">every column R names</text>
+      <text class="d-sub" x="300" y="126">others are cut</text>
+      <text class="d-sub" x="300" y="142">a blank only where R says | None</text>
+      <path class="d-edge" d="M484 124 L 536 124" marker-end="url(#ar4)"/>
+
+      <text class="d-title" x="538" y="24">kept as it saves</text>
+      <rect class="d-box int" x="538" y="84" width="262" height="80" rx="10"/>
+      <text class="d-label" x="554" y="108">as_saved()</text>
+      <text class="d-sub" x="554" y="126">Int32 becomes Int64, Categorical String</text>
+      <text class="d-sub" x="554" y="142">a column that would change is refused</text>
+      <text class="d-sub" x="554" y="200">So every cell reads back from Run.from_json as it was,</text>
+      <text class="d-sub" x="554" y="216">save for a column with no value at all.</text>
+    </svg></div>
+    <div class="aside">
+      <figcaption>A run <a href="saved-runs-and-reuse.html#saved">saves its values as JSON</a>, and some polars types don't come back the same. So each column is converted to the type it will come back as, when that changes no cell, and refused otherwise. A <code>Datetime</code> in a time zone other than UTC is refused, since it would come back in UTC.</figcaption>
+      <p class="small">A <code>Table[R]</code> input wired to rows inside a loop collects them into one table, the way a <code>Series</code> input collects items. What a row type may declare is in <code>python -m conductor.about one-or-many</code>, under "A table is one value".</p>
+      <p class="small">A solid outline is public and a dashed one is internal.</p>
+    </div>
+  </figure>
+
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="no-loop" aria-labelledby="no-loop-h">
+  <div class="blocks">
+    <div class="prose section-head">
+      <p class="eyebrow">A whole table as one value</p>
+      <h2 id="no-loop-h">A table never starts a loop <span class="lvl pub">Public</span></h2>
+      <p class="muted">A table is passed whole. A column of it is no source. An edge to <code>contacts.result.email</code> from a <code>Table</code> output is <code>unknown_output_field_of_whole_table_or_list</code>. To run per row, a node returns <code>Series[R]</code>. <a href="standard-nodes.html#loops">Split</a> in <a href="standard-nodes.html#modules"><code>syv-conductor-nodes</code></a> does that for any table or list.</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">from conductor import Table</script>
+      <pre data-lang="py">class Invoice(TypedDict):
+    customer: str
+    amount: int
+
+@registry.node("total", title="Total", description="Adds up the invoices.")
+def total(invoices: Table[Invoice]) -> str:
+    return f"{invoices.height} rows, columns {invoices.columns}, amount {invoices.schema['amount']}, sum {invoices['amount'].sum()}"
+
+graph = Graph.compile(make_graph(total), registry)
+print(graph.describe().inputs["invoices"].type)
+given = {
+    "rows": [{"customer": "Ida", "amount": 100, "note": "x"}, {"customer": "Bo", "amount": 5000, "note": "y"}],
+    "frame (Int32)": pl.DataFrame({"customer": ["Ida"], "amount": pl.Series([100], dtype=pl.Int32)}),
+    "conductor's JSON": {"columns": [{"name": "customer", "type": "str", "values": ["Ida"]},
+                                     {"name": "amount", "type": "int", "values": [100]}]},
+    "no rows": [],
+}
+for name, value in given.items():
+    print(f"{name:17} -> {graph.run({'invoices': value}).outputs['result']}")</pre>
+      <pre class="out">Table[customer: str, amount: int]
+rows              -> 2 rows, columns ['customer', 'amount'], amount Int64, sum 5100
+frame (Int32)     -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
+conductor's JSON  -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
+no rows           -> 0 rows, columns ['customer', 'amount'], amount Int64, sum 0</pre>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">for name, value in {
+    "missing column": [{"customer": "Ida"}],
+    "blank amount": pl.DataFrame({"customer": ["Ida"], "amount": [None]}, schema={"customer": pl.String, "amount": pl.Int64}),
+}.items():
+    try:
+        graph.run({'invoices': value})
+    except InvalidCallError as e:
+        p = e.problems[0]
+        print(f"{name:17} -> {p.type}: {p.ctx.get('reason') or p.ctx['errors'][0]['msg']}")</pre>
+      <pre class="out">missing column    -> invalid_input: the column 'amount' is missing, and the row type needs it
+blank amount      -> invalid_input: column 'amount' has a blank cell, and its type doesn't allow blanks</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ ITEM LIMIT ============================ -->
+<section id="limit" aria-labelledby="lim-h">
+  <div class="split limit-top">
+    <div class="stack-col">
+    <div class="section-head">
+      <p class="eyebrow">The item limit</p>
+      <h2 id="lim-h"><code>max_items</code> stops a run before it spends <span class="lvl pub">Public</span></h2>
+      <p class="muted"><a href="running-and-streaming.html#start"><code>graph.run(max_items=n)</code></a> limits how many items any one series a loop runs over may have. Over the limit, the run stops with the <a href="problems.html">problem</a> <code>item_limit</code>. The limit is on each series alone, never on all their items together.</p>
+    </div>
+    <div class="widget">
+      <div class="controls">
+        <span class="ctl-label">text</span>
+        <div class="seg" role="group" aria-label="The text">
+          <button type="button" id="lim-t1" aria-pressed="true">a,b|c,d|e,f</button>
+          <button type="button" id="lim-t2" aria-pressed="false">a,b|c,d,e,f|g</button>
+        </div>
+        <span class="ctl-label" style="margin-left:.75rem">max_items</span>
+        <input type="range" id="lim-m" min="1" max="5" value="3" aria-label="max_items">
+        <span class="mono" id="lim-m-out">3</span>
+      </div>
+      <dl class="readout stack">
+        <div><dt>run.status</dt><dd><span class="status" id="lim-status"></span></dd></div>
+        <div><dt>run.cause.type, .loc and .ctx</dt><dd id="lim-cause"></dd></div>
+        <div><dt>calls of shout, and the outputs</dt><dd id="lim-out"></dd></div>
+      </dl>
+      <p class="small">The graph is <code>docs -&gt; lines -&gt; shout</code>. <code>docs</code> splits on <code>|</code>, <code>lines</code> on commas, and <code>shout</code> runs per line. No node in it uses <a href="running-and-streaming.html#policy">threads</a>. In the stopped runs, <code>shout</code> was not called at all.</p>
+    </div>
+    </div>
+    <div class="sample">
+      <p class="small">The widget's graph, <code>docs -&gt; lines -&gt; shout</code>, stopped by the second document's lines:</p>
+      <script type="text/x-python">registry = NodeRegistry()</script>
+      <pre data-lang="py" data-name="limit">@registry.node("docs", title="Documents", description="Splits a text into documents.")
+def docs(text: str) -&gt; Series[str]:
+    return text.split("|")
+
+@registry.node("lines", title="Lines", description="Splits a document into lines.")
+def lines(doc: str) -&gt; Series[str]:
+    return doc.split(",")
+
+@registry.node("shout", title="Shout", description="Writes a line in capitals.")
+def shout(line: str) -&gt; str:
+    return line.upper()
+
+graph = Graph.compile(make_graph(docs, lines, shout, edges=[("docs.result", "lines.doc"), ("lines.result", "shout.line")]), registry)
+for max_items in (2, 3, 4):
+    run = graph.run({"text": "a,b|c,d,e,f|g"}, max_items=max_items)
+    print(max_items, run.status, run.cause and (run.cause.loc, run.cause.ctx), run.progress.nodes["shout"].finished)</pre>
+      <pre class="out">2 stopped (('docs',), {'series': 'docs.result', 'items': 3, 'max_items': 2}) 0
+3 stopped (('lines', 1), {'series': 'lines.result', 'items': 4, 'max_items': 3}) 0
+4 complete None 7</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="counts" aria-labelledby="counts-h">
+  <div class="blocks">
+    <div class="prose section-head">
+      <p class="eyebrow">The item limit</p>
+      <h2 id="counts-h">Only what a loop runs over counts</h2>
+      <p class="muted">A series that is only collected or passed whole costs no calls, so it is not counted. A <code>Series</code> of rows kept as a table counts its rows.</p>
+      <p class="muted">The run is <code>stopped</code>, not failed. <code>run.with_max_items(n)</code> is the same run under a new limit, and <a href="running-and-streaming.html#start"><code>resume()</code></a> goes on from there without calling again what was already called. The limit belongs to the run, so <code>resume()</code> and <a href="running-and-streaming.html#stream"><code>stream()</code></a> don't take it.</p>
+      <p class="muted"><code>max_items</code> must be a whole number of at least 1; anything else is <a href="running-and-streaming.html#limits"><code>invalid_limit</code></a>. The rules of the limit are in <code>python -m conductor.about one-or-many</code>, under "The item limit".</p>
+    </div>
+    <div class="sample">
+      <script type="text/x-python">registry = NodeRegistry()</script>
+      <pre data-lang="py">CALLS = []
+
+@registry.node("words", title="Words", description="Splits a text into words.")
+def words(text: str) -> Series[str]:
+    return text.split()
+
+@registry.node("shout", title="Shout", description="Writes a word in capitals.")
+def shout(word: str) -> str:
+    CALLS.append(word)
+    return word.upper()
+
+graph = Graph.compile(make_graph(words, shout, edges=[("words.result", "shout.word")]), registry)
+run = graph.run({"text": "a b c"}, max_items=2)
+print(run.status, run.cause.type, run.cause.loc, run.cause.ctx)
+print(run.cause.msg)
+print("calls of shout:", CALLS)
+run = run.with_max_items(3).resume()
+print(run.status, run.outputs, "calls of shout:", CALLS)</pre>
+      <pre class="out">stopped item_limit ('words',) {'series': 'words.result', 'items': 3, 'max_items': 2}
+words.result has 3 items, more than this run's max_items of 2. Raise max_items and resume the run.
+calls of shout: []
+complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">for bad in (0, 2.5, True):
+    try:
+        graph.run({"text": "a"}, max_items=bad)
+    except InvalidCallError as error:
+        print(bad, [(problem.type, problem.loc) for problem in error.problems])</pre>
+      <pre class="out">0 [('invalid_limit', ('max_items',))]
+2.5 [('invalid_limit', ('max_items',))]
+True [('invalid_limit', ('max_items',))]</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ CHOICES ============================ -->
+<section id="choices" aria-labelledby="ch-h">
+  <div class="section-head">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="ch-h">The choices this part makes</h2>
+    <p class="muted">The rules are in <code>python -m conductor.about one-or-many</code>. The choices below are the ones this page shows.</p>
+  </div>
+  <div class="choices">
+    <article class="choice">
+      <h3>A Series is a plain list to the node and to a type checker.<span class="lvl pub">Public</span></h3>
+      <p>The author writes no new collection type and calls nothing special. <code>Series</code> exists so pydantic finds its schema, and under <code>TYPE_CHECKING</code> it is <code>list[T]</code>.</p>
+      <p class="cost"><b>Cost:</b> the engine accepts a returned <code>polars.Series</code>, but a type checker wants <code>series.to_list()</code>.</p>
+    </article>
+    <article class="choice">
+      <h3>A table is kept the way a saved run reads it back.<span class="lvl pub">Public</span></h3>
+      <p>Each column is converted to the type it comes back as from JSON, or refused. So a run behaves the same before and after it is saved and resumed in another process, save for a column with no value at all, whose type may not come back.</p>
+      <p class="cost"><b>Cost:</b> some frames are refused that polars itself holds fine, such as a <code>Datetime</code> in Copenhagen time. The node converts it first.</p>
+    </article>
+    <article class="choice">
+      <h3>Progress is worked out from the outcomes.<span class="lvl pub">Public</span></h3>
+      <p><a href="running-and-streaming.html#start"><code>run.progress</code></a> is read from the <a href="running-and-streaming.html#outcomes">outcomes</a> each time, so there is no counter to keep in step, and a run read back from JSON has the same progress.</p>
+    </article>
+  </div>
+</section>
+
+<footer>
+  <p><a href="overview.html">&larr; The overview</a></p>
+</footer>
+
+</div>
+</div>
+
+<script type="application/json" id="widget-data">{}</script>
+<script>
+const DATA = JSON.parse(document.getElementById("widget-data").textContent);
+(function () {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const NS = "http://www.w3.org/2000/svg";
+  const py = (v) => v === null ? "None" : v === true ? "True" : v === false ? "False" : Array.isArray(v) ? "[" + v.map(py).join(", ") + "]" : typeof v === "string" ? "'" + v + "'" : String(v);
+
+  /* ---------- a small highlighter for Python, from the overview ---------- */
+  const PY_KW = /\b(def|return|if|else|raise|from|import|class|for|in|try|except|as|True|False|None|lambda)\b/g;
+  function highlight(src) {
+    const out = []; const re = /(#[^\n]*)|("""[\s\S]*?"""|f?"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(@[\w.]+)/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      out.push(esc(src.slice(last, m.index)).replace(PY_KW, '<span class="tk-k">$1</span>'));
+      if (m[1]) out.push('<span class="tk-c">' + esc(m[1]) + "</span>");
+      else if (m[2]) out.push('<span class="tk-s">' + esc(m[2]) + "</span>");
+      else out.push('<span class="tk-k">' + esc(m[3]) + "</span>");
+      last = re.lastIndex;
+    }
+    out.push(esc(src.slice(last)).replace(PY_KW, '<span class="tk-k">$1</span>'));
+    return out.join("");
+  }
+  /* each line is its own block, so a wrapped line hangs under its own indent */
+  const hang = (html) => html.split("\n").map((line) => {
+    const lead = line.match(/^ */)[0].length;
+    const h = "min(" + (lead + 4) + "ch, 30%)";
+    return '<span class="ln" style="padding-left:' + h + ";text-indent:calc(-1 * " + h + ')">' + line + "\n</span>";
+  }).join("");
+  document.querySelectorAll("pre[data-lang]").forEach((p) => { p.innerHTML = hang(highlight(p.textContent)); });
+  document.querySelectorAll("pre.out").forEach((p) => { p.innerHTML = hang(esc(p.textContent)); });
+
+  function el(tag, attrs, text) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function box(svg, x, y, w, h, label, sub, cls) {
+    const g = el("g", { class: "pop" });
+    g.append(el("rect", { class: "d-box " + (cls || ""), x, y, width: w, height: h, rx: 8 }));
+    g.append(el("text", { class: "d-label", x: x + w / 2, y: y + (sub ? h / 2 - 2 : h / 2 + 4), "text-anchor": "middle" }, label));
+    if (sub) g.append(el("text", { class: "d-sub", x: x + w / 2, y: y + h / 2 + 13, "text-anchor": "middle" }, sub));
+    svg.append(g); return g;
+  }
+  function edge(svg, x1, y1, x2, y2, live) {
+    const mx = (x1 + x2) / 2;
+    svg.append(el("path", { class: "d-edge" + (live && !reduced ? " live" : ""), d: `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}` }));
+  }
+
+  /* a widget's states are written in from the code when the docs are built; opened from disk, it says so */
+  function show(key, inside, draw) {
+    if (DATA[key]) { draw(); return; }
+    $(inside).closest(".widget").innerHTML = '<p class="small">This widget\'s states are written in from the code when the docs are built. Open the built docs to try it.</p>';
+  }
+
+  /* ======================= THE LOOP ======================= */
+  let loopKind = "collect";
+  function drawLoop() {
+    const n = +$("#loop-n").value; $("#loop-n-out").textContent = n;
+    const d = DATA.loop[loopKind + "/" + n];
+    const svg = $("#loop-svg"); svg.innerHTML = "";
+    const H = 300, rowH = 44, top = (H - Math.max(n, 1) * rowH) / 2 + 4;
+    svg.append(el("text", { class: "d-title", x: 20, y: 22 }, "called once"));
+    svg.append(el("text", { class: "d-title", x: 230, y: 22 }, "once per line"));
+    svg.append(el("text", { class: "d-title", x: 450, y: 22 }, loopKind === "collect" ? "collects the loop" : "once per line"));
+    box(svg, 20, H / 2 - 22, 140, 44, "lines @ ()", "returns " + n + " item" + (n === 1 ? "" : "s"), "ok");
+    if (n === 0) {
+      svg.append(el("text", { class: "d-sub", x: 300, y: H / 2 + 4, "text-anchor": "middle" }, "no calls of shout"));
+    }
+    for (let i = 0; i < n; i++) {
+      const y = top + i * rowH;
+      edge(svg, 160, H / 2, 230, y + 18, true);
+      box(svg, 230, y, 140, 36, "shout@" + i, py(d.shout[i]), "acc");
+      if (loopKind === "per-item") {
+        edge(svg, 370, y + 18, 450, y + 18, true);
+        box(svg, 450, y, 170, 36, "join-one@" + i, py(d.join[i]), "acc");
+      } else edge(svg, 370, y + 18, 450, H / 2, true);
+    }
+    if (loopKind === "collect") {
+      if (n === 0) edge(svg, 160, H / 2, 450, H / 2, false);
+      box(svg, 450, H / 2 - 22, 170, 44, "join @ ()", py(d.join), "acc");
+    } else if (n === 0) svg.append(el("text", { class: "d-sub", x: 535, y: H / 2 + 4, "text-anchor": "middle" }, "no calls of join-one"));
+    const jn = loopKind === "collect" ? "join" : "join-one";
+    $("#loop-calls").textContent = Object.entries(d.calls).map(([k, v]) => k + ": " + v).join(", ");
+    $("#loop-shout").textContent = py(d.shout);
+    $("#loop-join-h").textContent = jn + ".result";
+    $("#loop-join").textContent = py(d.join);
+    $("#loop-cap").innerHTML = loopKind === "collect"
+      ? "<code>join(texts: Series[str])</code> collects the loop. Its <code>per_item_of</code> is <code>None</code>, and it is called once" + (n === 0 ? ", with an empty list." : ", with every shouted line in item order.")
+      : "With <code>texts: str</code>, the node (here <code>join-one</code>) is inside the loop too, and its <code>per_item_of</code> is <code>lines.result</code>. Its result is a list with one value per line" + (n === 0 ? ", empty here." : ".");
+  }
+  const segLoop = (k) => { loopKind = k; $("#loop-collect").setAttribute("aria-pressed", String(k === "collect")); $("#loop-per").setAttribute("aria-pressed", String(k !== "collect")); drawLoop(); };
+  $("#loop-n").addEventListener("input", drawLoop);
+  $("#loop-collect").addEventListener("click", () => segLoop("collect"));
+  $("#loop-per").addEventListener("click", () => segLoop("per-item"));
+  show("loop", "#loop-n", drawLoop);
+
+  /* ======================= ITEM INDEXES ======================= */
+  const CALLS = [
+    { id: "docs", idx: [], col: 0, row: 1.5, label: "docs", sub: "returns 2 documents", gets: "text = 'a,b|c'", ret: "['a,b', 'c']" },
+    { id: "lines", idx: [0], col: 1, row: 0.5, sub: "doc 'a,b'", gets: "doc = 'a,b'", ret: "['a', 'b']" },
+    { id: "lines", idx: [1], col: 1, row: 2.5, sub: "doc 'c'", gets: "doc = 'c'", ret: "['c']" },
+    { id: "approve", idx: [0, 0], col: 2, row: 0, sub: "line 'a'", gets: "line = 'a'", ret: "True (answered)" },
+    { id: "approve", idx: [0, 1], col: 2, row: 1, sub: "line 'b'", gets: "line = 'b'", ret: "True (answered)" },
+    { id: "approve", idx: [1, 0], col: 2, row: 2.5, sub: "line 'c'", gets: "line = 'c'", ret: "True (answered)" },
+    { id: "count", idx: [0], col: 3, row: 0.5, sub: "collects doc 0", gets: "answers = [True, True]", ret: "2" },
+    { id: "count", idx: [1], col: 3, row: 2.5, sub: "collects doc 1", gets: "answers = [True]", ret: "1" },
+  ];
+  const X = [16, 160, 310, 460], W = 124, CH = 40;
+  const yOf = (r) => 34 + r * 62;
+  const nameOf = (c) => c.id + c.idx.map((i) => "@" + i).join("");
+  let sel = 4;
+  function drawIdx() {
+    const svg = $("#idx-svg"); svg.innerHTML = "";
+    ["called once", "per document", "per line", "per document"].forEach((t, i) => svg.append(el("text", { class: "d-title", x: X[i], y: 18 }, t)));
+    const at = (c) => [X[c.col], yOf(c.row)];
+    const link = (a, b) => { const [ax, ay] = at(a), [bx, by] = at(b); edge(svg, ax + W, ay + CH / 2, bx, by + CH / 2, false); };
+    link(CALLS[0], CALLS[1]); link(CALLS[0], CALLS[2]);
+    link(CALLS[1], CALLS[3]); link(CALLS[1], CALLS[4]); link(CALLS[2], CALLS[5]);
+    link(CALLS[3], CALLS[6]); link(CALLS[4], CALLS[6]); link(CALLS[5], CALLS[7]);
+    CALLS.forEach((c, i) => {
+      const [x, y] = at(c);
+      const g = el("g", { class: "d-cell" + (i === sel ? " sel" : ""), tabindex: 0, role: "button", "aria-label": nameOf(c) });
+      g.append(el("rect", { class: "d-box", x, y, width: W, height: CH, rx: 8 }));
+      g.append(el("text", { class: "d-label", x: x + W / 2, y: y + 17, "text-anchor": "middle" }, nameOf(c)));
+      g.append(el("text", { class: "d-sub", x: x + W / 2, y: y + 32, "text-anchor": "middle" }, c.sub));
+      const pick = () => { sel = i; drawIdx(); };
+      g.addEventListener("click", pick);
+      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+      svg.append(g);
+    });
+    const c = CALLS[sel];
+    const loc = "(" + ["'" + c.id + "'", ...c.idx].join(", ") + (c.idx.length ? "" : ",") + ")";
+    const idx = "(" + c.idx.join(", ") + (c.idx.length === 1 ? "," : "") + ")";
+    $("#idx-read").innerHTML =
+      "<div><dt>item indexes</dt><dd>" + idx + "</dd></div>" +
+      "<div><dt>loc</dt><dd>" + esc(loc) + "</dd></div>" +
+      "<div><dt>as text</dt><dd>" + esc(nameOf(c)) + (c.id === "approve" ? "<span class=\"small\"> + ~fingerprint in a waiting id</span>" : "") + "</dd></div>" +
+      "<div><dt>gets</dt><dd>" + esc(c.gets) + "</dd></div>" +
+      "<div><dt>its outcome</dt><dd>" + esc(c.ret) + "</dd></div>";
+  }
+  drawIdx();
+
+  /* ======================= COLLECTING ======================= */
+  const NAMES = ["Ida", "Bo", "Al"];
+  const off = [false, true, false];
+  const chips = $("#col-chips");
+  NAMES.forEach((n, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = n; b.id = "col-" + n;
+    b.addEventListener("click", () => { off[i] = !off[i]; drawCol(); });
+    chips.append(b);
+  });
+  function drawCol() {
+    chips.querySelectorAll("button").forEach((b, i) => b.setAttribute("aria-pressed", String(off[i])));
+    const d = DATA.collect[off.map((f) => (f ? "1" : "0")).join("")];
+    $("#col-email").innerHTML = NAMES.map((n, i) => esc(n) + " &rarr; " + esc(off[i] ? "None" : "'" + n.toLowerCase() + "@a.dk'")).join("<br>");
+    $("#col-pair").textContent = py(d.pair);
+    $("#col-keep").textContent = py(d.keep);
+  }
+  show("collect", "#col-chips", drawCol);
+
+  /* ======================= THE ITEM LIMIT ======================= */
+  let text = "a,b|c,d|e,f";
+  function drawLim() {
+    const m = +$("#lim-m").value; $("#lim-m-out").textContent = m;
+    const d = DATA.limit[text + "/" + m];
+    const s = $("#lim-status"); s.textContent = d.status; s.className = "status " + d.status;
+    $("#lim-cause").innerHTML = d.ctx
+      ? "item_limit<br>" + esc(py(d.loc).replace("[", "(").replace("]", d.loc.length === 1 ? ",)" : ")")) + " <span class=\"small\">the call that returned the series</span><br>" + esc("{'series': '" + d.ctx.series + "', 'items': " + d.ctx.items + ", 'max_items': " + d.ctx.max_items + "}")
+      : "None";
+    $("#lim-out").innerHTML = d.shout_calls + " calls" + (d.result ? "<br>" + esc(py(d.result)) : "<br>no outputs yet");
+  }
+  const segLim = (t, id) => { text = t; ["#lim-t1", "#lim-t2"].forEach((k) => $(k).setAttribute("aria-pressed", String(k === id))); drawLim(); };
+  $("#lim-t1").addEventListener("click", () => segLim("a,b|c,d|e,f", "#lim-t1"));
+  $("#lim-t2").addEventListener("click", () => segLim("a,b|c,d,e,f|g", "#lim-t2"));
+  $("#lim-m").addEventListener("input", drawLim);
+  show("limit", "#lim-m", drawLim);
+})();
+</script>
+
+</body>
+</html>
