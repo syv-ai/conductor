@@ -161,9 +161,10 @@ def node_error(*loc: str | int) -> str:
 
 @RUN_PROBLEMS.problem
 def invalid_ask(*loc: str | int, reason: str, errors: list[dict[str, Any]]) -> str:
-    """A node raised an ``Ask`` whose prompt isn't text, or whose choices or default don't fit the node's outputs.
+    """A node raised an ``Ask`` whose prompt isn't text or is blank, or whose choices or default don't fit the node's
+    outputs.
 
-    The answer to an ``Ask`` becomes the node's outputs. So its choices and its default must be values the outputs'
+    The prompt is what a person reads, so it is text with a character other than whitespace. The answer to an ``Ask`` becomes the node's outputs. So its choices and its default must be values the outputs'
     types take, and the default an answer a person could give. In the example, ``confirm`` returns a ``bool``, and
     ``"maybe"`` isn't one. Every fault is reported at once, in ``ctx.errors``, each ``loc`` starting with
     ``prompt``, ``choices`` or ``default``, then the output's name, then a choice's index. A key of the mapping that is no output
@@ -185,7 +186,7 @@ def invalid_ask(*loc: str | int, reason: str, errors: list[dict[str, Any]]) -> s
 
         why_it_stopped(Graph.compile(make_graph(confirm), registry).run({"text": "a"}))
     """
-    return f"The node's Ask doesn't fit its outputs: {reason.rstrip('.')}. Fix the Ask."
+    return f"The node's Ask is wrong: {reason.rstrip('.')}. Fix the Ask."
 
 
 @RUN_PROBLEMS.problem

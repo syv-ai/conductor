@@ -27,7 +27,7 @@ import functools
 from collections.abc import Mapping
 from typing import Any, cast
 
-from pydantic import MISSING, JsonValue, ValidationError
+from pydantic import MISSING, ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import (
     CoreSchema,
     SchemaValidator,
@@ -53,6 +53,7 @@ from conductor._internal.problem import (
 from conductor._internal.table import json_fallback
 from conductor._internal.types import (
     Choice,
+    NotBlank,
     Type,
     TypeRefusal,
     check_one_of,
@@ -69,26 +70,26 @@ from .type import Ask
 #: Explains a fault no output's type explains, such as an answer of several questions that isn't a mapping.
 _ANY = Type(Any)
 
-#: Checks an ``Ask``'s prompt, the text a person reads: a ``str``, strictly.
-_PROMPT = SchemaValidator(core_schema.str_schema(strict=True))
+#: Checks an ``Ask``'s prompt, the text a person reads: a ``str``, strictly, and not blank.
+_PROMPT = TypeAdapter(NotBlank, config=ConfigDict(strict=True))
 
 
 class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]):
     """A validator for the ``Ask`` a node raises.
 
-    The prompt is text a person reads, so it is a ``str``. The answer to an ``Ask`` fills the node's outputs, so the
-    ``Ask``'s choices and default must fit them. Its
-    choices are read by each output's type, as a person's answer is. Its default is read as an answer would be,
-    by the schema ``AnswerValidator`` reads by, so it must be an answer a person could give, one of the ``Ask``'s
-    choices included. The validator also turns them into the form the waiting call keeps.
+    The prompt is text a person reads, so it is a ``str`` and isn't blank. The answer to an ``Ask`` fills the node's
+    outputs, so the ``Ask``'s choices and default must fit them. Its choices are read by each output's type, as a
+    person's answer is. Its default is read as an answer would be, by the schema ``AnswerValidator`` reads by, so it
+    must be an answer a person could give, one of the ``Ask``'s choices included. The validator also turns them
+    into the form the waiting call keeps.
 
     One validator is built for each node. If the node doesn't say ``asks=True``, it refuses every ``Ask``.
 
     Raises (when called):
         InvalidCallError: ``ask_not_declared`` if the node doesn't say it asks. One ``invalid_ask`` with every fault
             of the prompt, the choices and the default in ``ctx.errors``, each ``loc`` starting with ``prompt``,
-            ``choices`` or ``default``, then the output's name, then a choice's index. Its ``reason`` says which part is wrong first, without
-            quoting the value.
+            ``choices`` or ``default``, then the output's name, then a choice's index. Its ``reason`` says which part
+            is wrong first, without quoting the value.
     """
 
     def __init__(self, outputs: Mapping[str, Port], *, asks: bool) -> None:

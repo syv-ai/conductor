@@ -17,6 +17,7 @@ import functools
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
+from re import Pattern
 from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
 
 from annotated_types import Ge, GroupedMetadata, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
@@ -27,6 +28,8 @@ from pydantic import (
     JsonValue,
     StringConstraints,
     ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
     create_model,
 )
 from pydantic.json_schema import JsonSchemaValue
@@ -40,6 +43,7 @@ from conductor._internal.base import WRITE_BY_NAME, canonical_json, plain_json, 
 from conductor._internal.problem import (
     NodeDeclarationError,
     arguments_reason,
+    conductor_error,
     declaration_problems,
     shape_error,
 )
@@ -76,8 +80,31 @@ SIZED = "conductor_sized"
 #: check on the same hint, and the JSON schema's ``enum`` is written from them.
 CHOICES = "conductor_choices"
 
+
+def _limit(kinds: str) -> WrapValidator:
+    """Checks a limit whose type is a union of several kinds, with one fault for a value of none of them.
+
+    Pydantic gives one fault per kind it tried, each at a ``loc`` that names the kind. A developer needs one: which
+    kinds the limit takes.
+
+    Args:
+        kinds: The kinds the limit takes, as the fault's message says them, such as ``"a number or a duration"``.
+    """
+
+    def one_fault(value: Any, read: ValidatorFunctionWrapHandler) -> Any:
+        try:
+            return read(value)
+        except ValidationError:
+            raise conductor_error("not_a_limit", f"the limit is {kinds}") from None
+
+    return WrapValidator(one_fault)
+
+
 #: What a bound like ``ge`` may be: a number, a date and time, a date, a time or a duration.
-_Bound = float | Decimal | datetime.datetime | datetime.date | datetime.time | datetime.timedelta
+_Bound = Annotated[
+    float | Decimal | datetime.datetime | datetime.date | datetime.time | datetime.timedelta,
+    _limit("a number, a date, a time or a duration"),
+]
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -108,7 +135,7 @@ class Param:
             date, a time or a duration. ``multiple_of`` is a step, on a number or a duration.
         min_length: The fewest characters, items or keys allowed, and ``max_length`` the most. Each works on text,
             bytes or a collection, and on a table counts its rows.
-        pattern: A regular expression the text must match.
+        pattern: A regular expression the text must match, as text or compiled with ``re.compile``.
     """
 
     title: NotBlank | None = None
@@ -120,10 +147,12 @@ class Param:
     gt: _Bound | None = None
     le: _Bound | None = None
     lt: _Bound | None = None
-    multiple_of: float | datetime.timedelta | None = None
+    multiple_of: Annotated[float | datetime.timedelta, _limit("a number or a duration")] | None = (
+        None
+    )
     min_length: int | None = None
     max_length: int | None = None
-    pattern: str | None = None
+    pattern: Annotated[str | Pattern[str], _limit("text or a compiled re.Pattern")] | None = None
 
     def __post_init__(self) -> None:
         """Checks every field but the choices by its annotation, strictly, and stores a list of choices as a tuple, in

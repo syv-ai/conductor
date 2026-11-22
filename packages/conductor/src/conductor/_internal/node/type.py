@@ -65,7 +65,8 @@ class Upgrade:
     version.
 
     ``@node`` and ``subgraph`` hold each field to its annotation, strictly, where the newer version is declared, so
-    ``Upgrade(renamed_inputs=5)`` is refused there (``invalid_declaration_argument``).
+    ``Upgrade(renamed_inputs=5)`` is made, and refused there (``invalid_declaration_argument``). The declaration
+    keeps the checked copy pydantic makes, each rename as a ``dict``, not the object it was given.
 
     Attributes:
         renamed_inputs: Old input names to new ones. Each input's constant, default and edges move to the new

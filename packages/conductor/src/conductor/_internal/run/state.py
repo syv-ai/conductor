@@ -77,6 +77,16 @@ class Declined:
     reason: str | None = None
 
 
+#: The one problem that ends a run early with each of these statuses: a series over the item limit stops it, a cancel
+#: cancels it, and the timeout times it out. A failed run has no such code: it ends with the problem its call failed
+#: with, and a node's ``NodeError`` may give that any code.
+_CAUSE_OF_STATUS = {
+    "stopped": run_problems.item_limit.code,
+    "cancelled": run_problems.run_cancelled.code,
+    "timed_out": run_problems.run_timed_out.code,
+}
+
+
 class EndedEarly(ConductorModel):
     """How a run ended before it was complete, and why.
 
@@ -126,16 +136,6 @@ class EndedEarly(ConductorModel):
         else:
             return self
         raise conductor_error("saved_lists_disagree", wrong)
-
-
-#: The one problem that ends a run early with each of these statuses: a series over the item limit stops it, a cancel
-#: cancels it, and the timeout times it out. A failed run has no such code: it ends with the problem its call failed
-#: with, and a node's ``NodeError`` may give that any code.
-_CAUSE_OF_STATUS = {
-    "stopped": run_problems.item_limit.code,
-    "cancelled": run_problems.run_cancelled.code,
-    "timed_out": run_problems.run_timed_out.code,
-}
 
 
 #: How the last ``resume()`` left a run. ``"running"`` for a copy made while it was still going, such as a

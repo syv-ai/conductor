@@ -581,21 +581,31 @@ def test_an_asks_choices_are_a_list_so_text_a_set_or_an_iterator_is_refused(
     )
 
 
-def test_an_asks_prompt_is_text_so_a_number_is_invalid_ask() -> None:
-    """The prompt is what a person reads, so it is held to ``str`` strictly, as the choices and the default are held
-    to the outputs' types."""
+@pytest.mark.parametrize(
+    ("prompt", "code", "reason"),
+    [
+        (5, "string_type", "Input should be a valid string"),
+        ("", "blank_text", "the text is empty or only whitespace, so a person reads nothing"),
+        ("  ", "blank_text", "the text is empty or only whitespace, so a person reads nothing"),
+    ],
+    ids=["a number", "empty", "blank"],
+)
+def test_an_asks_prompt_is_text_that_is_not_blank(prompt: Any, code: str, reason: str) -> None:
+    """The prompt is what a person reads, so it is held to ``str`` strictly and isn't blank, as a node's title is, and
+    as the choices and the default are held to the outputs' types."""
 
     @node("pick", title="Pick", description="For a test.", asks=True)
     def pick() -> str:
-        raise Ask(5)  # type: ignore[arg-type]
+        raise Ask(prompt)
 
     run = _once(pick)[1]
     assert (run.status, run.waiting) == ("failed", [])
     assert (run.cause.type, run.cause.ctx["reason"], run.cause.ctx["errors"]) == (
         "invalid_ask",
-        "the prompt is wrong (Input should be a valid string)",
-        [{"type": "string_type", "loc": ["prompt"], "msg": "Input should be a valid string"}],
+        f"the prompt is wrong ({reason})",
+        [{"type": code, "loc": ["prompt"], "msg": reason}],
     )
+    assert run.cause.msg == f"The node's Ask is wrong: the prompt is wrong ({reason}). Fix the Ask."
 
 
 @dataclass(frozen=True)
