@@ -187,8 +187,12 @@ class Served:
         return str(saved), str(owner)
 
     async def until_calls(self, count: int) -> None:
-        while len(self.calls) < count:
+        """Waits until the workers have made ``count`` calls, for as long as ``until_status`` waits on a run."""
+        for _ in range(3000):
+            if len(self.calls) >= count:
+                return
             await asyncio.sleep(0.01)
+        raise AssertionError(f"never {count} calls: {self.calls}")
 
 
 @asynccontextmanager

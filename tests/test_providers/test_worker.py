@@ -1232,26 +1232,16 @@ def _event_types(events: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize(
-    "kind",
-    ["answer", "decline"],
-)
-def _two_questions(
-    busy_fails_once: bool,
-) -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, str]]:
+def _two_questions() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, str]]:
     """A graph that asks ``a_first`` at once and ``c_second`` only once ``b_busy`` has its result.
 
-    Nodes no edge puts in order are called in the order of their ids. With ``busy_fails_once``, ``b_busy``'s next
-    call fails, so the run as it then stops asks only ``a_first``. Returns the registry, the graph, its inputs, and
-    the waiting id of each question, by node id, as a run asks them once ``b_busy`` has its result.
+    Nodes no edge puts in order are called in the order of their ids. Returns the registry, the graph, its inputs,
+    and the waiting id of each question, by node id.
     """
-    registry, fails = NodeRegistry(), [False]
+    registry = NodeRegistry()
 
-    @registry.node("b_busy", title="Busy", description="Fails once when told to.")
+    @registry.node("b_busy", title="Busy", description="Gives its text back.")
     def busy(text: str) -> str:
-        if fails[0]:
-            fails[0] = False
-            raise NodeError("not yet")
         return text
 
     @registry.node("a_first", title="First", description="Asks.", asks=True)
@@ -1285,14 +1275,13 @@ def _two_questions(
         str(waiting.loc[0]): waiting.id
         for waiting in Graph.compile(graph, registry).run(inputs).waiting
     }
-    fails[0] = busy_fails_once
     return registry, graph, inputs, ids
 
 
 async def test_a_decline_ends_every_question_so_a_decline_of_another_is_not_waiting() -> None:
     """A run that waits on two questions is declined on one. The run has ended, so the other waits no more, and a
     decline of it is refused with nothing written."""
-    registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
+    registry, graph, inputs, ids = _two_questions()
     store = MemoryStore()
     worker = _worker(store, registry)
     async with worker.serving():
@@ -1314,7 +1303,7 @@ async def test_a_decline_ends_every_question_so_a_decline_of_another_is_not_wait
 async def test_one_call_that_answers_one_waiting_call_twice_is_refused_on_a_stopped_run() -> None:
     """``run.with_answers`` refuses a mapping that answers one call by its id and by its node id, and nothing is
     answered; the worker gives a stopped run's answers to ``run.with_answers`` as they came."""
-    registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
+    registry, graph, inputs, ids = _two_questions()
     store = MemoryStore()
     worker = _worker(store, registry)
     async with worker.serving():
@@ -1336,7 +1325,7 @@ async def test_a_decline_queued_during_a_resume_call_that_raised_ends_the_run_th
     as the row has it takes the queue as the call fails, so it ends ``declined`` at once, as it would on a running
     run. A later answer to ``c_second`` is ``not_waiting`` and a resume is ``run_not_resumable``: no node is called
     after the person said stop."""
-    registry, graph, inputs, ids = _two_questions(busy_fails_once=False)
+    registry, graph, inputs, ids = _two_questions()
     checkpoint = Graph.compile(graph, registry).run(inputs)
     assert sorted(waiting.loc[0] for waiting in checkpoint.waiting) == ["a_first", "c_second"]
     store, calls = MemoryStore(), []

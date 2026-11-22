@@ -18,6 +18,10 @@ from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 
 catalogue = ProblemCatalogue()
 
+#: Every catalogue of kinds conductor declares: what a graph or a run gives, what a declaration gives, and what
+#: ``check_registry`` gives.
+_CATALOGUES = (PROBLEMS, DECLARATION_PROBLEMS, REGISTRY_CHECK_PROBLEMS)
+
 
 @catalogue.problem
 def unknown_shelf(
@@ -190,7 +194,7 @@ def test_a_second_kind_with_the_same_code_is_refused_where_it_is_declared() -> N
 
 
 def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> None:
-    for declared in (PROBLEMS, REGISTRY_CHECK_PROBLEMS):
+    for declared in _CATALOGUES:
         for kind in declared:
             filled = kind.sentence.format(**{key: "x" for key in kind.ctx_type.__annotations__})
 
@@ -201,7 +205,7 @@ def test_ctx_error_is_only_a_developers_code_or_an_exceptions_class() -> None:
     """A kind takes ``error`` only when its docstring says the key holds a ``NodeError``'s ``code`` or an exception's
     class name. Any other text, such as pydantic's reason for a schema it can't build, is a ``reason``, and a value
     refusal says why in ``ctx.errors``."""
-    for declared in (PROBLEMS, DECLARATION_PROBLEMS, REGISTRY_CHECK_PROBLEMS):
+    for declared in _CATALOGUES:
         for kind in declared:
             if "error" not in kind.ctx_type.__annotations__:
                 continue
@@ -219,7 +223,7 @@ def test_no_kind_takes_both_error_and_errors() -> None:
     with pydantic's codes. So no kind has both: a key means one thing on every kind that has it."""
     both = [
         kind.code
-        for declared in (PROBLEMS, DECLARATION_PROBLEMS, REGISTRY_CHECK_PROBLEMS)
+        for declared in _CATALOGUES
         for kind in declared
         if {"error", "errors"} <= kind.ctx_type.__annotations__.keys()
     ]
