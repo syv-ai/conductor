@@ -17,6 +17,7 @@ import math
 import re
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError, dataclass, fields
 from enum import Enum
 from typing import Annotated, Any, Literal, TypedDict
@@ -557,31 +558,6 @@ def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_w
 
 
 @pytest.mark.parametrize(
-    ("choices", "reason"),
-    [
-        ("ab", "Input should be a valid list"),
-        ({"a", "b"}, "a set has no order, so its items could come in a different order each time"),
-        (iter(["a"]), "Input should be a valid list"),
-    ],
-    ids=["text", "a set", "an iterator"],
-)
-def test_an_asks_choices_are_a_list_so_text_a_set_or_an_iterator_is_refused(
-    choices: Any, reason: str
-) -> None:
-    """Text is not a list of its letters, a set has no order, and an iterator is used up once it is read."""
-
-    @node("pick", title="Pick", description="For a test.", asks=True)
-    def pick() -> str:
-        raise Ask("Which?", choices=choices)
-
-    cause = _once(pick)[1].cause
-    assert (cause.type, cause.ctx["reason"]) == (
-        "invalid_ask",
-        f"the choices for 'result' are wrong ({reason})",
-    )
-
-
-@pytest.mark.parametrize(
     ("prompt", "code", "reason"),
     [
         (5, "string_type", "Input should be a valid string"),
@@ -612,21 +588,6 @@ def test_an_asks_prompt_is_text_that_is_not_blank(prompt: Any, code: str, reason
 class Assignment:
     owner: str
     hours: int
-
-
-def test_an_asks_choices_have_the_answers_shape_so_a_dataclass_of_the_outputs_is_read_field_by_field():
-    """Choices are split by output as an answer is, so a dataclass of the outputs gives each output one value, which is
-    refused at that output, since its choices are a list."""
-
-    @node("assign", title="Assign", description="For a test.", asks=True)
-    def assign() -> Assignment:
-        raise Ask("Who?", choices=Assignment("bo", 2))
-
-    cause = _once(assign)[1].cause
-    assert (cause.type, cause.ctx["reason"]) == (
-        "invalid_ask",
-        "the choices for 'owner' are wrong (Input should be a valid list)",
-    )
 
 
 def test_two_dict_choices_with_their_keys_in_another_order_are_one_choice_given_twice():
@@ -710,7 +671,8 @@ def test_a_lone_output_is_titled_by_its_own_param_never_by_the_node():
     def named() -> Annotated[str, Param(title="Decision", description="What you decided")]:
         raise Ask("?")
 
-    assert _once(ask)[1].waiting[0].questions[0].title is None
+    # a lone output is asked under the title describe shows for it, which is its own
+    assert _once(ask)[1].waiting[0].questions[0].title is ask.describe().outputs[0].title is None
     question = _once(named)[1].waiting[0].questions[0]
     assert (question.title, question.description) == ("Decision", "What you decided")
 
@@ -1527,50 +1489,93 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
 
 
 @pytest.mark.parametrize(
-    ("ask", "reason"),
+    ("returns", "ask", "reason"),
     [
         (
+            str,
             lambda: Ask("?", default=3),
             "the default for 'result' is wrong (Input should be a valid string)",
         ),
         (
+            str,
             lambda: Ask("?", default=SKIPPED),
             "the default for 'result' is wrong ('result' is SKIPPED, but it isn't a branch: its default isn't"
             " SKIPPED)",
         ),
         (
+            str,
             lambda: Ask("?", choices=["a", 2]),
             "the choices for 'result' are wrong (Input should be a valid string)",
         ),
         (
+            str,
             lambda: Ask("?", choices=["a"], default="b"),
             "the default for 'result' is wrong (the value is not \"a\")",
         ),
         (
+            str,
             lambda: Ask("?", choices=["a", object()]),
             "the choices for 'result' are wrong (the value can't be written as JSON)",
         ),
         (
+            str,
             lambda: Ask("?", choices=[Choice(object(), "Thing")]),
             "the choices for 'result' are wrong (the value can't be written as JSON)",
         ),
         (
-            lambda: Ask("?", choices=["a", "a"]),
-            "the choices for 'result' are wrong (a choice is given twice)",
-        ),
-        (
-            lambda: Ask("?", choices=[]),
-            "the choices for 'result' are wrong (List should have at least 1 item after validation, not 0)",
-        ),
-        (
+            str,
             lambda: Ask("?", choices={"result": ["a"]}),
             "the choices for 'result' are wrong (Input should be a valid list)",
         ),
+        # choices are a list: text is not a list of its letters, a set has no order, an iterator is used up once read
+        (
+            str,
+            lambda: Ask("Which?", choices="ab"),
+            "the choices for 'result' are wrong (Input should be a valid list)",
+        ),
+        (
+            str,
+            lambda: Ask("Which?", choices={"a", "b"}),
+            "the choices for 'result' are wrong (a set has no order, so its items could come in a different order"
+            " each time)",
+        ),
+        (
+            str,
+            lambda: Ask("Which?", choices=iter(["a"])),
+            "the choices for 'result' are wrong (Input should be a valid list)",
+        ),
+        # choices have the answer's shape, so a dataclass of the outputs gives each output one value, not a list
+        (
+            Assignment,
+            lambda: Ask("Who?", choices=Assignment("bo", 2)),
+            "the choices for 'owner' are wrong (Input should be a valid list)",
+        ),
+        # a choice is read as an answer would be: a table's is a table, a number's is no yes or no and no text
+        (
+            Table[Line],
+            lambda: Ask("?", choices=[1]),
+            "the choices for 'result' are wrong (a table must be a frame, or a list with one object per row)",
+        ),
+        (
+            int,
+            lambda: Ask("?", choices=[True, 2]),
+            "the choices for 'result' are wrong (a yes or no is not a number)",
+        ),
+        (
+            int,
+            lambda: Ask("?", choices=["1"]),
+            "the choices for 'result' are wrong (Input should be a valid integer)",
+        ),
+        (
+            Literal[1, 2],
+            lambda: Ask("?", choices=[True]),
+            "the choices for 'result' are wrong (a yes or no is not a number)",
+        ),
     ],
 )
-def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(ask, reason):
+def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(returns, ask, reason):
     @node("wrong", title="Wrong", description="For a test.", asks=True)
-    def wrong() -> str:
+    def wrong() -> returns:  # type: ignore[valid-type]
         raise ask()
 
     _, run = _once(wrong)
@@ -1841,17 +1846,6 @@ def _returning(returns: Any) -> Any:
 
     asks.__annotations__ = {"return": returns}
     return asks
-
-
-def test_a_choice_offered_for_a_table_is_a_table_like_any_choice_of_its_type():
-    @node("wrong", title="Wrong", description="For a test.", asks=True)
-    def wrong() -> Table[Line]:
-        raise Ask("?", choices=[1])
-
-    assert (
-        _once(wrong)[1].cause.ctx["reason"]
-        == "the choices for 'result' are wrong (a table must be a frame, or a list with one object per row)"
-    )
 
 
 # -- answering ----------------------------------------------------------------------------------
@@ -2830,38 +2824,6 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_the_runs_status():
     ) and "The run is complete" in problem.msg
 
 
-@pytest.mark.parametrize(
-    ("choices", "reason"),
-    [
-        ([True, 2], "a yes or no is not a number"),
-        (["1"], "Input should be a valid integer"),
-    ],
-    ids=["a bool", "a number as text"],
-)
-def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_the_node(
-    choices: list[object], reason: str
-) -> None:
-    @node("pick", title="Pick", description="For a test.", asks=True)
-    def pick() -> int:
-        raise Ask("?", choices=choices)
-
-    _, run = _once(pick)
-    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
-    assert run.cause.ctx["reason"] == f"the choices for 'result' are wrong ({reason})"
-
-
-def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_answer_is() -> None:
-    @node("pick", title="Pick", description="For a test.", asks=True)
-    def pick() -> Literal[1, 2]:
-        raise Ask("?", choices=[True])
-
-    cause = _once(pick)[1].cause
-    assert (cause.type, cause.ctx["reason"]) == (
-        "invalid_ask",
-        "the choices for 'result' are wrong (a yes or no is not a number)",
-    )
-
-
 def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:
     from pydantic import BaseModel
 
@@ -2888,18 +2850,6 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
         run.cause.ctx["reason"]
         == "the choices for 'result' are wrong (Input should be a valid string)"
     )
-
-
-def test_a_lone_output_is_asked_under_the_title_describe_shows_for_it():
-    @node("reason", title="Closing reason", description="Asks why a ticket was closed.", asks=True)
-    def reason(ticket: str) -> str:
-        raise Ask("Why was it closed?")
-
-    graph = Graph.compile(make_graph(reason), registry_of(reason))
-    (output,) = graph.describe().nodes["reason"].outputs
-    (waiting,) = graph.run({"ticket": "t"}).waiting
-
-    assert waiting.questions[0].title is output.title is None
 
 
 def test_a_declared_choice_is_answered_by_the_id_its_question_shows() -> None:
@@ -3470,27 +3420,29 @@ def test_an_answer_after_the_nodes_code_changed_is_answer_stale_and_its_message_
     )
 
 
-def test_two_identical_invoices_answered_differently_keep_their_answers_when_one_is_put_in_front():
+def _as_it_is(run: Run, graph: Graph) -> Run:
+    return run
+
+
+def _read_back(run: Run, graph: Graph) -> Run:
+    return Run.from_json(run.to_json(), graph)
+
+
+@pytest.mark.parametrize(
+    "kept", [_as_it_is, _read_back], ids=["as-it-is", "read-back-from-its-save"]
+)
+def test_two_identical_invoices_answered_differently_keep_their_answers_when_one_is_put_in_front(
+    kept: Callable[[Run, Graph], Run],
+):
     graph = _approve_then_pay()
     run = graph.run({"text": "A:900,A:900"})
     first, second = run.waiting
     run = run.with_answers({first.id: True, second.id: False}).resume()
     assert run.outputs == {"result": "paid A; held A"}
     calls_made.clear()
-    again = graph.with_inputs({"text": "C:100,A:900,A:900"}, previous=run).resume()
+    again = graph.with_inputs({"text": "C:100,A:900,A:900"}, previous=kept(run, graph)).resume()
     assert again.outputs == {"result": "paid C; paid A; held A"}
     assert calls_made == [("approval", "C"), ("pay", "C", True)]
-
-
-def test_a_saved_run_keeps_two_identical_invoices_answered_differently_apart():
-    graph = _approve_then_pay()
-    run = graph.run({"text": "A:900,A:900"})
-    first, second = run.waiting
-    saved = Run.from_json(
-        run.with_answers({first.id: True, second.id: False}).resume().to_json(), graph
-    )
-    again = graph.with_inputs({"text": "C:100,A:900,A:900"}, previous=saved).resume()
-    assert again.outputs == {"result": "paid C; paid A; held A"}
 
 
 def test_an_answer_given_and_not_yet_resumed_is_reused_by_a_run_of_changed_inputs():

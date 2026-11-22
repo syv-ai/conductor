@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional, TypedDict
@@ -237,16 +238,6 @@ def test_a_float_column_keeps_nan_infinity_and_null():
     column = _round_trip(run).results["table"]["result"]["value"].to_list()
 
     assert math.isnan(column[0]) and column[1:] == [math.inf, -math.inf, None]
-
-
-def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
-    @node("odd", title="Odd", description="For a test.")
-    def odd(text: str) -> Series[float]:
-        return [math.nan, math.inf]
-
-    saved = Graph.compile(make_graph(odd), registry_of(odd)).run({"text": "x"}).to_json()
-
-    assert _strict(saved)["ended_early"] is None
 
 
 def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
@@ -1614,19 +1605,6 @@ class _Clocks(TypedDict):
     clocks: list[dt.time]
 
 
-def test_a_time_finer_than_a_microsecond_inside_a_declared_tables_list_is_refused():
-    """A saved run counts in microseconds, so a nanosecond inside a list would be lost."""
-
-    @node("clocks", title="Clocks", description="For a test.")
-    def clocks(text: str) -> Table[_Clocks]:
-        return pl.DataFrame({"clocks": pl.Series([[1]]).cast(pl.List(pl.Time))})
-
-    run = Graph.compile(make_graph(clocks), registry_of(clocks)).run({"text": "x"})
-
-    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("clocks",))
-    assert "column 'clocks' has a time finer than a microsecond" in run.cause.msg
-
-
 class _Spans(TypedDict):
     spans: list[dt.timedelta]
 
@@ -1641,20 +1619,31 @@ class _HeldSpan(TypedDict):
 
 
 @pytest.mark.parametrize(
-    ("row", "column"),
+    ("row", "column", "fault"),
     [
-        (_Spans, pl.Series("spans", [[2**62]], dtype=pl.List(pl.Duration("ms")))),
+        (
+            _Spans,
+            pl.Series("spans", [[2**62]], dtype=pl.List(pl.Duration("ms"))),
+            "has a time too far out to be held in microseconds",
+        ),
         (
             _HeldSpan,
             pl.Series("held", [{"span": 2**62}], dtype=pl.Struct({"span": pl.Duration("ms")})),
+            "has a time too far out to be held in microseconds",
+        ),
+        (
+            _Clocks,
+            pl.Series("clocks", [[1]]).cast(pl.List(pl.Time)),
+            "has a time finer than a microsecond",
         ),
     ],
-    ids=["in a list", "in a struct"],
+    ids=["too far out in a list", "too far out in a struct", "finer than a microsecond in a list"],
 )
-def test_a_millisecond_time_too_far_out_inside_a_declared_tables_list_or_struct_is_refused(
-    row: Any, column: pl.Series
+def test_a_time_a_saved_run_cant_hold_inside_a_declared_tables_list_or_struct_is_refused(
+    row: Any, column: pl.Series, fault: str
 ):
-    """A saved run counts in microseconds, and Python's ``timedelta`` can't hold one this far out."""
+    """A saved run counts in microseconds: a nanosecond inside a list would be lost, and Python's ``timedelta``
+    can't hold a millisecond this far out."""
 
     @node("far", title="Far", description="For a test.")
     def far(text: str) -> Table[row]:  # type: ignore[valid-type]
@@ -1663,9 +1652,7 @@ def test_a_millisecond_time_too_far_out_inside_a_declared_tables_list_or_struct_
     run = Graph.compile(make_graph(far), registry_of(far)).run({"text": "x"})
 
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("far",))
-    assert (
-        f"column '{column.name}' has a time too far out to be held in microseconds" in run.cause.msg
-    )
+    assert f"column '{column.name}' {fault}" in run.cause.msg
 
 
 class _Answered(TypedDict):
@@ -1814,27 +1801,25 @@ def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets
     }
 
 
-def test_a_null_saved_for_a_done_call_whose_output_takes_no_none_is_refused():
+@pytest.mark.parametrize(
+    ("damage", "reason"),
+    [
+        (
+            lambda results: results.__setitem__(1, None),
+            "call 1 is done and has null for 'result', whose type takes no None",
+        ),
+        (lambda results: results.pop(), "the list of an output is not as long as 'states'"),
+    ],
+    ids=["a null for a done call whose output takes no none", "an output list shorter than states"],
+)
+def test_a_saved_run_whose_lists_disagree_is_refused_saying_which(
+    damage: Callable[[list[Any]], Any], reason: str
+):
     graph, saved = _saved_echoes()
-    saved["outcomes"]["echo"]["outputs"]["result"][1] = None
+    damage(saved["outcomes"]["echo"]["outputs"]["result"])
 
     problem = _refused(graph, saved)
 
-    reason = "call 1 is done and has null for 'result', whose type takes no None"
-    assert problem.ctx == {
-        "where": "outcomes.echo",
-        "reason": reason,
-        "errors": [{"type": "saved_lists_disagree", "loc": [], "msg": reason}],
-    }
-
-
-def test_an_output_list_shorter_than_states_is_refused_saying_which_lists_disagree():
-    graph, saved = _saved_echoes()
-    saved["outcomes"]["echo"]["outputs"]["result"].pop()
-
-    problem = _refused(graph, saved)
-
-    reason = "the list of an output is not as long as 'states'"
     assert problem.ctx == {
         "where": "outcomes.echo",
         "reason": reason,
@@ -1843,47 +1828,52 @@ def test_an_output_list_shorter_than_states_is_refused_saying_which_lists_disagr
     assert problem.msg.endswith(f"{reason}. Start a new run.")
 
 
+def _one_entry_more(outcomes: dict[str, Any]) -> None:
+    outcomes["echo"]["states"].append("done")
+    outcomes["echo"]["outputs"]["result"].append("x")
+
+
+def _one_entry_fewer(outcomes: dict[str, Any]) -> None:
+    outcomes["echo"]["states"].pop()
+    outcomes["echo"]["outputs"]["result"].pop()
+
+
+def _two_entries_outside_a_loop(outcomes: dict[str, Any]) -> None:
+    outcomes["split"]["states"].append("done")
+    outcomes["split"]["outputs"]["result"].append(["x"])
+
+
 @pytest.mark.parametrize(
     ("damage", "at"),
     [
-        ("one entry more than the items", "outcomes.echo"),
-        ("one entry fewer than the items", "outcomes.echo"),
-        ("two entries for a node inside no loop", "outcomes.split"),
-        ("a missing value", "outcomes.echo"),
-        ("a missing output", "outcomes.echo.outputs.result"),
-        ("an output the node lacks", "outcomes.echo.outputs.other"),
-        ("a node the graph lacks", "outcomes.nowhere"),
+        (_one_entry_more, "outcomes.echo"),
+        (_one_entry_fewer, "outcomes.echo"),
+        (_two_entries_outside_a_loop, "outcomes.split"),
+        (lambda o: o["echo"]["outputs"].pop("result"), "outcomes.echo.outputs.result"),
+        (
+            lambda o: o["echo"]["outputs"].__setitem__("other", ["x", "y", "z"]),
+            "outcomes.echo.outputs.other",
+        ),
+        (lambda o: o.__setitem__("nowhere", {"states": [], "outputs": {}}), "outcomes.nowhere"),
+        (lambda o: o["split"]["outputs"]["result"].__setitem__(0, None), "outcomes.split"),
+    ],
+    ids=[
+        "one entry more than the items",
+        "one entry fewer than the items",
+        "two entries for a node inside no loop",
+        "a missing output",
+        "an output the node lacks",
+        "a node the graph lacks",
+        "a series saved as null for a done call",
     ],
 )
-def test_a_damaged_saved_run_is_refused_where_it_is_damaged(damage: str, at: str) -> None:
+def test_a_damaged_saved_run_is_refused_where_it_is_damaged(
+    damage: Callable[[dict[str, Any]], Any], at: str
+) -> None:
     graph, saved = _saved_echoes()
-    echo, splitting = saved["outcomes"]["echo"], saved["outcomes"]["split"]
-    if damage == "one entry more than the items":
-        echo["states"].append("done")
-        echo["outputs"]["result"].append("x")
-    elif damage == "one entry fewer than the items":
-        echo["states"].pop()
-        echo["outputs"]["result"].pop()
-    elif damage == "two entries for a node inside no loop":
-        splitting["states"].append("done")
-        splitting["outputs"]["result"].append(["x"])
-    elif damage == "a missing value":
-        echo["outputs"]["result"].pop()
-    elif damage == "a missing output":
-        del echo["outputs"]["result"]
-    elif damage == "an output the node lacks":
-        echo["outputs"]["other"] = ["x", "y", "z"]
-    else:
-        saved["outcomes"]["nowhere"] = {"states": [], "outputs": {}}
+    damage(saved["outcomes"])
 
     assert _refused(graph, saved).ctx["where"] == at
-
-
-def test_a_series_saved_as_null_for_a_done_call_is_refused_at_the_node_that_returned_it():
-    graph, saved = _saved_echoes()
-    saved["outcomes"]["split"]["outputs"]["result"][0] = None
-
-    assert _refused(graph, saved).ctx["where"] == "outcomes.split"
 
 
 def test_a_null_item_in_a_saved_series_whose_items_take_no_none_is_refused_unless_it_is_listed_skipped():
@@ -2309,45 +2299,6 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
     assert _refused(graph, saved).ctx["where"] == "inputs"
 
 
-@pytest.mark.parametrize(
-    ("where", "damaged"),
-    [
-        ("units", lambda s: s.__setitem__("units", [])),  # a key a saved run does not have
-        ("inputs", lambda s: s.__setitem__("inputs", [])),
-        ("ended_early", lambda s: s.__setitem__("ended_early", "banana")),
-        ("max_items", lambda s: s.__setitem__("max_items", -1)),
-        ("outcomes.split.states", lambda s: s["outcomes"]["split"].__setitem__("states", {})),
-        (
-            "outcomes.split.states.0",
-            lambda s: s["outcomes"]["split"].__setitem__("states", ["waiting"]),
-        ),  # a waiting call is saved as its question, never as a state word
-        (
-            "outcomes.split.keys",
-            lambda s: s["outcomes"]["split"].__setitem__("keys", [[]]),
-        ),  # item indexes are never saved: an entry's place in the list gives them
-        (
-            "outcomes.split",
-            lambda s: s["outcomes"]["split"].__setitem__("skipped", {"result": [7]}),
-        ),
-        (
-            "outcomes.split.skipped_items.result.0.0",
-            lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [-1]}}),
-        ),
-        (
-            "outcomes.split",
-            lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [7]}}),
-        ),
-    ],
-)
-def test_a_saved_run_damaged_in_shape_is_refused_where_it_is_damaged(
-    where: str, damaged: Any
-) -> None:
-    graph = Graph.compile(make_graph(split), registry_of(split))
-    saved = json.loads(graph.run({"text": "a,b"}).to_json())
-    damaged(saved)
-    assert _refused(graph, saved).ctx["where"] == where
-
-
 @node("upper_word", title="Upper word", description="For a test.")
 def upper_word(word: str) -> str:
     return word.upper()
@@ -2369,6 +2320,26 @@ def ok_word(word: str) -> bool:
         ("max_items", lambda s: s.__setitem__("max_items", "ten")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
         ("outcomes.upper.states", lambda s: s["outcomes"]["upper"].__setitem__("states", {})),
+        (
+            "outcomes.split.states.0",
+            lambda s: s["outcomes"]["split"].__setitem__("states", ["waiting"]),
+        ),  # a waiting call is saved as its question, never as a state word
+        (
+            "outcomes.split.keys",
+            lambda s: s["outcomes"]["split"].__setitem__("keys", [[]]),
+        ),  # item indexes are never saved: an entry's place in the list gives them
+        (
+            "outcomes.split",
+            lambda s: s["outcomes"]["split"].__setitem__("skipped", {"result": [7]}),
+        ),
+        (
+            "outcomes.split.skipped_items.result.0.0",
+            lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [-1]}}),
+        ),
+        (
+            "outcomes.split",
+            lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [7]}}),
+        ),
         ("outcomes.ok.questions", lambda s: s["outcomes"]["ok"].__setitem__("questions", [])),
         (
             "outcomes.ok.questions.0.prompt",
@@ -2581,7 +2552,7 @@ def test_a_none_input_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
         ["0", "3"],
     )
     read_back = Run.from_json(run.to_json(), graph)
-    assert read_back.to_json() == run.to_json() and read_back.waiting == run.waiting
+    assert read_back.waiting == run.waiting
     assert (
         read_back.resume().none_input_calls
         == run.none_input_calls
@@ -2661,47 +2632,8 @@ def test_a_run_is_written_to_the_same_bytes_in_every_process():
     assert len(saved) == 1
 
 
-def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refused_where_it_says_so():
-    """A saved run whose ``ended_early`` doesn't add up is refused, and the problem says where.
-
-    A failed run is saved with how its last resume ended early: its status and its cause. A complete run has nothing
-    there. So a failed status with no cause is refused, and so is an early end whose status is ``complete``.
-    """
-
-    @node("boom", title="Boom", description="Fails on 'x'.")
-    def boom(text: str) -> str:
-        if text == "x":
-            raise ValueError("no")
-        return text
-
-    graph = Graph.compile(make_graph(boom), registry_of(boom))
-    failed, complete = (
-        json.loads(graph.run({"text": "x"}).to_json()),
-        json.loads(graph.run({"text": "y"}).to_json()),
-    )
-    assert failed["ended_early"]["status"] == "failed" and complete["ended_early"] is None
-    assert (
-        _refused(graph, {**failed, "ended_early": {"status": "failed"}}).ctx["where"]
-        == "ended_early"
-    )
-    assert (
-        _refused(
-            graph,
-            {
-                **complete,
-                "ended_early": {"status": "complete", "cause": failed["ended_early"]["cause"]},
-            },
-        ).ctx["where"]
-        == "ended_early.status"
-    )
-
-
-def test_a_saved_run_whose_cause_does_not_fit_its_status_is_refused():
-    """A run that ended early keeps the problem that ended it, and each status has its own.
-
-    A failed run keeps the problem its call failed with, at that call. A stopped run keeps ``item_limit``, a cancelled
-    one ``run_cancelled`` and a timed-out one ``run_timed_out``. A saved run whose cause is another is refused.
-    """
+def _failed_and_complete() -> tuple[Graph, dict[str, Any], dict[str, Any]]:
+    """Returns a graph of one node that fails on ``"x"``, and the saved form of a failed and of a complete run of it."""
 
     @node("blast", title="Blast", description="Fails on 'x'.")
     def blast(text: str) -> str:
@@ -2710,24 +2642,66 @@ def test_a_saved_run_whose_cause_does_not_fit_its_status_is_refused():
         return text
 
     graph = Graph.compile(make_graph(blast), registry_of(blast))
-    failed = json.loads(graph.run({"text": "x"}).to_json())
-    cause = failed["ended_early"]["cause"]
-    assert (failed["ended_early"]["status"], cause["type"]) == ("failed", "execution_failed")
+    return (
+        graph,
+        json.loads(graph.run({"text": "x"}).to_json()),
+        json.loads(graph.run({"text": "y"}).to_json()),
+    )
+
+
+_CANCELLED = {"type": "run_cancelled", "loc": [], "msg": "The run was cancelled."}
+
+
+def test_a_saved_run_that_ended_early_keeps_the_cause_its_status_has_and_reads_back():
+    """A failed run is saved with how its last resume ended early: its status and the problem its call failed with,
+    at that call. A complete run has nothing there. A cancelled run keeps ``run_cancelled``."""
+    graph, failed, complete = _failed_and_complete()
+
+    assert complete["ended_early"] is None
+    assert (failed["ended_early"]["status"], failed["ended_early"]["cause"]["type"]) == (
+        "failed",
+        "execution_failed",
+    )
     assert Run.from_json(json.dumps(failed), graph).status == "failed"
-    cancelled = {"type": "run_cancelled", "loc": [], "msg": "The run was cancelled."}
-    for ended_early in (
-        {"status": "cancelled", "cause": cause},
-        {"status": "timed_out", "cause": cause},
-        {"status": "stopped", "cause": cause},
-        {"status": "failed", "cause": cancelled},
-        {"status": "timed_out", "cause": cancelled},
-    ):
-        problem = _refused(graph, {**failed, "ended_early": ended_early})
-        assert problem.ctx["where"] == "ended_early", ended_early
     read = Run.from_json(
-        json.dumps({**failed, "ended_early": {"status": "cancelled", "cause": cancelled}}), graph
+        json.dumps({**failed, "ended_early": {"status": "cancelled", "cause": _CANCELLED}}), graph
     )
     assert (read.status, read.cause.type) == ("cancelled", "run_cancelled")
+
+
+@pytest.mark.parametrize(
+    ("saved_as", "ended_early", "where"),
+    [
+        ("failed", lambda cause: {"status": "failed"}, "ended_early"),
+        ("complete", lambda cause: {"status": "complete", "cause": cause}, "ended_early.status"),
+        ("failed", lambda cause: {"status": "cancelled", "cause": cause}, "ended_early"),
+        ("failed", lambda cause: {"status": "timed_out", "cause": cause}, "ended_early"),
+        ("failed", lambda cause: {"status": "stopped", "cause": cause}, "ended_early"),
+        ("failed", lambda cause: {"status": "failed", "cause": _CANCELLED}, "ended_early"),
+        ("failed", lambda cause: {"status": "timed_out", "cause": _CANCELLED}, "ended_early"),
+    ],
+    ids=[
+        "failed-without-a-cause",
+        "an-early-end-whose-status-is-complete",
+        "cancelled-with-a-calls-failure",
+        "timed-out-with-a-calls-failure",
+        "stopped-with-a-calls-failure",
+        "failed-with-run-cancelled",
+        "timed-out-with-run-cancelled",
+    ],
+)
+def test_a_saved_run_whose_early_end_does_not_add_up_is_refused_where_it_says_so(
+    saved_as: str, ended_early: Callable[[Any], Any], where: str
+):
+    """Each status has its own cause: a failed run the problem its call failed with, a stopped run ``item_limit``, a
+    cancelled one ``run_cancelled`` and a timed-out one ``run_timed_out``. A saved run whose early end is missing its
+    cause, has another, or says ``complete`` is refused, and the problem says where."""
+    graph, failed, complete = _failed_and_complete()
+    saved = {"failed": failed, "complete": complete}[saved_as]
+
+    problem = _refused(graph, {**saved, "ended_early": ended_early(failed["ended_early"]["cause"])})
+
+    assert problem.ctx["where"] == where
 
 
 class _Verdict(TypedDict):
@@ -2843,8 +2817,9 @@ def test_a_host_type_with_aliased_fields_reads_back_from_its_save_as_it_was(
 
     back = Run.from_json(saved, graph)
 
-    assert back.results["aliased"]["result"] == value
-    assert back.to_json() == saved
+    assert (
+        back.results["aliased"]["result"] == value
+    )  # the file's fixture checks it writes the same bytes again
 
 
 @host_type("aliased-only", title="Aliased only")

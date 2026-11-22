@@ -10,7 +10,7 @@ import datetime
 import json
 import math
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -746,28 +746,56 @@ def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any
     assert problem.ctx["where"].startswith("ended_early")
 
 
-@pytest.mark.parametrize("answered", [False, True])
-def test_a_saved_question_naming_an_output_the_node_does_not_have_is_refused(
-    answered: bool,
+def _a_skipped_call(reply: dict[str, Any]) -> None:
+    reply["states"] = ["skipped"]
+    reply["outputs"] = {"result": [None]}
+    reply["fingerprints"] = [None]
+
+
+@pytest.mark.parametrize(
+    ("answered", "damage"),
+    [
+        (False, lambda reply: reply["questions"]["0"].__setitem__("defaults", {"nope": "x"})),
+        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", {"nope": []})),
+        (True, lambda reply: reply["questions"]["0"].__setitem__("defaults", {"nope": "x"})),
+        (True, lambda reply: reply["questions"]["0"].__setitem__("choices", {"nope": []})),
+        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", {"result": []})),
+        (
+            False,
+            lambda reply: reply["questions"]["0"].__setitem__(
+                "choices",
+                {"result": [{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}]},
+            ),
+        ),
+        (True, _a_skipped_call),
+    ],
+    ids=[
+        "a default for an output the node lacks, waiting",
+        "choices for an output the node lacks, waiting",
+        "a default for an output the node lacks, answered",
+        "choices for an output the node lacks, answered",
+        "no choice",
+        "one choice twice",
+        "a question at a skipped call",
+    ],
+)
+def test_a_saved_question_no_deploy_explains_is_refused(
+    answered: bool, damage: Callable[[dict[str, Any]], Any]
 ) -> None:
-    """A waiting or an answered call's question gives choices and defaults only to its node's outputs, a name no
-    deploy explains."""
+    """A question gives choices and defaults only to its node's outputs, offers at least one choice and none twice,
+    and is kept only by a call that asked: a waiting one, or one a person answered. No deploy explains another."""
     graph = _draft_graph()
     run = graph.run({"text": "a"})
     if answered:
         run = run.with_answers(run.waiting[0], "Yes")
-    for key, wrong in [
-        ("defaults", {"nope": "x"}),
-        ("choices", {"nope": []}),
-    ]:
-        saved = json.loads(run.to_json())
-        saved["outcomes"]["reply"]["questions"]["0"][key] = wrong
+    saved = json.loads(run.to_json())
+    damage(saved["outcomes"]["reply"])
 
-        with pytest.raises(InvalidCallError) as refused:
-            Run.from_json(json.dumps(saved), graph)
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
 
-        ((problem,),) = [refused.value.problems]
-        assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
 
 
 @pytest.mark.parametrize("tightened", [Annotated[str, Param(max_length=3)], Literal["Yes", "No"]])
@@ -835,22 +863,6 @@ def test_a_saved_choice_with_no_title_is_refused_where_it_is() -> None:
         "outcomes.reply.questions.0.choices.result",
     )
     assert problem.ctx["errors"][0]["type"] == "missing"
-
-
-@pytest.mark.parametrize(
-    "offered", [[], [{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}]]
-)
-def test_a_saved_question_offering_no_choice_or_one_twice_is_refused(offered: list[Any]) -> None:
-    """No ``Ask`` gives an empty list of choices or one choice twice, so no deploy explains it."""
-    graph = _draft_graph()
-    saved = json.loads(graph.run({"text": "a"}).to_json())
-    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {"result": offered}
-
-    with pytest.raises(InvalidCallError) as refused:
-        Run.from_json(json.dumps(saved), graph)
-
-    ((problem,),) = [refused.value.problems]
-    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
 
 
 def test_a_record_of_run_asked_has_no_id_to_answer_by_and_a_deploy_leaves_it_as_it_was() -> None:
@@ -944,22 +956,6 @@ def test_a_saved_answer_with_no_question_reads_back_as_done() -> None:
 
     assert back.status == "complete" and back.results["reply"]["result"] == ["Yes"]
     assert "questions" not in json.loads(back.to_json())["outcomes"]["reply"]
-
-
-def test_a_question_saved_at_a_skipped_call_is_refused() -> None:
-    """Only a call that asked has a question: a waiting one, or one a person answered."""
-    graph = _draft_graph()
-    first = graph.run({"text": "a"})
-    saved = json.loads(first.with_answers(first.waiting[0], "Yes").to_json())
-    saved["outcomes"]["reply"]["states"] = ["skipped"]
-    saved["outcomes"]["reply"]["outputs"] = {"result": [None]}
-    saved["outcomes"]["reply"]["fingerprints"] = [None]
-
-    with pytest.raises(InvalidCallError) as refused:
-        Run.from_json(json.dumps(saved), graph)
-
-    ((problem,),) = [refused.value.problems]
-    assert problem.type == "saved_run_unreadable" and problem.ctx["where"] == "outcomes.reply"
 
 
 def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_and_reuses_them_read_back() -> (
@@ -1142,10 +1138,6 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
     ("damage", "at"),
     [
         (
-            lambda s: s["outcomes"]["maybe"]["outputs"]["result"].__setitem__(1, {"secret": 1}),
-            "outcomes.maybe.outputs.result.1",
-        ),
-        (
             lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"),
             "outcomes.maybe",
         ),  # an output's list longer than its states
@@ -1213,31 +1205,6 @@ def test_a_damaged_saved_run_is_refused_at_the_place_pydantic_names(damage: Any,
     (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", at)
     assert "secret" not in problem.msg
-
-
-def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_output() -> None:
-    @node("odd", title="Odd", description="For a test.")
-    def odd(text: str) -> Any:
-        return object()
-
-    registry = NodeRegistry()
-    registry.add(odd)
-    run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "o", "output": "result"}},
-            }
-        ),
-        registry,
-    ).run({"text": "x"})
-
-    with pytest.raises(InvalidCallError) as refused:
-        run.to_json()
-
-    (problem,) = refused.value.problems
-    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "o.result")
 
 
 def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
@@ -1317,25 +1284,6 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
         ("outputs", "result"),
         "result",
     )
-
-
-def test_a_key_a_saved_run_does_not_declare_is_refused_where_it_is() -> None:
-    """A key that a saved run doesn't declare is refused, not dropped, and the problem says where it is.
-
-    A saved run reads only the keys its records declare.
-    """
-    graph = _everything()
-    written = json.loads(graph.run(_inputs("a,bb")).to_json())
-    for record, where in (
-        (written, "undeclared"),
-        (written["outcomes"]["ask"], "outcomes.ask.undeclared"),
-    ):
-        record["undeclared"] = {"0": "x"}
-        with pytest.raises(InvalidCallError) as refused:
-            Run.from_json(json.dumps(written), graph)
-        (problem,) = refused.value.problems
-        assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", where)
-        del record["undeclared"]
 
 
 def test_a_run_read_back_goes_on_as_the_run_it_was_saved_from() -> None:

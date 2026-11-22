@@ -2286,22 +2286,16 @@ def _made_under_a_file_name(path: Path, mark: str) -> Any:
     return namespace["echo"]
 
 
-def test_a_function_made_by_exec_under_another_files_name_is_hashed_by_its_bytecode(tmp_path: Path):
-    """``inspect.getsource`` reads the lines of the file the text was compiled under, which here hold another function.
-
-    Its source would be ``other``'s, so two such functions would share a code. The function's name isn't the one
-    the lines define, so it is hashed by its bytecode.
-    """
-    path = tmp_path / "other.py"
-    path.write_text("def other(text: str = 'ab') -> str:\n    return text\n")
-
-    assert _code(_made_under_a_file_name(path, "!")) != _code(_made_under_a_file_name(path, "?"))
-
-
 @pytest.mark.parametrize(
     "lines",
-    ["this is not python:\n    nor this\n", "this is not (python:\n", "x = 1\ny = 2\n"],
-    ids=["does-not-parse", "does-not-tokenize", "has-no-def"],
+    [
+        "this is not python:\n    nor this\n",
+        "this is not (python:\n",
+        "x = 1\ny = 2\n",
+        # ``inspect.getsource`` would read another function's lines, so two such functions would share a code
+        "def other(text: str = 'ab') -> str:\n    return text\n",
+    ],
+    ids=["does-not-parse", "does-not-tokenize", "has-no-def", "defines-another-function"],
 )
 def test_a_function_whose_lines_are_not_its_own_is_hashed_by_its_bytecode_from_node(
     tmp_path: Path, lines: str

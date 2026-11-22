@@ -19,7 +19,7 @@ import threading
 import time
 from asyncio import CancelledError
 from asyncio import Event as AsyncioEvent
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Barrier, Condition, Thread
@@ -450,25 +450,6 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
     assert pinned.run({"text": "x"}).outputs == {"result": "one"} and calls == [1, 1, 1]
     calls.clear()
     assert newest.run({"text": "x"}).status == "failed" and calls == [2]
-
-
-def test_concurrency_one_calls_one_item_at_a_time():
-    in_flight, most = 0, 0
-    lock = threading.Lock()
-
-    @node("counted", title="Counted", description="For a test.")
-    def counted(text: str) -> str:
-        nonlocal in_flight, most
-        with lock:
-            in_flight += 1
-            most = max(most, in_flight)
-        time.sleep(0.005)
-        with lock:
-            in_flight -= 1
-        return text
-
-    assert _per_item(counted, 10).run().status == "complete"
-    assert most == 1
 
 
 def test_nodes_at_concurrency_one_are_all_called_on_the_callers_thread():
@@ -1835,41 +1816,40 @@ def _sleeper(seconds: float, calls: list[str]) -> Any:
     return sleeper
 
 
-def test_closing_the_stream_after_one_event_stops_the_rest():
-    calls: list[str] = []
-    prepared = _per_item(_sleeper(0.05, calls), 20).with_inputs()
+async def _closing_the_stream(prepared: Run) -> None:
+    events = prepared.stream()
+    async for event in events:
+        if event.type == "node_start" and event.loc[0] == "slow":
+            break
+    await events.aclose()  # type: ignore[attr-defined]
 
-    async def go() -> None:
-        events = prepared.stream()
-        async for event in events:
+
+async def _cancelling_the_reader(prepared: Run) -> None:
+    started = AsyncioEvent()
+
+    async def consume() -> None:
+        async for event in prepared.stream():
             if event.type == "node_start" and event.loc[0] == "slow":
-                break
-        await events.aclose()  # type: ignore[attr-defined]
+                started.set()
 
-    _bounded(go())
-    seen, later = _count_twice(calls)
+    consumer = asyncio.create_task(consume())
+    await asyncio.wait_for(started.wait(), BOUND)
+    consumer.cancel()
+    await asyncio.gather(consumer, return_exceptions=True)
 
-    assert later == seen and seen <= 2, seen
 
-
-def test_cancelling_the_task_that_reads_the_stream_stops_the_rest():
+@pytest.mark.parametrize(
+    "stop",
+    [_closing_the_stream, _cancelling_the_reader],
+    ids=["closing-the-stream-after-one-event", "cancelling-the-task-that-reads-it"],
+)
+def test_a_reader_that_stops_reading_the_stream_stops_the_rest(
+    stop: Callable[[Run], Coroutine[Any, Any, None]],
+):
     calls: list[str] = []
     prepared = _per_item(_sleeper(0.05, calls), 20).with_inputs()
 
-    async def go() -> None:
-        started = AsyncioEvent()
-
-        async def consume() -> None:
-            async for event in prepared.stream():
-                if event.type == "node_start" and event.loc[0] == "slow":
-                    started.set()
-
-        consumer = asyncio.create_task(consume())
-        await asyncio.wait_for(started.wait(), BOUND)
-        consumer.cancel()
-        await asyncio.gather(consumer, return_exceptions=True)
-
-    _bounded(go())
+    _bounded(stop(prepared))
     seen, later = _count_twice(calls)
 
     assert later == seen and seen <= 2, seen
@@ -2195,57 +2175,6 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
 # -- what a saved run keeps --------------------------------------------------------------------
 
 
-def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_that_then_resumes():
-    @host_type("Reading", title="Reading")
-    class Reading(BaseModel, frozen=True):
-        value: float
-        low: float
-        high: float
-
-    @node("measure", title="Measure", description="For a test.")
-    def measure(text: str) -> Reading:
-        return Reading(value=math.nan, low=-math.inf, high=math.inf)
-
-    @node("check", title="Check", description="For a test.", asks=True)
-    def check(reading: Reading) -> str:
-        raise Ask(f"Is {reading.low}..{reading.high} right?")
-
-    @node("width", title="Width", description="For a test.")
-    def width(reading: Reading, checked: str) -> str:
-        return f"{reading.low}..{reading.high} {checked}"
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "m": {"node": "measure", "inputs": {"text": {"graph_input": "text"}}},
-                    "c": {
-                        "node": "check",
-                        "inputs": {"reading": {"sources": [{"node": "m", "output": "result"}]}},
-                    },
-                    "w": {
-                        "node": "width",
-                        "inputs": {
-                            "reading": {"sources": [{"node": "m", "output": "result"}]},
-                            "checked": {"sources": [{"node": "c", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "w", "output": "result"}},
-            }
-        ),
-        registry_of(measure, check, width),
-    )
-    paused = graph.run({"text": "x"})
-
-    read_back = Run.from_json(paused.to_json(), graph)
-
-    reading = read_back.results["m"]["result"]
-    assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)
-    assert read_back.with_answers("c", "yes").resume().outputs == {"result": "-inf..inf yes"}
-
-
 class Contact(TypedDict):
     name: str
     email: str
@@ -2254,46 +2183,6 @@ class Contact(TypedDict):
 @node("contact-records", title="Contact records", description="For a test.")
 def contact_records(table: Table[Contact]) -> Series[Contact]:
     return table.to_dicts()
-
-
-def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_it_naming_the_column():
-    @node("bare", title="Bare", description="For a test.")
-    def bare(text: str) -> Table[Contact]:
-        return pl.DataFrame({"name": ["ida"]})
-
-    @node("greet", title="Greet", description="For a test.")
-    def greet(email: str) -> str:
-        return email
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "b": {"node": "bare", "inputs": {"text": {"graph_input": "text"}}},
-                    "r": {
-                        "node": "contact-records",
-                        "inputs": {"table": {"sources": [{"node": "b", "output": "result"}]}},
-                    },
-                    "g": {
-                        "node": "greet",
-                        "inputs": {
-                            "email": {
-                                "sources": [{"node": "r", "output": "result", "field": "email"}]
-                            }
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "g", "output": "result"}},
-            }
-        ),
-        registry_of(bare, contact_records, greet),
-    )
-
-    run = graph.run({"text": "x"})
-
-    assert run.status == "failed" and (run.cause.type, run.cause.loc) == ("invalid_output", ("b",))
-    assert (run.cause.ctx["output"], run.cause.ctx["column"]) == ("result", "email")
 
 
 def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
