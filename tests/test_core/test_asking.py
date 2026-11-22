@@ -75,22 +75,20 @@ def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
     once per piece. The outputs of ``q`` are the graph's outputs.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"constant": text}}},
-                    "q": {
-                        "node": definition.id,
-                        "inputs": {
-                            next(iter(definition.inputs)): {
-                                "sources": [{"node": "s", "output": "result"}]
-                            }
-                        },
+        {
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"constant": text}}},
+                "q": {
+                    "node": definition.id,
+                    "inputs": {
+                        next(iter(definition.inputs)): {
+                            "sources": [{"node": "s", "output": "result"}]
+                        }
                     },
                 },
-                "outputs": _outputs_of(definition),
-            }
-        ),
+            },
+            "outputs": _outputs_of(definition),
+        },
         registry_of(split, definition, *more),
     )
     return graph, graph.run()
@@ -103,12 +101,10 @@ def _once(definition: Any, **values: Any) -> Any:
     """
     inputs = {name: {"constant": value} for name, value in values.items()}
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"q": {"node": definition.id, "inputs": inputs}},
-                "outputs": _outputs_of(definition),
-            }
-        ),
+        {
+            "nodes": {"q": {"node": definition.id, "inputs": inputs}},
+            "outputs": _outputs_of(definition),
+        },
         registry_of(definition),
     )
     return graph, graph.run()
@@ -319,13 +315,7 @@ def test_an_input_is_checked_against_its_choices_by_their_json_as_an_answer_is()
         return "taken"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {}},
-                "nodes": {"q": {"node": "take", "inputs": {"x": {"graph_input": "x"}}}},
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+        make_graph(("q", take)),
         registry_of(take),
     )
     for taken in (1, {"b": 2, "a": 1}, None):
@@ -345,13 +335,7 @@ def test_two_fields_whose_choices_python_takes_as_equal_each_accept_only_their_o
             return "taken"
 
         return Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"x": {}},
-                    "nodes": {"q": {"node": take.id, "inputs": {"x": {"graph_input": "x"}}}},
-                    "outputs": {"result": {"node": "q", "output": "result"}},
-                }
-            ),
+            make_graph(("q", take)),
             registry_of(take),
         )
 
@@ -639,18 +623,7 @@ def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type
         return day.isoweekday()
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "q": {"node": "when", "inputs": {"name": {"constant": "x"}}},
-                    "w": {
-                        "node": "weekday",
-                        "inputs": {"day": {"sources": [{"node": "q", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "w", "output": "result"}},
-            }
-        ),
+        make_graph(("q", when), ("w", weekday), constants={"q.name": "x"}),
         registry_of(when, weekday),
     )
     run = graph.run()
@@ -1058,24 +1031,12 @@ def _lines_graph() -> Any:
     ``q`` is the ``lines`` node. The table is then split into one record per line, and ``each`` reads each record.
     """
     return Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "q": {"node": "lines", "inputs": {"order": {"constant": "O-1"}}},
-                    "i": {
-                        "node": "line-items",
-                        "inputs": {"table": {"sources": [{"node": "q", "output": "result"}]}},
-                    },
-                    "e": {
-                        "node": "each",
-                        "inputs": {
-                            "sku": {"sources": [{"node": "i", "output": "result", "field": "sku"}]},
-                            "qty": {"sources": [{"node": "i", "output": "result", "field": "qty"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
+        make_graph(
+            ("q", lines),
+            ("i", line_items),
+            ("e", each),
+            edges=[("q.result", "i.table"), ("i.result.sku", "e.sku"), ("i.result.qty", "e.qty")],
+            constants={"q.order": "O-1"},
         ),
         registry_of(lines, line_items, each),
     )
@@ -1204,12 +1165,10 @@ def test_a_hooks_outputs_are_asked_by_their_types():
     outputs_declared = {
         name: {"node": "q", "output": name} for name in ("signed", "paid")
     }  # The graph outputs name the outputs the hook returns.
-    record = GraphRecord.model_validate(
-        {
-            "nodes": {"q": {"node": "checks", "inputs": {"names": {"constant": "signed,paid"}}}},
-            "outputs": outputs_declared,
-        }
-    )
+    record = {
+        "nodes": {"q": {"node": "checks", "inputs": {"names": {"constant": "signed,paid"}}}},
+        "outputs": outputs_declared,
+    }
     run = Graph.compile(record, registry_of(checks)).run()
     assert [(q.name, q.json_schema) for q in run.waiting[0].questions] == [
         ("signed", {"type": "boolean"}),
@@ -1227,24 +1186,13 @@ def test_answering_one_branch_skips_the_other_and_answering_none_skips_both():
         raise Ask(f"Keep {text}?")
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "q": {"node": "route", "inputs": {"text": {"constant": "a"}}},
-                    "k": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "q", "output": "keep"}]}},
-                    },
-                    "d": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "q", "output": "drop"}]}},
-                    },
-                },
-                "outputs": {
-                    "d_result": {"node": "d", "output": "result"},
-                    "k_result": {"node": "k", "output": "result"},
-                },
-            }
+        make_graph(
+            ("q", route),
+            ("k", upper),
+            ("d", upper),
+            edges=[("q.keep", "k.text"), ("q.drop", "d.text")],
+            constants={"q.text": "a"},
+            outputs={"d_result": "d.result", "k_result": "k.result"},
         ),
         registry_of(route, upper),
     )
@@ -1291,15 +1239,13 @@ def test_two_ways_to_go_are_two_nodes_and_an_answer_to_each_is_checked_on_its_ow
         raise Ask("Left or right?")
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"r": {"node": "route"}, "s": {"node": "side"}},
-                "outputs": {
-                    "keep": {"node": "r", "output": "keep"},
-                    "left": {"node": "s", "output": "left"},
-                },
-            }
-        ),
+        {
+            "nodes": {"r": {"node": "route"}, "s": {"node": "side"}},
+            "outputs": {
+                "keep": {"node": "r", "output": "keep"},
+                "left": {"node": "s", "output": "left"},
+            },
+        },
         registry_of(route, side),
     ).run()
 
@@ -1326,25 +1272,8 @@ def colours(name: str) -> Series[Literal["red", "green", "blue"]]:
 
 def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"constant": "Ida,Bo"}}},
-                    "q": {
-                        "node": "colours",
-                        "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}},
-                    },
-                    "j": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "u", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "j", "output": "result"}},
-            }
+        make_graph(
+            ("s", split), ("q", colours), ("u", upper), ("j", join), constants={"s.text": "Ida,Bo"}
         ),
         registry_of(split, colours, upper, join),
     )
@@ -1467,18 +1396,7 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
 
 def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and_after_resume():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "q": {"node": "colours", "inputs": {"name": {"constant": "x"}}},
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+        make_graph(("q", colours), ("u", upper), constants={"q.name": "x"}),
         registry_of(colours, upper),
     )
     answered = graph.run().with_answers("q", [])
@@ -1599,22 +1517,7 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
         raise Ask("ok?")
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "m": {"node": "make", "inputs": {"text": {"graph_input": "text"}}},
-                    "a": {
-                        "node": "approve",
-                        "inputs": {
-                            "label": {"constant": "x"},
-                            "value": {"sources": [{"node": "m", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "a", "output": "result"}},
-            }
-        ),
+        make_graph(("m", make), ("a", approve), constants={"a.label": "x"}),
         registry_of(make, approve),
     )
 
@@ -2083,22 +1986,20 @@ def test_a_value_no_question_can_read_is_refused_as_a_problem_never_an_exception
 def test_after_an_answer_resume_calls_only_what_waited_on_it_and_an_item_left_unanswered_waits_on():
     gate, called = _counted()
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"constant": "a,b1,b2"}}},
-                    "q": {
-                        "node": "gate",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}},
-                    },
+        {
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"constant": "a,b1,b2"}}},
+                "q": {
+                    "node": "gate",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+                "u": {
+                    "node": "upper",
+                    "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "u", "output": "result"}},
+        },
         registry_of(split, gate, upper),
     )
     run = graph.run()
@@ -2128,18 +2029,7 @@ def test_a_node_that_reads_the_world_is_not_called_again_when_a_run_goes_on_from
         raise Ask("?")
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "n": {"node": "now", "inputs": {"text": {"constant": "x"}}},
-                    "q": {
-                        "node": "ask",
-                        "inputs": {"text": {"sources": [{"node": "n", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+        make_graph(("n", now), ("q", ask), constants={"n.text": "x"}),
         registry_of(now, ask),
     )
     graph.run().with_answers("q", "y").resume()
@@ -2153,22 +2043,20 @@ def test_an_item_skipped_above_never_asks_and_the_others_complete_when_answered(
 
     gate, called = _counted()
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"constant": "a,b1,b2"}}},
-                    "o": {
-                        "node": "only-b",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "q": {
-                        "node": "gate",
-                        "inputs": {"text": {"sources": [{"node": "o", "output": "result"}]}},
-                    },
+        {
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"constant": "a,b1,b2"}}},
+                "o": {
+                    "node": "only-b",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+                "q": {
+                    "node": "gate",
+                    "inputs": {"text": {"sources": [{"node": "o", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "q", "output": "result"}},
+        },
         registry_of(split, only_b, gate),
     )
     run = graph.run()
@@ -2197,24 +2085,13 @@ def test_waiting_calls_are_listed_in_node_then_item_order_whatever_order_they_as
         raise Ask(text)
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"constant": "0,1,2"}}},
-                    "a": {
-                        "node": "slow-ask",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "b": {
-                        "node": "ask",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                },
-                "outputs": {
-                    "a_result": {"node": "a", "output": "result"},
-                    "b_result": {"node": "b", "output": "result"},
-                },
-            }
+        make_graph(
+            ("s", split),
+            ("a", slow_ask),
+            ("b", ask),
+            edges=[("s.result", "a.text"), ("s.result", "b.text")],
+            constants={"s.text": "0,1,2"},
+            outputs={"a_result": "a.result", "b_result": "b.result"},
         ),
         registry_of(split, slow_ask, ask),
     )
@@ -2242,26 +2119,11 @@ def test_a_waiting_call_keeps_the_table_and_series_it_received_through_a_save():
         raise Ask("Right?")
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "r": {"node": "rows"},
-                    "i": {
-                        "node": "records",
-                        "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
-                    },
-                    "q": {
-                        "node": "look",
-                        "inputs": {
-                            "names": {
-                                "sources": [{"node": "i", "output": "result", "field": "name"}]
-                            },
-                            "table": {"sources": [{"node": "r", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
+        make_graph(
+            ("r", rows),
+            ("i", records),
+            ("q", look),
+            edges=[("r.result", "i.table"), ("i.result.name", "q.names"), ("r.result", "q.table")],
         ),
         registry_of(rows, records, look),
     )
@@ -2304,7 +2166,7 @@ def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_
         "nodes": {"q": {"node": "check", "inputs": {"data": {"graph_input": "data"}}}},
         "outputs": _outputs_of(check),
     }
-    graph = Graph.compile(GraphRecord.model_validate(record), registry_of(check))
+    graph = Graph.compile(record, registry_of(check))
     run = graph.run({"data": {"a": 1, "b": 2}})
     saved = json.loads(run.to_json())
     saved["inputs"]["data"] = {"b": 2, "a": 1}
@@ -2316,19 +2178,17 @@ def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_
 def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
     gate, _ = _counted()
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                    "q": {
-                        "node": "gate",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+                "q": {
+                    "node": "gate",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "q", "output": "result"}},
+        },
         registry_of(split, gate),
     )
     run = Run.from_json(graph.run({"text": "a,b"}).to_json(), graph)
@@ -2341,19 +2201,17 @@ def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
 def test_an_answer_names_its_item_by_index_so_one_for_an_item_that_no_longer_waits_is_refused():
     gate, _ = _counted()
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                    "q": {
-                        "node": "gate",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+                "q": {
+                    "node": "gate",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "q", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "q", "output": "result"}},
+        },
         registry_of(split, gate),
     )
     run = graph.run({"text": "b1,a"})
@@ -2700,7 +2558,7 @@ async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_
 
 
 def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_call_says_where_it_is():
-    from conductor import GraphRecord, NodeRegistry, make_graph, node
+    from conductor import make_graph, node
 
     @node("ask", title="Ask", description="For a test.", asks=True)
     def ask(text: str) -> str:
@@ -2710,8 +2568,7 @@ def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_cal
     def ask2(text: str) -> str:
         raise Ask(f"again {text}?")
 
-    registry = NodeRegistry()
-    registry.add(
+    registry = registry_of(
         ask,
         ask2,
         subgraph("both", title="Both", description="For a test.")(
@@ -2743,7 +2600,7 @@ def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_cal
 def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_output_names():
     from dataclasses import dataclass
 
-    from conductor import GraphRecord, NodeRegistry, node
+    from conductor import node
 
     @dataclass(frozen=True)
     class Two:
@@ -2754,8 +2611,7 @@ def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_output_name
     def form(t: str) -> Two:
         raise Ask("two?")
 
-    registry = NodeRegistry()
-    registry.add(
+    registry = registry_of(
         form,
         subgraph("both", title="Both", description="For a test.")(
             GraphRecord.model_validate(
@@ -2776,26 +2632,24 @@ def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_output_name
         ),
     )
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"z1_t": {}, "z2_t": {}},
-                "nodes": {
-                    "e": {
-                        "node": "both",
-                        "inputs": {
-                            "z1_t": {"graph_input": "z1_t"},
-                            "z2_t": {"graph_input": "z2_t"},
-                        },
-                    }
-                },
-                "outputs": {
-                    "z1_a": {"node": "e", "output": "z1_a"},
-                    "z1_b": {"node": "e", "output": "z1_b"},
-                    "z2_a": {"node": "e", "output": "z2_a"},
-                    "z2_b": {"node": "e", "output": "z2_b"},
-                },
-            }
-        ),
+        {
+            "inputs": {"z1_t": {}, "z2_t": {}},
+            "nodes": {
+                "e": {
+                    "node": "both",
+                    "inputs": {
+                        "z1_t": {"graph_input": "z1_t"},
+                        "z2_t": {"graph_input": "z2_t"},
+                    },
+                }
+            },
+            "outputs": {
+                "z1_a": {"node": "e", "output": "z1_a"},
+                "z1_b": {"node": "e", "output": "z1_b"},
+                "z2_a": {"node": "e", "output": "z2_a"},
+                "z2_b": {"node": "e", "output": "z2_b"},
+            },
+        },
         registry,
     ).run({"z1_t": "1", "z2_t": "2"})
     answers = {

@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, CallCount, Graph, GraphRecord, Param, Problem, Waiting, node
+from conductor import SKIPPED, Ask, CallCount, Graph, Param, Problem, Waiting, node
 from conductor.events import NodeComplete, NodeFailed, NodeWaiting, RunEnd
 from conductor.widgets import Textarea
 
@@ -22,8 +22,8 @@ def _payload(event: Any) -> dict:
     return json.loads(event.model_dump_json())
 
 
-def _events(graph: GraphRecord, *nodes: Any) -> list[Any]:
-    run = Graph.compile(graph, registry_of(*nodes)).with_inputs()
+def _events(record: dict[str, Any], *nodes: Any) -> list[Any]:
+    run = Graph.compile(record, registry_of(*nodes)).with_inputs()
 
     async def collect() -> list[Any]:
         return [event async for event in run.stream()]
@@ -40,12 +40,10 @@ def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
     (ending,) = [
         e
         for e in _events(
-            GraphRecord.model_validate(
-                {
-                    "nodes": {"s": {"node": "split", "inputs": {"text": {"constant": "a,b"}}}},
-                    "outputs": {"result": {"node": "s", "output": "result"}},
-                }
-            ),
+            {
+                "nodes": {"s": {"node": "split", "inputs": {"text": {"constant": "a,b"}}}},
+                "outputs": {"result": {"node": "s", "output": "result"}},
+            },
             split,
         )
         if isinstance(e, RunEnd)
@@ -63,12 +61,10 @@ def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
     (waiting,) = [
         e
         for e in _events(
-            GraphRecord.model_validate(
-                {
-                    "nodes": {"ask": {"node": "ask", "inputs": {"text": {"constant": "x"}}}},
-                    "outputs": {"result": {"node": "ask", "output": "result"}},
-                }
-            ),
+            {
+                "nodes": {"ask": {"node": "ask", "inputs": {"text": {"constant": "x"}}}},
+                "outputs": {"result": {"node": "ask", "output": "result"}},
+            },
             ask,
         )
         if isinstance(e, NodeWaiting)
@@ -128,15 +124,13 @@ def if_empty(text: str) -> Emptiness:
 
 def test_a_branch_nodes_completion_streams_with_none_for_the_skipped_branch():
     events = _events(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"d": {"node": "if-empty", "inputs": {"text": {"constant": "x"}}}},
-                "outputs": {
-                    "not_empty": {"node": "d", "output": "not_empty"},
-                    "empty": {"node": "d", "output": "empty"},
-                },
-            }
-        ),
+        {
+            "nodes": {"d": {"node": "if-empty", "inputs": {"text": {"constant": "x"}}}},
+            "outputs": {
+                "not_empty": {"node": "d", "output": "not_empty"},
+                "empty": {"node": "d", "output": "empty"},
+            },
+        },
         if_empty,
     )
 

@@ -797,15 +797,7 @@ def test_a_value_written_by_its_own_class_is_hashed_by_it_and_reused():
 
 
 def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edited_item_asks_again():
-    @node("approve", title="Approve", description="For a test.", asks=True)
-    def approve(name: str) -> bool:
-        raise Ask(f"Approve {name}?")
-
-    graph = Graph.compile(
-        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
-        registry_of(_each, approve),
-    )
-    run = graph.run({"items": ["ida", "bo"]})
+    run = _approvals().run({"items": ["ida", "bo"]})
     run = run.with_answers("a@0", True).with_answers("a@1", False).resume()
 
     moved = run.again({"items": ["eva", "ida", "bo"]})
@@ -853,9 +845,7 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
     for i in range(60):
         kind = "date" if i % 2 == 0 else "str"
         graph = Graph.compile(
-            GraphRecord.model_validate(
-                {"nodes": {"m": {"node": "mk", "inputs": {"kind": {"constant": kind}}}}}
-            ),
+            {"nodes": {"m": {"node": "mk", "inputs": {"kind": {"constant": kind}}}}},
             registry,
         )
         value = Run.from_json(graph.run().to_json(), graph).results["m"]["result"]["v"][0]
@@ -897,30 +887,26 @@ def test_a_document_inserted_first_is_the_only_one_read_and_the_others_lines_mov
         return word.upper()
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
-                    "l": {
-                        "node": "lines",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
-                    "r": {
-                        "node": "line-records",
-                        "inputs": {"table": {"sources": [{"node": "l", "output": "result"}]}},
-                    },
-                    "s": {
-                        "node": "shout",
-                        "inputs": {
-                            "word": {
-                                "sources": [{"node": "r", "output": "result", "field": "word"}]
-                            }
-                        },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
+                "l": {
+                    "node": "lines",
+                    "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
+                },
+                "r": {
+                    "node": "line-records",
+                    "inputs": {"table": {"sources": [{"node": "l", "output": "result"}]}},
+                },
+                "s": {
+                    "node": "shout",
+                    "inputs": {
+                        "word": {"sources": [{"node": "r", "output": "result", "field": "word"}]}
                     },
                 },
-            }
-        ),
+            },
+        },
         registry_of(_docs, lines, _line_records, shout),
     )
     first = graph.run({"text": "a,b|c"})
@@ -965,29 +951,13 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
         return ",".join(rows["name"])
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "min": {"default": threshold_default}},
-                "nodes": {
-                    "r": {"node": "read-rows", "inputs": {"text": {"graph_input": "text"}}},
-                    "t": {
-                        "node": "threshold",
-                        "inputs": {"min": {"graph_input": "min"}},
-                    },
-                    "f": {
-                        "node": "older-than",
-                        "inputs": {
-                            "rows": {"sources": [{"node": "r", "output": "result"}]},
-                            "min": {"sources": [{"node": "t", "output": "result"}]},
-                        },
-                    },
-                    "n": {
-                        "node": "names",
-                        "inputs": {"rows": {"sources": [{"node": "f", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "n", "output": "result"}},
-            }
+        make_graph(
+            ("r", read_rows),
+            ("t", threshold),
+            ("f", older_than),
+            ("n", names),
+            edges=[("r.result", "f.rows"), ("t.result", "f.min"), ("f.result", "n.rows")],
+            defaults={"t.min": threshold_default},
         ),
         registry_of(read_rows, threshold, older_than, names),
     )
@@ -1036,29 +1006,27 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
         return ";".join(f"{w}={s}" for w, s in zip(words, stamps, strict=True))
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
-                    "w": {
-                        "node": "words",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
-                    "t": {
-                        "node": "stamp",
-                        "inputs": {"word": {"sources": [{"node": "w", "output": "result"}]}},
-                    },
-                    "s": {
-                        "node": "show",
-                        "inputs": {
-                            "words": {"sources": [{"node": "w", "output": "result"}]},
-                            "stamps": {"sources": [{"node": "t", "output": "result"}]},
-                        },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
+                "w": {
+                    "node": "words",
+                    "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
+                },
+                "t": {
+                    "node": "stamp",
+                    "inputs": {"word": {"sources": [{"node": "w", "output": "result"}]}},
+                },
+                "s": {
+                    "node": "show",
+                    "inputs": {
+                        "words": {"sources": [{"node": "w", "output": "result"}]},
+                        "stamps": {"sources": [{"node": "t", "output": "result"}]},
                     },
                 },
-            }
-        ),
+            },
+        },
         registry_of(_docs, words, stamp, show),
     )
     first = graph.run({"text": "a,b|c"})
@@ -1105,18 +1073,16 @@ def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constan
         )
     )
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
-                    "t": {
-                        "node": "tagged",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
+                "t": {
+                    "node": "tagged",
+                    "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
                 },
-            }
-        ),
+            },
+        },
         registry_of(_docs, same, label, pair, inner),
     )
     first = graph.run({"text": "a|b|c"})
@@ -1169,31 +1135,27 @@ def _csv_mails() -> tuple[Any, list[str]]:
         return f"{body} {email}"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "body": {"default": "hej"}},
-                "nodes": {
-                    "r": {"node": "read-people", "inputs": {"text": {"graph_input": "text"}}},
-                    "p": {
-                        "node": "people",
-                        "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
-                    },
-                    "b": {
-                        "node": "body",
-                        "inputs": {"body": {"graph_input": "body"}},
-                    },
-                    "m": {
-                        "node": "send-body",
-                        "inputs": {
-                            "email": {
-                                "sources": [{"node": "p", "output": "result", "field": "email"}]
-                            },
-                            "body": {"sources": [{"node": "b", "output": "result"}]},
-                        },
+        {
+            "inputs": {"text": {}, "body": {"default": "hej"}},
+            "nodes": {
+                "r": {"node": "read-people", "inputs": {"text": {"graph_input": "text"}}},
+                "p": {
+                    "node": "people",
+                    "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
+                },
+                "b": {
+                    "node": "body",
+                    "inputs": {"body": {"graph_input": "body"}},
+                },
+                "m": {
+                    "node": "send-body",
+                    "inputs": {
+                        "email": {"sources": [{"node": "p", "output": "result", "field": "email"}]},
+                        "body": {"sources": [{"node": "b", "output": "result"}]},
                     },
                 },
-            }
-        ),
+            },
+        },
         registry_of(read_people, people, body_text, send_body),
     )
     return graph, sent
@@ -2059,13 +2021,11 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_ag
     def echo_changed(text: str) -> str:
         return text.lower()
 
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
-            "outputs": {"result": {"node": "e", "output": "result"}},
-        }
-    )
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
+        "outputs": {"result": {"node": "e", "output": "result"}},
+    }
     saved = Graph.compile(record, registry_of(echo)).run({"text": "Ab"}).to_json()
 
     again = Run.from_json(saved, Graph.compile(record, registry_of(echo_changed))).again(
@@ -2135,12 +2095,10 @@ def _waiting_id(source: str, folder: Path) -> str:
     path = folder / f"ask_{len(list(folder.iterdir()))}.py"
     path.write_text(f"from conductor import Ask\n{source}")
     function = runpy.run_path(str(path))["ask"]
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"name": {}},
-            "nodes": {"a": {"node": "ask", "inputs": {"name": {"graph_input": "name"}}}},
-        }
-    )
+    record = {
+        "inputs": {"name": {}},
+        "nodes": {"a": {"node": "ask", "inputs": {"name": {"graph_input": "name"}}}},
+    }
     (waiting,) = (
         Graph.compile(
             record,
@@ -2372,13 +2330,11 @@ def test_a_node_redeclared_with_another_docstring_is_reused_on_a_saved_run_and_w
         calls.append("echo")
         return text.upper() + "?"
 
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
-            "outputs": {"result": {"node": "e", "output": "result"}},
-        }
-    )
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
+        "outputs": {"result": {"node": "e", "output": "result"}},
+    }
     saved = Graph.compile(record, registry_of(echo)).run({"text": "ab"}).to_json()
     Run.from_json(saved, Graph.compile(record, registry_of(echo_documented))).again({"text": "ab"})
     assert calls == ["echo"]
@@ -2410,12 +2366,10 @@ def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_a
         take.__annotations__["value"] = input_type
         return node("take", title="Take", description="For a test.")(take)
 
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"value": {}},
-            "nodes": {"m": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}},
-        }
-    )
+    record = {
+        "inputs": {"value": {}},
+        "nodes": {"m": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}},
+    }
     saved = Graph.compile(record, registry_of(declared(before))).run({"value": given}).to_json()
 
     Run.from_json(saved, Graph.compile(record, registry_of(declared(after)))).again(
@@ -2489,24 +2443,22 @@ def test_a_node_redeclared_to_take_none_is_called_for_the_item_that_was_a_none_i
     def send_or_none(email: str | None) -> str:
         return f"to {email}"
 
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {
-                "r": {"node": "rows", "inputs": {"text": {"graph_input": "text"}}},
-                "p": {
-                    "node": "records",
-                    "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
-                },
-                "s": {
-                    "node": "send",
-                    "inputs": {
-                        "email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}
-                    },
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {
+            "r": {"node": "rows", "inputs": {"text": {"graph_input": "text"}}},
+            "p": {
+                "node": "records",
+                "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
+            },
+            "s": {
+                "node": "send",
+                "inputs": {
+                    "email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}
                 },
             },
-        }
-    )
+        },
+    }
     saved = Graph.compile(record, registry_of(rows, records, send)).run({"text": "x"}).to_json()
 
     again = Run.from_json(
@@ -2659,18 +2611,16 @@ def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {
-                "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                "c": {
-                    "node": "count",
-                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                },
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {
+            "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+            "c": {
+                "node": "count",
+                "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
             },
-        }
-    )
+        },
+    }
     saved = Graph.compile(record, registry_of(split, count)).run({"text": "ab,c"}).to_json()
 
     with pytest.raises(InvalidCallError) as refused:
@@ -2896,22 +2846,20 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
         raise Ask(f"B {text}?")
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                    "a": {
-                        "node": "ask_a",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "b": {
-                        "node": "ask_b",
-                        "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+                "a": {
+                    "node": "ask_a",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-            }
-        ),
+                "b": {
+                    "node": "ask_b",
+                    "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}},
+                },
+            },
+        },
         registry_of(split, ask_a, ask_b),
     )
     first = graph.run({"text": "x y z"})
@@ -2978,33 +2926,27 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
         return f"{name}: {text[:20]}"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"csv": {}},
-                "nodes": {
-                    "read": {"node": "read_lines", "inputs": {"csv": {"graph_input": "csv"}}},
-                    "records": {
-                        "node": "records",
-                        "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
-                    },
-                    "enrich": {
-                        "node": "enrich",
-                        "inputs": {
-                            "name": {
-                                "sources": [
-                                    {"node": "records", "output": "result", "field": "name"}
-                                ]
-                            },
-                            "text": {
-                                "sources": [
-                                    {"node": "records", "output": "result", "field": "text"}
-                                ]
-                            },
+        {
+            "inputs": {"csv": {}},
+            "nodes": {
+                "read": {"node": "read_lines", "inputs": {"csv": {"graph_input": "csv"}}},
+                "records": {
+                    "node": "records",
+                    "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
+                },
+                "enrich": {
+                    "node": "enrich",
+                    "inputs": {
+                        "name": {
+                            "sources": [{"node": "records", "output": "result", "field": "name"}]
+                        },
+                        "text": {
+                            "sources": [{"node": "records", "output": "result", "field": "text"}]
                         },
                     },
                 },
-            }
-        ),
+            },
+        },
         registry_of(read_lines, records, enrich),
     )
     csv = "name,text\n" + "".join(f"p{i},some text for row {i}\n" for i in range(10_000))
@@ -3122,24 +3064,12 @@ def test_again_and_with_inputs_take_inputs_by_name_in_a_mapping_as_graph_run_doe
 
     box = subgraph("box", title="Box", description="For a test.")(make_graph(join))
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "first-half": {}, "second-half": {}},
-                "nodes": {
-                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "e": {
-                        "node": "box",
-                        "inputs": {
-                            "a": {"graph_input": "first-half"},
-                            "b": {"graph_input": "second-half"},
-                        },
-                    },
-                },
-                "outputs": {
-                    "upper": {"node": "u", "output": "result"},
-                    "joined": {"node": "e", "output": "result"},
-                },
-            }
+        make_graph(
+            ("u", upper),
+            ("e", box),
+            edges=[],
+            inputs={"first-half": "e.a", "second-half": "e.b"},
+            outputs={"upper": "u.result", "joined": "e.result"},
         ),
         registry_of(upper, join, box),
     )
@@ -3171,18 +3101,16 @@ def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused(
             called.append(n)
             return n
 
-        record = GraphRecord.model_validate(
-            {
-                "inputs": {"n": {}},
-                "nodes": {
-                    "g": {"node": "give", "inputs": {"n": {"graph_input": "n"}}},
-                    "t": {
-                        "node": "take",
-                        "inputs": {"n": {"sources": [{"node": "g", "output": "result"}]}},
-                    },
+        record = {
+            "inputs": {"n": {}},
+            "nodes": {
+                "g": {"node": "give", "inputs": {"n": {"graph_input": "n"}}},
+                "t": {
+                    "node": "take",
+                    "inputs": {"n": {"sources": [{"node": "g", "output": "result"}]}},
                 },
-            }
-        )
+            },
+        }
         return Graph.compile(record, registry_of(give, take))
 
     loose = graph_taking(Annotated[int, Param(ge=0)])
