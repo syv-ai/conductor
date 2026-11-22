@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from conductor import SKIPPED, Ask, Choice, Context, Deprecation, ExternalError, Param, Policy, Series, Upgrade, node
-from conductor.widgets import Switch, Textarea, TextInput
+from conductor.widgets import Textarea
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class Branches:                       # one output per field; the default SKIPPE
 
 
 @node("route", title="Route", description="Sends the text one way or the other.", category="logic")
-def route(text: Annotated[str, Param(title="Text", widget=Textarea())], go: Annotated[bool, Param(title="Yes?", widget=Switch())]) -> Branches:
+def route(text: Annotated[str, Param(title="Text", widget=Textarea())], go: Annotated[bool, Param(title="Yes?")]) -> Branches:
     return Branches(yes=text) if go else Branches(no=text)
 
 
@@ -28,12 +28,12 @@ def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annot
 
 
 @dataclass(frozen=True)
-class AppContext:                     # the run's context: one object the host passes, its class named on the registry
+class HostContext:                    # the run's context: one object the host passes, its class named on the registry
     caller_name: str
 
 
 @node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review", asks=True)
-def approve(ctx: Context[AppContext], proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
+def approve(ctx: Context[HostContext], proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
     # the context is the first parameter; what is asked is what the node returns, and how it looks is its Param
     raise Ask(f"{ctx.caller_name}, approve?", default=proposal)
 
@@ -52,11 +52,11 @@ def review(proposal: str, team: list[str]) -> Review:
     raise Ask(f"Review {proposal}", choices={"owner": team})
 
 
-def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
+def fetch_v1(url: Annotated[str, Param(title="URL")]) -> Annotated[str, Param(title="Body")]:
     return f"<html>{url}</html>"
 
 @node("fetch", title="Fetch", description="Fetches a web page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", title="Fetch v1", description="Fetches a web page.", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
-def fetch(address: Annotated[str, Param(title="Address", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
+def fetch(address: Annotated[str, Param(title="Address")]) -> Annotated[str, Param(title="Body")]:
     if not address:
         raise ExternalError("no address")          # retried, like any retry_on class
     return f"<html>{address}</html>"
@@ -68,7 +68,7 @@ def columns_outputs(names: str) -> dict[str, Any]:
     return {name: str for name in names.split(",")}
 
 @node("columns", title="Columns", description="One output for each column name.", category="table", compute_outputs=columns_outputs)
-def columns(names: Annotated[str, Param(title="Column names", widget=TextInput())]) -> Mapping[str, Any]:
+def columns(names: Annotated[str, Param(title="Column names")]) -> Mapping[str, Any]:
     return {name: name.upper() for name in names.split(",")}
 
 
@@ -83,7 +83,7 @@ def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T 
     return Checked(passed=value) if ok else Checked(failed=value)
 
 
-assert approve.context is not None and approve.context.cls is AppContext and list(approve.inputs) == ["proposal"]
+assert approve.context is not None and approve.context.cls is HostContext and list(approve.inputs) == ["proposal"]
 ```
 
 - A pydantic model a node returns is one value, not one output per field.

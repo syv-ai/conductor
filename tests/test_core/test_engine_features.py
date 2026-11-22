@@ -554,7 +554,8 @@ def test_retries_run_out_and_plain_errors_never_retry():
 
 
 def test_attempt_timeout_is_final():
-    calls = []
+    """A call past its attempt timeout fails the run then, without waiting for the call or retrying it."""
+    calls, released, returned = [], ThreadEvent(), ThreadEvent()
 
     @node(
         "hang",
@@ -564,25 +565,31 @@ def test_attempt_timeout_is_final():
     )
     def hang(text: str) -> str:
         calls.append(text)
-        t.sleep(0.3)
+        released.wait(10.0)
+        returned.set()
         return text
 
-    start = t.monotonic()
-    run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"hang": {"node": "hang", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "hang", "output": "result"}},
-            }
-        ),
-        registry_of(hang),
-    ).run({"text": "x"})
+    try:
+        run = Graph.compile(
+            GraphRecord.model_validate(
+                {
+                    "inputs": {"text": {}},
+                    "nodes": {
+                        "hang": {"node": "hang", "inputs": {"text": {"graph_input": "text"}}}
+                    },
+                    "outputs": {"result": {"node": "hang", "output": "result"}},
+                }
+            ),
+            registry_of(hang),
+        ).run({"text": "x"})
+        waited_for_the_call = returned.is_set()
+    finally:
+        released.set()
     assert (
         run.status == "failed"
         and run.cause.type == "timeout"
         and calls == ["x"]
-        and t.monotonic() - start < 0.25
+        and not waited_for_the_call
     ), (run.cause, calls)
     # the failure says why the retries=2 the policy sets weren't made
     assert "a timed-out call isn't retried" in run.cause.msg
@@ -1596,7 +1603,7 @@ def test_a_fault_in_a_signature_is_refused_at_node_with_its_problem_type():
             _fn("x: Series[Series[int]]")
         ),
         "param_limit_value_invalid": lambda: node("d", title="D", description="For a test.")(
-            _fn('x: Annotated[int, Param(ge="a")]')
+            _fn("x: Annotated[int, Param(ge=1.5)]")
         ),
     }
     for code, declare in cases.items():

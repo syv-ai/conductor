@@ -17,7 +17,8 @@ import functools
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Annotated, Any, Literal, get_args, get_origin
+from re import Pattern
+from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
 
 from annotated_types import Ge, GroupedMetadata, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
 from pydantic import (
@@ -27,8 +28,10 @@ from pydantic import (
     JsonValue,
     StringConstraints,
     ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+    create_model,
 )
-from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import (
     CoreSchema,
@@ -40,6 +43,7 @@ from conductor._internal.base import WRITE_BY_NAME, canonical_json, plain_json, 
 from conductor._internal.problem import (
     NodeDeclarationError,
     arguments_reason,
+    conductor_error,
     declaration_problems,
     shape_error,
 )
@@ -76,16 +80,31 @@ SIZED = "conductor_sized"
 #: check on the same hint, and the JSON schema's ``enum`` is written from them.
 CHOICES = "conductor_choices"
 
-#: What a bound like ``ge`` may be: a number, a date, a time or a duration.
-_Bound = float | Decimal | datetime.date | datetime.time | datetime.timedelta
+
+def _limit(kinds: str) -> WrapValidator:
+    """Checks a limit whose type is a union of several kinds, with one fault for a value of none of them.
+
+    Pydantic gives one fault per kind it tried, each at a ``loc`` that names the kind. A developer needs one: which
+    kinds the limit takes.
+
+    Args:
+        kinds: The kinds the limit takes, as the fault's message says them, such as ``"a number or a duration"``.
+    """
+
+    def one_fault(value: Any, read: ValidatorFunctionWrapHandler) -> Any:
+        try:
+            return read(value)
+        except ValidationError:
+            raise conductor_error("not_a_limit", f"the limit is {kinds}") from None
+
+    return WrapValidator(one_fault)
 
 
-@pydantic_dataclass(config=ConfigDict(strict=True))
-class _Texts:
-    """The two texts of a ``Param`` a person reads, which are not blank."""
-
-    title: NotBlank | None
-    description: NotBlank | None
+#: What a bound like ``ge`` may be: a number, a date and time, a date, a time or a duration.
+_Bound = Annotated[
+    float | Decimal | datetime.datetime | datetime.date | datetime.time | datetime.timedelta,
+    _limit("a number, a date, a time or a duration"),
+]
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -116,11 +135,11 @@ class Param:
             date, a time or a duration. ``multiple_of`` is a step, on a number or a duration.
         min_length: The fewest characters, items or keys allowed, and ``max_length`` the most. Each works on text,
             bytes or a collection, and on a table counts its rows.
-        pattern: A regular expression the text must match.
+        pattern: A regular expression the text must match, as text or compiled with ``re.compile``.
     """
 
-    title: str | None = None
-    description: str | None = None
+    title: NotBlank | None = None
+    description: NotBlank | None = None
     widget: Widget | None = None
     constant_only: bool | None = None
     choices: list[Any] | tuple[Any, ...] | None = None
@@ -128,22 +147,27 @@ class Param:
     gt: _Bound | None = None
     le: _Bound | None = None
     lt: _Bound | None = None
-    multiple_of: float | datetime.timedelta | None = None
+    multiple_of: Annotated[float | datetime.timedelta, _limit("a number or a duration")] | None = (
+        None
+    )
     min_length: int | None = None
     max_length: int | None = None
-    pattern: str | None = None
+    pattern: Annotated[str | Pattern[str], _limit("text or a compiled re.Pattern")] | None = None
 
     def __post_init__(self) -> None:
-        """Checks the title and description, and stores a list of choices as a tuple, in the order given.
+        """Checks every field but the choices by its annotation, strictly, and stores a list of choices as a tuple, in
+        the order given.
 
-        Anything else is kept as given, for ``Type.choices`` to refuse: text or a set isn't a list of choices.
+        The choices are kept as given, for ``Type.choices`` to read by the type the ``Param`` is on: text or a set
+        isn't a list of choices (``choices_invalid``).
 
         Raises:
-            NodeDeclarationError: ``invalid_declaration_argument``, with ``blank_text`` in ``ctx.errors`` for a title
-                or description that is empty or only whitespace, as a node's is, and pydantic's code if it isn't text.
+            NodeDeclarationError: ``invalid_declaration_argument``, with every fault in ``ctx.errors``: pydantic's
+                code, such as ``model_type`` for a ``widget`` that isn't a ``Widget``, and ``blank_text`` for a
+                title or description that is empty or only whitespace, as a node's is.
         """
         try:
-            _Texts(title=self.title, description=self.description)
+            _FIELDS.model_validate({name: getattr(self, name) for name in _FIELDS.model_fields})
         except ValidationError as error:
             faults = [shape_error(fault, fault["loc"]) for fault in error.errors()]
             raise NodeDeclarationError(
@@ -304,6 +328,17 @@ class Param:
             written = {"allOf": [{"$ref": written.pop("$ref")}], **written}
         return {**written, **added}
 
+
+#: Checks the fields of a ``Param`` but its choices, each by the annotation ``Param`` declares it with, strictly.
+_FIELDS = create_model(
+    "Param",
+    __config__=ConfigDict(strict=True),
+    **{  # hints of several kinds: pydantic's create_model takes any hint
+        name: cast(Any, (hint, ...))
+        for name, hint in get_type_hints(Param, include_extras=True).items()
+        if name != "choices"
+    },
+)
 
 _NO_PARAM = Param()
 

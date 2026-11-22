@@ -127,7 +127,7 @@ from fastapi import Depends, FastAPI
 
 
 @dataclass(frozen=True)
-class AppContext:
+class HostContext:
     """What a run's nodes get from you: who started the run, and whether it was asked to stop."""
 
     user: str
@@ -146,11 +146,11 @@ def own_runs(user: Annotated[str, Depends(current_user)]) -> Callable[[dict[str,
     return lambda metadata: metadata["user"] == user  # a user sees only their own runs
 
 
-registry = NodeRegistry(context_type=AppContext)  # yours: your nodes
+registry = NodeRegistry(context_type=HostContext)  # yours: your nodes
 worker = Worker(
     SqliteRunStore("runs.db"),
     nodes_for=lambda metadata: registry,
-    context=lambda metadata, stop: AppContext(metadata["user"], stop),
+    context=lambda metadata, stop: HostContext(metadata["user"], stop),
 )
 app = FastAPI()
 app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs))
@@ -265,7 +265,7 @@ from conductor import Context
 
 
 @registry.node("count_runs", title="Count runs", description="Counts how many runs have a given status.")
-def count_runs(ctx: Context[AppContext], status: str) -> int:
+def count_runs(ctx: Context[HostContext], status: str) -> int:
     with closing(sqlite3.connect("runs.db")) as connection:
         count: int = connection.execute("SELECT COUNT(*) FROM runs WHERE status = ?", (status,)).fetchone()[0]
         return count
@@ -284,7 +284,7 @@ def reply_chunks(prompt: str) -> Iterator[str]:
 
 
 @registry.node("reply", title="Reply", description="Writes a reply chunk by chunk, and stops when the run is cancelled.")
-def reply(ctx: Context[AppContext], prompt: str) -> str:
+def reply(ctx: Context[HostContext], prompt: str) -> str:
     chunks = []
     for chunk in reply_chunks(prompt):
         if ctx.stop.is_set():

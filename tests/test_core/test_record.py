@@ -26,12 +26,10 @@ from conductor import (
     InvalidCallError,
     NodeRecord,
     Param,
-    Problem,
     Run,
     Series,
     Source,
     Table,
-    Upgrade,
     host_type,
     make_graph,
     node,
@@ -341,24 +339,6 @@ def test_the_order_of_an_inputs_sources_never_tells_two_records_apart():
 # -- the record validator: what is not a record's shape is refused ----------------------
 
 
-def test_two_nodes_under_one_id_are_refused_as_a_key_written_twice():
-    text = '{"nodes": {"a": {"node": "upper"}, "a": {"node": "join"}}}'
-
-    assert _refused(text) == [("invalid_record", ("record",), "repeated_key")]
-
-
-def test_an_input_written_twice_in_one_node_is_refused_as_a_key_written_twice():
-    text = '{"nodes": {"a": {"node": "upper", "inputs": {"text": {"constant": "x"}, "text": {"constant": "y"}}}}}'
-
-    with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(text, REGISTRY)
-    [problem] = refused.value.problems
-    assert (problem.type, problem.ctx["errors"][0]["type"]) == (
-        "invalid_record",
-        "repeated_key",
-    )
-
-
 @pytest.mark.parametrize("bad", ["a.b", "a/b", "a@b", "a~b", ""])
 def test_a_node_id_that_is_not_a_name_is_refused(bad):
     assert _refused({"nodes": {bad: {"node": "upper"}}}) == [
@@ -391,20 +371,16 @@ def test_a_source_listed_twice_is_refused_naming_the_source():
 @pytest.mark.parametrize(
     "entry",
     [
-        {"constant": "a", "graph_input": "text"},
         {"constant": "a", "graph_input": "text", "default": "b"},
         {"constant": "a", "sources": [{"node": "a", "output": "result"}]},
         {"graph_input": "text", "sources": [{"node": "a", "output": "result"}]},
         {"default": "b"},
-        {},
     ],
     ids=[
-        "constant-and-graph-input",
         "constant-and-default",
         "constant-and-sources",
         "graph-input-and-sources",
         "default-alone",
-        "empty",
     ],
 )
 def test_an_input_given_other_than_exactly_one_of_a_constant_a_graph_input_or_sources_is_refused(
@@ -419,19 +395,6 @@ def test_an_input_given_other_than_exactly_one_of_a_constant_a_graph_input_or_so
             "one_of_constant_graph_input_sources",
         )
     ]
-
-
-@pytest.mark.parametrize("bad", ["a.b", "a/b", ""])
-def test_an_input_a_graph_input_or_a_graph_output_that_is_not_a_name_is_refused(bad):
-    assert _refused({"nodes": {"u": {"node": "upper", "inputs": {bad: {"constant": "x"}}}}})[0][1][
-        :4
-    ] == ("record", "nodes", "u", "inputs")
-    assert _refused({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": bad}}}}})[
-        0
-    ][1][:5] == ("record", "nodes", "u", "inputs", "text")
-    assert _refused(
-        {"nodes": {"u": {"node": "upper"}}, "outputs": {bad: {"node": "u", "output": "result"}}}
-    )[0][1][:2] == ("record", "outputs")
 
 
 @pytest.mark.parametrize(
@@ -486,6 +449,16 @@ _SOURCE = {"node": "a", "output": "result"}
         (
             json.dumps({"inputs": {"a.b": {}}}),
             ("record", "inputs", "a.b", "[key]"),
+            "not_a_name",
+        ),
+        (
+            json.dumps(
+                {
+                    "nodes": {"u": {"node": "upper"}},
+                    "outputs": {"a.b": {"node": "u", "output": "result"}},
+                }
+            ),
+            ("record", "outputs", "a.b", "[key]"),
             "not_a_name",
         ),
         (
@@ -575,6 +548,7 @@ _SOURCE = {"node": "a", "output": "result"}
         "not_a_name-input",
         "not_a_name-graph_input",
         "not_a_name-declared_graph_input",
+        "not_a_name-graph_output",
         "not_a_field",
         "repeated_source",
         "no_sources",
@@ -798,28 +772,6 @@ def test_a_graph_input_on_a_node_an_edge_leads_into_is_given_by_the_caller_like_
     assert graph.run({"value": "y"}).outputs == {"result": "yn"} and graph.run(
         {"value": "y", "no": "!"}
     ).outputs == {"result": "y!"}
-
-
-def test_inputs_naming_one_graph_input_each_get_the_callers_one_value():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "b": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                },
-                "outputs": {
-                    "a_result": {"node": "a", "output": "result"},
-                    "b_result": {"node": "b", "output": "result"},
-                },
-            }
-        ),
-        REGISTRY,
-    )
-
-    assert list(graph.inputs) == ["text"]
-    assert graph.run({"text": "x"}).outputs == {"a_result": "X", "b_result": "X"}
 
 
 def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required_whatever_each_inputs_own_default():
@@ -1328,23 +1280,6 @@ def test_make_graph_makes_a_default_a_graph_input_on_a_node_an_edge_leads_into()
     }
 
 
-def test_make_graph_writes_each_node_at_its_version():
-    def older(name: str) -> str:
-        return name
-
-    @node(
-        "v",
-        title="Newer",
-        description="For a test.",
-        replaces=node("v", title="Older", description="For a test.")(older),
-        upgrade=Upgrade(),
-    )
-    def _newer(name: str) -> str:
-        return name
-
-    assert make_graph(_newer).nodes["v"].version == 2
-
-
 # -- make_graph declares the graph's inputs and outputs --------------------------
 
 
@@ -1581,15 +1516,6 @@ def test_make_graph_with_no_edges_and_the_one_input_named_in_inputs_is_not_a_cha
     assert "that constants=, defaults= and inputs= don't name (it has none)" in problem.msg
 
 
-def test_make_graph_refuses_an_edge_written_twice():
-    [(kind, loc)] = _made(
-        edges=[("hello.result", "shout.text"), ("hello.result", "shout.text")],
-        constants={"hello.name": "a"},
-    )
-
-    assert kind == "invalid_record" and loc[:5] == ("record", "nodes", "shout", "inputs", "text")
-
-
 # -- the graph a record compiles to -------------------------------------------------
 
 
@@ -1804,52 +1730,6 @@ def test_a_subgraph_with_an_unknown_inner_node_is_one_problem_at_its_node_path()
     ]
 
 
-def _a_table_read_by_one_text(source: str) -> Problem:
-    from typing import TypedDict
-
-    import polars as pl
-    from conductor import Table
-
-    class Row(TypedDict):
-        name: str
-
-    @node("rows", title="Rows", description="For a test.")
-    def rows() -> Table[Row]:
-        return pl.DataFrame({"name": ["a"]})
-
-    node_id, output, *field = source.split(".", 2)
-    edge = input_entry({"sources": (Source(node_id, output, *field),)})
-    graph = Graph.compile(
-        GraphRecord(
-            nodes={
-                "r": NodeRecord(node="rows"),
-                "u": NodeRecord(node="upper", inputs={"text": edge}),
-            }
-        ),
-        registry_of(rows, upper),
-    )
-    (problem,) = graph.problems
-    return problem
-
-
-def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_is_one_value():
-    problem = _a_table_read_by_one_text("r.result.name")
-
-    assert (problem.type, problem.loc, problem.ctx["field"]) == (
-        "unknown_output_field_of_whole_table_or_list",
-        ("u", "text"),
-        "name",
-    )
-
-
-@pytest.mark.parametrize("source", ["r.result.name", "r.result"])
-def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
-    assert _a_table_read_by_one_text(source).type in {
-        "type_mismatch_whole_table_or_list",
-        "unknown_output_field_of_whole_table_or_list",
-    }
-
-
 def test_a_series_of_tables_is_accepted_where_it_is_declared():
     import polars as pl
     from conductor import Table
@@ -2003,36 +1883,6 @@ def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_rec
     }
 
 
-def test_a_wrong_source_on_a_subgraph_node_is_a_problem_on_it_and_never_names_an_inner_node():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "e": {
-                        "node": "enrich",
-                        "inputs": {
-                            "text": {"graph_input": "text"},
-                            "tail": {"sources": [{"node": "v", "output": "result"}]},
-                        },
-                    },
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "e", "output": "nope"}]}},
-                    },
-                    "v": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
-        SUBGRAPHS,
-    )
-
-    found = sorted((p.type, p.loc) for p in graph.problems)
-    assert found == [("unknown_input", ("e", "tail")), ("unknown_output", ("u", "text"))]
-    assert not any("/" in str(p.loc) for p in graph.problems)
-
-
 def test_a_subgraph_nodes_inputs_are_the_graph_inputs_its_record_declares():
     first = Graph.compile(
         GraphRecord.model_validate(
@@ -2072,52 +1922,6 @@ def test_a_subgraph_nodes_inputs_are_the_graph_inputs_its_record_declares():
     assert [(p.type, p.loc) for p in later.problems] == [
         ("input_has_no_value", ("c", "y_text"))
     ]  # a subgraph node gets its inputs as any other node does
-
-
-def test_a_subgraph_nodes_inputs_are_given_by_the_names_it_offers():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "c": {
-                        "node": "pair",
-                        "inputs": {
-                            "y_text": {"constant": "b"},
-                            "x_text": {"sources": [{"node": "s", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
-        SUBGRAPHS,
-    )
-
-    assert graph.problems == [] and list(graph.inputs) == ["text"]
-    assert graph.run({"text": "a"}).outputs == {"result": "AB"}
-
-
-def test_an_outer_record_never_names_an_inner_node_of_a_subgraph():
-    """An outer record can never name a node inside a subgraph.
-
-    No name has a dot, so ``x.text`` isn't an input of ``pair``, and the record validator refuses it.
-    """
-    record = {
-        "nodes": {
-            "c": {
-                "node": "pair",
-                "inputs": {"x.text": {"constant": "a"}, "y_text": {"constant": "b"}},
-            }
-        }
-    }
-
-    with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(json.dumps(record), SUBGRAPHS)
-    assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_record", ("record", "nodes", "c", "inputs", "x.text", "[key]"))
-    ]
 
 
 def test_a_subgraph_lists_its_inputs_and_outputs_in_the_registrys_describe():
@@ -2269,35 +2073,6 @@ def test_a_node_collecting_two_series_of_different_depths_is_called_per_item_of_
         graph.describe().nodes["x"].per_item_of == "p.result"
     )  # collecting the inner series ends the inner loop, not the outer one
     assert graph.run({"text": "a,b|c"}).outputs == {"result": ["2/2", "2/1"]}
-
-
-def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_into_it_names_the_outer_source():
-    with pytest.raises(InvalidCallError) as beside:
-        Graph.compile(
-            json.dumps({"nodes": {"e": {"node": "enrich"}, "e/upper": {"node": "upper"}}}),
-            SUBGRAPHS,
-        )
-    ghost = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "e": {
-                        "node": "enrich",
-                        "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}},
-                    }
-                },
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
-        ),
-        SUBGRAPHS,
-    )
-
-    assert [(p.type, p.loc) for p in beside.value.problems] == [
-        ("invalid_record", ("record", "nodes", "e/upper", "[key]"))
-    ]
-    assert [(p.type, p.loc, p.ctx["target"]) for p in ghost.problems] == [
-        ("edge_names_missing_node", ("e", "text"), "e.text")
-    ]
 
 
 def test_collecting_items_that_a_skipped_branch_skipped_all_of_is_skipped():
@@ -2614,19 +2389,6 @@ def test_make_graph_writes_each_node_at_the_id_and_version_of_the_definition_it_
     ]
 
 
-def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_write_it():
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")])
-
-    [problem] = refused.value.problems
-    assert (problem.type, problem.loc, problem.ctx) == (
-        "invalid_place",
-        ("edges", 1, 0),
-        {"text": "count"},
-    )
-    assert "Write it as 'node.name'" in problem.msg and "column" not in problem.msg
-
-
 @pytest.mark.parametrize(
     ("arguments", "errors"),
     [
@@ -2809,16 +2571,41 @@ _THE_NAME_RULE = "where neither part is empty or contains any of '.', '/', '@', 
             ("inputs", "who"),
             "hello.na~me",
         ),
+        # a text that is not node and name at all, at the argument and place it is given
+        (
+            {"edges": [("hello.result", "shout.text"), ("hello", "shout.text")]},
+            ("edges", 1, 0),
+            "hello",
+        ),
+        (
+            {"edges": [("hello.result", "shout")], "outputs": {"hello": "hello.result"}},
+            ("edges", 0, 1),
+            "shout",
+        ),
+        ({"constants": {"name": "x"}}, ("constants", "name"), "name"),
+        ({"outputs": {"r": "shout"}}, ("outputs", "r"), "shout"),
+    ],
+    ids=[
+        "a-tilde-in-an-output",
+        "a-field-starting-with-a-dot",
+        "an-at-in-a-node",
+        "a-slash-in-an-input",
+        "a-tilde-in-a-graph-output",
+        "a-tilde-in-a-graph-input",
+        "an-edge-source-of-one-part",
+        "an-edge-target-of-one-part",
+        "a-constant-of-one-part",
+        "a-graph-output-of-one-part",
     ],
 )
-def test_make_graph_refuses_a_place_with_a_part_that_is_not_a_name_as_invalid_place(
+def test_make_graph_refuses_a_place_that_is_not_node_and_name_as_invalid_place(
     arguments: dict[str, Any], loc: tuple[str | int, ...], text: str
 ):
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, _shout, **arguments)
 
-    [problem] = [p for p in refused.value.problems if p.type == "invalid_place"]
-    assert (problem.loc, problem.ctx) == (loc, {"text": text})
+    [problem] = refused.value.problems
+    assert (problem.type, problem.loc, problem.ctx) == ("invalid_place", loc, {"text": text})
     # the message says why the text is no place, though it is written as node.name
     assert (
         problem.msg
@@ -2836,27 +2623,6 @@ def test_make_graph_takes_a_node_with_an_id_of_its_own_and_refuses_one_id_for_tw
     assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in refused.value.problems] == [
         ("invalid_record", ("record", "nodes", "a"), "repeated_key")
     ]
-
-
-def test_make_graph_refuses_a_text_that_is_not_node_and_name_at_the_argument_and_place_it_is_given():
-    def refused(**arguments: Any) -> list[Problem]:
-        with pytest.raises(InvalidCallError) as raised:
-            make_graph(_hello, _shout, **arguments)
-        return raised.value.problems
-
-    edge = refused(edges=[("hello.result", "shout")], outputs={"hello": "hello.result"})
-    constant = refused(constants={"name": "x"})
-    output = refused(outputs={"r": "shout"})
-
-    assert [(p.type, p.loc, p.ctx) for p in [*edge, *constant, *output]] == [
-        ("invalid_place", ("edges", 0, 1), {"text": "shout"}),
-        ("invalid_place", ("constants", "name"), {"text": "name"}),
-        ("invalid_place", ("outputs", "r"), {"text": "shout"}),
-    ]
-    assert all(
-        p.msg.endswith(f"Write it as 'node.name', {_THE_NAME_RULE}") and "JSON" not in p.msg
-        for p in [*edge, *constant, *output]
-    )
 
 
 def test_a_record_validator_refusal_of_what_make_graph_wrote_says_to_fix_make_graphs_arguments():

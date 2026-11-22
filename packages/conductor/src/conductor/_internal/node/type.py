@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
 
-from pydantic import MISSING, JsonValue
+from pydantic import MISSING, ConfigDict, JsonValue
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter
@@ -64,6 +64,10 @@ class Upgrade:
     Only ``registry.upgrade`` uses it. Compiling never upgrades, so a graph saved at an old version runs that
     version.
 
+    ``@node`` and ``subgraph`` hold each field to its annotation, strictly, where the newer version is declared, so
+    ``Upgrade(renamed_inputs=5)`` is made, and refused there (``invalid_declaration_argument``). The declaration
+    keeps the checked copy pydantic makes, each rename as a ``dict``, not the object it was given.
+
     Attributes:
         renamed_inputs: Old input names to new ones. Each input's constant, default and edges move to the new
             name, before ``rewrite`` runs.
@@ -72,6 +76,11 @@ class Upgrade:
         rewrite: A function that takes the node's constants and defaults as one dict, and returns them for the
             newer version. A key that was a default stays a default, and any other key becomes a constant.
     """
+
+    # @node checks its fields by these annotations, strictly, and not only that it is an Upgrade
+    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(
+        strict=True, revalidate_instances="always"
+    )
 
     renamed_inputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
     renamed_outputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])

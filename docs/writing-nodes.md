@@ -114,14 +114,12 @@ An editor shows each input with a label and a control. You describe them with `P
 Conductor checks the limits on every value a graph sets and every value a caller passes. Here is a graph, the way an editor saves it, that sets `times` to 20:
 
 ```python
-from conductor import GraphRecord
-
 drawn = {
     "inputs": {"text": {}},
     "nodes": {"repeat": {"node": "repeat", "inputs": {"text": {"graph_input": "text"}, "times": {"constant": 20}}}},
     "outputs": {"result": {"node": "repeat", "output": "result"}},
 }
-graph = Graph.compile(GraphRecord.model_validate(drawn), host)
+graph = Graph.compile(drawn, host)
 
 for problem in graph.problems:
     print(problem.loc, problem.type)
@@ -154,7 +152,7 @@ An editor then offers no edge for `keep`. A graph that wires an edge to it, or m
 
 ### Widgets
 
-No type has a default widget. A `str` might be one line, a text box or a dropdown, so you choose one per input. An input with no widget has none in `describe()`, and its control is left to the host's editor. Many such inputs get their value from an edge, or from a constant in the graph.
+A widget is optional. An input with none has none in `describe()`, and the host's editor picks a control from its type, such as a line of text for a `str`. So give an input a widget only where it says more than its type: a `str` might be one line, a text box or a dropdown. Many inputs need none at all, since they get their value from an edge, or from a constant in the graph.
 
 These widgets ship in `conductor.widgets`: `TextInput`, `Textarea`, `Dropdown`, `NumberInput`, `Slider`, `Switch`, `DatePicker`, `FileUpload` and `ListInput`. Pass an instance, `widget=Textarea()`, not the class. A `Dropdown` has no choices of its own. It shows the input's choices, which you give with `Param(choices=[...])` on a plain type such as `str`:
 
@@ -635,7 +633,7 @@ except InvalidCallError as refused:
     # That isn't a valid answer to 'colour': Extra inputs are not permitted.
 ```
 
-An `Ask` whose choices or default don't fit fails the node the same way, with one [`invalid_ask`](problems.md#invalid_ask) that lists every fault.
+An `Ask` whose prompt isn't text, or whose choices or default don't fit, fails the node the same way, with one [`invalid_ask`](problems.md#invalid_ask) that lists every fault.
 
 `Ask` is a `BaseException`, not an `Exception`, so an `except Exception` in your node doesn't catch it by mistake. What each return type asks, and the rules for answers, are in `python -m conductor.about asking-a-person`.
 
@@ -771,19 +769,19 @@ class Caller:
 
 
 @dataclass(frozen=True)
-class AppContext:
+class HostContext:
     caller: Caller
 
 
-signing = NodeRegistry(context_type=AppContext)
+signing = NodeRegistry(context_type=HostContext)
 
 
 @signing.node("sign", title="Sign", description="Signs a text with the name of the person running it.")
-def sign(ctx: Context[AppContext], text: str) -> str:
+def sign(ctx: Context[HostContext], text: str) -> str:
     return f"{text}, {ctx.caller.name}"
 
 
-ida = AppContext(caller=Caller("Ida"))
+ida = HostContext(caller=Caller("Ida"))
 print(sign(ida, "Done"))  # Done, Ida
 
 signed = Graph.compile(make_graph(sign), signing).run({"text": "Done"}, context=ida)

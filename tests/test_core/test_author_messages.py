@@ -8,6 +8,7 @@ reach one node with nothing saying which items go together.
 import typing
 from typing import Any, TypedDict
 
+import pytest
 from conductor import Graph, GraphRecord, NodeRegistry, Series, Table, make_graph, node
 
 
@@ -124,27 +125,24 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
     )
 
 
-def test_a_table_of_any_columns_says_to_make_a_series_and_knows_no_fields():
-    found = problem({"read": "csv", "send": "send"}, [("read.result", "send.to")])
-    assert (found.type, found.ctx["kind"], found.ctx["fields"]) == (
+@pytest.mark.parametrize(
+    ("source", "kind", "fields"),
+    [("csv", "table", []), ("tags", "list", []), ("people", "list", ["name", "email"])],
+    ids=["a-table-of-any-columns", "a-list-of-plain-values", "a-list-of-records"],
+)
+def test_a_whole_table_or_list_into_an_input_of_one_value_says_to_make_a_series_and_lists_the_fields_it_knows(
+    source: str, kind: str, fields: list[str]
+):
+    found = problem({source: source, "send": "send"}, [(f"{source}.result", "send.to")])
+    assert (found.type, found.loc, found.ctx["kind"], found.ctx["fields"]) == (
         "type_mismatch_whole_table_or_list",
-        "table",
-        [],
+        ("send", "to"),
+        kind,
+        fields,
     )
-
-
-def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
-    found = problem({"tags": "tags", "send": "send"}, [("tags.result", "send.to")])
-    assert (
-        found.type,
-        found.loc,
-        found.ctx["kind"],
-        found.ctx["fields"],
-    ) == ("type_mismatch_whole_table_or_list", ("send", "to"), "list", [])
-    assert found.msg.startswith("'tags.result' is a whole list, but 'send.to' takes one str.")
-    assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx[
-        "fields"
-    ] == ["name", "email"]
+    assert found.msg.startswith(
+        f"'{source}.result' is a whole {kind}, but 'send.to' takes one str."
+    )
 
 
 def test_a_whole_list_into_a_series_input_is_the_ordinary_mismatch():
