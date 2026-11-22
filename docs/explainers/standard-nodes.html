@@ -267,6 +267,67 @@ pre.out { background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var
 footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; }
 .fade { animation: fade .45s ease both; }
 @keyframes fade { from { opacity: .15; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- one screen per section: wide rows instead of long columns ---------- */
+.section-head { margin-bottom: 1.5rem; }
+.section-head.prose { max-width: 104ch; }
+.mod-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.25rem 2rem; align-items: start; }
+.mod-left, .mod-right { display: grid; gap: 1.25rem; min-width: 0; }
+.mod-right .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .mod-grid { grid-template-columns: minmax(0, 1fr); } }
+.mods .mod { padding: .45rem .7rem; gap: 0; }
+#pick-code { font-size: .75rem; line-height: 1.45; }
+/* the palette: one grid of tiles, each category's label a cell in front of its nodes */
+.groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.25rem, 1fr)); gap: .3rem; }
+.group, .group .tiles { display: contents; }
+.group h3 { margin: 0; padding: .2rem .1rem; flex-direction: column; justify-content: center; gap: .1rem; border-top: 2px solid var(--pkg-nodes); }
+.ntile { padding: .25rem .5rem; display: flex; flex-wrap: wrap; align-items: baseline; align-content: start; column-gap: .4rem; row-gap: .1rem; }
+.ntile b { flex: 1 0 100%; }
+.ntile small { flex: 1 1 auto; line-height: 1.3; }
+.ntile .flags { margin-top: 0; flex: 0 1 auto; justify-content: end; }
+@media (min-width: 981px) { .pal { grid-template-columns: minmax(0, 1fr) 360px; } }
+.search { flex: 1 1 8rem; }
+.group h3 code { font-size: .72rem; line-height: 1.25; }
+.surf-top { margin-bottom: .5rem; align-items: end; }
+@media (min-width: 901px) { .surf-top { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); } }
+.surf-top .section-head { margin-bottom: 0; }
+@media (min-width: 821px) { .uses { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 2rem; } }
+@media (min-width: 1101px) { .uses { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.use { padding-block: .75rem; gap: .25rem; align-content: start; }
+.use p { font-size: .875rem; line-height: 1.5; }
+@media (min-width: 901px) { .loops-row { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); } }
+.loops-row pre { font-size: .78rem; line-height: 1.5; }
+.loops-row .stack { gap: .6rem; }
+/* three across: the two longest details share the first row, so each row is as short as it can be */
+@media (min-width: 1101px) {
+  .facts { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.05fr) minmax(0, 1fr); gap: 1.25rem 1.75rem; }
+  .facts > :nth-child(2) { grid-area: 2 / 1; }
+  .facts > :nth-child(3) { grid-area: 1 / 3; }
+  .facts > :nth-child(4) { grid-area: 1 / 2; }
+  .facts > :nth-child(5) { grid-area: 2 / 2; }
+  .facts > :nth-child(6) { grid-area: 2 / 3; }
+}
+.facts > div { gap: .35rem; }
+.facts h3 { font-size: 1.0625rem; }
+#facts .section-head { margin-bottom: 1rem; }
+.facts p.muted { font-size: .875rem; line-height: 1.5; }
+.facts pre { font-size: .75rem; line-height: 1.45; }
+.facts pre.out { padding-top: 0; }
+@media (min-width: 1101px) { .choices { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 2rem; } .choices.four { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.choice { padding-block: .85rem; gap: .35rem; }
+.choice h3 { font-size: 1.0625rem; }
+.choice p { font-size: .9375rem; line-height: 1.55; }
+.loops-row p.muted { font-size: .9375rem; line-height: 1.55; }
+h2 code.id { color: var(--pkg-nodes); }
+@media (min-width: 901px) { .ctrl-row.three { grid-template-columns: minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: 1.75rem; } }
+.section-head.two h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
+.section-head.two h3 code.id { color: var(--pkg-nodes); }
+.ctrl-row.three pre { font-size: .78rem; }
+@media (min-width: 981px) { .detail { max-height: calc(100vh - var(--bar-h, 0px) - 12rem); } }
+.pal-main { min-width: 0; }
+.pal-tools { margin-bottom: .6rem; }
+.section-head.side { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); column-gap: 2.5rem; align-items: end; }
+@media (max-width: 900px) { .section-head.side { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
@@ -497,13 +558,9 @@ body { margin: 0; }
 
 <!-- ============================ MODULES ============================ -->
 <section id="modules" aria-labelledby="mod-h">
-  <div class="section-head prose">
-    <p class="eyebrow">How it's grouped</p>
-    <h2 id="mod-h">Every module is one category</h2>
-    <p class="muted">Each module starts with <a href="nodes-and-types.html#registry"><code>registry = NodeRegistry(category="math")</code></a>, or its own category, and declares its nodes on it with <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>. A node takes the category of the registry it's declared on, so every node in <code>conductor_nodes.math</code> is in <code>math</code>. <code>conductor_nodes.registry</code> then adds the module registries into one.</p>
-  </div>
-
-  <div class="diagram" style="margin-bottom:2.5rem">
+  <div class="mod-grid">
+  <div class="mod-left">
+  <div class="diagram">
     <svg viewBox="0 0 900 300" role="img" aria-label="The module registries feed conductor_nodes.registry. A host's registry takes either the whole package registry, a module registry, or a filter of the package registry.">
       <text class="d-title" x="16" y="20">a registry per module</text>
       <text class="d-title" x="370" y="20">the package</text>
@@ -523,12 +580,18 @@ body { margin: 0; }
       <text class="d-sub" x="600" y="252">The host adds its own nodes beside them.</text>
     </svg>
   </div>
-
-  <div class="picker">
     <div class="stack">
       <p class="eyebrow">Pick what a host takes</p>
       <div class="mods" id="mods"></div>
     </div>
+  </div>
+  <div class="mod-right">
+  <div class="section-head prose">
+    <p class="eyebrow">How it's grouped</p>
+    <h2 id="mod-h">Every module is one category</h2>
+    <p class="muted">Each module starts with <a href="nodes-and-types.html#registry"><code>registry = NodeRegistry(category="math")</code></a>, or its own category, and declares its nodes on it with <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>. A node takes the category of the registry it's declared on, so every node in <code>conductor_nodes.math</code> is in <code>math</code>. <code>conductor_nodes.registry</code> then adds the module registries into one.</p>
+  </div>
+
     <div class="picker-side">
       <div class="tally"><span class="n" id="tally"></span><span class="muted" id="tally-txt">nodes in the host's registry</span></div>
       <div class="quick">
@@ -543,8 +606,17 @@ body { margin: 0; }
       <p class="small">The two ways give the same nodes.</p>
     </div>
   </div>
+  </div>
+</section>
 
-  <div class="two" style="margin-top:2.75rem">
+<div class="staff" aria-hidden="true"></div>
+
+<section id="taking" aria-labelledby="take-h">
+  <div class="section-head prose">
+    <p class="eyebrow">How it's grouped</p>
+    <h2 id="take-h">One module, or a filter of them all</h2>
+  </div>
+  <div class="two">
     <div class="sample">
 <script type="text/x-python">
 import io
@@ -589,18 +661,22 @@ NodeDeclarationError ['duplicate_node_id']</pre>
 
 <!-- ============================ PALETTE ============================ -->
 <section id="palette" aria-labelledby="pal-h">
-  <div class="section-head prose">
-    <p class="eyebrow">The palette</p>
-    <h2 id="pal-h">Every node with a real run of each <span class="lvl pub">Public</span></h2>
+  <div class="section-head side">
+    <div>
+      <p class="eyebrow">The palette</p>
+      <h2 id="pal-h">Every node with a real run of each <span class="lvl pub">Public</span></h2>
+    </div>
     <p class="muted">Each node is shown as <a href="nodes-and-types.html#registry"><code>registry.describe()</code></a> shows it to an editor. Tap one to see its ports and one run. For each run, the node was put in a graph alone and given its first example from <code class="int" title="Internal">tests/test_nodes/test_catalog.py</code> as constants. For <code>control-switch</code> it was given the second. Every run completed.</p>
   </div>
-  <div class="pal-tools">
-    <span id="cats" class="seg" role="group" aria-label="Category"></span>
-    <label class="small" for="q" style="position:absolute;left:-9999px">Search the nodes</label>
-    <input class="search" id="q" type="search" placeholder="Search id or title" autocomplete="off">
-  </div>
   <div class="pal">
-    <div class="groups" id="groups"></div>
+    <div class="pal-main">
+      <div class="pal-tools">
+        <span id="cats" class="seg" role="group" aria-label="Category"></span>
+        <label class="small" for="q" style="position:absolute;left:-9999px">Search the nodes</label>
+        <input class="search" id="q" type="search" placeholder="Search id or title" autocomplete="off">
+      </div>
+      <div class="groups" id="groups"></div>
+    </div>
     <aside class="detail" id="detail" aria-live="polite"></aside>
   </div>
 </section>
@@ -609,18 +685,18 @@ NodeDeclarationError ['duplicate_node_id']</pre>
 
 <!-- ============================ SURFACE ============================ -->
 <section id="surface" aria-labelledby="surf-h">
-  <div class="section-head prose">
-    <p class="eyebrow">What it's built on</p>
-    <h2 id="surf-h">The package imports only public names <span class="lvl pub">Public</span></h2>
-    <p class="muted">Conductor's rules say the companion packages import only its <a href="overview.html#map">five public modules</a>. <code>conductor_nodes</code> imports these names from two of them.</p>
-  </div>
-  <div class="two" style="margin-bottom:2.5rem">
+  <div class="two surf-top">
+    <div class="section-head">
+      <p class="eyebrow">What it's built on</p>
+      <h2 id="surf-h">The package imports only public names <span class="lvl pub">Public</span></h2>
+      <p class="muted">Conductor's rules say the companion packages import only its <a href="overview.html#map">five public modules</a>. <code>conductor_nodes</code> imports these names from two of them.</p>
+      <p class="small">Besides those, the package uses <code>pydantic</code> (for <code>JsonValue</code>), <code>polars</code>, the <code>regex</code> package and <code>typing-extensions</code>, which its <code>pyproject.toml</code> lists beside <code>syv-conductor</code>. <code>Textarea</code> is its one widget, on the long text inputs only (<a href="#widgets">see below</a>).</p>
+    </div>
     <div class="sample">
       <pre data-lang="py">from conductor import NodeError, NodeRegistry, Param, Policy, SKIPPED, Series, Table
 from conductor.widgets import Textarea</pre>
-      <p class="small">Besides those, the package uses <code>pydantic</code> (for <code>JsonValue</code>), <code>polars</code>, the <code>regex</code> package and <code>typing-extensions</code>, which its <code>pyproject.toml</code> lists beside <code>syv-conductor</code>.</p>
+      <p class="muted">Each node is a typed function under <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>, with <a href="nodes-and-types.html#hint"><code>Param</code></a> where a port needs more than its type. The two pages on <a href="nodes-and-types.html">a node and its types</a> and on <a href="series-and-tables.html">Series and tables</a> explain these names.</p>
     </div>
-    <p class="muted">Each node is a typed function under <a href="nodes-and-types.html#signature"><code>@registry.node</code></a>, with <a href="nodes-and-types.html#hint"><code>Param</code></a> where a port needs more than its type. The two pages on <a href="nodes-and-types.html">a node and its types</a> and on <a href="series-and-tables.html">Series and tables</a> explain these names.</p>
   </div>
   <div class="uses">
     <div class="use"><h3>NodeRegistry<span>one per module</span></h3><p>A host makes one and adds the package's nodes to it with <a href="nodes-and-types.html#registry"><code>add_subregistry</code></a>. Each node keeps the category of the module it comes from.</p></div>
@@ -630,7 +706,6 @@ from conductor.widgets import Textarea</pre>
     <div class="use"><h3>Policy<span>calls that cost nothing</span></h3><p>Every node in the package is declared with <code>policy=</code><a href="nodes-and-types.html#policy"><code>Policy(costs_nothing=True)</code></a>, since none touches anything outside the run. So <a href="saved-runs-and-reuse.html#policy"><code>run.resume(only_costs_nothing=True)</code></a> calls all of them, and the totals after <code>text-split</code>, <code>text-list</code>, <code>regex-extract</code> and <code>series-split</code> are known before any node that costs something is called. A node's own error, such as <code>invalid_pattern</code>, can then fail that call.</p></div>
     <div class="use"><h3>SKIPPED<span>a branch not chosen</span></h3><p>A <a href="nodes-and-types.html#outputs">branch</a> is an output whose default is <code>SKIPPED</code>. <code>control-decide</code> gives <code>SKIPPED</code> on the branch not chosen. <code>control-switch</code> returns <code>SKIPPED</code> for every branch but the chosen one.</p></div>
     <div class="use"><h3>NodeError<span>a failure with a code</span></h3><p>The package raises it with codes of its own, such as <code>division_by_zero</code>, <code>not_json</code>, <code>invalid_pattern</code> and <code>columns_not_aligned</code>. Raised inside a <a href="nodes-and-types.html#hooks">hook</a>, it becomes a <a href="graph-record-and-compiling.html#hooks"><code>compute_hook_failed</code></a> <a href="problems.html">problem</a> when the graph is compiled.</p></div>
-    <div class="use"><h3>Textarea<span>the one widget</span></h3><p>It's on the long text inputs only. <a href="#widgets">See below</a>.</p></div>
     <div class="use"><h3>Hooks<span>keywords of <code>@node</code></span></h3><p><code>control-switch</code> has <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a>. <code>table-collect</code> has <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> and <code>compute_outputs</code>. These are the nodes with hooks, and the ones set by a constant: <code>cases</code>, <code>columns</code> and <code>constant_columns</code>.</p></div>
   </div>
 </section>
@@ -639,28 +714,18 @@ from conductor.widgets import Textarea</pre>
 
 <!-- ============================ CONTROL ============================ -->
 <section id="control" aria-labelledby="ctrl-h">
-  <div class="section-head prose">
-    <p class="eyebrow">Choosing a way</p>
-    <h2 id="ctrl-h">Decide, switch and default</h2>
-    <p class="muted">A <a href="nodes-and-types.html#outputs">branch</a> is an output. The chosen branch gets the value, and the others get <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a>, so the nodes after them are skipped for that call. Several branches can be wired into one input. That node takes the value of whichever branch was chosen, so there is no node to join the branches again. All three pass <code>value</code> on unchanged.</p>
+  <div class="section-head two">
+    <div class="stack">
+      <p class="eyebrow">Choosing a way</p>
+      <h2 id="ctrl-h">Decide, switch and default</h2>
+      <p class="muted">A <a href="nodes-and-types.html#outputs">branch</a> is an output. The chosen branch gets the value, and the others get <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a>, so the nodes after them are skipped for that call. Several branches can be wired into one input. That node takes the value of whichever branch was chosen, so there is no node to join the branches again. All three pass <code>value</code> on unchanged.</p>
+    </div>
+    <div class="stack">
+      <h3><code class="id">control-decide</code> sends a value one way or the other</h3>
+      <p class="muted">It sends <code>value</code> to <code>if_true</code> when <code>when</code> is true, and to <code>if_false</code> when it's false. Another node works out the yes or no, and you wire it into <code>when</code>. <code>when</code> has no default, so a graph that neither wires it nor gives it a value is <a href="graph-record-and-compiling.html#walls"><code>input_has_no_value</code></a> when it is compiled. Here <code>logic-equals</code> asks whether a text is 2 characters long.</p>
+    </div>
   </div>
-
-  <div class="ctrl">
-    <!-- decide -->
-    <div class="ctrl-row">
-      <div class="stack">
-        <h3><code class="id">control-decide</code> sends a value one way or the other</h3>
-        <p class="muted">It sends <code>value</code> to <code>if_true</code> when <code>when</code> is true, and to <code>if_false</code> when it's false. Another node works out the yes or no, and you wire it into <code>when</code>. <code>when</code> has no default, so a graph that neither wires it nor gives it a value is <a href="graph-record-and-compiling.html#walls"><code>input_has_no_value</code></a> when it is compiled. Here <code>logic-equals</code> asks whether a text is 2 characters long.</p>
-        <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
-        <pre data-lang="py">@dataclass(frozen=True)
-class Decided[T]:
-    if_true: Annotated[T, Param(title="If true")] = SKIPPED
-    if_false: Annotated[T, Param(title="If false")] = SKIPPED
-
-@registry.node("control-decide", title="Decision", description="...")
-def decision[T](value: T, when: bool) -> Decided[T]:
-    return Decided(if_true=value) if when else Decided(if_false=value)</pre>
-      </div>
+  <div class="ctrl-row three">
       <div class="stack">
         <div class="diagram">
           <svg viewBox="0 0 560 230" role="img" aria-label="text-length feeds logic-equals, whose answer is control-decide's when. value goes into control-decide, and if_true feeds text-uppercase.">
@@ -685,6 +750,20 @@ def decision[T](value: T, when: bool) -> Decided[T]:
             <button class="btn" type="button" id="dec-hey" aria-pressed="false">text="hey"</button>
           </span>
         </div>
+        <p class="small">The skipped branch shows as <code>None</code> in <a href="running-and-streaming.html#outcomes"><code>run.results</code></a>, and the graph's output is <code>None</code> when <code>text-uppercase</code> was skipped.</p>
+      </div>
+      <div class="stack">
+        <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
+        <pre data-lang="py">@dataclass(frozen=True)
+class Decided[T]:
+    if_true: Annotated[T, Param(title="If true")] = SKIPPED
+    if_false: Annotated[T, Param(title="If false")] = SKIPPED
+
+@registry.node("control-decide", title="Decision", description="...")
+def decision[T](value: T, when: bool) -> Decided[T]:
+    return Decided(if_true=value) if when else Decided(if_false=value)</pre>
+      </div>
+      <div class="stack">
         <p class="cap">The same graph, run with both texts:</p>
         <pre data-lang="py">graph = Graph.compile(make_graph(text.length, logic.equals, control.decision, text.uppercase,
     edges=[("text-length.result", "logic-equals.value"),
@@ -697,14 +776,19 @@ for word in ("hi", "hey"):
     print(word, run.results["control-decide"], run.outputs)</pre>
         <pre class="out">hi {'if_true': 'pass', 'if_false': None} {'result': 'PASS'}
 hey {'if_true': None, 'if_false': 'pass'} {'result': None}</pre>
-        <p class="small">The skipped branch shows as <code>None</code> in <a href="running-and-streaming.html#outcomes"><code>run.results</code></a>, and the graph's output is <code>None</code> when <code>text-uppercase</code> was skipped.</p>
       </div>
-    </div>
+  </div>
+</section>
 
-    <!-- switch -->
-    <div class="ctrl-row">
+<div class="staff" aria-hidden="true"></div>
+
+<section id="switch" aria-labelledby="switch-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Choosing a way</p>
+    <h2 id="switch-h"><code class="id">control-switch</code> has a branch per case and one called <code>other</code></h2>
+  </div>
+  <div class="ctrl-row">
       <div class="stack">
-        <h3><code class="id">control-switch</code> has a branch per case and one called <code>other</code></h3>
         <p class="muted">Its outputs are named by <code>cases</code>, a constant written in the graph. Its <a href="nodes-and-types.html#hooks"><code>compute_outputs</code> hook</a> reads it when the graph is compiled. With <code>["invoice", "receipt"]</code> the outputs are <code>invoice</code>, <code>receipt</code> and <code>other</code>. A value whose <code>case</code> is none of them goes down <code>other</code>, so it isn't lost. The hook gets <code>value: type</code>, the type wired into <code>value</code>, and gives each name <code>(value, SKIPPED)</code>, so every branch has that type and the default <code>SKIPPED</code>. The match is exact. To ignore upper and lower case, put <code>text-lowercase</code> in front.</p>
         <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
         <pre data-lang="py" data-run="no">def _branches(cases: list[str], value: type) -> dict[str, Any]:
@@ -716,15 +800,6 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
     taken = case if case in cases else "other"
     return {name: value if name == taken else SKIPPED
             for name in [*cases, "other"]}</pre>
-        <p class="cap">Two graphs compiled with <code>cases</code> the hook refuses. Each refusal is a <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a> entry, with the hook's code in its <code>ctx</code>.</p>
-        <pre data-lang="py">for cases in (["invoice", "other"], ["a", "b", "a"]):
-    graph = Graph.compile(make_graph(control.switch,
-        constants={"control-switch.cases": cases},
-        outputs={"result": "control-switch.other"}), conductor_nodes.registry)
-    print(cases, [(p.type, p.ctx["error"]) for p in graph.problems])</pre>
-        <pre class="out">['invoice', 'other'] [('compute_hook_failed', 'case_named_other')]
-['a', 'b', 'a'] [('compute_hook_failed', 'case_given_twice')]</pre>
-        <p class="small"> Since the hook reads <code>cases</code>, the input takes only a constant, and <code>describe()</code> marks it <a href="nodes-and-types.html#hooks"><code>constant_only</code></a>.</p>
       </div>
       <div class="stack">
         <div class="diagram">
@@ -753,6 +828,30 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
           <span class="count" id="sw-count">1 / 4</span>
         </div>
         <p class="muted" id="sw-cap"></p>
+      </div>
+    </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="switch-hook" aria-labelledby="switch-hook-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Choosing a way</p>
+    <h2 id="switch-hook-h">The switch's hook, refused and run</h2>
+  </div>
+  <div class="two">
+    <div class="stack">
+        <p class="cap">Two graphs compiled with <code>cases</code> the hook refuses. Each refusal is a <a href="graph-record-and-compiling.html#walls"><code>graph.problems</code></a> entry, with the hook's code in its <code>ctx</code>.</p>
+        <pre data-lang="py">for cases in (["invoice", "other"], ["a", "b", "a"]):
+    graph = Graph.compile(make_graph(control.switch,
+        constants={"control-switch.cases": cases},
+        outputs={"result": "control-switch.other"}), conductor_nodes.registry)
+    print(cases, [(p.type, p.ctx["error"]) for p in graph.problems])</pre>
+        <pre class="out">['invoice', 'other'] [('compute_hook_failed', 'case_named_other')]
+['a', 'b', 'a'] [('compute_hook_failed', 'case_given_twice')]</pre>
+        <p class="small"> Since the hook reads <code>cases</code>, the input takes only a constant, and <code>describe()</code> marks it <a href="nodes-and-types.html#hooks"><code>constant_only</code></a>.</p>
+    </div>
+    <div class="stack">
         <p class="cap">The same graph, run:</p>
         <pre data-lang="py">items = [{"label": "invoice", "text": "a"}, {"label": "receipt", "text": "b"},
          {"label": "letter", "text": "c"}]
@@ -770,13 +869,19 @@ print(run.results["control-switch"])
 print(run.outputs)</pre>
         <pre class="out">{'invoice': ['a', None, None], 'receipt': [None, 'b', None], 'other': [None, None, 'c']}
 {'result': ['A', 'B', 'C']}</pre>
-      </div>
     </div>
+  </div>
+</section>
 
-    <!-- default -->
+<div class="staff" aria-hidden="true"></div>
+
+<section id="default" aria-labelledby="default-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Choosing a way</p>
+    <h2 id="default-h"><code class="id">control-default</code> gives the value or a fallback</h2>
+  </div>
     <div class="ctrl-row">
       <div class="stack">
-        <h3><code class="id">control-default</code> gives the value or a fallback</h3>
         <p class="muted">It gives <code>value</code>, or <code>fallback</code> when the value is <code>None</code>. A branch not chosen still skips it, since a skip wins. <code>fallback</code> can be a constant. Wire <code>fallback</code> from another node, and you get the first of two values that isn't <code>None</code>.</p>
         <p class="cap">The source in <code class="int" title="Internal">control.py</code> <span class="lvl int">Internal</span></p>
         <pre data-lang="py">def default[T](value: T | None, fallback: T) -> T:
@@ -800,11 +905,17 @@ print(skipped.run({"value": "Ida"}).results["control-default"])</pre>
         <pre class="out">{'result': None}</pre>
       </div>
     </div>
+</section>
 
-    <!-- type follows -->
+<div class="staff" aria-hidden="true"></div>
+
+<section id="follow" aria-labelledby="follow-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Choosing a way</p>
+    <h2 id="follow-h">The outputs take the type wired in</h2>
+  </div>
     <div class="ctrl-row">
       <div class="stack">
-        <h3>The outputs take the type wired in</h3>
         <p class="muted"><code>value</code> is a type variable <code>T</code>, and so are the outputs. When a graph is compiled, <code>T</code> becomes the type on the edge into <code>value</code>. Wire in the <code>int</code> of <code>text-length</code>, and both branches are <code>int</code>. A node wired after a branch is checked against <code>int</code>. Wire <code>if_true</code> into <code>text-uppercase.text</code>, a <code>str</code>, and <a href="graph-record-and-compiling.html#compiling">compiling</a> reports it.</p>
         <p class="small">With no edge into <code>value</code>, say a constant, the type stays <code>Any</code>. The palette's runs show that. There each node is alone, so <code>control-decide</code>'s outputs are <code>Any</code>.</p>
       </div>
@@ -822,7 +933,6 @@ print([(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems]
         <pre class="out">[('type_mismatch', ('text-uppercase', 'text'), 'int', 'str')]</pre>
       </div>
     </div>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -852,12 +962,14 @@ print([(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems]
 
 <!-- ============================ LOOPS ============================ -->
 <section id="loops" aria-labelledby="l-h">
-  <div class="section-head prose">
-    <p class="eyebrow">Loops and tables</p>
-    <h2 id="l-h">From a table into a loop and back <span class="lvl pub">Public</span></h2>
+  <div class="section-head side">
+    <div>
+      <p class="eyebrow">Loops and tables</p>
+      <h2 id="l-h">From a table into a loop and back <span class="lvl pub">Public</span></h2>
+    </div>
     <p class="muted">A table is one value. <code>series-split</code> takes it apart, so the nodes after it run once per row. <code>table-collect</code> puts the rows back into one table, with a new column for what was worked out for each. How loops work is on the <a href="series-and-tables.html">Series and tables</a> page. This is the package's own example, from its README.</p>
   </div>
-  <div class="two">
+  <div class="two loops-row">
     <div class="sample">
 <script type="text/x-python">
 reg = NodeRegistry()
@@ -1001,6 +1113,17 @@ print(json_ops.get_path(value, "user.name"), json_ops.get_path(value, "user. nam
       <p><code>control-decide</code> takes a yes or no. Small nodes work it out: <code>logic-equals</code>, <code>logic-is-empty</code>, <code>logic-not</code>, <code>text-contains</code>, <code>regex-match</code>. So there's no expression language to learn or to check.</p>
       <p class="cost"><b>Cost:</b> a condition is one more node in the graph.</p>
     </article>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="choices-more" aria-labelledby="c2-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="c2-h">Four more: the switch, widgets, failures and tests</h2>
+  </div>
+  <div class="choices four">
     <article class="choice">
       <h3>A switch always has <code>other</code>.</h3>
       <p>A case none of the branches names still goes somewhere. That's why a case may not be called <code>other</code> (<code>case_named_other</code>).</p>
@@ -1212,7 +1335,7 @@ const EMPTY = "The palette is written into this page when the docs are built. Op
       const nodes = PALETTE.filter((n) => n.category === m.cat && (!query || n.id.includes(query) || n.title.toLowerCase().includes(query)));
       if (!nodes.length) return;
       const g = document.createElement("div"); g.className = "group";
-      g.innerHTML = "<h3>" + esc(m.cat) + " <code>conductor_nodes." + esc(m.mod) + "</code></h3>";
+      g.innerHTML = "<h3>" + esc(m.cat) + " <code>conductor_nodes.<wbr>" + esc(m.mod) + "</code></h3>";
       const t = document.createElement("div"); t.className = "tiles";
       nodes.forEach((n) => {
         const b = document.createElement("button");
