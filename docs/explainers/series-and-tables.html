@@ -109,7 +109,7 @@ code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
 .muted { color: var(--ink-2); }
 .small { font-size: var(--step--1); color: var(--ink-3); }
 section { padding-top: var(--section); }
-.section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; max-width: var(--col); }
+.section-head { display: grid; gap: .6rem; margin-bottom: 1.5rem; max-width: var(--col); }
 .staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
 
 /* hero */
@@ -137,6 +137,48 @@ pre.out { color: var(--ink-2); background: none; padding: .25rem 1rem .5rem; bor
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 2.5rem; align-items: start; }
 @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
 .split > * { min-width: 0; }
+/* a section's words, then a second sample under them, beside a first sample */
+.blocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); grid-template-rows: auto 1fr; gap: .75rem 2.5rem; align-items: start; }
+.blocks > * { min-width: 0; }
+.blocks > .section-head { margin-bottom: 0; }
+.limit-top > .stack-col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+.limit-top > .stack-col > .section-head { margin-bottom: 0; }
+.limit-top input[type=range] { width: 7rem; }
+.blocks > :nth-child(2) { grid-column: 2; grid-row: 1 / 3; }
+.blocks > :nth-child(3) { grid-column: 1; grid-row: 2; }
+@media (max-width: 900px) { .blocks { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; } .blocks > * { grid-column: auto !important; grid-row: auto !important; } }
+/* a section's head beside its widget */
+.head-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1rem 2.5rem; align-items: start; margin-bottom: 1.5rem; }
+.head-row > * { min-width: 0; }
+.head-row > .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .head-row { grid-template-columns: minmax(0, 1fr); } }
+/* a section's words beside its sample: the words and what the sample prints on the left, the code on the right.
+   A long sample comes in two parts, side by side (.duo.three). The page keeps the order code, then output, so a
+   reader on a narrow screen and the samples' test read them as one after the other. */
+.duo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); grid-template-rows: auto auto 1fr; gap: 1rem 2.5rem; align-items: start; }
+.duo.three { grid-template-columns: minmax(0, .85fr) minmax(0, 1fr) minmax(0, 1fr); gap: 1rem 1.75rem; }
+.duo > *, .duo > .sample > * { min-width: 0; }
+.duo > .sample { display: contents; }
+.duo > :first-child { grid-column: 1; grid-row: 1; }
+.duo pre[data-lang]:not(.out) { grid-column: 2; grid-row: 1 / 4; }
+.duo pre.out { grid-column: 1; grid-row: 2; }
+.duo .after { grid-column: 1; grid-row: 3; }
+/* .right: the output, and a note, under the code */
+.duo:is(.right, .three) > :first-child { grid-row: 1 / 4; }
+.duo.right pre[data-lang]:not(.out) { grid-row: 1; }
+.duo.right pre.out { grid-column: 2; grid-row: 2; }
+.duo.right .after { grid-column: 2; grid-row: 3; }
+/* .three: the code in two parts side by side, the output and a note under the second */
+.duo.three pre[data-lang]:not(.out) ~ pre[data-lang]:not(.out) { grid-column: 3; grid-row: 1; }
+.duo.three pre.out { grid-column: 3; grid-row: 2; }
+.duo.three .after { grid-column: 3; grid-row: 3; }
+/* a label that says what an output is goes right above it */
+.duo.three .lead-in { grid-column: 3; grid-row: 2; }
+.duo.three .lead-in + pre.out { grid-row: 3; }
+@media (max-width: 900px) {
+  .duo, .duo.three { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .duo > *, .duo > .sample > * { grid-column: auto !important; grid-row: auto !important; }
+}
 
 /* figures */
 figure { margin: 0; display: grid; gap: .75rem; min-width: 0; }
@@ -144,7 +186,7 @@ figure { margin: 0; display: grid; gap: .75rem; min-width: 0; }
 .diagram svg { width: 100%; height: auto; display: block; }
 @media (max-width: 900px) { .diagram { overflow-x: auto; } .diagram svg { min-width: 560px; } }
 /* a diagram with its caption and readout beside it, on a wide screen */
-figure.side { grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr); gap: 1.25rem 2.5rem; align-items: start; }
+figure.side { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 1.25rem 2.5rem; align-items: start; }
 figure.side > .aside { display: grid; gap: 1.25rem; align-content: start; min-width: 0; }
 @media (max-width: 900px) { figure.side { grid-template-columns: minmax(0, 1fr); } }
 .readout.stack { grid-template-columns: minmax(0, 1fr); }
@@ -446,19 +488,19 @@ body { margin: 0; }
   </div>
 
   <div class="widget">
-    <div class="controls">
-      <span class="ctl-label">lines</span>
-      <input type="range" id="loop-n" min="0" max="5" value="3" aria-label="How many lines">
-      <span class="mono" id="loop-n-out">3</span>
-      <span class="ctl-label" style="margin-left:.75rem">join takes</span>
-      <div class="seg" role="group" aria-label="What join takes">
-        <button type="button" id="loop-collect" aria-pressed="true">texts: Series[str]</button>
-        <button type="button" id="loop-per" aria-pressed="false">texts: str</button>
-      </div>
-    </div>
     <figure class="side">
       <div class="diagram"><svg id="loop-svg" viewBox="0 0 640 300" role="img" aria-label="lines returns a Series. shout is called once per item. join is called once, or once per item."></svg></div>
       <div class="aside">
+        <div class="controls">
+          <span class="ctl-label">lines</span>
+          <input type="range" id="loop-n" min="0" max="5" value="3" aria-label="How many lines">
+          <span class="mono" id="loop-n-out">3</span>
+          <span class="ctl-label" style="margin-left:.75rem">join takes</span>
+          <div class="seg" role="group" aria-label="What join takes">
+            <button type="button" id="loop-collect" aria-pressed="true">texts: Series[str]</button>
+            <button type="button" id="loop-per" aria-pressed="false">texts: str</button>
+          </div>
+        </div>
         <figcaption id="loop-cap"></figcaption>
         <dl class="readout stack">
           <div><dt>calls, from run.progress</dt><dd id="loop-calls"></dd></div>
@@ -469,9 +511,15 @@ body { margin: 0; }
     </figure>
   </div>
 
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3 id="progress">Progress</h3>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="progress" aria-labelledby="progress-h">
+  <div class="duo">
+    <div class="prose section-head">
+      <p class="eyebrow">A loop</p>
+      <h2 id="progress-h">Progress through a loop</h2>
       <p class="muted">How many calls <code>shout</code> will have depends on how many lines <code>lines</code> returns. The first line the sample prints is the count of <code>shout</code> before <code>lines</code> has returned, and the last is the count after it returned three lines.</p>
       <p class="muted">With no lines, <code>shout</code> is never called, and <code>join</code> is still called, with an empty list.</p>
       <p class="muted"><a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a> says which series each node runs per item of, in <code>per_item_of</code>. An editor can show that before anything runs.</p>
@@ -531,9 +579,15 @@ finished=3 waiting=0 skipped=0 none_input=0 known=3 total=3</pre>
     </dl>
   </div>
 
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3>Three ways to say which call</h3>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="which-call" aria-labelledby="which-call-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">Item indexes</p>
+      <h2 id="which-call-h">Three ways to say which call</h2>
       <ul class="plain muted">
         <li><b>Item indexes</b> are the indexes alone: <code>(0, 1)</code> is line 1 of document 0. A node inside no loop has <code>()</code>.</li>
         <li><b>A <a href="subgraphs.html#places">loc</a></b> puts each index right after the id of the node inside that loop, in the graph where the loop is: <code>("approve", 0, 1)</code>. A <a href="problems.html">problem</a> names a call by its loc, and so does <a href="running-and-streaming.html#outcomes"><code>run.none_input_calls</code></a>.</li>
@@ -566,9 +620,8 @@ def approve(line: str) -> bool:
 
 @registry.node("count", title="Count", description="Counts what it is given.")
 def count(answers: Series[bool]) -> int:
-    return len(answers)
-
-graph = Graph.compile(
+    return len(answers)</pre>
+      <pre data-lang="py">graph = Graph.compile(
     make_graph(docs, lines, approve, count, edges=[
         ("docs.result", "lines.doc"), ("lines.result", "approve.line"), ("approve.result", "count.answers")]),
     registry,
@@ -585,7 +638,7 @@ print(run.results["count"]["result"])</pre>
 ['Approve a?', 'Approve b?', 'Approve c?']
 [[True, True], [True]]
 [2, 1]</pre>
-      <p class="small">The sample cuts the fingerprint after <code>~</code> off each waiting id, so it prints only how each call is named.</p>
+      <p class="small after">The sample cuts the fingerprint after <code>~</code> off each waiting id, so it prints only how each call is named.</p>
     </div>
   </div>
 </section>
@@ -594,14 +647,11 @@ print(run.results["count"]["result"])</pre>
 
 <!-- ============================ HOW AN INPUT READS ============================ -->
 <section id="inputs" aria-labelledby="in-h">
-  <div class="section-head">
-    <p class="eyebrow">Where an input's value comes from</p>
-    <h2 id="in-h">Compiling decides where each input gets its value</h2>
-    <p class="muted">Every run of the graph uses what <a href="graph-record-and-compiling.html#compiling">compiling</a> decided. In <a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a>, each input's <code>source</code> is an <a href="graph-record-and-compiling.html#compiling"><code>InputSource</code></a>: a <code>mode</code>, and the series it reads from. The sample adds a heading, worked out once, to the loop above. <code>python -m conductor.about compiling</code> lists every mode.</p>
-  </div>
-
-  <div class="split">
-    <div class="prose">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="in-h">Compiling decides where each input gets its value</h2>
+      <p class="muted">Every run of the graph uses what <a href="graph-record-and-compiling.html#compiling">compiling</a> decided. In <a href="graph-record-and-compiling.html#compiling"><code>graph.describe()</code></a>, each input's <code>source</code> is an <a href="graph-record-and-compiling.html#compiling"><code>InputSource</code></a>: a <code>mode</code>, and the series it reads from. The sample adds a heading, worked out once, to the loop above. <code>python -m conductor.about compiling</code> lists every mode.</p>
       <p class="muted"><code>shout.line</code> gets one item of <code>lines.result</code> per call. <code>shout.heading</code> comes from <code>title</code>, which runs once outside the loop, so every call of <code>shout</code> gets the same heading. Nothing is copied. <code>join.texts</code> collects the loop. The constant and the input's own default are both a <code>constant</code>.</p>
     </div>
     <div class="sample">
@@ -621,8 +671,8 @@ def shout(line: str, heading: str, mark: str = "!") -&gt; str:
 @registry.node("join", title="Join", description="Joins texts into one.")
 def join(texts: Series[str]) -&gt; str:
     return " ".join(texts)
-
-graph = Graph.compile(
+</pre>
+      <pre data-lang="py">graph = Graph.compile(
     make_graph(lines, title, shout, join, constants={"title.text": "notes"}, edges=[
         ("lines.result", "shout.line"), ("title.result", "shout.heading"), ("shout.result", "join.texts")]),
     registry,
@@ -640,57 +690,58 @@ title.text     constant     None
 {'result': 'NOTES: A! NOTES: B!'}</pre>
     </div>
   </div>
+</section>
 
-  <figure class="side" style="margin-top:2.5rem">
-    <div class="diagram"><svg viewBox="0 0 780 290" role="img" aria-label="An edge that reads one item gives the call at item index i the item i of the stored Series. An input wired straight to the Series reads it whole. An input that collects a loop reads each call's outcome in item order.">
-      <defs>
-        <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
-        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow acc" d="M0 0 10 5 0 10z"/></marker>
-      </defs>
-      <text class="d-title" x="20" y="24">lines @ ()</text>
-      <rect class="d-box int" x="20" y="38" width="200" height="104" rx="10"/>
-      <text class="d-sub" x="36" y="60">result: a stored Series</text>
-      <rect class="d-box acc" x="36" y="74" width="52" height="28" rx="6"/><text class="d-label" x="62" y="93" text-anchor="middle">[0] a</text>
-      <rect class="d-box" x="94" y="74" width="52" height="28" rx="6"/><text class="d-label" x="120" y="93" text-anchor="middle">[1] b</text>
-      <rect class="d-box" x="152" y="74" width="52" height="28" rx="6"/><text class="d-label" x="178" y="93" text-anchor="middle">[2] c</text>
-      <text class="d-sub" x="36" y="126">with a field: cell(name, i)</text>
+<div class="staff" aria-hidden="true"></div>
 
-      <text class="d-title" x="290" y="24">one call per item</text>
-      <path class="d-edge acc" d="M88 88 C 200 60, 240 58, 288 58" marker-end="url(#ar2)"/>
-      <text class="d-sub" x="254" y="48" text-anchor="middle">item i</text>
-      <rect class="d-box acc" x="290" y="38" width="150" height="40" rx="8"/>
-      <text class="d-label" x="365" y="56" text-anchor="middle">shout @ (0,)</text><text class="d-sub" x="365" y="71" text-anchor="middle">line = "a"</text>
-      <rect class="d-box" x="290" y="86" width="150" height="34" rx="8"/><text class="d-label" x="365" y="108" text-anchor="middle">shout @ (1,)</text>
-      <rect class="d-box" x="290" y="128" width="150" height="34" rx="8"/><text class="d-label" x="365" y="150" text-anchor="middle">shout @ (2,)</text>
-
-      <text class="d-title" x="560" y="24">collects the loop</text>
-      <path class="d-edge" d="M440 58 C 500 58, 500 100, 558 100" marker-end="url(#ar1)"/>
-      <path class="d-edge" d="M440 103 L 558 103"/>
-      <path class="d-edge" d="M440 145 C 500 145, 500 106, 558 106"/>
-      <rect class="d-box" x="560" y="80" width="200" height="46" rx="8"/>
-      <text class="d-label" x="660" y="99" text-anchor="middle">join @ ()</text>
-      <text class="d-sub" x="660" y="115" text-anchor="middle">each outcome, in item order</text>
-
-      <text class="d-title" x="290" y="214">wired straight to the Series</text>
-      <path class="d-edge" d="M120 142 C 120 250, 240 250, 288 250" marker-end="url(#ar1)"/>
-      <text class="d-sub" x="200" y="272" text-anchor="middle">the whole list</text>
-      <rect class="d-box" x="290" y="228" width="210" height="44" rx="8"/>
-      <text class="d-label" x="395" y="247" text-anchor="middle">a node with texts: Series[str]</text>
-      <text class="d-sub" x="395" y="263" text-anchor="middle">wired to lines.result, @ ()</text>
-    </svg></div>
-    <div class="aside">
-      <figcaption>An edge that reads one item gives each call the item at its own index.</figcaption>
-      <p class="small">A solid outline is public and a dashed one is internal. The dashed box is the Series as the run keeps it.</p>
-    </div>
-  </figure>
-
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3>The type decides how many values an input takes <span class="lvl pub">Public</span></h3>
+<section id="one-or-many" aria-labelledby="one-or-many-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="one-or-many-h">The type decides how many values an input takes <span class="lvl pub">Public</span></h2>
       <p class="muted">One value is never a list of one. An edge that gives each call one value, wired to a <code>Series</code> input, is the compile problem <code>type_mismatch_series_given_one_value</code> at that input, and the graph doesn't run. A list the caller gives to an input of one <code>str</code> is refused with <code>invalid_input_list_for_one_value</code>.</p>
-      <p class="muted">The other way round, a <code>Series</code> output wired to an input that takes a plain <code>list</code> is refused too. The edge gives that input one item per call, and one item isn't a list. Compiling reports <code>type_mismatch_series_into_list</code>, and its message says the fix: declare the input <code>Series[T]</code>, which takes every item as one list.</p>
-      <p class="muted">Two series that are not one inside the other never pair up item by item. Compiling reports <code>series_not_nested</code> at the node where they meet. To fix it, put one inside the other, or give one of them whole to a <code>Series</code> input.</p>
-      <p class="muted">The rules are in <code>python -m conductor.about one-or-many</code>, and each code on <a href="../problems/">the problems page</a>.</p>
+      <figure>
+        <div class="diagram"><svg viewBox="0 0 780 290" role="img" aria-label="An edge that reads one item gives the call at item index i the item i of the stored Series. An input wired straight to the Series reads it whole. An input that collects a loop reads each call's outcome in item order.">
+          <defs>
+            <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 10 5 0 10z"/></marker>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow acc" d="M0 0 10 5 0 10z"/></marker>
+          </defs>
+          <text class="d-title" x="20" y="24">lines @ ()</text>
+          <rect class="d-box int" x="20" y="38" width="200" height="104" rx="10"/>
+          <text class="d-sub" x="36" y="60">result: a stored Series</text>
+          <rect class="d-box acc" x="36" y="74" width="52" height="28" rx="6"/><text class="d-label" x="62" y="93" text-anchor="middle">[0] a</text>
+          <rect class="d-box" x="94" y="74" width="52" height="28" rx="6"/><text class="d-label" x="120" y="93" text-anchor="middle">[1] b</text>
+          <rect class="d-box" x="152" y="74" width="52" height="28" rx="6"/><text class="d-label" x="178" y="93" text-anchor="middle">[2] c</text>
+          <text class="d-sub" x="36" y="126">with a field: cell(name, i)</text>
+
+          <text class="d-title" x="290" y="24">one call per item</text>
+          <path class="d-edge acc" d="M88 88 C 200 60, 240 58, 288 58" marker-end="url(#ar2)"/>
+          <text class="d-sub" x="254" y="48" text-anchor="middle">item i</text>
+          <rect class="d-box acc" x="290" y="38" width="150" height="40" rx="8"/>
+          <text class="d-label" x="365" y="56" text-anchor="middle">shout @ (0,)</text><text class="d-sub" x="365" y="71" text-anchor="middle">line = "a"</text>
+          <rect class="d-box" x="290" y="86" width="150" height="34" rx="8"/><text class="d-label" x="365" y="108" text-anchor="middle">shout @ (1,)</text>
+          <rect class="d-box" x="290" y="128" width="150" height="34" rx="8"/><text class="d-label" x="365" y="150" text-anchor="middle">shout @ (2,)</text>
+
+          <text class="d-title" x="560" y="24">collects the loop</text>
+          <path class="d-edge" d="M440 58 C 500 58, 500 100, 558 100" marker-end="url(#ar1)"/>
+          <path class="d-edge" d="M440 103 L 558 103"/>
+          <path class="d-edge" d="M440 145 C 500 145, 500 106, 558 106"/>
+          <rect class="d-box" x="560" y="80" width="200" height="46" rx="8"/>
+          <text class="d-label" x="660" y="99" text-anchor="middle">join @ ()</text>
+          <text class="d-sub" x="660" y="115" text-anchor="middle">each outcome, in item order</text>
+
+          <text class="d-title" x="290" y="214">wired straight to the Series</text>
+          <path class="d-edge" d="M120 142 C 120 250, 240 250, 288 250" marker-end="url(#ar1)"/>
+          <text class="d-sub" x="200" y="272" text-anchor="middle">the whole list</text>
+          <rect class="d-box" x="290" y="228" width="210" height="44" rx="8"/>
+          <text class="d-label" x="395" y="247" text-anchor="middle">a node with texts: Series[str]</text>
+          <text class="d-sub" x="395" y="263" text-anchor="middle">wired to lines.result, @ ()</text>
+        </svg></div>
+        <div class="aside">
+          <figcaption>An edge that reads one item gives each call the item at its own index.</figcaption>
+          <p class="small">A solid outline is public and a dashed one is internal. The dashed box is the Series as the run keeps it.</p>
+        </div>
+      </figure>
     </div>
     <div class="sample">
       <script type="text/x-python">from conductor import InvalidCallError
@@ -713,6 +764,21 @@ except InvalidCallError as e:
     print([(p.type, p.loc) for p in e.problems])</pre>
       <pre class="out">type_mismatch_series_given_one_value ('join', 'texts') {'input': 'texts', 'source': 'shout.result', 'item': 'str'}
 [('invalid_input_list_for_one_value', ('inputs', 'word'))]</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="one-or-many-refusals" aria-labelledby="refusals-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="refusals-h">A Series into a list is refused</h2>
+      <p class="muted">A <code>Series</code> output wired to an input that takes a plain <code>list</code> is refused, the other way round from the section above. The edge gives that input one item per call, and one item isn't a list. Compiling reports <code>type_mismatch_series_into_list</code>, and its message says the fix: declare the input <code>Series[T]</code>, which takes every item as one list.</p>
+      <p class="muted">The rules are in <code>python -m conductor.about one-or-many</code>, and each code on <a href="../problems/">the problems page</a>.</p>
+    </div>
+    <div class="sample">
       <pre data-lang="py">@registry.node("words", title="Words", description="Splits a text into words.")
 def words(text: str) -&gt; Series[str]:
     return text.split()
@@ -732,6 +798,20 @@ print(Graph.compile(make_graph(words, joinall), registry).run({"text": "a b c"})
       <pre class="out">type_mismatch_series_into_list ('joinlist', 'texts') {'node_id': 'joinlist', 'input': 'texts', 'source': 'words.result', 'got': 'Series[str]', 'expected': 'list[str]', 'item': 'str'}
 'words.result' gives Series[str], but 'joinlist.texts' takes list[str]. To take every item as one list, declare the input Series[str] in place of list[str].
 {'result': 'a+b+c'}</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="not-nested" aria-labelledby="not-nested-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">Where an input's value comes from</p>
+      <h2 id="not-nested-h">Two series that don't nest never pair up</h2>
+      <p class="muted">Two series that are not one inside the other never pair up item by item. Compiling reports <code>series_not_nested</code> at the node where they meet. To fix it, put one inside the other, or give one of them whole to a <code>Series</code> input.</p>
+    </div>
+    <div class="sample">
       <pre data-lang="py">@registry.node("greet", title="Greet", description="Greets a person by name.")
 def greet(name: str, greeting: str) -> str:
     return f"{greeting} {name}"
@@ -744,7 +824,7 @@ record = make_graph(
 (problem,) = Graph.compile(record, registry).problems
 print(problem.type, problem.loc, problem.ctx["series"])</pre>
       <pre class="out">series_not_nested ('greet',) ['words-1.result', 'words-2.result']</pre>
-      <p class="small">The samples run with their imports and a <code>registry</code>, and the <code>series_not_nested</code> one with <code>words(text: str) -&gt; Series[str]</code>, which splits on spaces.</p>
+      <p class="small after">The samples run with their imports and a <code>registry</code>, and the <code>series_not_nested</code> one with <code>words(text: str) -&gt; Series[str]</code>, which splits on spaces.</p>
     </div>
   </div>
 </section>
@@ -753,6 +833,7 @@ print(problem.type, problem.loc, problem.ctx["series"])</pre>
 
 <!-- ============================ COLLECTING ============================ -->
 <section id="collect" aria-labelledby="col-h">
+  <div class="head-row">
   <div class="section-head">
     <p class="eyebrow">What collecting leaves out</p>
     <h2 id="col-h">Two lists from one loop stay paired <span class="lvl pub">Public</span></h2>
@@ -770,10 +851,17 @@ print(problem.type, problem.loc, problem.ctx["series"])</pre>
       <div><dt>keep.result</dt><dd id="col-keep"></dd></div>
     </dl>
   </div>
+  </div>
 
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3>Which items are left out</h3>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="left-out" aria-labelledby="left-out-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">What collecting leaves out</p>
+      <h2 id="left-out-h">Which items are left out</h2>
       <p class="muted">An item with no value is left out of a <code>Series[X]</code> input. When a node has two such inputs collected from one loop, an item with no value in either is dropped from both, so <code>names[i]</code> and <code>emails[i]</code> are still the same item. <code>Series[X | None]</code> keeps the item's place as <code>None</code>.</p>
       <p class="muted">What collecting does when no item could have a value, as when every call is downstream of <a href="nodes-and-types.html#outputs">a branch that wasn&rsquo;t chosen</a>, is in <code>python -m conductor.about one-or-many</code>, under "What collecting leaves out".</p>
     </div>
@@ -791,9 +879,8 @@ def pair(names: Series[str], emails: Series[str]) -> list[str]:
 
 @registry.node("keep", title="Keep", description="Keeps the gaps.")
 def keep(emails: Series[str | None]) -> list[str | None]:
-    return emails
-
-graph = Graph.compile(
+    return emails</pre>
+      <pre data-lang="py">graph = Graph.compile(
     make_graph(names, email, pair, keep, edges=[
         ("names.result", "email.name"), ("names.result", "pair.names"),
         ("email.result", "pair.emails"), ("email.result", "keep.emails")],
@@ -822,7 +909,7 @@ widget_graph = Graph.compile(
     widget_registry,
 )
 </script>
-      <p class="small">The sample runs with a node <code>names(text: str) -&gt; Series[str]</code>, which splits on commas.</p>
+      <p class="small after">The sample runs with a node <code>names(text: str) -&gt; Series[str]</code>, which splits on commas.</p>
     </div>
   </div>
 </section>
@@ -831,14 +918,11 @@ widget_graph = Graph.compile(
 
 <!-- ============================ STORED ============================ -->
 <section id="stored" aria-labelledby="st-h">
-  <div class="section-head">
-    <p class="eyebrow">What a node returns for a Series</p>
-    <h2 id="st-h">A node may return a frame for a Series of rows</h2>
-    <p class="muted">What a node returns for a <code>Series</code> output is checked by the output's type. For <code>Series[R]</code>, with <code>R</code> a <code>TypedDict</code>, or for <code>Series[dict]</code>, <code>Series[dict[str, Any]]</code> or <code>Series[Any]</code>, a node may return a <code>polars.DataFrame</code> instead of a list.</p>
-  </div>
-
-  <div class="split">
-    <div class="prose">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">What a node returns for a Series</p>
+      <h2 id="st-h">A node may return a frame for a Series of rows</h2>
+      <p class="muted">What a node returns for a <code>Series</code> output is checked by the output's type. For <code>Series[R]</code>, with <code>R</code> a <code>TypedDict</code>, or for <code>Series[dict]</code>, <code>Series[dict[str, Any]]</code> or <code>Series[Any]</code>, a node may return a <code>polars.DataFrame</code> instead of a list.</p>
       <h3>What a Series is read from <span class="lvl pub">Public</span></h3>
       <p class="muted">From Python, a node may return a tuple, a range or a <code>polars.Series</code>, such as a column of a table. Each is read as a list of its values. A set is refused, because its order can change from one process to the next. The rule is in <code>python -m conductor.about types</code>.</p>
       <p class="muted">A type checker sees <code>Series[T]</code> as <code>list[T]</code>, so it wants a list returned. The engine accepts the others.</p>
@@ -867,9 +951,14 @@ polars.Series  -> ['a', 'b']
 set            -> failed, invalid_output: set_has_no_order</pre>
     </div>
   </div>
+</section>
 
-  <div class="section-head" style="margin-top:4rem">
-    <h3>A run keeps a Series as a list or as a frame <span class="lvl int">Internal</span></h3>
+<div class="staff" aria-hidden="true"></div>
+
+<section id="kept" aria-labelledby="kept-h">
+  <div class="section-head">
+    <p class="eyebrow">What a node returns for a Series</p>
+    <h2 id="kept-h">A run keeps a Series as a list or as a frame <span class="lvl int">Internal</span></h2>
     <p class="muted">A list becomes a <code class="int" title="Internal">SeriesItems</code>. A frame is kept as it is, as <code class="int" title="Internal">SeriesRows</code>. Both have the same methods, so the code that reads a stored Series never checks which one it has.</p>
   </div>
 
@@ -916,13 +1005,17 @@ set            -> failed, invalid_output: set_has_no_order</pre>
       <p class="small">A solid outline is public and a dashed one is internal.</p>
     </div>
   </figure>
+</section>
 
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3>Why keep the frame</h3>
+<div class="staff" aria-hidden="true"></div>
+
+<section id="why-frame" aria-labelledby="why-frame-h">
+  <div class="duo three">
+    <div class="prose section-head">
+      <p class="eyebrow">What a node returns for a Series</p>
+      <h2 id="why-frame-h">Why keep the frame</h2>
       <p class="muted">An edge that names a field reads one column of the frame, and a column that no edge reads stays in the frame until the run is saved.</p>
       <p class="muted">The frame is checked as a <code>Table[Contact]</code> when the node returns it, so it has exactly <code>Contact</code>'s columns. The <code>phone</code> column is gone before anything reads it. A <a href="saved-runs-and-reuse.html#saved">saved run</a> writes <code class="int" title="Internal">SeriesRows</code> as a table's JSON, and <code class="int" title="Internal">SeriesItems</code> as a JSON array.</p>
-      <p class="muted">A <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a> item has no JSON form, so <code class="int" title="Internal">for_saving()</code> writes it as <code>None</code> and lists its index beside the Series. A frame has no <code>SKIPPED</code> row.</p>
     </div>
     <div class="sample">
       <script type="text/x-python">import json
@@ -961,8 +1054,8 @@ def as_list(text: str) -> Series[Contact]:
 @registry.node("greet", title="Greet", description="Greets one contact.")
 def greet(name: str) -> str:
     return f"hi {name}"
-
-saved = {}
+</pre>
+      <pre data-lang="py">saved = {}
 for source in (as_frame, as_list):
     graph = Graph.compile(
         make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]), registry
@@ -970,12 +1063,26 @@ for source in (as_frame, as_list):
     run = graph.run({"text": "x"})
     stored = run._outcomes.of((source.id,))[()].outputs["result"]   # internal: how the run keeps it
     print(source.id, type(stored).__name__, run.results["greet"]["result"])
-    saved[source.id] = json.loads(run.to_json())["outcomes"][source.id]["outputs"]["result"]
-print(dumps(saved))</pre>
-      <p class="label small"><span class="lvl int">Internal</span>printed &middot; the class names <code class="int" title="Internal">SeriesRows</code> and <code class="int" title="Internal">SeriesItems</code>, read from <code class="int" title="Internal">run._outcomes</code></p>
+    saved[source.id] = json.loads(run.to_json())["outcomes"][source.id]["outputs"]["result"]</pre>
+      <p class="label small lead-in"><span class="lvl int">Internal</span>printed &middot; the class names <code class="int" title="Internal">SeriesRows</code> and <code class="int" title="Internal">SeriesItems</code>, read from <code class="int" title="Internal">run._outcomes</code></p>
       <pre class="out">as-frame SeriesRows ['hi Ida', 'hi Bo']
 as-list SeriesItems ['hi Ida', 'hi Bo']</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="saved-form" aria-labelledby="saved-form-h">
+  <div class="duo right">
+    <div class="prose section-head">
+      <p class="eyebrow">What a node returns for a Series</p>
+      <h2 id="saved-form-h">A saved run writes both forms as JSON</h2>
+      <p class="muted">A <a href="nodes-and-types.html#outputs"><code>SKIPPED</code></a> item has no JSON form, so <code class="int" title="Internal">for_saving()</code> writes it as <code>None</code> and lists its index beside the Series. A frame has no <code>SKIPPED</code> row.</p>
       <p class="label small"><span class="lvl pub">Public</span>printed &middot; the <code>result</code> of each source as <code>run.to_json()</code> saves it, printed by a small formatter <code>dumps</code>: an indent of 2, and a list that fits on one line kept on one line</p>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">print(dumps(saved))</pre>
       <pre class="out">{
   "as-frame": [
     {
@@ -1041,15 +1148,21 @@ as-list SeriesItems ['hi Ida', 'hi Bo']</pre>
     </svg></div>
     <div class="aside">
       <figcaption>A run <a href="saved-runs-and-reuse.html#saved">saves its values as JSON</a>, and some polars types don't come back the same. So each column is converted to the type it will come back as, when that changes no cell, and refused otherwise. A <code>Datetime</code> in a time zone other than UTC is refused, since it would come back in UTC.</figcaption>
+      <p class="small">A <code>Table[R]</code> input wired to rows inside a loop collects them into one table, the way a <code>Series</code> input collects items. What a row type may declare is in <code>python -m conductor.about one-or-many</code>, under "A table is one value".</p>
       <p class="small">A solid outline is public and a dashed one is internal.</p>
     </div>
   </figure>
 
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3 id="no-loop">A table never starts a loop <span class="lvl pub">Public</span></h3>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="no-loop" aria-labelledby="no-loop-h">
+  <div class="blocks">
+    <div class="prose section-head">
+      <p class="eyebrow">A whole table as one value</p>
+      <h2 id="no-loop-h">A table never starts a loop <span class="lvl pub">Public</span></h2>
       <p class="muted">A table is passed whole. A column of it is no source. An edge to <code>contacts.result.email</code> from a <code>Table</code> output is <code>unknown_output_field_of_whole_table_or_list</code>. To run per row, a node returns <code>Series[R]</code>. <a href="standard-nodes.html#loops">Split</a> in <a href="standard-nodes.html#modules"><code>syv-conductor-nodes</code></a> does that for any table or list.</p>
-      <p class="muted">The other way, a <code>Table[R]</code> input wired to rows inside a loop collects them into one table, the way a <code>Series</code> input collects items. What a row type may declare is in <code>python -m conductor.about one-or-many</code>, under "A table is one value".</p>
     </div>
     <div class="sample">
       <script type="text/x-python">from conductor import Table</script>
@@ -1071,8 +1184,15 @@ given = {
     "no rows": [],
 }
 for name, value in given.items():
-    print(f"{name:17} -> {graph.run({'invoices': value}).outputs['result']}")
-for name, value in {
+    print(f"{name:17} -> {graph.run({'invoices': value}).outputs['result']}")</pre>
+      <pre class="out">Table[customer: str, amount: int]
+rows              -> 2 rows, columns ['customer', 'amount'], amount Int64, sum 5100
+frame (Int32)     -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
+conductor's JSON  -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
+no rows           -> 0 rows, columns ['customer', 'amount'], amount Int64, sum 0</pre>
+    </div>
+    <div class="sample">
+      <pre data-lang="py">for name, value in {
     "missing column": [{"customer": "Ida"}],
     "blank amount": pl.DataFrame({"customer": ["Ida"], "amount": [None]}, schema={"customer": pl.String, "amount": pl.Int64}),
 }.items():
@@ -1081,12 +1201,7 @@ for name, value in {
     except InvalidCallError as e:
         p = e.problems[0]
         print(f"{name:17} -> {p.type}: {p.ctx.get('reason') or p.ctx['errors'][0]['msg']}")</pre>
-      <pre class="out">Table[customer: str, amount: int]
-rows              -> 2 rows, columns ['customer', 'amount'], amount Int64, sum 5100
-frame (Int32)     -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
-conductor's JSON  -> 1 rows, columns ['customer', 'amount'], amount Int64, sum 100
-no rows           -> 0 rows, columns ['customer', 'amount'], amount Int64, sum 0
-missing column    -> invalid_input: the column 'amount' is missing, and the row type needs it
+      <pre class="out">missing column    -> invalid_input: the column 'amount' is missing, and the row type needs it
 blank amount      -> invalid_input: column 'amount' has a blank cell, and its type doesn't allow blanks</pre>
     </div>
   </div>
@@ -1096,34 +1211,65 @@ blank amount      -> invalid_input: column 'amount' has a blank cell, and its ty
 
 <!-- ============================ ITEM LIMIT ============================ -->
 <section id="limit" aria-labelledby="lim-h">
-  <div class="section-head">
-    <p class="eyebrow">The item limit</p>
-    <h2 id="lim-h"><code>max_items</code> stops a run before it spends <span class="lvl pub">Public</span></h2>
-    <p class="muted"><a href="running-and-streaming.html#start"><code>graph.run(max_items=n)</code></a> limits how many items any one series a loop runs over may have. Over the limit, the run stops with the <a href="problems.html">problem</a> <code>item_limit</code>. The limit is on each series alone, never on all their items together.</p>
-  </div>
-
-  <div class="widget">
-    <div class="controls">
-      <span class="ctl-label">text</span>
-      <div class="seg" role="group" aria-label="The text">
-        <button type="button" id="lim-t1" aria-pressed="true">a,b|c,d|e,f</button>
-        <button type="button" id="lim-t2" aria-pressed="false">a,b|c,d,e,f|g</button>
-      </div>
-      <span class="ctl-label" style="margin-left:.75rem">max_items</span>
-      <input type="range" id="lim-m" min="1" max="5" value="3" aria-label="max_items">
-      <span class="mono" id="lim-m-out">3</span>
+  <div class="split limit-top">
+    <div class="stack-col">
+    <div class="section-head">
+      <p class="eyebrow">The item limit</p>
+      <h2 id="lim-h"><code>max_items</code> stops a run before it spends <span class="lvl pub">Public</span></h2>
+      <p class="muted"><a href="running-and-streaming.html#start"><code>graph.run(max_items=n)</code></a> limits how many items any one series a loop runs over may have. Over the limit, the run stops with the <a href="problems.html">problem</a> <code>item_limit</code>. The limit is on each series alone, never on all their items together.</p>
     </div>
-    <dl class="readout">
-      <div><dt>run.status</dt><dd><span class="status" id="lim-status"></span></dd></div>
-      <div><dt>run.cause.type, .loc and .ctx</dt><dd id="lim-cause"></dd></div>
-      <div><dt>calls of shout, and the outputs</dt><dd id="lim-out"></dd></div>
-    </dl>
-    <p class="small">The graph is <code>docs -&gt; lines -&gt; shout</code>. <code>docs</code> splits on <code>|</code>, <code>lines</code> on commas, and <code>shout</code> runs per line. No node in it uses <a href="running-and-streaming.html#policy">threads</a>. In the stopped runs, <code>shout</code> was not called at all.</p>
-  </div>
+    <div class="widget">
+      <div class="controls">
+        <span class="ctl-label">text</span>
+        <div class="seg" role="group" aria-label="The text">
+          <button type="button" id="lim-t1" aria-pressed="true">a,b|c,d|e,f</button>
+          <button type="button" id="lim-t2" aria-pressed="false">a,b|c,d,e,f|g</button>
+        </div>
+        <span class="ctl-label" style="margin-left:.75rem">max_items</span>
+        <input type="range" id="lim-m" min="1" max="5" value="3" aria-label="max_items">
+        <span class="mono" id="lim-m-out">3</span>
+      </div>
+      <dl class="readout stack">
+        <div><dt>run.status</dt><dd><span class="status" id="lim-status"></span></dd></div>
+        <div><dt>run.cause.type, .loc and .ctx</dt><dd id="lim-cause"></dd></div>
+        <div><dt>calls of shout, and the outputs</dt><dd id="lim-out"></dd></div>
+      </dl>
+      <p class="small">The graph is <code>docs -&gt; lines -&gt; shout</code>. <code>docs</code> splits on <code>|</code>, <code>lines</code> on commas, and <code>shout</code> runs per line. No node in it uses <a href="running-and-streaming.html#policy">threads</a>. In the stopped runs, <code>shout</code> was not called at all.</p>
+    </div>
+    </div>
+    <div class="sample">
+      <p class="small">The widget's graph, <code>docs -&gt; lines -&gt; shout</code>, stopped by the second document's lines:</p>
+      <script type="text/x-python">registry = NodeRegistry()</script>
+      <pre data-lang="py" data-name="limit">@registry.node("docs", title="Documents", description="Splits a text into documents.")
+def docs(text: str) -&gt; Series[str]:
+    return text.split("|")
 
-  <div class="split" style="margin-top:3rem">
-    <div class="prose">
-      <h3>Only what a loop runs over counts</h3>
+@registry.node("lines", title="Lines", description="Splits a document into lines.")
+def lines(doc: str) -&gt; Series[str]:
+    return doc.split(",")
+
+@registry.node("shout", title="Shout", description="Writes a line in capitals.")
+def shout(line: str) -&gt; str:
+    return line.upper()
+
+graph = Graph.compile(make_graph(docs, lines, shout, edges=[("docs.result", "lines.doc"), ("lines.result", "shout.line")]), registry)
+for max_items in (2, 3, 4):
+    run = graph.run({"text": "a,b|c,d,e,f|g"}, max_items=max_items)
+    print(max_items, run.status, run.cause and (run.cause.loc, run.cause.ctx), run.progress.nodes["shout"].finished)</pre>
+      <pre class="out">2 stopped (('docs',), {'series': 'docs.result', 'items': 3, 'max_items': 2}) 0
+3 stopped (('lines', 1), {'series': 'lines.result', 'items': 4, 'max_items': 3}) 0
+4 complete None 7</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="counts" aria-labelledby="counts-h">
+  <div class="blocks">
+    <div class="prose section-head">
+      <p class="eyebrow">The item limit</p>
+      <h2 id="counts-h">Only what a loop runs over counts</h2>
       <p class="muted">A series that is only collected or passed whole costs no calls, so it is not counted. A <code>Series</code> of rows kept as a table counts its rows.</p>
       <p class="muted">The run is <code>stopped</code>, not failed. <code>run.with_max_items(n)</code> is the same run under a new limit, and <a href="running-and-streaming.html#start"><code>resume()</code></a> goes on from there without calling again what was already called. The limit belongs to the run, so <code>resume()</code> and <a href="running-and-streaming.html#stream"><code>stream()</code></a> don't take it.</p>
       <p class="muted"><code>max_items</code> must be a whole number of at least 1; anything else is <a href="running-and-streaming.html#limits"><code>invalid_limit</code></a>. The rules of the limit are in <code>python -m conductor.about one-or-many</code>, under "The item limit".</p>
@@ -1152,6 +1298,8 @@ print(run.status, run.outputs, "calls of shout:", CALLS)</pre>
 words.result has 3 items, more than this run's max_items of 2. Raise max_items and resume the run.
 calls of shout: []
 complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
+    </div>
+    <div class="sample">
       <pre data-lang="py">for bad in (0, 2.5, True):
     try:
         graph.run({"text": "a"}, max_items=bad)
@@ -1160,27 +1308,6 @@ complete {'result': ['A', 'B', 'C']} calls of shout: ['a', 'b', 'c']</pre>
       <pre class="out">0 [('invalid_limit', ('max_items',))]
 2.5 [('invalid_limit', ('max_items',))]
 True [('invalid_limit', ('max_items',))]</pre>
-      <p class="small">The widget's graph, <code>docs -&gt; lines -&gt; shout</code>, stopped by the second document's lines:</p>
-      <script type="text/x-python">registry = NodeRegistry()</script>
-      <pre data-lang="py" data-name="limit">@registry.node("docs", title="Documents", description="Splits a text into documents.")
-def docs(text: str) -&gt; Series[str]:
-    return text.split("|")
-
-@registry.node("lines", title="Lines", description="Splits a document into lines.")
-def lines(doc: str) -&gt; Series[str]:
-    return doc.split(",")
-
-@registry.node("shout", title="Shout", description="Writes a line in capitals.")
-def shout(line: str) -&gt; str:
-    return line.upper()
-
-graph = Graph.compile(make_graph(docs, lines, shout, edges=[("docs.result", "lines.doc"), ("lines.result", "shout.line")]), registry)
-for max_items in (2, 3, 4):
-    run = graph.run({"text": "a,b|c,d,e,f|g"}, max_items=max_items)
-    print(max_items, run.status, run.cause and (run.cause.loc, run.cause.ctx), run.progress.nodes["shout"].finished)</pre>
-      <pre class="out">2 stopped (('docs',), {'series': 'docs.result', 'items': 3, 'max_items': 2}) 0
-3 stopped (('lines', 1), {'series': 'lines.result', 'items': 4, 'max_items': 3}) 0
-4 complete None 7</pre>
     </div>
   </div>
 </section>
