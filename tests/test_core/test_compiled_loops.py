@@ -538,19 +538,17 @@ def test_edges_from_two_branches_into_one_input_from_different_loops_are_refused
 
 
 def test_an_input_is_a_graph_input_only_where_its_entry_says_so_and_one_with_no_entry_is_a_problem_on_any_node():
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {
-                "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                "p": {
-                    "node": "pair",
-                    "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}},
-                },
-                "v": {"node": "upper"},
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            "p": {
+                "node": "pair",
+                "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}},
             },
-        }
-    )
+            "v": {"node": "upper"},
+        },
+    }
     graph = Graph.compile(record, REGISTRY)
     assert list(graph.inputs) == ["text"] and problems(graph) == [
         ("input_has_no_value", ("p", "b")),
@@ -625,17 +623,15 @@ def test_an_output_inside_a_loop_of_a_subgraph_is_offered_as_a_series():
 
 def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_any_nodes_are():
     registry = _with_subgraph({"p": "pair"}, [])
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"first": {}, "second": {}},
-            "nodes": {
-                "e": {
-                    "node": "inner",
-                    "inputs": {"a": {"graph_input": "first"}, "b": {"graph_input": "second"}},
-                }
-            },
-        }
-    )
+    record = {
+        "inputs": {"first": {}, "second": {}},
+        "nodes": {
+            "e": {
+                "node": "inner",
+                "inputs": {"a": {"graph_input": "first"}, "b": {"graph_input": "second"}},
+            }
+        },
+    }
     graph = Graph.compile(record, registry)
     assert list(graph.inputs) == ["first", "second"] and graph.inputs["first"].type == "str"
 

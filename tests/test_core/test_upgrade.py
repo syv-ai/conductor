@@ -259,8 +259,7 @@ def test_a_later_steps_rewrite_sees_the_constants_as_the_record_after_the_step_b
     def steps_v3(pair: list[int], day: str) -> str:
         return day
 
-    registry = NodeRegistry()
-    registry.add(steps_v3)
+    registry = registry_of(steps_v3)
     saved = GraphRecord.model_validate(
         {"nodes": {"s": {"node": "steps", "inputs": {"old": {"constant": "x"}}}}}
     )
@@ -933,8 +932,7 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
         def when(day: datetime.date) -> str:
             return day.isoformat()
 
-        registry = NodeRegistry()
-        registry.add(when)
+        registry = registry_of(when)
         if written is None:
             with pytest.raises(InvalidCallError) as refused:
                 registry.upgrade(saved, "w")

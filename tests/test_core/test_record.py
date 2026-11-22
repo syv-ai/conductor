@@ -9,9 +9,6 @@ the record doesn't have, that is a problem of the graph, in ``graph.problems``. 
 """
 
 import json
-import os
-import subprocess
-import sys
 from collections import UserList, deque
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -36,7 +33,7 @@ from conductor import (
 )
 from pydantic import MISSING, ValidationError
 
-from tests.test_core.nodes import input_entry, registry_of
+from tests.test_core.nodes import input_entry, printed_in_processes, registry_of
 
 
 @node("text", title="Text in", description="For a test.")
@@ -603,7 +600,7 @@ def test_several_edges_into_one_input_that_could_each_give_it_a_value_are_a_prob
             },
         },
     }
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes}), REGISTRY)
+    graph = Graph.compile({"nodes": nodes}, REGISTRY)
 
     assert [(p.type, p.loc, p.ctx["sources"]) for p in graph.problems] == [
         ("several_edges_into_one_input", ("j", "texts"), ["first.result", "second.result"])
@@ -617,17 +614,15 @@ def test_several_edges_into_one_input_that_could_each_give_it_a_value_are_a_prob
 
 def test_an_edge_from_a_node_the_graph_does_not_have_is_a_problem_on_the_input_it_leads_into():
     out_of = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "b": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "gone", "output": "result"}]}},
-                    }
-                },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+        {
+            "nodes": {
+                "b": {
+                    "node": "upper",
+                    "inputs": {"text": {"sources": [{"node": "gone", "output": "result"}]}},
+                }
+            },
+            "outputs": {"result": {"node": "b", "output": "result"}},
+        },
         REGISTRY,
     )
 
@@ -675,26 +670,24 @@ def test_a_required_input_with_no_entry_gets_no_value_on_any_node():
 
 def test_graph_inputs_and_graph_outputs_are_the_ones_the_record_declares():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"value": {}, "yes": {}},
-                "nodes": {
-                    "a": {"node": "text", "inputs": {"value": {"graph_input": "value"}}},
-                    "b": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                    "c": {
-                        "node": "both",
-                        "inputs": {"no": {"constant": "!"}, "yes": {"graph_input": "yes"}},
-                    },
+        {
+            "inputs": {"value": {}, "yes": {}},
+            "nodes": {
+                "a": {"node": "text", "inputs": {"value": {"graph_input": "value"}}},
+                "b": {
+                    "node": "upper",
+                    "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}},
                 },
-                "outputs": {
-                    "b_result": {"node": "b", "output": "result"},
-                    "c_result": {"node": "c", "output": "result"},
+                "c": {
+                    "node": "both",
+                    "inputs": {"no": {"constant": "!"}, "yes": {"graph_input": "yes"}},
                 },
-            }
-        ),
+            },
+            "outputs": {
+                "b_result": {"node": "b", "output": "result"},
+                "c_result": {"node": "c", "output": "result"},
+            },
+        },
         REGISTRY,
     )
 
@@ -706,12 +699,10 @@ def test_graph_inputs_and_graph_outputs_are_the_ones_the_record_declares():
 
 def test_an_optional_input_with_no_entry_gets_the_nodes_default_and_is_no_graph_input():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"t": {"node": "text"}},
-                "outputs": {"result": {"node": "t", "output": "result"}},
-            }
-        ),
+        {
+            "nodes": {"t": {"node": "text"}},
+            "outputs": {"result": {"node": "t", "output": "result"}},
+        },
         REGISTRY,
     )
 
@@ -721,21 +712,19 @@ def test_an_optional_input_with_no_entry_gets_the_nodes_default_and_is_no_graph_
 
 def test_a_constant_is_not_a_graph_input_and_a_default_is_a_graph_input_with_that_default():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"no": {"default": "n"}},
-                "nodes": {
-                    "b": {
-                        "node": "both",
-                        "inputs": {
-                            "yes": {"constant": "y"},
-                            "no": {"graph_input": "no"},
-                        },
-                    }
-                },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"no": {"default": "n"}},
+            "nodes": {
+                "b": {
+                    "node": "both",
+                    "inputs": {
+                        "yes": {"constant": "y"},
+                        "no": {"graph_input": "no"},
+                    },
+                }
+            },
+            "outputs": {"result": {"node": "b", "output": "result"}},
+        },
         REGISTRY,
     )
 
@@ -749,22 +738,20 @@ def test_a_constant_is_not_a_graph_input_and_a_default_is_a_graph_input_with_tha
 
 
 def test_a_graph_input_on_a_node_an_edge_leads_into_is_given_by_the_caller_like_any_other():
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"value": {}, "no": {"default": "n"}},
-            "nodes": {
-                "a": {"node": "text", "inputs": {"value": {"graph_input": "value"}}},
-                "b": {
-                    "node": "both",
-                    "inputs": {
-                        "no": {"graph_input": "no"},
-                        "yes": {"sources": [{"node": "a", "output": "result"}]},
-                    },
+    record = {
+        "inputs": {"value": {}, "no": {"default": "n"}},
+        "nodes": {
+            "a": {"node": "text", "inputs": {"value": {"graph_input": "value"}}},
+            "b": {
+                "node": "both",
+                "inputs": {
+                    "no": {"graph_input": "no"},
+                    "yes": {"sources": [{"node": "a", "output": "result"}]},
                 },
             },
-            "outputs": {"result": {"node": "b", "output": "result"}},
-        }
-    )
+        },
+        "outputs": {"result": {"node": "b", "output": "result"}},
+    }
     graph = Graph.compile(record, REGISTRY)
 
     assert graph.problems == [] and list(graph.inputs) == ["value", "no"]
@@ -780,19 +767,17 @@ def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required
     the caller's one value, so the caller must give it.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {}},
-                "nodes": {
-                    "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
-                    "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
-                },
-                "outputs": {
-                    "a_result": {"node": "a", "output": "result"},
-                    "b_result": {"node": "b", "output": "result"},
-                },
-            }
-        ),
+        {
+            "inputs": {"x": {}},
+            "nodes": {
+                "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
+                "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
+            },
+            "outputs": {
+                "a_result": {"node": "a", "output": "result"},
+                "b_result": {"node": "b", "output": "result"},
+            },
+        },
         REGISTRY,
     )
 
@@ -808,19 +793,17 @@ def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required
 
 def test_a_graph_input_is_declared_once_and_its_one_default_feeds_every_input_that_takes_it():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {"default": "p"}},
-                "nodes": {
-                    "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
-                    "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
-                },
-                "outputs": {
-                    "a_result": {"node": "a", "output": "result"},
-                    "b_result": {"node": "b", "output": "result"},
-                },
-            }
-        ),
+        {
+            "inputs": {"x": {"default": "p"}},
+            "nodes": {
+                "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
+                "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
+            },
+            "outputs": {
+                "a_result": {"node": "a", "output": "result"},
+                "b_result": {"node": "b", "output": "result"},
+            },
+        },
         REGISTRY,
     )
 
@@ -831,15 +814,13 @@ def test_a_graph_input_is_declared_once_and_its_one_default_feeds_every_input_th
 
 def test_a_graph_input_the_record_does_not_declare_is_a_problem_at_the_input_that_takes_it():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"y": {}},
-                "nodes": {
-                    "a": {"node": "text", "inputs": {"value": {"graph_input": "y"}}},
-                    "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
-                },
-            }
-        ),
+        {
+            "inputs": {"y": {}},
+            "nodes": {
+                "a": {"node": "text", "inputs": {"value": {"graph_input": "y"}}},
+                "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
+            },
+        },
         REGISTRY,
     )
 
@@ -859,15 +840,13 @@ def test_a_declared_graph_input_no_input_takes_is_the_graphs_problem_at_no_node(
     An entry on a node whose definition isn't found still names its graph input, so only ``spare`` is a problem.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {}, "spare": {"default": 1}, "lost": {}},
-                "nodes": {
-                    "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
-                    "g": {"node": "ghost", "inputs": {"value": {"graph_input": "lost"}}},
-                },
-            }
-        ),
+        {
+            "inputs": {"x": {}, "spare": {"default": 1}, "lost": {}},
+            "nodes": {
+                "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
+                "g": {"node": "ghost", "inputs": {"value": {"graph_input": "lost"}}},
+            },
+        },
         REGISTRY,
     )
 
@@ -878,15 +857,13 @@ def test_a_declared_graph_input_no_input_takes_is_the_graphs_problem_at_no_node(
 
 def test_a_graph_inputs_default_its_type_refuses_is_an_invalid_value_at_the_first_input_that_takes_it():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {"default": 3}},
-                "nodes": {
-                    "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
-                    "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
-                },
-            }
-        ),
+        {
+            "inputs": {"x": {"default": 3}},
+            "nodes": {
+                "a": {"node": "text", "inputs": {"value": {"graph_input": "x"}}},
+                "b": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
+            },
+        },
         REGISTRY,
     )
 
@@ -914,15 +891,13 @@ def test_two_types_for_one_graph_input_are_used_two_ways_whichever_node_comes_fi
     show ``invalid_value`` alone when the ``int`` node came first.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {"default": "5"}},
-                "nodes": {
-                    "a": {"node": a, "inputs": {"n": {"graph_input": "x"}}},
-                    "b": {"node": b, "inputs": {"n": {"graph_input": "x"}}},
-                },
-            }
-        ),
+        {
+            "inputs": {"x": {"default": "5"}},
+            "nodes": {
+                "a": {"node": a, "inputs": {"n": {"graph_input": "x"}}},
+                "b": {"node": b, "inputs": {"n": {"graph_input": "x"}}},
+            },
+        },
         registry_of(_as_int, _as_str),
     )
 
@@ -936,19 +911,15 @@ def test_a_graph_output_naming_a_node_or_an_output_the_record_lacks_is_the_graph
     the node's own, and the test would catch it.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "outputs": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
-                },
-                "outputs": {
-                    "gone": {"node": "nobody", "output": "result"},
-                    "missing": {"node": "outputs", "output": "nope"},
-                    "found": {"node": "outputs", "output": "result"},
-                },
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {"outputs": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
+            "outputs": {
+                "gone": {"node": "nobody", "output": "result"},
+                "missing": {"node": "outputs", "output": "nope"},
+                "found": {"node": "outputs", "output": "result"},
+            },
+        },
         REGISTRY,
     )
 
@@ -1341,24 +1312,22 @@ def _words(text: str) -> Series[str]:
 
 
 def test_graph_outputs_are_fields_described_as_a_complete_run_gives_them():
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {
-                "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
-                "u": {
-                    "node": "upper",
-                    "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}},
-                },
-                "d": {"node": "decide", "inputs": {"text": {"graph_input": "text"}}},
+    record = {
+        "inputs": {"text": {}},
+        "nodes": {
+            "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+            "u": {
+                "node": "upper",
+                "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}},
             },
-            "outputs": {
-                "words": {"node": "w", "output": "result"},
-                "loud": {"node": "u", "output": "result"},
-                "kept": {"node": "d", "output": "yes"},
-            },
-        }
-    )
+            "d": {"node": "decide", "inputs": {"text": {"graph_input": "text"}}},
+        },
+        "outputs": {
+            "words": {"node": "w", "output": "result"},
+            "loud": {"node": "u", "output": "result"},
+            "kept": {"node": "d", "output": "yes"},
+        },
+    }
     graph = Graph.compile(record, registry_of(_words, upper, decide))
 
     assert {
@@ -1521,13 +1490,11 @@ def test_make_graph_with_no_edges_and_the_one_input_named_in_inputs_is_not_a_cha
 def test_a_compiled_graph_keeps_its_own_definitions_whatever_the_registry_does_later():
     registry = registry_of(upper)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
+            "outputs": {"result": {"node": "u", "output": "result"}},
+        },
         registry,
     )
 
@@ -1539,15 +1506,13 @@ def test_a_compiled_graph_keeps_its_own_definitions_whatever_the_registry_does_l
 
 def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_is_refused():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            },
+            "outputs": {"result": {"node": "u", "output": "result"}},
+        },
         REGISTRY,
     )
 
@@ -1592,22 +1557,20 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
     The graph inputs are in the order of their nodes' ids, so ``b``'s come before ``u``'s.
     """
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "yes": {}, "no": {}},
-                "nodes": {
-                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "b": {
-                        "node": "both",
-                        "inputs": {"yes": {"graph_input": "yes"}, "no": {"graph_input": "no"}},
-                    },
+        {
+            "inputs": {"text": {}, "yes": {}, "no": {}},
+            "nodes": {
+                "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                "b": {
+                    "node": "both",
+                    "inputs": {"yes": {"graph_input": "yes"}, "no": {"graph_input": "no"}},
                 },
-                "outputs": {
-                    "b_result": {"node": "b", "output": "result"},
-                    "u_result": {"node": "u", "output": "result"},
-                },
-            }
-        ),
+            },
+            "outputs": {
+                "b_result": {"node": "b", "output": "result"},
+                "u_result": {"node": "u", "output": "result"},
+            },
+        },
         REGISTRY,
     )
     offered = ["yes", "no", "text"]
@@ -1676,13 +1639,11 @@ def test_a_list_a_graph_input_whose_type_takes_a_list_refuses_gives_its_reason_n
 
 def test_a_graph_input_is_given_by_its_name_never_by_a_source_and_an_item_limit_below_one_is_refused():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
+            "outputs": {"result": {"node": "u", "output": "result"}},
+        },
         REGISTRY,
     )
 
@@ -1709,18 +1670,16 @@ def test_a_subgraph_with_an_unknown_inner_node_is_one_problem_at_its_node_path()
         )
     )
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "b": {"node": "broken"},
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}},
-                    },
+        {
+            "nodes": {
+                "b": {"node": "broken"},
+                "u": {
+                    "node": "upper",
+                    "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "u", "output": "result"}},
+        },
         registry_of(upper, broken),
     )
 
@@ -1811,19 +1770,17 @@ def test_make_graph_chains_a_subgraph_by_the_inputs_and_outputs_its_record_decla
 
 def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id_and_the_names_its_record_declares():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}},
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "e", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}},
+                "u": {
+                    "node": "upper",
+                    "inputs": {"text": {"sources": [{"node": "e", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "u", "output": "result"}},
+        },
         SUBGRAPHS,
     )
 
@@ -1884,36 +1841,32 @@ def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_rec
 
 def test_a_subgraph_nodes_inputs_are_the_graph_inputs_its_record_declares():
     first = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x_text": {}, "y_text": {}},
-                "nodes": {
-                    "c": {
-                        "node": "pair",
-                        "inputs": {
-                            "x_text": {"graph_input": "x_text"},
-                            "y_text": {"graph_input": "y_text"},
-                        },
-                    }
-                },
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"x_text": {}, "y_text": {}},
+            "nodes": {
+                "c": {
+                    "node": "pair",
+                    "inputs": {
+                        "x_text": {"graph_input": "x_text"},
+                        "y_text": {"graph_input": "y_text"},
+                    },
+                }
+            },
+            "outputs": {"result": {"node": "c", "output": "result"}},
+        },
         SUBGRAPHS,
     )
     later = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "c": {
-                        "node": "pair",
-                        "inputs": {"x_text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "s": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                "c": {
+                    "node": "pair",
+                    "inputs": {"x_text": {"sources": [{"node": "s", "output": "result"}]}},
                 },
-            }
-        ),
+            },
+        },
         SUBGRAPHS,
     )
 
@@ -1954,29 +1907,25 @@ def test_a_table_input_gets_its_declared_columns():
 
     registry = registry_of(contacts, columns)
     narrowed = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "c": {"node": "contacts"},
-                    "n": {
-                        "node": "columns",
-                        "inputs": {"table": {"sources": [{"node": "c", "output": "result"}]}},
-                    },
+        {
+            "nodes": {
+                "c": {"node": "contacts"},
+                "n": {
+                    "node": "columns",
+                    "inputs": {"table": {"sources": [{"node": "c", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "n", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "n", "output": "result"}},
+        },
         registry,
     )
 
     assert Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"table": {}},
-                "nodes": {"n": {"node": "columns", "inputs": {"table": {"graph_input": "table"}}}},
-                "outputs": {"result": {"node": "n", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"table": {}},
+            "nodes": {"n": {"node": "columns", "inputs": {"table": {"graph_input": "table"}}}},
+            "outputs": {"result": {"node": "n", "output": "result"}},
+        },
         registry,
     ).run({"table": pl.DataFrame({"name": ["a"], "email": ["a@x"]})}).outputs == {"result": "name"}
     assert narrowed.run().outputs == {"result": "name"}
@@ -2014,13 +1963,11 @@ def test_a_records_field_whose_name_has_a_dot_is_wired_by_its_source():
 
 
 def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
-    plain = GraphRecord.model_validate(
-        {
-            "inputs": {"name": {}},
-            "nodes": {"h": {"node": "hello", "inputs": {"name": {"graph_input": "name"}}}},
-            "outputs": {"result": {"node": "h", "output": "result"}},
-        }
-    )
+    plain = {
+        "inputs": {"name": {}},
+        "nodes": {"h": {"node": "hello", "inputs": {"name": {"graph_input": "name"}}}},
+        "outputs": {"result": {"node": "h", "output": "result"}},
+    }
     shown = GraphRecord.model_validate(
         {
             "inputs": {"name": {}},
@@ -2056,22 +2003,20 @@ def test_every_field_of_a_node_but_its_display_is_in_the_fingerprint(name: str):
 
 
 def test_a_graphs_fingerprint_is_the_one_its_saved_runs_name():
-    record = GraphRecord.model_validate(
-        {
-            "nodes": {
-                "h": {
-                    "node": "hello",
-                    "inputs": {"name": {"constant": "Ida"}},
-                    "display": {"x": 3},
-                },
-                "s": {
-                    "node": "shout",
-                    "inputs": {"text": {"sources": [{"node": "h", "output": "result"}]}},
-                },
+    record = {
+        "nodes": {
+            "h": {
+                "node": "hello",
+                "inputs": {"name": {"constant": "Ida"}},
+                "display": {"x": 3},
             },
-            "outputs": {"result": {"node": "s", "output": "result"}},
-        }
-    )
+            "s": {
+                "node": "shout",
+                "inputs": {"text": {"sources": [{"node": "h", "output": "result"}]}},
+            },
+        },
+        "outputs": {"result": {"node": "s", "output": "result"}},
+    }
     assert Graph.compile(record, PLAIN).fingerprint == "60e731ed46c14905"
 
 
@@ -2675,17 +2620,7 @@ def test_make_graph_writes_and_compiles_a_graph_the_same_in_every_process():
 
     ``Literal[1, True]`` and ``Literal[True, 1]`` are equal, since ``1 == True``, and each keeps its own choices.
     """
-    finished = [
-        subprocess.run(
-            [sys.executable, "-c", _WRITTEN_AND_COMPILED_IN_ANOTHER_PROCESS],
-            env={**os.environ, "PYTHONHASHSEED": seed},
-            capture_output=True,
-            text=True,
-        )
-        for seed in ("1", "2", "3")
-    ]
-    assert [process.returncode for process in finished] == [0, 0, 0], finished[0].stderr
-    written = {process.stdout for process in finished}
+    written = printed_in_processes(_WRITTEN_AND_COMPILED_IN_ANOTHER_PROCESS, ("1", "2", "3"))
     assert len(written) == 1
     record, union, choices, problem = written.pop().splitlines()
     assert list(json.loads(record)["nodes"]["either"]["inputs"]) == ["a", "b", "c", "d", "e"]

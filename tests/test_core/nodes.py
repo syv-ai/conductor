@@ -1,9 +1,12 @@
 """Sample nodes that several test files share, written the way a node author would write them."""
 
+import json
 import os
+import subprocess
+import sys
 from dataclasses import dataclass
 from io import StringIO
-from typing import Annotated, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 from conductor import SKIPPED, Ask, InputEntry, NodeRegistry, Param, Series, Table
@@ -129,3 +132,38 @@ def calls_without_outcome(run):
         for name, count in run.progress.nodes.items()
         if count.total is None or count.finished + count.waiting < count.total
     ]
+
+
+def jsonb(text: str) -> str:
+    """Returns ``text`` the way Postgres ``jsonb`` gives it back, with every object's keys reordered.
+
+    ``jsonb`` puts shorter keys first, then sorts keys of the same length bytewise.
+    """
+
+    def order(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                k: order(value[k])
+                for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))
+            }
+        return [order(v) for v in value] if isinstance(value, list) else value
+
+    return json.dumps(order(json.loads(text)))
+
+
+def printed_in_processes(code: str, seeds: tuple[str, ...]) -> set[str]:
+    """Runs ``code`` in a new Python process per hash seed in ``seeds``, and returns what the processes printed.
+
+    Each process must exit cleanly. One text in the set means every process printed the same.
+    """
+    printed = set()
+    for seed in seeds:
+        process = subprocess.run(
+            [sys.executable, "-c", code],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+        )
+        assert process.returncode == 0, process.stderr
+        printed.add(process.stdout)
+    return printed
