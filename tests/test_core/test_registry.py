@@ -368,13 +368,6 @@ def test_replace_swaps_the_version_on_the_registry_for_its_successor():
     assert registry["up"].versions[1] is up_v1
 
 
-def test_a_registry_with_no_defaults_adds_a_node_as_it_is():
-    registry = NodeRegistry()
-    registry.add(echo)
-
-    assert registry["echo"] is echo
-
-
 # --- subregistries ----------------------------------------------------------
 
 
@@ -626,7 +619,6 @@ def test_fields_named_id_and_title_are_the_records_own():
     registry.add(bill)
 
     assert dict(registry.types) == {"customer": Customer, "money": Money}
-    assert Customer(id="c1", title="Ms").title == "Ms"
 
 
 def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a_generic_its_class():

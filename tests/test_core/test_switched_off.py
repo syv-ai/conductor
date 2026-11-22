@@ -152,22 +152,6 @@ def test_a_graph_output_downstream_of_a_node_switched_off_may_be_skipped():
     assert off == on.model_copy(update={"required": False})
 
 
-def test_a_node_switched_off_inside_a_loop_makes_what_collects_it_one_that_may_be_skipped():
-    graph = Graph.compile(
-        {
-            "inputs": {"text": {}},
-            "nodes": {
-                "split": {"node": "off-split", "inputs": {"text": {"graph_input": "text"}}},
-                "upper": {"node": "off-upper", "inputs": {"text": _edge("split")}, "off": True},
-                "join": {"node": "off-join", "inputs": {"texts": _edge("upper")}},
-            },
-            "outputs": {"result": {"node": "join", "output": "result"}},
-        },
-        REGISTRY,
-    )
-    assert not graph.outputs["result"].required
-
-
 def test_a_subgraph_output_downstream_of_a_node_switched_off_inside_may_be_skipped():
     inner = GraphRecord.model_validate(
         {
@@ -405,7 +389,7 @@ def test_an_input_with_several_edges_takes_the_source_that_is_on():
     assert graph.run({"text": "abcd"}).outputs == {"result": None}
 
 
-def test_a_node_switched_off_inside_a_loop_skips_each_call_and_what_collects_it():
+def test_a_node_switched_off_inside_a_loop_skips_each_call_and_what_collects_it_which_may_be_skipped():
     CALLED.clear()
     graph = Graph.compile(
         {
@@ -419,6 +403,7 @@ def test_a_node_switched_off_inside_a_loop_skips_each_call_and_what_collects_it(
         },
         REGISTRY,
     )
+    assert not graph.outputs["result"].required
     run = graph.run({"text": "a b c"})
     assert CALLED == []
     assert run.status == "complete"

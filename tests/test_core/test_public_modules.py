@@ -37,18 +37,16 @@ def _imports_of_every_name() -> str:
     )
 
 
+def _entry_of(module_name: str) -> str:
+    """Returns the name of the file or directory in the package that is ``module_name``."""
+    path = Path(importlib.import_module(module_name).__file__ or "")
+    return path.parent.name if path.name == "__init__.py" and "." in module_name else path.name
+
+
 def test_the_package_has_only_the_public_modules_and_one_private_directory():
     package = ROOT / "packages" / "conductor" / "src" / "conductor"
     entries = {entry.name for entry in package.iterdir() if entry.name != "__pycache__"}
-    assert entries == {
-        "__init__.py",
-        "widgets.py",
-        "events.py",
-        "testing",
-        "about",
-        "_internal",
-        "py.typed",
-    }
+    assert entries == {_entry_of(name) for name in PUBLIC_MODULES} | {"_internal", "py.typed"}
 
 
 @pytest.mark.parametrize("module_name", PUBLIC_MODULES)

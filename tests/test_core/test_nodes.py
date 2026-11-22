@@ -562,52 +562,87 @@ def test_an_unknown_param_argument_is_pythons_own_type_error():
         Param(titel="Times")  # type: ignore[call-arg]
 
 
-def test_a_bound_written_wrong_is_refused_where_it_is_written():
-    def on_text(x: Annotated[str, Param(ge=1)]) -> str:
-        return x
+class _NamesNothing(TypedDict):
+    x: "Missing"  # type: ignore[name-defined]  # noqa: F821
 
-    def on_table(x: Annotated[Table, Param(ge=1)]) -> int:
+
+@pytest.mark.parametrize(
+    ("hint", "defaults", "code"),
+    [
+        (Annotated[str, Param(ge=1)], (), "param_limit_not_supported"),
+        (Annotated[Table, Param(ge=1)], (), "param_limit_not_supported"),
+        (Annotated[str | None, Param(ge=0)], (None,), "param_limit_not_supported"),
+        (Annotated[Series[str], Param(ge=0)], (), "param_limit_not_supported"),
+        # Pydantic builds ``Annotated[int, MaxLen(3)]`` and then refuses every value, so the graph would compile
+        # and never run.
+        (Annotated[int, MaxLen(3)], (), "param_limit_not_supported"),
+        (list[Annotated[int, Len(1, 3)]], (), "param_limit_not_supported"),
+        (Annotated[str, Interval(ge=0)] | None, (None,), "param_limit_not_supported"),
+        # A validator wraps the type's schema in a function, and a limit beside it was let through, so every value
+        # failed at run time.
+        (Annotated[str, AfterValidator(str.strip), Param(ge=0)], (), "param_limit_not_supported"),
+        (Annotated[int, AfterValidator(abs), Param(max_length=3)], (), "param_limit_not_supported"),
+        (Annotated[int, StringConstraints(pattern="^1")], (), "param_limit_not_supported"),
+        (Annotated[str, PlainValidator(str), Param(ge=0)], (), "param_limit_not_supported"),
+        (
+            Annotated[int, StringConstraints(pattern="^1", strip_whitespace=True)],
+            (),
+            "param_limit_not_supported",
+        ),
+        # Pydantic builds a ``Timezone`` and never checks it, so a naive datetime would pass.
+        (Annotated[datetime.datetime, Timezone(...)], (), "timezone_in_hint"),
+        (list[Annotated[datetime.datetime, Timezone("UTC")]], (), "timezone_in_hint"),
+        # ``Unit`` and a named predicate written as metadata are ignored by pydantic.
+        (Annotated[float, Unit("m")], (), "unit_in_hint"),
+        (Annotated[str, LowerCase], (), "predicate_alias_in_hint"),
+        (list[Annotated[str, IsDigit]], (), "predicate_alias_in_hint"),
+        # No number that enters a graph is ``nan`` or infinite.
+        (IsNan[float], (), "predicate_refuses_every_number"),
+        (list[IsInfinite[float]], (), "predicate_refuses_every_number"),
+        (IsNotFinite[float], (), "predicate_refuses_every_number"),
+        (Annotated[float, Not(math.isfinite)], (), "predicate_refuses_every_number"),
+        (_NamesNothing, (), "type_not_supported"),
+        (int, (None,), "default_none_not_taken"),
+        (Series[Series[int]], (), "nested_series"),
+    ],
+    ids=[
+        "a-bound-on-text",
+        "a-bound-on-a-table",
+        "a-bound-on-text-or-none",
+        "a-bound-on-a-series-of-text",
+        "max-len-on-a-number",
+        "len-on-a-lists-number",
+        "interval-on-text-or-none",
+        "a-bound-beside-an-after-validator",
+        "a-length-beside-an-after-validator",
+        "a-pattern-on-a-number",
+        "a-bound-beside-a-plain-validator",
+        "a-pattern-that-strips-on-a-number",
+        "a-timezone",
+        "a-timezone-in-a-list",
+        "a-unit",
+        "a-predicate-alias",
+        "a-predicate-alias-in-a-list",
+        "is-nan",
+        "is-infinite-in-a-list",
+        "is-not-finite",
+        "not-finite",
+        "a-typed-dict-field-naming-nothing",
+        "a-none-default-on-an-int",
+        "a-series-of-series",
+    ],
+)
+def test_an_input_type_or_default_conductor_cant_take_is_refused_at_node_with_its_code(
+    hint: Any, defaults: tuple[Any, ...], code: str
+) -> None:
+    def takes(x: Any) -> int:
         return 0
 
-    def on_text_or_none(x: Annotated[str | None, Param(ge=0)] = None) -> str:
-        return ""
-
-    def on_texts(x: Annotated[Series[str], Param(ge=0)]) -> str:
-        return ""
-
-    for wrong in (on_text, on_table, on_text_or_none, on_texts):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.problems[0].type == "param_limit_not_supported"
-
-
-def test_an_annotated_types_limit_with_no_rule_for_its_type_is_refused_as_a_param_limit_is():
-    """Pydantic builds ``Annotated[int, MaxLen(3)]`` and then refuses every value, so the graph would compile and
-    never run. It builds a ``Timezone`` and never checks it, so a naive datetime would pass."""
-
-    def on_number(x: Annotated[int, MaxLen(3)]) -> int:
-        return x
-
-    def on_items(x: list[Annotated[int, Len(1, 3)]]) -> int:
-        return 0
-
-    def on_text_or_none(x: Annotated[str, Interval(ge=0)] | None = None) -> str:
-        return ""
-
-    def on_a_timezone(x: Annotated[datetime.datetime, Timezone(...)]) -> str:
-        return ""
-
-    def on_a_listed_timezone(x: list[Annotated[datetime.datetime, Timezone("UTC")]]) -> str:
-        return ""
-
-    for wrong in (on_number, on_items, on_text_or_none):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.problems[0].type == "param_limit_not_supported"
-    for wrong in (on_a_timezone, on_a_listed_timezone):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.problems[0].type == "timezone_in_hint"
+    takes.__annotations__["x"] = hint
+    takes.__defaults__ = defaults or None
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(takes)
+    assert [problem.type for problem in raised.value.problems] == [code]
 
 
 def test_a_length_limit_on_a_table_counts_its_rows_written_with_param_or_annotated_types():
@@ -637,12 +672,16 @@ def test_a_param_hands_pydantic_its_limits_as_annotated_types_objects_and_the_ob
     assert (param.ge, param.limits) == (0, (Ge(0), Le(8), StringConstraints(pattern="^a")))
 
     def by_keyword(
-        x: Annotated[int, Param(ge=0, le=8)], y: Annotated[str, Param(pattern="^a")]
+        x: Annotated[int, Param(ge=0, le=8)],
+        y: Annotated[str, Param(pattern="^a")],
+        z: Annotated[str, Param(max_length=3)] = "a",
     ) -> int:
         return x
 
     def by_object(
-        x: Annotated[int, Interval(ge=0, le=8)], y: Annotated[str, StringConstraints(pattern="^a")]
+        x: Annotated[int, Interval(ge=0, le=8)],
+        y: Annotated[str, StringConstraints(pattern="^a")],
+        z: Annotated[str, MaxLen(3)] = "a",
     ) -> int:
         return x
 
@@ -653,34 +692,8 @@ def test_a_param_hands_pydantic_its_limits_as_annotated_types_objects_and_the_ob
     assert schemas(declared(by_keyword)) == [
         {"type": "integer", "minimum": 0, "maximum": 8},
         {"type": "string", "pattern": "^a"},
+        {"type": "string", "maxLength": 3},
     ]
-
-
-def test_a_limit_its_type_does_not_take_is_refused_beside_a_validator_too():
-    """A validator wraps the type's schema in a function, and a limit beside it was let through, so every value
-    failed at run time."""
-
-    def text_at_least(x: Annotated[str, AfterValidator(str.strip), Param(ge=0)]) -> str:
-        return x
-
-    def number_of_length(x: Annotated[int, AfterValidator(abs), Param(max_length=3)]) -> int:
-        return x
-
-    def number_matching(x: Annotated[int, StringConstraints(pattern="^1")]) -> int:
-        return x
-
-    def text_replaced(x: Annotated[str, PlainValidator(str), Param(ge=0)]) -> str:
-        return x
-
-    def number_stripped(
-        x: Annotated[int, StringConstraints(pattern="^1", strip_whitespace=True)],
-    ) -> int:
-        return x
-
-    for wrong in (text_at_least, number_of_length, number_matching, text_replaced, number_stripped):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.problems[0].type == "param_limit_not_supported"
 
 
 @host_type("Money", title="Money")
@@ -724,42 +737,6 @@ def test_a_limit_pydantic_checks_is_taken_on_a_host_type_and_on_pydantics_own_ty
         with pytest.raises(InvalidCallError) as refused:
             graph.run(right | {name: wrong})
         assert refused.value.problems[0].loc == ("inputs", name)
-
-
-def test_annotated_types_metadata_pydantic_ignores_or_no_value_passes_is_refused():
-    """``Unit`` and a named predicate written as metadata are ignored by pydantic, and no number that enters a graph
-    is ``nan`` or infinite."""
-
-    def in_metres(x: Annotated[float, Unit("m")]) -> float:
-        return x
-
-    def lower_text(x: Annotated[str, LowerCase]) -> str:
-        return x
-
-    def lower_items(x: list[Annotated[str, IsDigit]]) -> int:
-        return 0
-
-    for wrong, code in (
-        (in_metres, "unit_in_hint"),
-        (lower_text, "predicate_alias_in_hint"),
-        (lower_items, "predicate_alias_in_hint"),
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.problems[0].type == code
-    for never in (
-        IsNan[float],
-        list[IsInfinite[float]],
-        IsNotFinite[float],
-        Annotated[float, Not(math.isfinite)],
-    ):
-
-        def no_number(x: never) -> float:  # type: ignore[valid-type]
-            return 0.0
-
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(no_number)
-        assert raised.value.problems[0].type == "predicate_refuses_every_number"
 
 
 def test_an_output_may_declare_a_number_that_is_not_finite_since_a_runs_own_values_may_be_one():
@@ -1101,18 +1078,6 @@ def test_a_generic_typed_dict_row_names_its_columns_with_its_arguments_filled_in
     assert graph.run({"cells": [{"value": 1}]}).outputs["result"].columns == ["value"]
 
 
-def test_a_typed_dict_field_written_as_text_that_names_nothing_is_a_declaration_problem():
-    class Unknown(TypedDict):
-        x: "Missing"  # type: ignore[name-defined]  # noqa: F821
-
-    def reads(row: Unknown) -> int:
-        return 0
-
-    with pytest.raises(NodeDeclarationError) as raised:
-        declared(reads)
-    assert raised.value.problems[0].type == "type_not_supported"
-
-
 def test_a_dict_returned_is_one_output_and_a_dataclass_that_is_not_frozen_lists_outputs():
     def summary(labels: Series[str]) -> dict[str, int]:
         return {label: labels.count(label) for label in labels}
@@ -1362,19 +1327,6 @@ def test_none_on_an_input_that_takes_none_is_not_checked_against_its_limits():
     graph = Graph.compile(make_graph(f, defaults={"f.x": "ab"}), registry_of(f))
     assert graph.run({"x": None}).results["f"]["result"] == "None"
     assert graph.run({"x": "ok"}).results["f"]["result"] == "'ok'"
-
-
-def test_bounds_are_on_the_field_an_editor_reads():
-    @node("f", title="F", description="For a test.")
-    def f(
-        n: Annotated[int, Param(ge=0, le=9)], s: Annotated[str, Param(max_length=3)] = "a"
-    ) -> int:
-        return n
-
-    assert [i.json_schema for i in f.describe().inputs] == [
-        {"type": "integer", "minimum": 0, "maximum": 9},
-        {"type": "string", "maxLength": 3},
-    ]
 
 
 def test_a_constant_of_a_series_input_is_checked_item_by_item_at_compile_and_arrives_as_a_list():
@@ -2232,14 +2184,8 @@ def test_a_return_that_does_not_fit_the_outputs_says_so_whatever_is_wrong_with_i
     )
 
 
-def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
-    assert [
-        (p.type, p.loc, p.ctx["errors"][0]["type"]) for p in _computing(lambda: {1: int}).problems
-    ] == [("compute_hook_returned_invalid", ("h", "1"), "string_type")]
-
-
-@pytest.mark.parametrize("key", [1.5, None, (1, 2)], ids=["float", "none", "tuple"])
-def test_a_hook_whose_field_name_is_no_text_or_int_is_the_hooks_failure_not_a_raise(key: Any):
+@pytest.mark.parametrize("key", [1, 1.5, None, (1, 2)], ids=["int", "float", "none", "tuple"])
+def test_a_hook_whose_field_name_is_no_text_is_the_hooks_failure_named_by_that_name(key: Any):
     [problem] = _computing(lambda: {"ok": int, key: int}).problems
     assert (problem.type, problem.loc, problem.ctx["errors"][0]["type"]) == (
         "compute_hook_returned_invalid",
@@ -2348,15 +2294,6 @@ def test_a_signature_whose_type_is_no_type_at_all_is_refused_as_not_supported(no
 
 
 # -- signatures conductor refuses, and signatures it takes as written ------------------------
-
-
-def test_a_none_default_on_an_input_that_takes_no_none_is_refused():
-    def f(x: int = None) -> int:  # type: ignore[assignment]
-        return 1
-
-    with pytest.raises(NodeDeclarationError) as raised:
-        declared(f)
-    assert raised.value.problems[0].type == "default_none_not_taken"
 
 
 def test_a_default_reaches_the_function_as_its_declared_type():
@@ -2521,15 +2458,6 @@ def test_a_params_choices_limit_a_field_of_a_dataclass_input_as_its_limits_do():
         assert [problem.type for problem in raised.value.problems] == ["invalid_input"]
 
 
-def test_a_series_of_series_does_not_exist():
-    def f(x: Series[Series[int]]) -> int:
-        return 1
-
-    with pytest.raises(NodeDeclarationError) as raised:
-        declared(f)
-    assert raised.value.problems[0].type == "nested_series"
-
-
 def test_a_bare_series_is_many_values_of_anything():
     @node("count", title="Count", description="For a test.")
     def count(xs: Series) -> int:
@@ -2591,14 +2519,6 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
     ]  # in Table[R], R is a TypedDict of the columns the input gets
     assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
     assert graph.run({"text": "Bo"}).results["look"]["result"] == "name,amount"
-
-
-def test_a_bare_series_is_many_values_of_any_type() -> None:
-    @node("count", title="Count", description="For a test.")
-    def count(items: Series) -> int:  # type: ignore[type-arg]
-        return len(items)
-
-    assert count.inputs["items"].is_series and count.inputs["items"].type.hint is Any
 
 
 def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
@@ -2933,6 +2853,12 @@ class _RawRecord(TypedDict):
     raw: Literal[b"a"]
 
 
+@host_type("cap-kind", title="Cap kind")
+class _CapKind(Enum):
+    NONE = float("inf")
+    TEXT = "Infinity"
+
+
 @pytest.mark.parametrize(
     ("hint", "code"),
     [
@@ -2946,13 +2872,28 @@ class _RawRecord(TypedDict):
         (list[Literal[float("nan")]], "named_value_invalid"),
         (Literal[float("inf"), "Infinity"], "named_value_invalid_alike"),  # type: ignore[valid-type]
         (list[Literal[float("inf"), "Infinity"]], "named_value_invalid_alike"),  # type: ignore[valid-type]
+        (_CapKind, "named_value_invalid_alike"),
+    ],
+    ids=[
+        "an-enums-member",
+        "in-a-list",
+        "in-a-series",
+        "a-records-field",
+        "a-tables-column",
+        "bytes",
+        "nan",
+        "nan-in-a-list",
+        "inf-and-its-text",
+        "inf-and-its-text-in-a-list",
+        "an-enum-whose-members-write-one-json",
     ],
 )
 def test_a_literal_whose_values_arent_plain_json_is_refused_at_any_depth(
     hint: Any, code: str
 ) -> None:
     """A ``Literal``'s values are text, numbers, yes or no, or ``None``, each with a JSON form of its own, on the
-    port, a list's or a ``Series``'s item, a record's field and a table's column alike."""
+    port, a list's or a ``Series``'s item, a record's field and a table's column alike. An enum's members are held to
+    the same: ``inf`` and ``"Infinity"`` are written as one JSON, so a saved run couldn't tell the two apart."""
 
     def give() -> str:
         return "x"
@@ -3046,34 +2987,6 @@ def test_a_literal_of_a_plain_enums_member_is_told_to_take_the_enum_or_fix_its_v
     assert "Take the enum _Hue as the type" in messages[0]
     assert "Give the values of the enum _Pair as text" in messages[1]
     assert " a _" not in "".join(messages)
-
-
-@host_type("cap-kind", title="Cap kind")
-class _CapKind(Enum):
-    NONE = float("inf")
-    TEXT = "Infinity"
-
-
-def test_an_enum_with_two_members_of_one_json_form_is_alike() -> None:
-    """``inf`` and ``"Infinity"`` are written as one JSON, so a saved run couldn't tell the two members apart."""
-    with pytest.raises(NodeDeclarationError) as raised:
-
-        @node("give", title="Give", description="For a test.")
-        def give() -> _CapKind:
-            return _CapKind.NONE
-
-    (problem,) = raised.value.problems
-    assert problem.type == "named_value_invalid_alike"
-
-
-def test_a_literal_of_an_enums_member_is_told_to_take_the_enum() -> None:
-    with pytest.raises(NodeDeclarationError) as raised:
-
-        @node("give", title="Give", description="For a test.")
-        def give() -> Literal[_Hue.RED]:
-            return _Hue.RED
-
-    assert "Take the enum _Hue as the type" in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -3240,47 +3153,6 @@ class _Tagged(TypedDict):
 
 
 @pytest.mark.parametrize(
-    "hint",
-    [
-        set[int],
-        frozenset[str],
-        set,
-        list[set[int]],
-        Series[frozenset[int]],
-        _Tagged,
-        Set[int],
-        int | set[str],
-    ],
-    ids=[
-        "set",
-        "frozenset",
-        "bare-set",
-        "in-a-list",
-        "in-a-series",
-        "in-a-typed-dict",
-        "abc-set",
-        "in-a-union",
-    ],
-)
-def test_a_set_anywhere_in_an_input_or_output_type_is_refused_at_node(hint: Any) -> None:
-    """A set has no order, so it has no JSON form that keeps it the same, and no default of a set type could be
-    read from one."""
-
-    def takes(x: Any) -> int:
-        return 1
-
-    def returns() -> Any:
-        return []
-
-    takes.__annotations__["x"] = hint
-    returns.__annotations__["return"] = hint
-    for wrong in (takes, returns):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.problems[0].type == "type_not_supported_set"
-
-
-@pytest.mark.parametrize(
     ("hint", "code"),
     [
         (SecretStr, "type_not_supported_secret"),
@@ -3369,31 +3241,46 @@ class _SortedTags(BaseModel, frozen=True):
 @pytest.mark.parametrize(
     ("hint", "where"),
     [
+        (set[int], "set[int]"),
+        (frozenset[str], "frozenset[str]"),
+        (set, "set"),
+        (Set[int], "frozenset[int]"),
+        (int | set[str], "set[str]"),
+        (list[set[str]], "set[str]"),
+        (dict[str, frozenset[int]], "frozenset[int]"),
+        (Series[frozenset[int]], "frozenset[int]"),
+        (_Tagged, "_Tagged.tags"),
         (_TagHolder, "_TagHolder.tags"),
         (_NumberBag, "_NumberBag.numbers"),
         (_TagRecord, "_TagRecord.tags"),
         (list[_TagShelf], "_TagHolder.tags"),
         (Table[_TagRow], "_TagRow.tags"),
         (_SortedTags, "_SortedTags.tags"),
-        (list[set[str]], "set[str]"),
-        (dict[str, frozenset[int]], "frozenset[int]"),
     ],
     ids=[
+        "set",
+        "frozenset",
+        "bare-set",
+        "abc-set",
+        "in-a-union",
+        "in-a-list",
+        "a-dicts-value",
+        "in-a-series",
+        "in-a-typed-dict",
         "model-set",
         "model-frozenset",
         "dataclass-set",
         "set-in-a-list-of-models",
         "a-tables-row",
         "a-serializer-that-sorts-it",
-        "in-a-list",
-        "a-dicts-value",
     ],
 )
 def test_a_set_anywhere_is_refused_at_node_naming_the_field_or_the_set(
     hint: Any, where: str
 ) -> None:
-    """A host's class holds its value as pydantic writes it, so a set field there writes a list in a varying order,
-    and its call hashes differently in each process. The field that holds it is named, the nearest class's, a
+    """A set has no order, so it has no JSON form that keeps it the same, and no default of a set type could be read
+    from one. A host's class holds its value as pydantic writes it, so a set field there writes a list in a varying
+    order, and its call hashes differently in each process. The field that holds it is named, the nearest class's, a
     table's row's too; with no class around it, the set as written. A serializer that sorts it doesn't make it
     taken: the rule is that a declared type holds no set."""
 

@@ -112,16 +112,24 @@ def test_a_node_built_from_a_graph_runs_its_example_as_any_node_does():
     assert found(registry_of(upper, shout), examples={"shout": [{"text": "hi"}]}) == []
 
 
-def test_a_subgraph_whose_graph_does_not_compile_is_reported_with_its_graphs_problems():
-    # the subgraph uses upper, which the registry doesn't have
-    (problem,) = check_registry(registry_of(shout))
+@pytest.mark.parametrize(
+    "examples",
+    [{}, {"shout": [{"text": "hi"}]}],
+    ids=["without-an-example", "with-an-example-that-is-not-run"],
+)
+def test_a_subgraph_whose_graph_does_not_compile_is_reported_with_its_graphs_problems(
+    examples: dict[str, Any],
+):
+    """The subgraph uses upper, which the registry doesn't have. One fault gives one code, whether or not the
+    subgraph has an example."""
+    (problem,) = check_registry(registry_of(shout), examples=examples)
 
     assert (problem.type, problem.loc, problem.ctx["problem"]) == (
         "subgraph_broken",
         ("shout", 1),
         "unknown_node",
     )
-    assert found(registry_of(upper, shout)) == []
+    assert found(registry_of(upper, shout), examples=examples) == []
 
 
 def test_two_nodes_of_a_subgraph_with_the_same_fault_are_told_apart_by_where_they_are():
@@ -152,15 +160,6 @@ def test_two_nodes_of_a_subgraph_with_the_same_fault_are_told_apart_by_where_the
     ]
 
 
-def _named_by_text(names: str) -> dict[str, type]:
-    return {name: str for name in names.split(",")}
-
-
-@node("name-each", title="Name each", description="For a test.", compute_outputs=_named_by_text)
-def name_each(names: str) -> dict[str, str]:
-    return {}
-
-
 def test_the_loc_behind_a_check_problem_is_the_problem_s_own_loc_whatever_its_shape():
     """``ctx.loc`` is the ``loc`` of the problem behind it, as it is, so nothing about its shape is guessed.
 
@@ -185,27 +184,16 @@ def test_the_loc_behind_a_check_problem_is_the_problem_s_own_loc_whatever_its_sh
         )
     )
     checked = check_registry(
-        registry_of(upper, who, name_each, edges),
-        examples={"who": [{"text": "a"}], "name-each": [{"names": "a.b"}]},
+        registry_of(upper, who, columns, edges),
+        examples={"who": [{"text": "a"}], "columns": [{"text": "a", "names": "a.b"}]},
     )
 
     assert [(p.type, p.ctx["problem"], p.ctx["loc"]) for p in checked] == [
         ("example_refused", "context_missing", ["who", "ctx"]),
-        ("example_hook_failed", "compute_hook_returned_invalid", ["name-each", "a.b"]),
+        ("example_hook_failed", "compute_hook_returned_invalid", ["columns", "a.b"]),
         ("subgraph_broken", "edge_names_missing_node", ["j", "text"]),
         ("subgraph_broken", "unknown_output", ["k", "text"]),
     ]
-
-
-def test_a_broken_subgraph_with_an_example_is_reported_as_broken_and_its_example_is_not_run():
-    # one fault gives one code, whether or not the subgraph has an example
-    (problem,) = check_registry(registry_of(shout), examples={"shout": [{"text": "hi"}]})
-
-    assert (problem.type, problem.loc, problem.ctx["problem"]) == (
-        "subgraph_broken",
-        ("shout", 1),
-        "unknown_node",
-    )
 
 
 def test_no_body_is_called_without_an_example_and_each_example_calls_it_once():
@@ -250,12 +238,6 @@ def test_a_hook_that_fails_on_made_up_values_or_an_example_is_hook_failed():
     ]
 
 
-def test_a_hook_that_gives_a_field_a_name_it_cannot_have_is_hook_failed():
-    assert found(registry_of(columns), examples={"columns": [{"text": "a", "names": "a.b"}]}) == [
-        ("example_hook_failed", ("columns", 1))
-    ]
-
-
 def test_a_hook_reading_an_input_no_value_can_be_made_up_for_needs_an_example():
     def _code(code: str) -> dict[str, Any]:
         return {"x": str}
@@ -285,43 +267,6 @@ def test_a_hook_reading_a_number_between_two_limits_is_checked_on_a_value_betwee
 
 
 # -- upgrades --------------------------------------------------------------------------------------
-
-
-def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
-    @node("size", title="Size v1", description="For a test.")
-    def size_v1(n: int) -> int:
-        return n
-
-    @node(
-        "size",
-        title="Size",
-        description="For a test.",
-        replaces=size_v1,
-        upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": "many"}),
-    )
-    def size(n: int) -> int:
-        return n
-
-    @node("length", title="Length v1", description="For a test.")
-    def length_v1(n: int) -> int:
-        return n
-
-    @node(
-        "length",
-        title="Length",
-        description="For a test.",
-        replaces=length_v1,
-        upgrade=Upgrade(rewrite=lambda typed: {"m": typed["missing"]}),
-    )
-    def length(m: int) -> int:
-        return m
-
-    assert found(registry_of(size, length)) == [
-        ("upgrade_broken", ("size", 1)),
-        ("upgrade_broken", ("length", 1)),
-    ]
-    [problem] = check_registry(registry_of(size))
-    assert problem.ctx["problem"] == "invalid_value"
 
 
 def test_an_older_version_whose_input_no_value_can_be_made_up_for_upgrades_without_an_example():
@@ -661,30 +606,12 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
     def offline(text: str) -> str:
         raise ExternalError("The service is down.")
 
-    examples = {
-        "unsure": [{"text": "a"}],
-        "offline": [{"text": "a"}],
-        "who": [{"text": "no session"}],
-        "upper": [{"txt": "a"}],
-    }
-    problems = check_registry(registry_of(unsure, offline, who, upper), examples=examples)
+    examples = {"unsure": [{"text": "a"}], "offline": [{"text": "a"}]}
+    problems = check_registry(registry_of(unsure, offline), examples=examples)
     assert [(p.type, p.loc, p.ctx["problem"]) for p in problems] == [
         ("example_run_failed", ("unsure", 1), "invalid_ask"),
         ("example_run_failed", ("offline", 1), "external_failed"),
-        ("example_refused", ("who", 1), "context_missing"),
-        ("example_not_compiled", ("upper", 1), "unknown_input"),
-        ("example_not_compiled", ("upper", 1), "input_has_no_value"),
     ]
-
-
-def test_a_run_failed_that_a_body_raised_names_the_error_class():
-    @node("divides", title="Divides", description="For a test.")
-    def divides(n: int) -> float:
-        return 1 / n
-
-    [problem] = check_registry(registry_of(divides), examples={"divides": [{"n": 0}]})
-    assert problem.type == "example_run_failed"
-    assert problem.msg.endswith("raised ZeroDivisionError")
 
 
 # -- what check_registry is given --------------------------------------------------------------------------

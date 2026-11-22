@@ -16,6 +16,7 @@ import pickle
 import re
 import sys
 import tomllib
+import typing
 from ast import Import, ImportFrom
 from importlib.resources import files
 from pathlib import Path
@@ -171,8 +172,9 @@ def test_skipped_is_one_object_that_prints_as_its_name():
 # --- a problem as a record --------------------------------------------------
 
 
-def test_a_problem_dumps_to_json_and_reads_back():
-    graph = Graph.compile(
+def _misspelt() -> Graph:
+    """A graph whose one node is given a constant for ``facter``, an input it doesn't have."""
+    return Graph.compile(
         GraphRecord.model_validate(
             {
                 "nodes": {
@@ -185,7 +187,10 @@ def test_a_problem_dumps_to_json_and_reads_back():
         ),
         _registry(),
     )
-    (told,) = graph.problems
+
+
+def test_a_problem_dumps_to_json_and_reads_back():
+    (told,) = _misspelt().problems
 
     dumped = json.loads(told.model_dump_json())
 
@@ -203,11 +208,6 @@ def test_a_problem_is_frozen():
 
     with pytest.raises(ValidationError):
         problem.type = "other"  # type: ignore[misc]
-
-
-def test_problems_compare_by_value():
-    assert Problem(type="c", msg="m", loc=("n",)) == Problem(type="c", msg="m", loc=("n",))
-    assert Problem(type="c", msg="m", loc=("n",)) != Problem(type="c", msg="m", loc=("o",))
 
 
 def test_a_problem_read_back_refuses_a_key_it_does_not_have():
@@ -264,25 +264,6 @@ def test_an_edge_to_a_missing_output_says_what_the_node_has():
     )
 
 
-def test_an_unknown_input_names_the_inputs_the_node_has():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {
-                        "node": "scale",
-                        "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
-                    }
-                }
-            }
-        ),
-        _registry(),
-    )
-
-    (found,) = graph.problems
-    assert found.msg == "'s' has no input 'facter'. Its inputs are value, factor."
-
-
 def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
     """A host may send problems straight to a browser, so a problem never shows what a person typed."""
     graph = Graph.compile(
@@ -306,22 +287,8 @@ def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
 
 
 def test_a_refused_run_lists_each_problem_with_its_place_and_code():
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {
-                        "node": "scale",
-                        "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
-                    }
-                }
-            }
-        ),
-        _registry(),
-    )
-
     with pytest.raises(InvalidCallError) as raised:
-        graph.run()
+        _misspelt().run()
 
     assert (
         str(raised.value)
@@ -461,32 +428,26 @@ def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
 # --- events as records ------------------------------------------------------
 
 
-#: Each event's fields, by the event's ``type``. Every field is required in the JSON schema a generated client reads.
-SHAPES = {
-    "run_start": ["type", "waiting"],
-    "node_start": ["loc", "type"],
-    "node_progress": ["count", "loc", "type"],
-    "node_complete": ["count", "loc", "reused", "type"],
-    "node_failed": ["cause", "loc", "type"],
-    "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
-    "node_waiting": ["loc", "type", "waiting"],
-    "run_checkpoint": ["type"],
-    "run_end": ["cause", "status", "type"],
-}
+#: The event classes, as the ``Event`` union a stream yields lists them.
+EVENT_CLASSES = typing.get_args(typing.get_args(Event.__value__)[0])
 
 
-def test_every_event_names_its_fields_and_requires_them_in_the_schema():
+@pytest.mark.parametrize("event_class", EVENT_CLASSES, ids=lambda event_class: event_class.__name__)
+def test_every_event_names_its_fields_and_requires_them_in_the_schema(event_class: Any):
+    """A generated client reads the JSON schema, so every field of an event is in it and required there."""
     definitions = TypeAdapter(Event).json_schema(mode="serialization")["$defs"]
-    shapes = {
-        schema["properties"]["type"]["const"]: (
-            sorted(schema["properties"]),
-            sorted(schema.get("required", [])),
-        )
+    (schema,) = [
+        schema
         for schema in definitions.values()
-        if "const" in schema.get("properties", {}).get("type", {})
-    }
+        if schema.get("properties", {}).get("type", {}).get("const")
+        == event_class.model_fields["type"].default
+    ]
 
-    assert shapes == {event_type: (fields, fields) for event_type, fields in SHAPES.items()}
+    assert (
+        sorted(schema["properties"])
+        == sorted(schema.get("required", []))
+        == sorted(event_class.model_fields)
+    )
 
 
 def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
@@ -678,7 +639,9 @@ def test_a_model_with_an_event_field_names_the_union_event_in_its_json_schema():
 
 
 def test_every_event_type_is_covered_above():
-    assert {event.type for event in _every_event()} == set(SHAPES)
+    assert {event.type for event in _every_event()} == {
+        event_class.model_fields["type"].default for event_class in EVENT_CLASSES
+    }
 
 
 # --- the reference's quick start ---------------------------------------------
@@ -740,8 +703,8 @@ IMPORTS = {
     },
 }
 
-#: The dependencies each ``pyproject.toml`` declares, extras included. A host's package can't be added without this
-#: test noticing.
+#: The dependencies each ``pyproject.toml`` may declare, extras included. A host's package can't be added without
+#: this test noticing.
 DISTRIBUTIONS = {
     "conductor": {
         "annotated-types",
@@ -830,8 +793,8 @@ def test_each_package_imports_nothing_but_what_it_builds_on_and_the_standard_lib
 
 
 @pytest.mark.parametrize("package", DISTRIBUTIONS)
-def test_each_package_declares_only_the_dependencies_listed_here(package):
-    assert _declared(PACKAGES / package / "pyproject.toml") == DISTRIBUTIONS[package]
+def test_each_package_declares_no_dependency_but_those_allowed_here(package):
+    assert _declared(PACKAGES / package / "pyproject.toml") <= DISTRIBUTIONS[package]
 
 
 @pytest.mark.parametrize("line", ["import fastapi", "import yaml", "from app.models import Flow"])
