@@ -114,14 +114,12 @@ An editor shows each input with a label and a control. You describe them with `P
 Conductor checks the limits on every value a graph sets and every value a caller passes. Here is a graph, the way an editor saves it, that sets `times` to 20:
 
 ```python
-from conductor import GraphRecord
-
 drawn = {
     "inputs": {"text": {}},
     "nodes": {"repeat": {"node": "repeat", "inputs": {"text": {"graph_input": "text"}, "times": {"constant": 20}}}},
     "outputs": {"result": {"node": "repeat", "output": "result"}},
 }
-graph = Graph.compile(GraphRecord.model_validate(drawn), host)
+graph = Graph.compile(drawn, host)
 
 for problem in graph.problems:
     print(problem.loc, problem.type)

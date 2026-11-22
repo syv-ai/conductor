@@ -28,7 +28,7 @@ def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annot
 
 
 @dataclass(frozen=True)
-class HostContext:                     # the run's context: one object the host passes, its class named on the registry
+class HostContext:                    # the run's context: one object the host passes, its class named on the registry
     caller_name: str
 
 
