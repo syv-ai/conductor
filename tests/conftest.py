@@ -1,11 +1,11 @@
-"""Shared fixtures for flow-engine tests."""
+"""Fixtures that every test under ``tests/`` can use."""
 
 import pytest
 
 
 @pytest.fixture
 def registry():
-    """Fresh NodeRegistry instance."""
-    from conductor.registry import NodeRegistry
+    """A new, empty ``NodeRegistry`` for each test."""
+    from conductor import NodeRegistry
 
     return NodeRegistry()
