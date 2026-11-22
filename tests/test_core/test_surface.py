@@ -18,6 +18,7 @@ import sys
 import tomllib
 import typing
 from ast import Import, ImportFrom
+from importlib import metadata
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -756,17 +757,36 @@ def _host_words_in(line: str) -> list[str]:
     ]
 
 
-def _imports_outside(package: str, source: str) -> list[str]:
+def _imported(source: str) -> list[str]:
+    """The modules ``source`` imports by their full name, wherever in it the import is: ``polars``,
+    ``pydantic_core.core_schema``. A relative import is the package's own, so it isn't one."""
     names: list[str] = []
     for found in ast.walk(ast.parse(source)):
         if isinstance(found, Import):
             names += [alias.name for alias in found.names]
         elif isinstance(found, ImportFrom) and found.level == 0 and found.module is not None:
             names.append(found.module)
+    return names
+
+
+def _imports_outside(package: str, source: str) -> list[str]:
     return [
         name
-        for name in names
+        for name in _imported(source)
         if name.split(".")[0] not in IMPORTS[package] | sys.stdlib_module_names
+    ]
+
+
+def _requirement_name(requirement: str) -> str:
+    """The distribution a requirement names, as packaging compares names: ``"Pydantic_Core==2.1"`` is
+    ``"pydantic-core"``."""
+    name = re.split(r"[^A-Za-z0-9_.-]", requirement, maxsplit=1)[0]
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _project(package: str) -> dict[str, Any]:
+    return tomllib.loads((PACKAGES / package / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
     ]
 
 
@@ -779,6 +799,30 @@ def _declared(pyproject: Path) -> set[str]:
         re.split(r"[^A-Za-z0-9_.-]", requirement, maxsplit=1)[0].lower()
         for requirement in requirements
     }
+
+
+def _installed_with(package: str) -> set[str]:
+    """The distributions installing ``package`` installs: its runtime ``dependencies``, and each distribution one of
+    them pins to one version (``==``), as pydantic pins pydantic-core. A pinned one is the declared one's own part:
+    its version is the declared one's to choose, so declaring it again could only add a second pin."""
+    declared = {_requirement_name(requirement) for requirement in _project(package)["dependencies"]}
+    pinned = {
+        _requirement_name(requirement)
+        for name in declared
+        for requirement in metadata.requires(name) or []
+        if ";" not in requirement and "==" in requirement
+    }
+    return declared | pinned
+
+
+def _distribution_of(module: str) -> str:
+    """The distribution that installs the top-level ``module``: one of this repository's packages, by the modules
+    under its ``src``, or the one the environment's metadata names."""
+    for pyproject in PACKAGES.glob("*/pyproject.toml"):
+        if (pyproject.parent / "src" / module).is_dir():
+            return _requirement_name(_project(pyproject.parent.name)["name"])
+    (distribution, *_) = metadata.packages_distributions()[module]
+    return _requirement_name(distribution)
 
 
 @pytest.mark.parametrize("package", IMPORTS)
@@ -795,6 +839,21 @@ def test_each_package_imports_nothing_but_what_it_builds_on_and_the_standard_lib
 @pytest.mark.parametrize("package", DISTRIBUTIONS)
 def test_each_package_declares_no_dependency_but_those_allowed_here(package):
     assert _declared(PACKAGES / package / "pyproject.toml") <= DISTRIBUTIONS[package]
+
+
+@pytest.mark.parametrize("package", IMPORTS)
+def test_each_package_installs_every_distribution_its_source_imports(package):
+    """What a package's source imports is read from the source itself, so a dependency dropped from its
+    ``pyproject.toml`` while the code still imports it fails here. Beside the check above, a dependency is both
+    allowed and needed: declared within what is allowed, and every import declared."""
+    imported = {
+        _distribution_of(name.split(".")[0])
+        for source in sorted((PACKAGES / package / "src").rglob("*.py"))
+        for name in _imported(source.read_text(encoding="utf-8"))
+        if name.split(".")[0] not in sys.stdlib_module_names
+    } - {_requirement_name(_project(package)["name"])}
+
+    assert sorted(imported - _installed_with(package)) == []
 
 
 @pytest.mark.parametrize("line", ["import fastapi", "import yaml", "from app.models import Flow"])
