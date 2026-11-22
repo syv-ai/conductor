@@ -344,12 +344,19 @@ def test_a_series_input_whose_items_take_none_gets_a_none_per_item_for_a_none_ou
     ] == ["--", ""]
 
 
-def test_a_series_never_returned_is_none_for_the_whole_input_whatever_its_items_take() -> None:
+@pytest.mark.parametrize(
+    ("body", "collector"),
+    [("up", "dashes-for-none"), ("up-or-none", "count")],
+    ids=["items-that-take-none", "a-loop-body-that-takes-none"],
+)
+def test_a_series_never_returned_is_none_for_the_whole_input_whatever_its_items_or_loop_body_take(
+    body: str, collector: str
+) -> None:
     nodes = {
         "t": "outside-value",
         "s": "items",
-        "u": "up",
-        "n": "dashes-for-none",
+        "u": body,
+        "n": collector,
         "o": "count-or-none",
     }
     run = ran(
@@ -599,30 +606,6 @@ def test_a_series_never_returned_into_a_branch_node_skips_the_collect_as_no_bran
         kind="no-value",
     )
     assert (outcome_of(direct, "n"), outcome_of(through, "n")) == ("skipped", "skipped")
-
-
-def test_a_series_never_returned_is_none_for_the_collect_even_where_the_loop_body_takes_none() -> (
-    None
-):
-    nodes = {
-        "t": "outside-value",
-        "s": "items",
-        "u": "up-or-none",
-        "n": "count",
-        "o": "count-or-none",
-    }
-    run = ran(
-        nodes,
-        [
-            ("t.result", "s.text"),
-            ("s.result", "u.a"),
-            ("u.result", "n.values"),
-            ("u.result", "o.values"),
-        ],
-        outputs={"n": "n.result", "o": "o.result"},
-        kind="no-value",
-    )
-    assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("none input", "none")
 
 
 @pytest.mark.parametrize(
@@ -914,26 +897,6 @@ def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_
 def test_a_subgraph_in_a_loop_shows_a_list_per_item_and_none_where_its_series_was_never_returned() -> (
     None
 ):
-    flat = ran(
-        {"s": "items", "m": "maybe", "w": "items", "u": "up"},
-        [("s.result", "m.a"), ("m.result", "w.text"), ("w.result", "u.a")],
-        text="ab no-value cd",
-    )
-    in_subgraph = ran(
-        {"s": "items", "m": "maybe", "e": "items-then-up"},
-        [("s.result", "m.a"), ("m.result", "e.text")],
-        text="ab no-value cd",
-    )
-    assert flat.results["u"]["result"] == [
-        ["AB"],
-        None,
-        ["CD"],
-    ]  # A list for each item, and None for the item whose Series was never returned.
-    assert (
-        in_subgraph.results["e"]["result"]
-        == [["AB"], None, ["CD"]]
-        == in_subgraph.outputs["result"]
-    )
     never = ran(
         {"t": "outside-value", "s": "items", "e": "items-then-up"},
         [("t.result", "s.text"), ("s.result", "e.text")],

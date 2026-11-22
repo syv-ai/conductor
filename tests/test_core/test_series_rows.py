@@ -693,19 +693,6 @@ def counted_height(table: Table[Counted]) -> int:
     return table.height
 
 
-@pytest.mark.parametrize(
-    "nodes",
-    [(counted_rows, counted_height), (counted_words, counted_row, counted_height)],
-    ids=["a series of rows", "rows collected from a loop"],
-)
-def test_rows_whose_source_declares_the_tables_row_type_are_checked_once(nodes) -> None:
-    graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
-    CHECKED.clear()
-    run = graph.run({"k": 3})
-
-    assert (run.status, run.outputs["result"], CHECKED) == ("complete", 3, [0, 1, 2])
-
-
 class Amounts(TypedDict):
     name: str
     amount: int
@@ -766,16 +753,6 @@ def test_rows_collected_into_a_table_are_still_refused_for_what_their_source_doe
 @node("counted-table", title="Counted table", description="For a test.")
 def counted_table(k: int) -> Table[Counted]:
     return pl.DataFrame({"name": [str(i) for i in range(k)], "amount": list(range(k))})
-
-
-def test_a_table_whose_source_declares_the_same_table_is_checked_once() -> None:
-    graph = Graph.compile(
-        make_graph(counted_table, counted_height), registry_of(counted_table, counted_height)
-    )
-    CHECKED.clear()
-    run = graph.run({"k": 3})
-
-    assert (run.status, run.outputs["result"], CHECKED) == ("complete", 3, [0, 1, 2])
 
 
 class MaybeAmount(TypedDict):
@@ -989,11 +966,28 @@ def checked_height(table: Annotated[Table[Counted], AfterValidator(_same)]) -> i
     return table.height
 
 
-@pytest.mark.parametrize("source", [counted_rows, counted_frame], ids=["a list", "a frame"])
-def test_rows_collected_into_a_table_with_a_check_of_its_own_are_checked_once(source) -> None:
-    """A table input with a check of its own on the whole table still takes the rows its source checked as they
-    are: each cell is checked once, where the source returned it. This only saves the second check."""
-    graph = Graph.compile(make_graph(source, checked_height), registry_of(source, checked_height))
+@pytest.mark.parametrize(
+    "nodes",
+    [
+        (counted_rows, counted_height),
+        (counted_words, counted_row, counted_height),
+        (counted_table, counted_height),
+        # a table input with a check of its own on the whole table still takes the rows its source checked as they
+        # are: the cells aren't checked again, only the whole table is
+        (counted_rows, checked_height),
+        (counted_frame, checked_height),
+    ],
+    ids=[
+        "a series of rows",
+        "rows collected from a loop",
+        "a table whose source declares the same table",
+        "rows into a table with a check of its own, as a list",
+        "rows into a table with a check of its own, as a frame",
+    ],
+)
+def test_rows_whose_source_declares_the_tables_row_type_are_checked_once(nodes) -> None:
+    """Each cell is checked once, where the source returned it."""
+    graph = Graph.compile(make_graph(*nodes), registry_of(*nodes))
     CHECKED.clear()
     run = graph.run({"k": 3})
 

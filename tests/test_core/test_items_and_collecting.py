@@ -422,17 +422,6 @@ def test_an_input_takes_none_when_its_type_hint_allows_none(annotation, takes_no
         assert got == ("['ida@x', None, 'nina@x']" if takes_none else "['ida@x', 'nina@x']"), got
 
 
-def test_a_node_whose_input_takes_none_is_called_with_none():
-    run = ran(
-        *CONTACTS,
-        {"id": "s", "node": "send-or-say"},
-        edges=(SPLIT_CONTACTS, ("r.result.email", "s.email")),
-        text=CSV,
-    )
-    assert run.results["s"]["result"] == ["sent to ida@x", "no address", "sent to nina@x"]
-    assert run.none_input_calls == []
-
-
 def test_a_default_is_for_an_unwired_input_never_in_place_of_a_none_from_an_edge():
     @node("defaulted", title="Defaulted", description="For a test.")
     def defaulted(email: str = "fallback") -> str:
@@ -846,18 +835,6 @@ def test_a_none_per_item_is_left_out_and_none_for_every_item_collects_an_empty_s
     ]
 
 
-def test_a_series_not_returned_for_an_item_given_none_is_not_empty_so_its_count_is_a_none_input():
-    run = ran(
-        *CONTACTS,
-        {"id": "s", "node": "split"},
-        {"id": "n", "node": "count"},
-        edges=(SPLIT_CONTACTS, ("r.result.email", "s.text"), ("s.result", "n.values")),
-        text=CSV,
-    )
-    assert run.results["n"]["result"] == [1, None, 1]
-    assert NoneInputCall(loc=("n", 1), input="values") in run.none_input_calls
-
-
 def test_a_table_not_returned_for_an_item_given_none_is_not_split_so_its_count_is_a_none_input():
     run = ran(
         *CONTACTS,
@@ -874,31 +851,6 @@ def test_a_table_not_returned_for_an_item_given_none_is_not_split_so_its_count_i
     )
     assert run.results["n"]["result"] == [1, None]
     assert run.results["i"]["result"][1] is None  # invoices was not called for Bo
-
-
-def test_collecting_leaves_none_out():
-    run = ran(
-        *CONTACTS,
-        {"id": "j", "node": "join"},
-        edges=(SPLIT_CONTACTS, ("r.result.email", "j.texts")),
-        text=CSV,
-    )
-    assert run.results["j"]["result"] == "ida@x+nina@x"
-
-
-def test_a_collecting_input_that_takes_none_keeps_each_none():
-    @node("keep", title="Keep", description="For a test.")
-    def keep(values: Series[str | None]) -> int:
-        return values.count(None)
-
-    run = ran(
-        *CONTACTS,
-        {"id": "k", "node": "keep"},
-        edges=(SPLIT_CONTACTS, ("r.result.email", "k.values")),
-        registry=registry_of(contacts, records, keep),
-        text=CSV,
-    )
-    assert run.results["k"]["result"] == 1
 
 
 @node("zipped", title="Zipped", description="For a test.")
@@ -1437,16 +1389,6 @@ def test_a_series_input_given_a_constant_list_or_its_default_gets_it_whole_in_on
     assert run.results == {"typed": {"result": "a+b"}, "absent": {"result": "nothing"}}
 
 
-def test_an_unconnected_series_input_takes_its_default():
-    @node("join-or-nothing", title="Join or nothing", description="For a test.")
-    def join_or_nothing(texts: Series[str] = ()) -> str:
-        return "+".join(texts)
-
-    assert ran(
-        {"id": "j", "node": "join-or-nothing"}, registry=registry_of(join_or_nothing)
-    ).outputs == {"result": ""}
-
-
 def test_a_closed_list_input_is_one_value_with_its_list_and_with_its_default():
     @node("tags", title="Tags", description="For a test.")
     def tags(tags: list[str] = ["x"]) -> str:  # noqa: B006
@@ -1637,6 +1579,9 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     assert source_of("j") == {"texts": ("collected", "s.result")}
     assert source_of("p") == {"a": ("item", "s.result"), "b": ("constant", None)}
     assert source_of("k") == {"a": ("outer_value", None), "b": ("item", "s.result")}
+    assert (
+        nodes["k"].per_item_of == "s.result"
+    )  # a node reading an outer value is still in the loop
     assert source_of("s") == {
         "text": ("graph_input", None),
         "sep": ("constant", None),
@@ -1697,19 +1642,7 @@ def test_a_node_in_a_loop_over_an_empty_series_never_starts_and_collecting_gets_
     assert through_json(run).results["u"]["result"] == []
 
 
-def test_a_skipped_branch_skips_the_node_downstream():
-    run = ran(
-        {"id": "g", "node": "decide"},
-        {"id": "y", "node": "upper"},
-        {"id": "n", "node": "upper"},
-        edges=(("g.yes", "y.text"), ("g.no", "n.text")),
-        ports={"outputs": {"yes": "y.result", "no": "n.result"}},
-        text="hey",
-    )
-    assert run.results["y"]["result"] == "HEY" and run.results["n"]["result"] is None
-
-
-def test_a_failing_node_on_the_skipped_branch_is_never_called():
+def test_a_skipped_branch_skips_the_node_downstream_which_is_never_called():
     @node("always-fail", title="Always fail", description="For a test.")
     def always_fail(text: str) -> str:
         raise ValueError("never")
@@ -1723,7 +1656,11 @@ def test_a_failing_node_on_the_skipped_branch_is_never_called():
         ports={"outputs": {"yes": "y.result", "no": "n.result"}},
         text="hey",
     )
-    assert run.results["y"]["result"] == "HEY"
+    assert (run.status, run.results["y"]["result"], run.results["n"]["result"]) == (
+        "complete",
+        "HEY",
+        None,
+    )
 
 
 def test_a_series_never_returned_leaves_nodes_downstream_without_results_also_after_json():
@@ -1743,15 +1680,7 @@ def test_a_series_never_returned_leaves_nodes_downstream_without_results_also_af
         )
 
 
-def test_a_skip_upstream_of_a_loop_skips_collecting_and_no_items_collect_an_empty_series():
-    skipped = ran(
-        {"id": "b", "node": "decide"},
-        {"id": "a", "node": "split"},
-        {"id": "j", "node": "join"},
-        edges=(("b.no", "a.text"), ("a.result", "j.texts")),
-        text="ab",
-    )
-    assert skipped.results["j"]["result"] is None
+def test_no_items_collect_an_empty_series():
     empty = ran(
         {"id": "a", "node": "split"},
         {"id": "j", "node": "join"},
@@ -2981,22 +2910,16 @@ def test_the_item_limit_is_on_each_series_never_on_all_their_items_together():
         compiled.run({"text": "a,b|c,d|e,f"}, max_items=3).status == "complete"
     )  # six lines in all, but no Series has more than three
     stopped = compiled.run({"text": "a,b|c,d,e,f|g"}, max_items=3)
-    assert (stopped.status, stopped.cause.ctx) == (
+    assert (stopped.status, stopped.cause.type, stopped.cause.loc, stopped.cause.ctx) == (
         "stopped",
+        "item_limit",
+        ("l", 1),
         {"series": "l.result", "items": 4, "max_items": 3},
     )
 
 
-def test_the_item_limit_problem_names_the_call_that_returned_the_series():
+def test_the_item_limit_problem_names_the_call_that_returned_the_series_inside_two_loops():
     """The problem's loc is the node's id and the item indexes of its call, so a host can tell which call it was."""
-    compiled = graph(
-        {"id": "d", "node": "split", "constants": {"sep": "|"}},
-        {"id": "l", "node": "split"},
-        {"id": "u", "node": "upper"},
-        edges=(("d.result", "l.text"), ("l.result", "u.text")),
-    )
-
-    stopped = compiled.run({"text": "a,b|c,d,e,f|g"}, max_items=3)
     nested = graph(
         {"id": "d", "node": "split", "constants": {"sep": "|"}},
         {"id": "l", "node": "split", "constants": {"sep": ";"}},
@@ -3005,7 +2928,6 @@ def test_the_item_limit_problem_names_the_call_that_returned_the_series():
         edges=(("d.result", "l.text"), ("l.result", "m.text"), ("m.result", "u.text")),
     ).run({"text": "a|b;c,d,e,f"}, max_items=3)
 
-    assert (stopped.cause.type, stopped.cause.loc) == ("item_limit", ("l", 1))
     assert (nested.cause.type, nested.cause.loc) == ("item_limit", ("m", 1, 1))
 
 
