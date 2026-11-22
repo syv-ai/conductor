@@ -1,0 +1,1378 @@
+"""Tests for a run saved as JSON and read back.
+
+A saved run reads back as the same run, and resumes to the same result. A float that isn't finite, such as ``inf``
+or ``nan``, is read back by the type its output declares. And a damaged saved run is refused, with a problem that
+names the place pydantic found wrong.
+"""
+
+import asyncio
+import datetime
+import json
+import math
+import random
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal, TypedDict
+
+import polars as pl
+import pytest
+from conductor import (
+    SKIPPED,
+    Ask,
+    Graph,
+    GraphRecord,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Question,
+    Run,
+    Series,
+    Table,
+    host_type,
+    make_graph,
+    node,
+    subgraph,
+)
+from pydantic import MISSING, BaseModel
+
+
+class Line(TypedDict):
+    text: str
+    size: float
+
+
+@dataclass(frozen=True)
+class Length:
+    long: str = SKIPPED
+    short: str = SKIPPED
+
+
+@host_type("Reading", title="Reading")
+class Reading(BaseModel, frozen=True):
+    value: float
+    note: Any = None
+
+
+@node("lines", title="Lines", description="For a test.")
+def lines(text: str) -> Series[Line]:
+    return [{"text": part, "size": float(len(part))} for part in text.split(",") if part]
+
+
+@node("gate", title="Gate", description="For a test.")
+def gate(text: str) -> Length:
+    return Length(text, SKIPPED) if len(text) > 2 else Length(SKIPPED, text)
+
+
+@node("maybe", title="Maybe", description="For a test.")
+def maybe(text: str) -> str | None:
+    return None if text.startswith("b") else text.upper()
+
+
+@node("letters", title="Letters", description="For a test.")
+def letters(text: str) -> Series[str]:
+    return [SKIPPED if letter == "x" else letter for letter in text]
+
+
+@node("ask", title="Ask", description="For a test.", asks=True)
+def ask(text: str) -> str:
+    if text.startswith("a"):
+        raise Ask(f"What of {text}?")
+    return text
+
+
+@node("frame", title="Frame", description="For a test.")
+def frame(text: str) -> Table:
+    parts = text.split(",")
+    return pl.DataFrame(
+        {
+            "part": parts,
+            "when": [datetime.date(2026, 1, 1 + i) for i in range(len(parts))],
+            "tags": [[part, "t"] for part in parts],
+            "ratio": [math.nan] * len(parts),
+            "nothing": [None] * len(parts),
+        }
+    )
+
+
+@node("typed-frame", title="Typed frame", description="For a test.")
+def typed_frame(text: str) -> Table[Line]:
+    return pl.DataFrame(
+        {"size": [1.5, math.inf], "text": ["a", "b"], "extra": [datetime.time(1, 2), None]}
+    )
+
+
+@node("reading", title="Reading", description="For a test.")
+def reading(text: str) -> Reading:
+    return Reading(value=math.nan, note=math.inf if text == "inf" else text)
+
+
+@node("join", title="Join", description="For a test.")
+def join(texts: Series[str]) -> str:
+    return "+".join(texts)
+
+
+@node("loose", title="Loose", description="For a test.")
+def loose(text: str) -> dict[str, Any]:
+    return {"nan": math.nan, "when": datetime.date(2026, 1, 1), "text": text}
+
+
+@node("float-or-text", title="Float or text", description="For a test.")
+def float_or_text(text: str) -> float | str:
+    return math.inf
+
+
+def _registry() -> NodeRegistry:
+    registry = NodeRegistry()
+    registry.add(
+        lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text
+    )
+    inner = GraphRecord.model_validate(
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "q": {"node": "ask", "inputs": {"text": {"graph_input": "text"}}},
+                "m": {
+                    "node": "maybe",
+                    "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "m", "output": "result"}},
+        }
+    )
+    registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
+    return registry
+
+
+def _record(
+    registry: NodeRegistry,
+    nodes: Mapping[str, str],
+    edges: Sequence[tuple[str, str]],
+    *,
+    inputs: Mapping[str, str],
+    outputs: Mapping[str, str],
+) -> GraphRecord:
+    """Returns ``make_graph`` of ``nodes``, joined by exactly ``edges``, with these graph ``inputs`` and ``outputs``.
+
+    ``nodes`` maps each node id to the id of its definition in ``registry``.
+    """
+    return make_graph(
+        *((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()),
+        edges=list(edges),
+        inputs=inputs,
+        outputs=outputs,
+    )
+
+
+def _everything() -> Any:
+    """Returns a graph with a bit of everything a saved run has to keep.
+
+    It has a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph and
+    tables.
+    """
+    registry = _registry()
+    return Graph.compile(
+        _record(
+            registry,
+            {
+                "lines": "lines",
+                "gate": "gate",
+                "maybe": "maybe",
+                "letters": "letters",
+                "ask": "ask",
+                "frame": "frame",
+                "typed": "typed-frame",
+                "reading": "reading",
+                "long": "join",
+                "e": "inner",
+            },
+            [
+                ("lines.result.text", "gate.text"),
+                ("lines.result.text", "maybe.text"),
+                ("lines.result.text", "letters.text"),
+                ("lines.result.text", "ask.text"),
+                ("gate.long", "long.texts"),
+                ("lines.result.text", "e.text"),
+            ],
+            inputs={name: f"{name}.text" for name in ("lines", "frame", "typed", "reading")},
+            outputs={
+                name: f"{name}.result"
+                for name in ("maybe", "letters", "ask", "frame", "typed", "reading", "long", "e")
+            }
+            | {"short": "gate.short"},
+        ),
+        registry,
+    )
+
+
+def _inputs(text: str) -> dict[str, str]:
+    return {"lines": text, "frame": "p,q", "typed": "x", "reading": "x"}
+
+
+def _same(a: Any, b: Any) -> bool:
+    """Whether two results are the same. Tables are compared by their columns, and a ``nan`` equals itself."""
+    if isinstance(a, pl.DataFrame):
+        return isinstance(b, pl.DataFrame) and a.equals(b)
+    if isinstance(a, dict):
+        return isinstance(b, dict) and a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)):
+        return type(a) is type(b) and len(a) == len(b) and all(map(_same, a, b))
+    if isinstance(a, BaseModel):
+        return type(a) is type(b) and _same(a.model_dump(), b.model_dump())
+    if isinstance(a, float) and math.isnan(a):
+        return isinstance(b, float) and math.isnan(b)
+    return type(a) is type(b) and a == b
+
+
+def _jsonb(text: str) -> str:
+    """Returns ``text`` the way Postgres ``jsonb`` gives it back, with every object's keys reordered.
+
+    ``jsonb`` puts shorter keys first, then sorts keys of the same length bytewise.
+    """
+
+    def order(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                k: order(value[k])
+                for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))
+            }
+        return [order(v) for v in value] if isinstance(value, list) else value
+
+    return json.dumps(order(json.loads(text)))
+
+
+def _finished(run: Any) -> Any:
+    while run.status == "waiting":
+        for call in run.waiting:
+            run = run.with_answers(call, "bee")
+        run = run.resume()
+    return run
+
+
+@pytest.mark.parametrize("text", ["a,bb,ccc,xax,b", "", "abc", "x,xx,,b,aaaa", "zzz,yy"])
+def test_a_run_reads_back_as_itself_and_resumes_to_the_same_result(text: str) -> None:
+    graph = _everything()
+    run = graph.run(_inputs(text))
+    saved = run.to_json()
+
+    for written in (saved, saved.encode(), _jsonb(saved)):
+        read_back = Run.from_json(written, graph)
+        assert read_back.status == run.status and [w.id for w in read_back.waiting] == [
+            w.id for w in run.waiting
+        ]
+        for node_id, results in run.results.items():
+            assert _same(read_back.results[node_id], results), node_id
+        assert read_back.to_json() == saved
+        assert _same(_finished(read_back).outputs, _finished(run).outputs)
+        assert _same(_finished(read_back).results, _finished(run).results)
+
+
+def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() -> None:
+    saved = json.loads(_everything().run(_inputs("a,bb,ccc,xax,b")).to_json())
+    fingerprints = {
+        name: of_node.pop("fingerprints") for name, of_node in saved["outcomes"].items()
+    }
+
+    assert saved["ended_early"] is None
+    # one fingerprint per call, for a waiting call too
+    assert len(fingerprints["ask"]) == 5 and all(isinstance(f, str) for f in fingerprints["ask"])
+    assert saved["outcomes"]["maybe"] == {
+        "states": ["done"] * 5,
+        "outputs": {"result": ["A", None, "CCC", "XAX", None]},
+    }
+    assert saved["outcomes"]["gate"] == {
+        "states": ["done"] * 5,
+        "outputs": {
+            "long": [None, None, "ccc", "xax", None],
+            "short": ["a", "bb", None, None, "b"],
+        },
+        "skipped": {"long": [0, 1, 4], "short": [2, 3]},
+    }
+    assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"3": [0, 2]}}
+    assert saved["outcomes"]["ask"] == {
+        "states": [None, "done", "done", "done", "done"],
+        "outputs": {"result": [None, "bb", "ccc", "xax", "b"]},
+        "questions": {"0": {"prompt": "What of a?"}},
+    }
+    assert saved["outcomes"]["e/q"]["states"] == [
+        None,
+        "done",
+        "done",
+        "done",
+        "done",
+    ]  # a node inside a subgraph is saved like any other node
+    assert saved["outcomes"]["e/m"]["states"] == [
+        None,
+        "done",
+        "done",
+        "done",
+        "done",
+    ]  # m takes the waiting call's output, so it has no outcome either
+    assert "e" not in saved["outcomes"] and "keys" not in json.dumps(saved)
+
+
+def test_a_run_stopped_at_the_item_limit_reads_back_and_resumes_to_the_full_result() -> None:
+    graph = _everything()
+    stopped = graph.run(_inputs("bb,ccc,dd,e"), max_items=2)
+    assert stopped.status == "stopped"
+
+    read_back = Run.from_json(stopped.to_json(), graph)
+
+    assert _same(read_back.results, stopped.results)
+    assert _same(
+        read_back.with_max_items(100).resume().outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs
+    )
+
+
+def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_outcomes() -> None:
+    graph = _everything()
+    first = _finished(graph.run(_inputs("a,bb,ccc")))
+    again = Run.from_json(first.to_json(), graph).with_inputs({"lines": "a,ccc,dd"})
+    restored = Run.from_json(
+        again.to_json(), graph
+    )  # saved before resume(), so the previous run's outcomes are still in it
+
+    assert restored.to_json() == again.to_json()
+    assert _same(_finished(restored.resume()).outputs, _finished(again.resume()).outputs)
+    assert [
+        w.id for w in restored.resume().waiting
+    ] == []  # the answer to "a" is reused with the other outcomes
+
+
+def _shout_graph(returned: Any) -> Any:
+    """Returns ``each -> tag``, where ``tag`` labels each item with the next of ``returned``, so a reused outcome
+    shows by its label."""
+
+    @node("each", title="Each", description="For a test.")
+    def each(items: list[str]) -> Series[str]:
+        return items
+
+    @node("tag", title="Tag", description="For a test.")
+    def tag(text: str) -> str:
+        if text == "boom":
+            raise RuntimeError("boom")
+        return f"{text} {next(returned)}"
+
+    registry = NodeRegistry()
+    registry.add(each, tag)
+    return Graph.compile(make_graph(each, tag), registry)
+
+
+def test_a_run_given_new_inputs_saves_each_outcome_it_may_reuse_once() -> None:
+    graph = _shout_graph(iter(range(100)))
+    first = graph.run({"items": ["a", "b", "c"]})
+
+    saved = json.loads(first.with_inputs({"items": ["a", "b", "d"]}).to_json())["reusable"]["tag"]
+
+    assert saved["outputs"]["result"] == ["a 0", "b 1", "c 2"]
+    assert len(saved["fingerprints"]) == 3
+    assert saved["item_indexes"] == [[0], [1], [2]]
+
+
+def test_an_outcome_whose_item_has_a_newer_outcome_is_still_reused_by_its_arguments() -> None:
+    """``a 0`` loses its item, ``(0,)``, to ``b 1``, but a later call that gets ``"a"`` still reuses it.
+
+    The run on ``"b"`` fails on ``"boom"``, so ``tag`` isn't complete and keeps the outcomes it may reuse.
+    """
+    graph = _shout_graph(iter(range(100)))
+    failed = graph.run({"items": ["a"]}).again({"items": ["b", "boom"]})
+    assert failed.status == "failed" and failed.results["tag"]["result"] == ["b 1", None]
+
+    in_memory = failed.again({"items": ["b", "a"]}).results["tag"]["result"]
+    read_back = Run.from_json(failed.with_inputs({"items": ["b", "a"]}).to_json(), graph).resume()
+
+    assert in_memory == read_back.results["tag"]["result"] == ["b 1", "a 0"]
+
+
+def test_a_saved_run_reuses_each_call_s_own_outcome_and_reads_its_order_as_the_order_of_reuse() -> (
+    None
+):
+    """The two ``"a"`` calls keep their own outcomes, though their items, ``(0,)`` and ``(1,)``, also have the
+    outcomes for ``"q"`` and ``"z"``, and read back they still do.
+
+    A run read back keeps its reusable outcomes by the rule a run made in memory keeps them by, in the order the save
+    lists them. Listed the other way round, ``"q"`` comes before the first ``"a"`` at ``(0,)``, so ``(0,)`` no longer
+    has an outcome of its own with ``"a"``, and both calls reuse the first ``"a"`` listed, ``a 3``.
+    """
+    graph = _shout_graph(iter(range(100)))
+    failed = graph.run({"items": ["q", "z"]}).again({"items": ["a", "a", "boom"]})
+    assert failed.status == "failed" and failed.results["tag"]["result"] == ["a 2", "a 3", None]
+    edited = failed.with_inputs({"items": ["a", "a"]})
+    saved = json.loads(edited.to_json())
+    tag = saved["reusable"]["tag"]
+    reversed_places = list(range(len(tag["fingerprints"])))[::-1]
+    reversed_saved = {
+        **tag,
+        "states": [tag["states"][p] for p in reversed_places],
+        "outputs": {"result": [tag["outputs"]["result"][p] for p in reversed_places]},
+        "fingerprints": [tag["fingerprints"][p] for p in reversed_places],
+        "item_indexes": [tag["item_indexes"][p] for p in reversed_places],
+    }
+
+    in_memory = edited.resume().results["tag"]["result"]
+    read_back = Run.from_json(edited.to_json(), graph).resume().results["tag"]["result"]
+    saved["reusable"]["tag"] = reversed_saved
+    reordered = Run.from_json(json.dumps(saved), graph).resume().results["tag"]["result"]
+
+    assert in_memory == read_back == ["a 2", "a 3"]
+    assert reordered == ["a 3", "a 3"]
+
+
+def test_a_saved_reusable_entry_without_item_indexes_for_each_outcome_is_refused() -> None:
+    graph = _shout_graph(iter(range(100)))
+    saved = json.loads(graph.run({"items": ["a", "a"]}).with_inputs({"items": ["a"]}).to_json())
+    del saved["reusable"]["tag"]["item_indexes"][1]
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    assert [(p.type, p.ctx["where"], p.ctx["reason"]) for p in refused.value.problems] == [
+        ("saved_run_unreadable", "reusable.tag", "'item_indexes' is not as long as 'states'")
+    ]
+
+
+def _approve_graph(asks: bool) -> Graph[None]:
+    """Returns ``lines -> approve``, where ``approve`` asks about each line, or, without ``asks``, approves it.
+
+    Both versions compile from one record, so a saved run of one is a saved run of the other's graph too.
+    """
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.splitlines()
+
+    if asks:
+
+        @registry.node("approve", title="Approve", description="For a test.", asks=True)
+        def approve(line: str) -> bool:
+            raise Ask(f"Approve {line}?")
+
+    else:
+
+        @registry.node("approve", title="Approve", description="For a test.")
+        def approve(line: str) -> bool:  # type: ignore[no-redef]
+            return True
+
+    return Graph.compile(make_graph(registry["lines"], registry["approve"]), registry)
+
+
+@pytest.mark.parametrize("answered", [True, False])
+def test_a_saved_run_with_reusable_outcomes_of_a_node_reads_back_once_the_node_stops_asking(
+    answered: bool,
+) -> None:
+    """A node's code may stop asking between a save and its read. The outcomes it may reuse then can't be reused,
+    since whether a node asks is part of its code fingerprint, so they are dropped, and the run reads back."""
+    asking = _approve_graph(asks=True)
+    first = asking.run({"text": "a\nb"})
+    if answered:
+        first = first.with_answers({waiting.id: False for waiting in first.waiting})
+    saved = json.loads(first.with_inputs({"text": "a"}).to_json())
+    assert saved["reusable"]["approve"]
+
+    not_asking = _approve_graph(asks=False)
+    assert not_asking.fingerprint == asking.fingerprint
+    back = Run.from_json(json.dumps(saved), not_asking).resume()
+
+    assert back.status == "complete" and back.results["approve"]["result"] == [True]
+
+
+def test_a_saved_run_waiting_on_a_node_still_waits_once_its_code_stops_asking_and_an_answer_goes_on() -> (
+    None
+):
+    """A deploy leaves what a run has done and what it waits on as it is. A question saved while the node asked
+    still waits once its code no longer asks. The id goes out of date with the code, so ``answer_stale`` names the
+    id it waits under now, and an answer to that id goes on. An answer given before the save stays."""
+    first = _approve_graph(asks=True).run({"text": "a\nb"})
+    answered, still_waiting = first.waiting
+    saved = first.with_answers(answered, False).to_json()
+
+    back = Run.from_json(saved, _approve_graph(asks=False))
+
+    assert back.status == "waiting" and [w.loc for w in back.waiting] == [still_waiting.loc]
+    with pytest.raises(InvalidCallError) as stale:
+        back.with_answers(still_waiting, True)
+    ((problem,),) = [stale.value.problems]
+    assert problem.type == "answer_stale" and problem.ctx["current"] == back.waiting[0].id
+    done = back.with_answers(problem.ctx["current"], True).resume()
+    assert done.status == "complete" and done.results["approve"]["result"] == [False, True]
+    assert Run.from_json(back.to_json(), _approve_graph(asks=False)).to_json() == back.to_json()
+
+
+def _draft_graph(asks: bool = True, *, tightened: Any = None) -> Graph[None]:
+    """Returns ``lines -> reply``, where ``reply`` proposes a draft reply to each line and asks a person to pick.
+
+    Without ``asks``, ``reply`` returns its draft. With ``tightened``, ``reply`` returns that type instead of
+    ``str``, as after a deploy that tightened it, and asks with no choices. Every version compiles from one record.
+    """
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.splitlines()
+
+    if tightened is not None:
+
+        @registry.node("reply", title="Reply", description="For a test.", asks=True)
+        def tight(line: str) -> tightened:  # type: ignore[valid-type]
+            raise Ask(f"Send a reply to {line}?")
+
+    elif asks:
+
+        @registry.node("reply", title="Reply", description="For a test.", asks=True)
+        def reply(line: str) -> str:
+            raise Ask(
+                f"Send a reply to {line}?", choices=["Yes", f"Re: {line}"], default=f"Re: {line}"
+            )
+
+    else:
+
+        @registry.node("reply", title="Reply", description="For a test.")
+        def reply(line: str) -> str:  # type: ignore[no-redef]
+            return f"Re: {line}"
+
+    return Graph.compile(make_graph(registry["lines"], registry["reply"]), registry)
+
+
+def _question(line: str) -> dict[str, Any]:
+    """Returns what ``reply`` asks about ``line``, as a saved run writes it."""
+    return {
+        "prompt": f"Send a reply to {line}?",
+        "choices": {
+            "result": [{"id": "Yes", "title": "Yes"}, {"id": f"Re: {line}", "title": f"Re: {line}"}]
+        },
+        "defaults": {"result": f"Re: {line}"},
+    }
+
+
+def test_an_answered_call_keeps_what_its_ask_showed_beside_the_answer_and_reads_back_byte_equal() -> (
+    None
+):
+    """A record of what a person saw when they decided: once a call is answered, its question stays under
+    ``questions`` at the call's number, its state ``done``, its answer under ``outputs``. The default the person took
+    is an answer like any other. A run read back writes the same text, and a question still waiting stays beside."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb\nc"})
+    one, two, _ = first.waiting
+    answered = first.with_answers({one.id: "Yes", two.id: two.questions[0].default})
+
+    saved = answered.to_json()
+    approve = json.loads(saved)["outcomes"]["reply"]
+
+    assert approve["states"] == ["done", "done", None]
+    assert approve["outputs"] == {"result": ["Yes", "Re: b", None]}
+    assert approve["questions"] == {"0": _question("a"), "1": _question("b"), "2": _question("c")}
+    back = Run.from_json(saved, graph)
+    assert back.to_json() == saved
+    assert [waiting.loc for waiting in back.waiting] == [("reply", 2)]
+    assert Run.from_json(_jsonb(saved), graph).to_json() == saved
+
+
+def test_an_answered_call_keeps_its_question_once_its_node_stops_asking_in_a_deploy() -> None:
+    """A deploy leaves what a run did as it is, the questions its answers came from too."""
+    first = _draft_graph().run({"text": "a\nb"})
+    saved = first.with_answers({waiting.id: "Yes" for waiting in first.waiting}).to_json()
+
+    back = Run.from_json(saved, _draft_graph(asks=False))
+
+    assert back.status == "complete" and back.results["reply"]["result"] == ["Yes", "Yes"]
+    assert back.to_json() == saved
+    assert json.loads(back.to_json())["outcomes"]["reply"]["questions"] == {
+        "0": _question("a"),
+        "1": _question("b"),
+    }
+
+
+def test_an_answer_reused_by_a_later_run_keeps_the_question_it_was_given_for() -> None:
+    """A reused answer shows what the person was shown back then, in the next run's save as it waits to be reused
+    and once it is, read back too."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    first = first.with_answers({waiting.id: "Yes" for waiting in first.waiting})
+    edited = first.with_inputs({"text": "b\nnew"})
+
+    reusable = json.loads(edited.to_json())["reusable"]["reply"]
+    reused = Run.from_json(edited.to_json(), graph).resume()
+    outcomes = json.loads(reused.to_json())["outcomes"]["reply"]
+
+    assert reusable["questions"] == {"0": _question("a"), "1": _question("b")}
+    assert outcomes["states"] == ["done", None]
+    assert outcomes["questions"] == {"0": _question("b"), "1": _question("new")}
+    assert json.loads(edited.resume().to_json())["outcomes"]["reply"] == outcomes
+
+
+def _replies(asked: Any) -> list[tuple[Any, str, Any, Any, Any]]:
+    """Returns what ``run.asked`` says of each call: its loc, its prompt, its questions' defaults and choices, and the
+    reply."""
+    return [
+        (
+            one.question.loc,
+            one.question.prompt,
+            [(q.default, [c.id for c in q.choices or []]) for q in one.question.questions],
+            one.answer,
+            one.reason,
+        )
+        for one in asked
+    ]
+
+
+def test_run_asked_lists_each_answer_and_the_decline_with_what_the_person_was_shown_in_memory_and_read_back() -> (
+    None
+):
+    """``run.asked`` is a host's record: the question as ``run.waiting`` showed it, the proposed default included,
+    and the answer or the decline's reason. A decline keeps the call where the run says how it ended, and its
+    ``answer_declined`` is made from it, so ``cause.ctx`` holds only the reason and the save writes no cause. It reads
+    the same from a run read back, whose save writes the same text again."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb\nc"})
+    one, two, three = first.waiting
+    declined = first.with_answers({one.id: "Yes", two.id: "Re: b"}).with_decline(
+        three, reason="Not now"
+    )
+
+    saved = declined.to_json()
+    back = Run.from_json(saved, graph)
+
+    assert declined.cause.ctx == {"reason": "Not now"}
+    assert _replies(declined.asked) == [
+        (
+            ("reply", 0),
+            "Send a reply to a?",
+            [("Re: a", ["Yes", "Re: a"])],
+            {"result": "Yes"},
+            None,
+        ),
+        (
+            ("reply", 1),
+            "Send a reply to b?",
+            [("Re: b", ["Yes", "Re: b"])],
+            {"result": "Re: b"},
+            None,
+        ),
+        (("reply", 2), "Send a reply to c?", [("Re: c", ["Yes", "Re: c"])], None, "Not now"),
+    ]
+    assert (declined.cause.type, declined.cause.loc) == ("answer_declined", ("reply", 2))
+    assert [a.question.inputs for a in declined.asked] == [
+        {"line": "a"},
+        {"line": "b"},
+        {"line": "c"},
+    ]
+    assert back.asked == declined.asked
+    assert back.to_json() == saved
+    assert json.loads(saved)["ended_early"] == {
+        "status": "declined",
+        "declined": {
+            "node_path": ["reply"],
+            "item_indexes": [2],
+            "question": _question("c"),
+            "reason": "Not now",
+        },
+    }
+    assert (back.status, back.waiting, back.cause) == ("declined", [], declined.cause)
+
+
+def _declined_save() -> tuple[Graph[None], dict[str, Any]]:
+    """Returns ``_draft_graph`` and its run on two lines, the second declined, as saved JSON data."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    answered = first.with_answers(first.waiting[0], "Yes")
+    return graph, json.loads(answered.with_decline(answered.waiting[0], reason="no").to_json())
+
+
+def _declined_wrong(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["status"] = "failed"
+
+
+def _declined_at_a_node_that_never_asks_and_has_returned(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["node_path"] = ["lines"]
+    saved["ended_early"]["declined"]["item_indexes"] = []
+
+
+def _declined_past_its_items(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["item_indexes"] = [7]
+
+
+def _declined_at_no_node(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["node_path"] = []
+    saved["ended_early"]["declined"]["item_indexes"] = []
+
+
+def _declined_with_a_cause_of_its_own(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["cause"] = {"type": "answer_declined", "loc": ["reply", 1], "msg": "No."}
+
+
+def _declined_with_no_call(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"] = None
+
+
+def _declined_at_an_item_index_written_as_text(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["item_indexes"] = ["1"]
+
+
+def _declined_at_a_call_with_an_outcome(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["item_indexes"] = [0]
+
+
+def _declined_naming_no_output(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["question"]["defaults"] = {"nope": "x"}
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        _declined_wrong,
+        _declined_at_a_node_that_never_asks_and_has_returned,
+        _declined_past_its_items,
+        _declined_at_no_node,
+        _declined_with_a_cause_of_its_own,
+        _declined_with_no_call,
+        _declined_at_an_item_index_written_as_text,
+        _declined_at_a_call_with_an_outcome,
+        _declined_naming_no_output,
+    ],
+)
+def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any) -> None:
+    """A saved run says a call was declined on a ``declined`` run and no other, with no cause, since its problem is
+    made from the call, for a call the graph has with no outcome, read strictly, with a question its node's outputs
+    take. Any other is refused where it is read, not when ``run.asked`` reads it."""
+    graph, saved = _declined_save()
+    assert Run.from_json(json.dumps(saved), graph).asked[-1].reason == "no"
+    damage(saved)
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert problem.type == "saved_run_unreadable"
+    assert problem.ctx["where"].startswith("ended_early")
+
+
+def _a_skipped_call(reply: dict[str, Any]) -> None:
+    reply["states"] = ["skipped"]
+    reply["outputs"] = {"result": [None]}
+    reply["fingerprints"] = [None]
+
+
+@pytest.mark.parametrize(
+    ("answered", "damage"),
+    [
+        (False, lambda reply: reply["questions"]["0"].__setitem__("defaults", {"nope": "x"})),
+        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", {"nope": []})),
+        (True, lambda reply: reply["questions"]["0"].__setitem__("defaults", {"nope": "x"})),
+        (True, lambda reply: reply["questions"]["0"].__setitem__("choices", {"nope": []})),
+        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", {"result": []})),
+        (
+            False,
+            lambda reply: reply["questions"]["0"].__setitem__(
+                "choices",
+                {"result": [{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}]},
+            ),
+        ),
+        (True, _a_skipped_call),
+    ],
+    ids=[
+        "a default for an output the node lacks, waiting",
+        "choices for an output the node lacks, waiting",
+        "a default for an output the node lacks, answered",
+        "choices for an output the node lacks, answered",
+        "no choice",
+        "one choice twice",
+        "a question at a skipped call",
+    ],
+)
+def test_a_saved_question_no_deploy_explains_is_refused(
+    answered: bool, damage: Callable[[dict[str, Any]], Any]
+) -> None:
+    """A question gives choices and defaults only to its node's outputs, offers at least one choice and none twice,
+    and is kept only by a call that asked: a waiting one, or one a person answered. No deploy explains another."""
+    graph = _draft_graph()
+    run = graph.run({"text": "a"})
+    if answered:
+        run = run.with_answers(run.waiting[0], "Yes")
+    saved = json.loads(run.to_json())
+    damage(saved["outcomes"]["reply"])
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.reply")
+
+
+@pytest.mark.parametrize("tightened", [Annotated[str, Param(max_length=3)], Literal["Yes", "No"]])
+def test_a_deploy_that_tightens_an_asking_node_s_type_offers_only_what_it_takes_and_records_what_was_asked(
+    tightened: Any,
+) -> None:
+    """A run saved before a deploy that tightens an asking node's type reads back byte-equal, waiting. Its waiting
+    call is a form to answer: it offers only the choices the type takes now, narrowed by the type, and drops a
+    default the type refuses, the same for a limit and a ``Literal``. ``run.asked`` is a record: it keeps the
+    question exactly as it was asked. An answer is read by the type now."""
+    first = _draft_graph().run({"text": "a\nb"})
+    saved = first.with_answers(first.waiting[0], "Yes").to_json()
+
+    back = Run.from_json(saved, _draft_graph(tightened=tightened))
+
+    assert back.status == "waiting" and back.to_json() == saved
+    form, record = back.waiting[0].questions[0], back.asked[0].question.questions[0]
+    assert ([c.id for c in form.choices or []], form.default, form.required) == (
+        ["Yes"],
+        MISSING,
+        True,
+    )
+    assert form.json_schema["enum"] == ["Yes"] and form.json_schema["type"] == "string"
+    assert ([c.id for c in record.choices or []], record.default) == (["Yes", "Re: a"], "Re: a")
+    for refused_answer in ("Re: b", {}):
+        with pytest.raises(InvalidCallError) as refused:
+            back.with_answers(back.waiting[0], refused_answer)
+        assert [p.type for p in refused.value.problems] == ["invalid_answer"]
+    assert back.with_answers(back.waiting[0], "Yes").resume().status == "complete"
+
+
+def test_a_waiting_call_whose_every_saved_choice_its_type_refuses_is_shown_with_none_and_still_answered() -> (
+    None
+):
+    """A choice id and a default no type of the output takes, as a hand-edited save might hold, are a question's
+    values, not its shape: the save reads back and writes them back as they were, and the waiting call is shown
+    with neither, so it is answered by its type alone."""
+    graph = _draft_graph()
+    saved = json.loads(graph.run({"text": "a"}).to_json())
+    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {
+        "result": [{"id": 1, "title": "One"}]
+    }
+    saved["outcomes"]["reply"]["questions"]["0"]["defaults"] = {"result": 5}
+
+    back = Run.from_json(json.dumps(saved), graph)
+
+    (question,) = back.waiting[0].questions
+    assert (question.choices, question.default) == (None, MISSING)
+    assert json.loads(back.to_json()) == saved
+    assert back.with_answers(back.waiting[0], "Sure").resume().status == "complete"
+
+
+def test_a_saved_choice_with_no_title_is_refused_where_it_is() -> None:
+    """Every choice has a title, so a saved choice with none is refused as any damaged key is."""
+    graph = _draft_graph()
+    saved = json.loads(graph.run({"text": "a"}).to_json())
+    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {"result": [{"id": "Yes"}]}
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"]) == (
+        "saved_run_unreadable",
+        "outcomes.reply.questions.0.choices.result",
+    )
+    assert problem.ctx["errors"][0]["type"] == "missing"
+
+
+def test_a_record_of_run_asked_has_no_id_to_answer_by_and_a_deploy_leaves_it_as_it_was() -> None:
+    """No call ``run.asked`` lists waits, so its question has no id: a record is never an answer's target. A deploy
+    that changes the node's code, so far that it stops asking, leaves the record as it was, the decline too."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    one, two = first.waiting
+    declined = first.with_answers(one, "Yes").with_decline(two)
+
+    redeployed = Run.from_json(declined.to_json(), _draft_graph(asks=False))
+
+    assert [type(a.question) for a in declined.asked] == [Question, Question]
+    assert all("id" not in a.question.model_dump() for a in declined.asked)
+    assert redeployed.asked == declined.asked
+
+
+def test_a_declined_question_waits_on_nothing_and_again_calls_its_node_afresh() -> None:
+    """The declined call has no outcome: it isn't waiting, isn't counted as waiting, can't be answered, and a new
+    run asks it again, by calling the node."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a"})
+    declined = Run.from_json(first.with_decline(first.waiting[0]).to_json(), graph)
+
+    assert (declined.waiting, declined.progress.nodes["reply"].waiting) == ([], 0)
+    with pytest.raises(InvalidCallError) as refused:
+        declined.with_answers(first.waiting[0], "Yes")
+    assert [p.type for p in refused.value.problems] == ["not_waiting"]
+    asked_again = declined.again()
+    assert [w.prompt for w in asked_again.waiting] == ["Send a reply to a?"]
+    assert asked_again.asked == []
+
+
+def test_run_asked_lists_a_reused_answer_with_the_question_it_was_given_for() -> None:
+    """An answer a later run reuses is in that run's record, with the question the person was shown back then."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a\nb"})
+    first = first.with_answers({w.id: "Yes" for w in first.waiting})
+    edited = first.with_inputs({"text": "b\nnew"}).resume()
+
+    in_memory = _replies(edited.asked)
+    read_back = _replies(Run.from_json(edited.to_json(), graph).asked)
+
+    assert (
+        in_memory
+        == read_back
+        == [
+            (
+                ("reply", 0),
+                "Send a reply to b?",
+                [("Re: b", ["Yes", "Re: b"])],
+                {"result": "Yes"},
+                None,
+            )
+        ]
+    )
+    assert [w.loc for w in edited.waiting] == [("reply", 1)]
+
+
+def test_run_asked_writes_an_answer_of_several_outputs_by_name_and_leaves_out_a_branch_not_chosen() -> (
+    None
+):
+    @dataclass(frozen=True)
+    class Route:
+        keep: str = SKIPPED  # type: ignore[assignment]
+        drop: str = SKIPPED  # type: ignore[assignment]
+        when: datetime.date = datetime.date(2026, 1, 1)
+
+    registry = NodeRegistry()
+
+    @registry.node("route_it", title="Route it", description="For a test.", asks=True)
+    def route_it(text: str) -> Route:
+        raise Ask(f"Keep {text}?")
+
+    graph = Graph.compile(make_graph(registry["route_it"]), registry)
+    waiting = graph.run({"text": "x"})
+    answered = waiting.with_answers(waiting.waiting[0], {"keep": "yes"})
+
+    assert [a.answer for a in answered.asked] == [{"keep": "yes", "when": "2026-01-01"}]
+    assert Run.from_json(answered.to_json(), graph).asked == answered.asked
+
+
+def test_a_saved_answer_with_no_question_reads_back_as_done() -> None:
+    """A save may leave an answered call's question out: the call reads back done, and is saved without it."""
+    graph = _draft_graph()
+    first = graph.run({"text": "a"})
+    saved = json.loads(first.with_answers(first.waiting[0], "Yes").to_json())
+    del saved["outcomes"]["reply"]["questions"]
+
+    back = Run.from_json(json.dumps(saved), graph)
+
+    assert back.status == "complete" and back.results["reply"]["result"] == ["Yes"]
+    assert "questions" not in json.loads(back.to_json())["outcomes"]["reply"]
+
+
+def test_a_node_that_asks_saves_its_reusable_outcomes_with_their_item_indexes_and_reuses_them_read_back() -> (
+    None
+):
+    """A saved run writes every node's reusable outcomes the same way, each with its item indexes, whether the node
+    may ask or not. Read back, a node that asks still takes each answer by its line."""
+    graph = _approve_graph(asks=True)
+    first = graph.run({"text": "a\nb"})
+    first = first.with_answers({waiting.id: waiting.loc[-1] == 0 for waiting in first.waiting})
+    edited = first.with_inputs({"text": "b\na"})
+    saved = json.loads(edited.to_json())["reusable"]["approve"]
+
+    in_memory = edited.resume()
+    read_back = Run.from_json(edited.to_json(), graph).resume()
+
+    assert saved["item_indexes"] == [[0], [1]]
+    assert in_memory.status == read_back.status == "complete"
+    assert (
+        in_memory.results["approve"]["result"]
+        == read_back.results["approve"]["result"]
+        == [False, True]
+    )
+
+
+def test_a_node_that_asks_and_was_not_called_for_a_none_reuses_its_answers_in_the_next_run() -> (
+    None
+):
+    """The outcomes a run made from another may reuse are read from that run's outcomes, which have a call not made
+    for a ``None`` among them. That call has no outcome to reuse, and the answers beside it are reused."""
+    registry = NodeRegistry()
+
+    @registry.node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str | None]:
+        return [line or None for line in text.split(",")]
+
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(line: str) -> bool:
+        raise Ask(f"Approve {line}?")
+
+    graph = Graph.compile(make_graph(registry["lines"], registry["approve"]), registry)
+    first = graph.run({"text": "a,"})
+    first = first.with_answers({waiting.id: True for waiting in first.waiting})
+    assert first.status == "complete" and first.none_input_calls
+
+    edited = first.with_inputs({"text": "b,,a"}).resume()
+
+    assert edited.results["approve"]["result"] == [None, None, True]
+    assert [waiting.loc for waiting in edited.waiting] == [("approve", 0)]
+
+
+def test_a_node_that_asks_saves_one_call_twice_when_two_answers_wait_for_it_and_reuses_both_read_back() -> (
+    None
+):
+    """A node that may ask can have two reusable answers with one fingerprint, from calls with one item indexes in
+    two earlier runs. Its save then lists that call twice, and read back, each answer is reused once."""
+    graph = _approve_graph(asks=True)
+    first = graph.run({"text": "a\na\nc"})
+    first = first.with_answers({w.id: w.loc[-1] == 0 for w in first.waiting if w.loc[-1] < 2})
+    second = first.with_inputs({"text": "a\nc"}).resume()
+    third = second.with_inputs({"text": "c\na"}).resume()
+    edited = third.with_inputs({"text": "a\na\nc"})
+    saved = json.loads(edited.to_json())["reusable"]["approve"]
+
+    in_memory = edited.resume()
+    read_back = Run.from_json(edited.to_json(), graph).resume()
+
+    assert (
+        list(zip(saved["item_indexes"], saved["fingerprints"]))[1:]
+        == [([1], saved["fingerprints"][1])] * 2
+    )
+    assert (
+        in_memory.results["approve"]["result"]
+        == read_back.results["approve"]["result"]
+        == [True, False, None]
+    )
+
+
+def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() -> None:
+    """However a saved run is damaged, ``Run.from_json`` either reads it back or refuses it with a problem.
+
+    It never raises any other error.
+    """
+    graph = _everything()
+    first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
+    waiting = first.with_inputs(
+        {"lines": "a,ccc,ab,xax"}
+    ).resume()  # it waits on "ab", and keeps its outcomes for "bb" and "b" to reuse
+    saved = json.loads(waiting.to_json())
+    assert waiting.status == "waiting" and saved["reusable"] and saved["outcomes"]
+    random.seed(7)
+
+    def places(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
+        found = [path] if path else []
+        if isinstance(value, dict):
+            parts = value.items()
+        elif isinstance(value, list):
+            parts = enumerate(value)
+        else:
+            parts = ()
+        for key, part in parts:
+            found += places(part, (*path, key))
+        return found
+
+    every = places(saved)
+    for _ in range(3000):
+        damaged = json.loads(json.dumps(saved))
+        *above, last = random.choice(every)
+        parent = damaged
+        for step in above:
+            parent = parent[step]
+        change = random.choice(["drop", "null", "text", "number", "list", "object", "twice"])
+        if change == "drop":
+            del parent[last]
+        elif change == "twice" and isinstance(parent, list):
+            parent.insert(last, parent[last])
+        else:
+            parent[last] = {
+                "null": None,
+                "text": "x",
+                "number": 99,
+                "list": [1, [2]],
+                "object": {"a": 1},
+                "twice": 7,
+            }[change]
+        try:
+            Run.from_json(json.dumps(damaged), graph).to_json()
+        except InvalidCallError as refused:
+            assert [p.type for p in refused.problems] in (
+                ["saved_run_unreadable"],
+                ["saved_run_of_another_graph"],
+            ), (above, last, change)
+
+
+def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
+    names = ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")
+    registry = _registry()
+    graph = Graph.compile(
+        _record(
+            registry,
+            {n: n for n in names},
+            [],
+            inputs={n: f"{n}.text" for n in names},
+            outputs={n: f"{n}.result" for n in names},
+        ),
+        registry,
+    )
+    run = graph.run(
+        {
+            "lines": "ab",
+            "reading": "inf",
+            "loose": "x",
+            "float-or-text": "x",
+            "typed-frame": "x",
+            "frame": "p",
+        }
+    )
+    json.loads(
+        run.to_json(), parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")
+    )
+
+    results = Run.from_json(run.to_json(), graph).results
+
+    assert math.isnan(results["reading"]["result"].value)  # a float field of a model gets the float
+    assert results["reading"]["result"].note == "Infinity"  # under Any: its JSON text
+    assert results["loose"]["result"] == {
+        "nan": "NaN",
+        "when": "2026-01-01",
+        "text": "x",
+    }  # under Any, each value gets its JSON form, as a date does
+    assert results["float-or-text"]["result"] == "Infinity"  # a type that takes text gets it
+    assert results["typed-frame"]["result"]["size"].to_list() == [
+        1.5,
+        math.inf,
+    ]  # a float column gets the float
+    assert results["frame"]["result"]["ratio"].is_nan().all()
+
+
+@pytest.mark.parametrize(
+    ("damage", "at"),
+    [
+        (
+            lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"),
+            "outcomes.maybe",
+        ),  # an output's list longer than its states
+        (lambda s: s["outcomes"]["maybe"]["states"].append("done"), "outcomes.maybe"),
+        (
+            lambda s: s["outcomes"]["maybe"]["states"].__setitem__(0, "gone"),
+            "outcomes.maybe.states.0",
+        ),
+        (lambda s: s["outcomes"]["maybe"].pop("outputs"), "outcomes.maybe.outputs"),
+        (lambda s: s["outcomes"]["gate"]["outputs"].pop("long"), "outcomes.gate.outputs.long"),
+        (
+            lambda s: s["outcomes"]["gate"]["outputs"].__setitem__("other", []),
+            "outcomes.gate.outputs.other",
+        ),
+        (lambda s: s["outcomes"]["gate"]["skipped"]["long"].append(99), "outcomes.gate"),
+        (
+            lambda s: s["outcomes"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]),
+            "outcomes.letters",
+        ),
+        (
+            lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?"}),
+            "outcomes.ask",
+        ),
+        (
+            lambda s: s["outcomes"].__setitem__("nowhere", {"states": [], "outputs": {}}),
+            "outcomes.nowhere",
+        ),
+        (lambda s: s["inputs"].__setitem__("nowhere", "x"), "inputs.nowhere"),
+        (lambda s: s["inputs"].__setitem__("lines", 7), "inputs.lines"),
+        (
+            lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][0]["values"].append(
+                "more"
+            ),
+            "outcomes.frame.outputs.result.0",
+        ),
+        (
+            lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1].__setitem__(
+                "name", "part"
+            ),
+            "outcomes.frame.outputs.result.0",
+        ),
+        (
+            lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1][
+                "values"
+            ].__setitem__(0, "soon"),
+            "outcomes.frame.outputs.result.0",
+        ),
+        (
+            lambda s: s["outcomes"]["typed"]["outputs"]["result"][0]["columns"].pop(1),
+            "outcomes.typed.outputs.result.0",
+        ),  # a column its row type names is gone
+        (lambda s: s["outcomes"]["e/q"]["states"].__setitem__(0, 5), "outcomes.e/q.states.0"),
+        (lambda s: s.pop("ended_early"), "ended_early"),
+        (lambda s: s.__setitem__("keys", []), "keys"),
+    ],
+)
+def test_a_damaged_saved_run_is_refused_at_the_place_pydantic_names(damage: Any, at: str) -> None:
+    graph = _everything()
+    saved = json.loads(graph.run(_inputs("a,bb,ccc,xax,b")).to_json())
+    damage(saved)
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", at)
+    assert "secret" not in problem.msg
+
+
+def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
+    @node("rows", title="Rows", description="For a test.")
+    def rows(text: str) -> Series[Line]:
+        return pl.DataFrame({"text": ["a"], "size": [math.inf]})  # type: ignore[return-value]
+
+    registry = _registry()
+    registry.add(rows)
+    graph = Graph.compile(
+        _record(
+            registry,
+            {n: n for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")},
+            [("lines.result.text", "letters.text")],
+            inputs={n: f"{n}.text" for n in ("lines", "reading", "loose", "typed-frame", "rows")},
+            outputs={
+                n: f"{n}.result" for n in ("letters", "reading", "loose", "typed-frame", "rows")
+            },
+        ),
+        registry,
+    )
+    run = graph.run(
+        {"lines": "ab,xa", "reading": "inf", "loose": "x", "typed-frame": "x", "rows": "x"}
+    )
+
+    written = run.outputs_to_json()
+
+    assert json.loads(
+        written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")
+    ) == {
+        "letters": [["a", "b"], [None, "a"]],  # an item on a skipped branch is None
+        "reading": {
+            "value": "NaN",
+            "note": "Infinity",
+        },  # a model writes a float that isn't finite as the run does
+        "loose": {"nan": "NaN", "when": "2026-01-01", "text": "x"},
+        "typed-frame": {
+            "columns": [
+                {"name": "text", "type": "str", "values": ["a", "b"]},
+                {"name": "size", "type": "float", "values": [1.5, "Infinity"]},
+            ]
+        },
+        "rows": [
+            {"text": "a", "size": "Infinity"}
+        ],  # a series of records is written as its records, however the run stores it
+    }
+
+
+def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_names_its_output() -> (
+    None
+):
+    graph = _everything()
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(_inputs("a")).outputs_to_json()
+    assert [problem.type for problem in refused.value.problems] == ["run_not_complete"]
+
+    @node("odd", title="Odd", description="For a test.")
+    def odd(text: str) -> Any:
+        return object()
+
+    registry = NodeRegistry()
+    registry.add(odd)
+    with pytest.raises(InvalidCallError) as refused:
+        Graph.compile(
+            GraphRecord.model_validate(
+                {
+                    "inputs": {"text": {}},
+                    "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
+                    "outputs": {"result": {"node": "o", "output": "result"}},
+                }
+            ),
+            registry,
+        ).run({"text": "x"}).outputs_to_json()
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.loc, problem.ctx["where"]) == (
+        "run_unwritable",
+        ("outputs", "result"),
+        "result",
+    )
+
+
+def test_a_run_read_back_goes_on_as_the_run_it_was_saved_from() -> None:
+    """A run read back from JSON goes on just as the run it was saved from would.
+
+    The run reuses calls of the run before it, and is saved with what it may still reuse. Read back, it waits for the
+    same calls and has the same results and progress. When it goes on, it reuses the same calls.
+    """
+    graph = _everything()
+    first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
+    waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()
+    read_back = Run.from_json(waiting.to_json(), graph)
+
+    assert waiting.status == "waiting"
+    assert (read_back.status, read_back.waiting, read_back.progress) == (
+        waiting.status,
+        waiting.waiting,
+        waiting.progress,
+    )
+    assert _same(read_back.results, waiting.results)
+    assert _went_on(read_back) == _went_on(waiting)
+
+
+def _went_on(run: Any) -> list[tuple[Any, ...]]:
+    """Answers the waiting calls of ``run``, lets it go on, and returns what each node did.
+
+    Each item is a node's place, how many outcomes it has and how many of them were reused.
+    """
+    for call in run.waiting:
+        run = run.with_answers(call, "bee")
+
+    async def streamed() -> list[Any]:
+        return [event async for event in run.stream()]
+
+    return [
+        (event.loc, event.count.finished, event.reused)
+        for event in asyncio.run(streamed())
+        if event.type == "node_complete"
+    ]
+
+
+def test_only_a_series_output_can_be_saved_with_items_on_a_skipped_branch() -> None:
+    """Only a ``Series`` output can be saved with items on a skipped branch.
+
+    An output that isn't a series is saved with no ``skipped_items``, even when its value is a list.
+    """
+
+    @node("listed", title="Listed", description="For a test.")
+    def listed(text: str) -> list[str]:
+        return list(text)
+
+    registry = NodeRegistry()
+    registry.add(listed, letters)
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "inputs": {"listed_text": {}, "letters_text": {}},
+                "nodes": {
+                    "listed": {
+                        "node": "listed",
+                        "inputs": {"text": {"graph_input": "listed_text"}},
+                    },
+                    "letters": {
+                        "node": "letters",
+                        "inputs": {"text": {"graph_input": "letters_text"}},
+                    },
+                },
+                "outputs": {
+                    "letters_result": {"node": "letters", "output": "result"},
+                    "listed_result": {"node": "listed", "output": "result"},
+                },
+            }
+        ),
+        registry,
+    )
+    run = graph.run({"listed_text": "ax", "letters_text": "ax"})
+    saved = json.loads(run.to_json())
+    assert (
+        saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}}
+        and "skipped_items" not in saved["outcomes"]["listed"]
+    )
+    assert Run.from_json(json.dumps(saved), graph).to_json() == run.to_json()
+
+    saved["outcomes"]["listed"]["skipped_items"] = {"result": {"0": [1]}}
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.ctx["where"]) == (
+        "saved_run_unreadable",
+        "outcomes.listed.skipped_items.result",
+    )
