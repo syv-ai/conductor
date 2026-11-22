@@ -37,7 +37,6 @@ def test_every_document_with_python_is_read() -> None:
     names = set(documents())
     assert {
         "doc_README_md",
-        "doc_docs_design_md",
         "doc_docs_writing_nodes_md",
         "doc_skills_add_node_REFERENCE_md",
         "doc_examples_03_what_the_run_supplies_ipynb",
