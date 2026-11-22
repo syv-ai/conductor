@@ -1719,9 +1719,12 @@ def test_a_threaded_slot_is_filled_between_waiting_calls_on_the_scheduler_thread
     assert max(start - end for start, end in zip(starts[2:], ends)) < 0.1
 
 
-def _failed_beside_a_call_that_hangs() -> tuple[Run, float]:
-    """Runs two items: one fails and the other hangs past its attempt timeout. Returns the run and how long it took."""
-    release, both_started = ThreadEvent(), Barrier(2)
+def _failed_beside_a_call_that_hangs() -> tuple[Run, float, bool]:
+    """Runs two items: one fails and the other hangs past its attempt timeout.
+
+    Returns the run, how long it took, and whether the hanging call had returned when the run did.
+    """
+    release, returned, both_started = ThreadEvent(), ThreadEvent(), Barrier(2)
 
     @node(
         "hangs-or-fails",
@@ -1734,25 +1737,31 @@ def _failed_beside_a_call_that_hangs() -> tuple[Run, float]:
         if text == "0":
             raise ValueError("no")
         release.wait(BOUND)
+        returned.set()
         return text
 
     started = time.monotonic()
     try:
         run = _per_item(hangs_or_fails, 2).run()
+        took, waited_for_the_call = time.monotonic() - started, returned.is_set()
     finally:
         release.set()
-    return run, time.monotonic() - started
+    return run, took, waited_for_the_call
 
 
 def test_a_call_timing_out_after_the_run_failed_leaves_the_first_failure_standing():
-    run, _ = _failed_beside_a_call_that_hangs()
+    run, _, waited_for_the_call = _failed_beside_a_call_that_hangs()
 
-    assert (run.status, run.cause.type) == ("failed", "execution_failed")
+    assert (run.status, run.cause.type, waited_for_the_call) == (
+        "failed",
+        "execution_failed",
+        False,
+    )
 
 
 @pytest.mark.slow
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
-    _, took = _failed_beside_a_call_that_hangs()
+    _, took, _ = _failed_beside_a_call_that_hangs()
 
     assert 0.15 < took < 1.0, took
 

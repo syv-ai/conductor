@@ -1158,8 +1158,7 @@ def test_the_run_timeout_stops_the_calls_inside_a_subgraph():
     graph = inside_a_loop("fetch-inner")
     run = graph.run({"text": "a b c d"}, timeout=0.05)
     assert run.status == "timed_out" and run.cause.type == "run_timed_out"
-    # at most the two calls that had a thread before the deadline; a slow machine starts fewer, never more
-    assert CALLS["fetch"] <= 2
+    assert CALLS["fetch"] in (1, 2)  # the calls that had a thread before the deadline
     assert Run.from_json(run.to_json(), graph).resume().status == "complete" and CALLS["fetch"] == 4
 
 
