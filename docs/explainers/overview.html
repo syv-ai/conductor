@@ -119,6 +119,15 @@ section { padding-top: var(--section); }
 .idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
 .idea .term b { font-weight: 400; color: var(--accent); }
 .idea pre { margin: .25rem 0 0; }
+.hero-title { display: grid; gap: 1rem; align-content: start; }
+.hero-text { display: grid; gap: 1rem; }
+/* Wide, the title stands beside the text, and the record's JSON reads in two columns. */
+@media (min-width: 901px) {
+  .hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); column-gap: 3rem; }
+  .hero > :not(.hero-title, .hero-text) { grid-column: 1 / -1; }
+  .idea { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); margin-top: 0; }
+  .idea pre.out { column-count: 2; column-gap: 1.5rem; }
+}
 @media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---------- code ---------- */
@@ -192,7 +201,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
   .axis .line { display: none; }
   .strip { grid-template-columns: minmax(0, 1fr); }
 }
-.levels { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: 2.5rem; font-size: var(--step--1); color: var(--ink-2); }
+.levels { display: flex; flex-wrap: wrap; gap: .5rem 2rem; font-size: var(--step--1); color: var(--ink-2); }
 .levels p { display: flex; align-items: baseline; gap: .6rem; }
 .levels .lvl, .choice details p > .lvl:first-child { margin-left: 0; }
 
@@ -209,6 +218,7 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .stage-text { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .stage-text h3 { font-family: var(--font-display); font-weight: 400; font-size: var(--step-2); }
 .stage-text .cap { color: var(--ink-2); max-width: 60ch; }
+.step-cap, .step-code { display: grid; gap: 1rem; align-content: start; min-width: 0; }
 .out { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-2); }
 .out span { color: var(--ok); }
 .fade { animation: fade .45s ease both; }
@@ -246,6 +256,28 @@ pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; bac
 .d-badge.askc { fill: var(--slow); }
 .d-doc rect { fill: var(--code-bg); stroke: var(--rule); }
 .hidden-el { opacity: 0; }
+
+/* Wide, a section's head is one row: the eyebrow and title on the left, the lede on the right. The walk-through's
+   text gets the room its outputs need, beside a smaller diagram. */
+@media (min-width: 901px) {
+  .section-head.row { max-width: none; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 3rem; align-items: end; margin-bottom: 1.5rem; }
+  .section-head.row > .eyebrow { grid-column: 1; grid-row: 1; }
+  .section-head.row > h2 { grid-column: 1; grid-row: 2; }
+  .section-head.row > p:not(.eyebrow) { grid-column: 2; grid-row: 1 / span 2; }
+  .section-head.row > .walk-intro { grid-column: 2; grid-row: 1 / span 2; display: grid; gap: .75rem; }
+  .stage { grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); }
+  .stage-text { grid-template-columns: minmax(0, .75fr) minmax(0, 1.35fr); column-gap: 1.5rem; }
+  /* A step with a long output gives it the diagram's room too: the output reads in two columns, and the caption
+     says what the diagram's state would. */
+  .stage.long { grid-template-columns: minmax(0, 1fr); }
+  .stage.long > .stage-text { grid-template-columns: minmax(0, .8fr) minmax(0, 2.6fr); }
+  .stage.long > .diagram { display: none; }
+  .stage.long pre.out { column-count: 2; column-gap: 2rem; }
+  .step-cap .state { display: none; }
+  .stage.long .step-cap .state { display: block; }
+  #choices .choices { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 2.5rem; }
+  #choices .choice { padding-block: 1rem; }
+}
 
 /* ---------- choices ---------- */
 .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
@@ -480,9 +512,11 @@ body { margin: 0; }
 
 <!-- ============================ HERO ============================ -->
 <header class="hero">
-  <p class="eyebrow">Conductor &middot; the overview</p>
-  <h1><em>Conductor</em></h1>
-  <div class="prose" style="display:grid;gap:1rem">
+  <div class="hero-title">
+    <p class="eyebrow">Conductor &middot; the overview</p>
+    <h1><em>Conductor</em></h1>
+  </div>
+  <div class="prose hero-text">
     <p class="lede">Conductor is a Python library that runs graphs of typed nodes. You write Python functions. Someone else wires them together in an editor, and the graph reaches you as JSON. Conductor checks that graph, tells you what's wrong with it, and runs it.</p>
     <p class="muted" id="host">It needs only pydantic, polars and typing-extensions. It has no web framework, database or login, and it uses none of a host's words. Those belong to the application that uses it, which conductor calls the host.</p>
   </div>
@@ -547,12 +581,11 @@ run = Run.from_json(saved, graph)
 run = run.with_answers(run.waiting[0], True).resume()</pre>
     </div>
   </div>
+  <div class="levels" aria-label="Public and internal">
+    <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+    <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+  </div>
 </header>
-
-<div class="levels" aria-label="Public and internal">
-  <p><span class="lvl pub">Public</span>what you import, write or read back</p>
-  <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
-</div>
 
 <div class="staff" aria-hidden="true"></div>
 
@@ -560,8 +593,8 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
 <section id="map" aria-labelledby="map-h">
   <div class="section-head prose">
     <p class="eyebrow">The map</p>
-    <h2 id="map-h">Three packages, each read left to right</h2>
-    <p class="muted">A module imports only from the columns to its right. Pick one to see what it imports.</p>
+    <h2 id="map-h">What imports what, one package at a time</h2>
+    <p class="muted">A module imports only from the columns after it. Pick one to see what it imports.</p>
   </div>
 
   <div class="map">
@@ -588,10 +621,19 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
 
 <!-- ============================ WALK-THROUGH ============================ -->
 <section id="walk" aria-labelledby="walk-h">
-  <div class="section-head prose">
+  <div class="section-head prose row">
     <p class="eyebrow">One run from start to finish</p>
     <h2 id="walk-h">Approving invoices with a pause for a person<span class="lvl pub">Public</span></h2>
-    <p class="muted">This is the README's invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write and what it prints.</p>
+    <div class="walk-intro">
+      <p class="muted">This is the README's invoice graph. The node approves small invoices itself, and a large one stops and asks. Each step shows what you write and what it prints.</p>
+      <div class="controls">
+        <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
+        <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
+        <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
+        <span class="count" id="count">1 / 8</span>
+        <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+      </div>
+    </div>
   </div>
 
   <div class="walk">
@@ -629,13 +671,6 @@ run = run.with_answers(run.waiting[0], True).resume()</pre>
           </g>
         </svg>
       </div>
-    </div>
-    <div class="controls">
-      <button class="btn" id="prev" type="button" aria-label="Previous step"><svg viewBox="0 0 16 16"><path d="M10.5 3 5 8l5.5 5z"/></svg>Back</button>
-      <button class="btn primary" id="play" type="button"><svg viewBox="0 0 16 16" id="play-ico"><path d="M4 2.5v11L13 8z"/></svg><span id="play-txt">Play</span></button>
-      <button class="btn" id="next" type="button" aria-label="Next step">Next<svg viewBox="0 0 16 16"><path d="M5.5 3 11 8l-5.5 5z"/></svg></button>
-      <span class="count" id="count">1 / 8</span>
-      <div class="progress" aria-hidden="true"><i id="bar"></i></div>
     </div>
   </div>
   <!-- The walk-through's steps: each step shows the elements with its data-step, in order. They are here, and not in
@@ -707,10 +742,13 @@ import json
 
 
 def dumps(text):
-    """The saved run as the page shows it: a mapping one key a line, a list on one line unless it holds lists."""
+    """The saved run as the page shows it: a value on one line when it fits in 60 characters, else a mapping one key
+    a line, and a list on one line unless it holds lists."""
 
     def written(value, indent):
         pad = " " * (indent + 2)
+        if len(json.dumps(value, separators=(", ", ": "))) <= 60:
+            return json.dumps(value, separators=(", ", ": "))
         if isinstance(value, dict) and value:
             keys = [f"{pad}{json.dumps(key)}: {written(item, indent + 2)}" for key, item in value.items()]
             return "{\n" + ",\n".join(keys) + "\n" + " " * indent + "}"
@@ -728,9 +766,7 @@ print(dumps(saved))
   "graph": "7073b7e39f4a7eec",
   "ended_early": null,
   "max_items": null,
-  "inputs": {
-    "csv": "name,amount\nIda,100\nBo,5000\n"
-  },
+  "inputs": {"csv": "name,amount\nIda,100\nBo,5000\n"},
   "outcomes": {
     "read": {
       "states": ["done"],
@@ -743,15 +779,9 @@ print(dumps(saved))
     },
     "approve": {
       "states": ["done", null],
-      "outputs": {
-        "result": [true, null]
-      },
+      "outputs": {"result": [true, null]},
       "fingerprints": ["b577d5d1eb0995656a60fdb9", "8899f4d7480adc0e6377c5fd"],
-      "questions": {
-        "1": {
-          "prompt": "Approve Bo, 5000 kr.?"
-        }
-      }
+      "questions": {"1": {"prompt": "Approve Bo, 5000 kr.?"}}
     }
   },
   "reusable": {},
@@ -773,7 +803,7 @@ print(run.outputs)</pre>
 
 <!-- ============================ CHOICES ============================ -->
 <section id="choices" aria-labelledby="choices-h">
-  <div class="section-head prose">
+  <div class="section-head prose row">
     <p class="eyebrow">Why it's built this way</p>
     <h2 id="choices-h">The design choices</h2>
     <p class="muted">The reason for each, and what it costs, is in <a href="../design/">the design guide</a> (<code>docs/design.md</code>). Here each one points to the page that shows it.</p>
@@ -1122,7 +1152,7 @@ print(run.outputs)</pre>
     { short: "Ask waits", title: "One call waits for a person",
       cap: "Bo's call waits, and so does summary, since it [collects every answer](series-and-tables.html#loop). The part after ~ in the [waiting id](asking-a-person.html#ids) is a fingerprint of the call: its inputs, its item and the [node's code](saved-runs-and-reuse.html#matched-by), version, ports, loops and whether it asks. It stays the same on every run of the same graph and code, and changes when any of those change.", more: ["Asking a person", "asking-a-person.html"],
       d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["status: waiting", "1 waiting call: approve@1"] } },
-    { short: "to_json", title: "Save the run as JSON",
+    { short: "to_json", title: "Save the run as JSON", long: true,
       cap: "Only nodes that were called are in it, so summary isn't. Each call keeps its fingerprint, which a later run [reuses its outcome by](saved-runs-and-reuse.html#matched-by). It's shown reformatted here, and [to_json()](saved-runs-and-reuse.html#saved) writes it on one line.", more: ["Saved runs and reuse", "saved-runs-and-reuse.html"],
       d: { reg: ["read", "approve", "summary"], graph: "wait", doc: ["saved: one JSON text", "any store works, Postgres jsonb included"] } },
     { short: "answer, resume", title: "Load it later, answer and resume",
@@ -1166,14 +1196,17 @@ print(run.outputs)</pre>
     cur = (i + STEPS.length) % STEPS.length;
     const s = STEPS[cur];
     text.innerHTML =
-      '<p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
+      '<div class="step-cap"><p class="eyebrow">Step ' + (cur + 1) + " of " + STEPS.length + "</p>" +
       "<h3>" + esc(s.title) + "</h3>" +
       '<p class="cap">' + linked(s.cap) + (s.more ? ' See <a href="' + s.more[1] + '">' + esc(s.more[0]) + "</a>." : "") + "</p>" +
-      "";
+      (s.long ? '<p class="state small">State: ' + esc(s.d.doc[0]) + "; " + esc(s.d.doc[1]) + ".</p>" : "") + "</div>" +
+      '<div class="step-code"></div>';
+    const code = text.querySelector(".step-code");
+    text.parentElement.classList.toggle("long", !!s.long);
     document.querySelectorAll('.walk-src [data-step="' + cur + '"]').forEach((el) => {
       const shown = el.cloneNode(true);
       shown.removeAttribute("data-step");
-      text.append(shown);
+      code.append(shown);
       if (shown.dataset.lang) paint(shown);
     });
     if (!reduced) { text.classList.remove("fade"); void text.offsetWidth; text.classList.add("fade"); }
