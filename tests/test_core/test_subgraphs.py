@@ -950,9 +950,10 @@ def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is
 
 
 def test_an_inner_node_given_none_is_listed_as_a_none_input_call_by_its_node_path():
-    run = inside_a_loop("maybe-inner").run({"text": "a none"})
-    assert run.status == "complete" and run.results["e"]["result"] == ["A", None]
+    run = inside_a_loop("maybe-inner").run({"text": "a none b"})
+    assert run.status == "complete" and run.results["e"]["result"] == ["A", None, "B"]
     assert [(n.loc, n.input) for n in run.none_input_calls] == [(("e", 1, "up"), "text")]
+    assert reads_the_same_saved_and_read_back(run)
     none_in = compile_graph(
         {"w": "words", "m": "maybe", "e": "shout-inner"},
         [("w.result", "m.text"), ("m.result", "e.text")],
@@ -1080,15 +1081,6 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     assert [(p.type, p.loc) for p in misplaced.value.problems] == [("not_waiting", ("e", "q", 1))]
 
 
-@pytest.mark.parametrize("index", ["01", "+1", " 1", "1_0", "١"])
-def test_an_item_index_in_a_waiting_id_counts_only_as_the_run_writes_it(index: str):
-    """A waiting id whose index Python's ``int`` reads, but that the run would write otherwise, names no item."""
-    run = inside_a_loop("asking-inner").run({"text": "ab cd"})
-    with pytest.raises(InvalidCallError) as refused:
-        run.with_answers(f"e@{index}/q", "x")
-    assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", ("e",))]
-
-
 @pytest.mark.parametrize(
     ("waiting_id", "loc"),
     [
@@ -1098,12 +1090,31 @@ def test_an_item_index_in_a_waiting_id_counts_only_as_the_run_writes_it(index: s
         ("e@0//q", ("e", 0)),
         ("e@0/q/", ("e", 0, "q")),
         ("e@0/q.x", ("e", 0)),
+        ("e@01/q", ("e",)),
+        ("e@+1/q", ("e",)),
+        ("e@ 1/q", ("e",)),
+        ("e@1_0/q", ("e",)),
+        ("e@١/q", ("e",)),
+    ],
+    ids=[
+        "empty",
+        "no-node-id",
+        "an-empty-node-id",
+        "an-empty-node-id-after-an-index",
+        "an-empty-node-id-at-the-end",
+        "a-node-id-with-a-dot",
+        "an-index-with-a-leading-zero",
+        "an-index-with-a-plus",
+        "an-index-with-a-space",
+        "an-index-with-an-underscore",
+        "an-index-in-another-script",
     ],
 )
-def test_a_waiting_id_is_read_only_up_to_a_node_id_that_is_not_a_name(
+def test_a_waiting_id_is_read_only_up_to_a_node_id_or_an_item_index_the_run_would_not_write(
     waiting_id: str, loc: tuple[str | int, ...]
 ):
-    """A node id is a name, so a waiting id is read up to the first one that isn't, as up to a wrong index."""
+    """A node id is a name, so a waiting id is read up to the first one that isn't, as up to a wrong index. An index
+    Python's ``int`` reads, but that the run would write otherwise, names no item."""
     run = inside_a_loop("asking-inner").run({"text": "ab cd"})
     with pytest.raises(InvalidCallError) as refused:
         run.with_answers(waiting_id, "x")
@@ -1189,17 +1200,19 @@ def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_node_path_and_keeps
 
 def test_a_failure_inside_a_subgraph_keeps_the_other_inner_outcomes_for_resume():
     graph = inside_a_loop("boom-inner")
-    events = stream(graph.with_inputs({"text": "ok bad"}))
+    events = stream(graph.with_inputs({"text": "ok bad cd"}))
     run = events[-1].run
     assert (
         run.status == "failed" and run.cause.loc == ("e", 1, "b") and run.cause.type == "node_error"
     )
+    assert run.results["e"] == {"result": ["OK", None, None]}
+    assert reads_the_same_saved_and_read_back(run)
     assert [(e.loc, e.cause.loc) for e in events if isinstance(e, NodeFailed)] == [
         (("e", "b"), ("e", 1, "b"))
     ]  # the event names the node, and its cause the call
     again = Run.from_json(run.to_json(), graph).resume()
     # only the failed call is made again
-    assert again.status == "failed" and CALLS["upper"] == 2 and CALLS["boom"] == 3
+    assert again.status == "failed" and CALLS["upper"] == 3 and CALLS["boom"] == 3
 
 
 def test_a_checkpoint_taken_mid_run_resumes_with_no_inner_call_repeated():
@@ -1426,28 +1439,58 @@ def test_a_previous_run_of_another_graph_is_reused_inside_a_subgraph_whose_nodes
 
 
 @pytest.mark.parametrize(
-    ("nodes", "edges", "series"),
+    ("nodes", "edges", "text", "series", "result"),
     [
         (
             {"w": "words", "t": "letters", "h": "height"},
             [("w.result", "t.text"), ("t.result", "h.table")],
+            "ab c",
             "w.result",
+            [2, 1],
         ),
-        ({"e": "letters-per-word-inner", "h": "height"}, [("e.result", "h.table")], "e/w.result"),
-        ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "s.result"),
+        (
+            {"e": "letters-per-word-inner", "h": "height"},
+            [("e.result", "h.table")],
+            "ab c",
+            "e/w.result",
+            [2, 1],
+        ),
+        ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "ab c", "s.result", [2, 1]),
+        (
+            {"w": "words", "r": "record", "h": "height"},
+            [("w.result", "r.text"), ("r.result", "h.table")],
+            "ab c d",
+            None,
+            3,
+        ),
+        (
+            {"e": "record-per-word-inner", "h": "height"},
+            [("e.result", "h.table")],
+            "ab c d",
+            None,
+            3,
+        ),
     ],
-    ids=["in one graph", "returned inside a subgraph", "returned as a Series of tables"],
+    ids=[
+        "tables in one graph",
+        "tables returned inside a subgraph",
+        "tables returned as a Series of tables",
+        "records in one graph",
+        "records returned inside a subgraph",
+    ],
 )
-def test_tables_returned_per_item_reach_a_table_input_one_per_item_wherever_they_are_returned(
-    nodes: dict[str, str], edges: list[tuple[str, str]], series: str
+def test_values_returned_per_item_reach_a_table_input_wherever_they_are_returned(
+    nodes: dict[str, str], edges: list[tuple[str, str]], text: str, series: str | None, result: Any
 ):
+    """A table returned per item reaches a table input one per item; a value of any other type returned per item is
+    collected into one table of records."""
     graph = compile_graph(nodes, edges)
     assert not graph.problems, graph.problems
-    run = graph.run({"text": "ab c"})
+    run = graph.run({"text": text})
     assert (graph.describe().nodes["h"].per_item_of, run.status, run.results["h"]["result"]) == (
         series,
         "complete",
-        [2, 1],
+        result,
     )
 
 
@@ -1546,24 +1589,6 @@ def test_a_run_stopped_at_the_item_limit_keeps_the_calls_on_threads_inside_a_sub
     assert stopped.status == "stopped" and stopped.cause.loc == ("many",)
     assert stopped.results["e"] == {"result": ["a?", "b?"]} and reads_the_same_saved_and_read_back(
         stopped
-    )
-
-
-def test_a_subgraph_failed_at_one_item_reads_the_same_saved_and_read_back():
-    failed = inside_a_loop("boom-inner").run({"text": "ab bad cd"})
-    assert (
-        failed.status == "failed"
-        and failed.results["e"] == {"result": ["AB", None, None]}
-        and reads_the_same_saved_and_read_back(failed)
-    )
-
-
-def test_an_inner_none_input_call_reads_the_same_saved_and_read_back():
-    run = inside_a_loop("maybe-inner").run({"text": "ab none cd"})
-    assert (
-        run.status == "complete"
-        and [call.loc for call in run.none_input_calls] == [("e", 1, "up")]
-        and reads_the_same_saved_and_read_back(run)
     )
 
 
@@ -1684,30 +1709,6 @@ def test_three_hundred_answers_given_at_once_inside_one_subgraph_complete_it():
     assert answered.results["e"] == {
         "result": ["yes"] * 300
     } and reads_the_same_saved_and_read_back(answered)
-
-
-@pytest.mark.parametrize(
-    ("nodes", "edges"),
-    [
-        (
-            {"w": "words", "r": "record", "h": "height"},
-            [("w.result", "r.text"), ("r.result", "h.table")],
-        ),
-        ({"e": "record-per-word-inner", "h": "height"}, [("e.result", "h.table")]),
-    ],
-    ids=["in one graph", "returned inside a subgraph"],
-)
-def test_values_of_any_type_returned_per_item_are_collected_as_records_by_a_table_input_wherever_returned(
-    nodes: dict[str, str], edges: list[tuple[str, str]]
-):
-    graph = compile_graph(nodes, edges)
-    assert not graph.problems, graph.problems
-    run = graph.run({"text": "ab c d"})
-    assert (graph.describe().nodes["h"].per_item_of, run.status, run.results["h"]["result"]) == (
-        None,
-        "complete",
-        3,
-    )
 
 
 def _said_of(events, node_id: str) -> list[tuple[str, tuple]]:

@@ -82,50 +82,48 @@ def test_added_receives_the_item_type_of_a_series_read_one_item_at_a_time():
     assert graph.run().results["p"]["word"] == ["a", "b"]
 
 
-def test_a_node_that_adds_no_inputs_has_no_added_types_to_read():
-    def plain(text: str) -> dict[str, Any]:
-        return {}
+def _values_as_text(**added: str) -> dict[str, Any]:
+    return {}
 
+
+def _adding_by_type(**added: type) -> dict[str, Any]:
+    return {}
+
+
+def _plain(text: str) -> dict[str, Any]:
+    return {}
+
+
+def _taking_more(names: list[str], **more: Any) -> dict[str, Any]:
+    return {}
+
+
+@pytest.mark.parametrize(
+    ("compute_added_inputs", "compute_outputs", "function", "code"),
+    [
+        (None, _typed_like_what_arrives, _plain, "hook_parameter_var_keyword"),
+        (_columns, _values_as_text, _taking_more, "hook_parameter_var_keyword"),
+        (
+            _adding_by_type,
+            _typed_like_what_arrives,
+            _taking_more,
+            "arriving_on_compute_added_inputs",
+        ),
+    ],
+    ids=["a-node-that-adds-no-inputs", "added-not-typed-as-type", "added-on-compute-added-inputs"],
+)
+def test_var_keyword_on_a_hook_is_only_the_added_types_on_compute_outputs(
+    compute_added_inputs: Any, compute_outputs: Any, function: Any, code: str
+) -> None:
     with pytest.raises(NodeDeclarationError) as raised:
-        node(
-            "plain",
-            title="Plain",
-            description="For a test.",
-            compute_outputs=_typed_like_what_arrives,
-        )(plain)
-    assert raised.value.problems[0].type == "hook_parameter_var_keyword"
-
-
-def test_var_keyword_on_a_hook_is_only_the_added_types():
-    def values(**added: str) -> dict[str, Any]:
-        return {}
-
-    def adding(**added: type) -> dict[str, Any]:
-        return {}
-
-    def run(names: list[str], **more: Any) -> dict[str, Any]:
-        return {}
-
-    with pytest.raises(NodeDeclarationError) as untyped:
         node(
             "a",
             title="A",
             description="For a test.",
-            compute_added_inputs=_columns,
-            compute_outputs=values,
-        )(run)
-    with pytest.raises(NodeDeclarationError) as too_early:
-        node(
-            "b",
-            title="B",
-            description="For a test.",
-            compute_added_inputs=adding,
-            compute_outputs=_typed_like_what_arrives,
-        )(run)
-    assert (untyped.value.problems[0].type, too_early.value.problems[0].type) == (
-        "hook_parameter_var_keyword",
-        "arriving_on_compute_added_inputs",
-    )
+            compute_added_inputs=compute_added_inputs,
+            compute_outputs=compute_outputs,
+        )(function)
+    assert [problem.type for problem in raised.value.problems] == [code]
 
 
 def test_each_hook_parameter_receives_a_constant_an_arriving_type_or_the_added_types():

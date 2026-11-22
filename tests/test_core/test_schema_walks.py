@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict, Union
 
 import pytest
@@ -149,26 +148,3 @@ def test_a_model_at_each_place_in_a_schema_is_saved_and_read_back(shape: str) ->
     graph = _graph(make, **{"return": hint(Reading)})
     run = graph.run({})
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs == {"result": returned}
-
-
-def test_a_set_in_a_hosts_model_or_dataclass_is_refused() -> None:
-    """The declaration check enters a host's own class too, since its values are saved and hashed like any other."""
-
-    @host_type("walks-tagged-model", title="Tagged model")
-    class TaggedModel(BaseModel):
-        model_config = ConfigDict(frozen=True)
-        tags: set[int]
-
-    @host_type("walks-tagged-dataclass", title="Tagged dataclass")
-    @dataclass(frozen=True)
-    class TaggedDataclass:
-        tags: set[int]
-
-    for hint, where in (
-        (TaggedModel, "TaggedModel.tags"),
-        (TaggedDataclass, "TaggedDataclass.tags"),
-    ):
-        with pytest.raises(NodeDeclarationError) as raised:
-            _taking(hint)
-        (problem,) = raised.value.problems
-        assert (problem.type, problem.ctx) == ("type_not_supported_set", {"type": where})

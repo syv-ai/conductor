@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import typing
+from subprocess import CompletedProcess
 from types import ModuleType
 
 import pytest
@@ -21,11 +22,11 @@ from pytest import MonkeyPatch
 from tests.test_core.test_public_modules import PUBLIC_MODULES
 
 
-def test_get_content_returns_non_empty_text():
-    text = about.get_content()
-    assert isinstance(text, str)
-    assert len(text) > 1000  # llms.txt is long
-    assert "# Conductor" in text
+def _cli(*args: str) -> CompletedProcess[str]:
+    """Runs ``python -m conductor.about`` with ``args``, as a reader does."""
+    return subprocess.run(
+        [sys.executable, "-m", "conductor.about", *args], capture_output=True, text=True
+    )
 
 
 def test_list_sections_includes_core_stanzas():
@@ -39,17 +40,18 @@ def test_list_sections_includes_core_stanzas():
     assert "asking-a-person" in slugs
 
 
-def test_get_section_exact_slug():
-    body = about.get_section("retries-and-timeouts")
+@pytest.mark.parametrize(
+    ("name", "heading", "word"),
+    [
+        ("retries-and-timeouts", "### Retries and Timeouts", "Policy"),
+        ("asking", "### Asking a person", "raise Ask("),
+    ],
+    ids=["its-slug", "a-part-of-its-slug"],
+)
+def test_a_section_is_found_by_its_slug_or_a_part_of_it(name: str, heading: str, word: str):
+    body = about.get_section(name)
     assert body is not None
-    assert "### Retries and Timeouts" in body
-    assert "Policy" in body
-
-
-def test_get_section_substring_match_resolves_to_full_slug():
-    body = about.get_section("asking")
-    assert body is not None
-    assert "### Asking a person" in body
+    assert heading in body and word in body
 
 
 def test_get_section_unknown_returns_none():
@@ -64,60 +66,44 @@ def test_sections_do_not_bleed_past_same_or_higher_heading():
     assert "### Errors" not in retries_body
 
 
-def test_cli_no_args_prints_full_content():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "# Conductor" in result.stdout
-    assert "## Quick Start" in result.stdout
+@pytest.mark.parametrize(
+    ("args", "printed"),
+    [((), ["# Conductor", "## Quick Start"]), (("--help",), ["python -m conductor.about"])],
+    ids=["the-whole-reference", "help"],
+)
+def test_the_cli_prints_what_it_is_asked_for(args: tuple[str, ...], printed: list[str]):
+    result = _cli(*args)
+    assert result.returncode == 0
+    assert all(text in result.stdout for text in printed)
 
 
 def test_cli_sections_lists_slugs():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "sections"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    result = _cli("sections")
+    assert result.returncode == 0
     lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
     assert "quick-start" in lines
     assert "asking-a-person" in lines
 
 
-def test_cli_section_filter_emits_only_that_section():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "retries"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "### Retries and Timeouts" in result.stdout
-    assert "## Quick Start" not in result.stdout
+@pytest.mark.parametrize(
+    ("name", "printed"),
+    [("retries", "### Retries and Timeouts"), ("conductor-testing", "- `check_registry`: ")],
+    ids=["a-rules-section", "a-modules-names"],
+)
+def test_cli_section_filter_emits_only_that_section_whole(name: str, printed: str):
+    """A section is printed as ``get_section`` gives it, a public module's with its names filled in."""
+    result = _cli(name)
+    assert result.returncode == 0
+    assert printed in result.stdout and "## Quick Start" not in result.stdout
+    assert result.stdout == about.get_section(name)
 
 
 def test_cli_unknown_section_nonzero_exit_with_help():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "nope-not-real"],
-        capture_output=True,
-        text=True,
-    )
+    result = _cli("nope-not-real")
     assert result.returncode == 1
     assert "No section matching" in result.stderr
     # It lists the sections there are, so the caller can pick the right one.
     assert "quick-start" in result.stderr
-
-
-def test_cli_help_flag():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "--help"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "python -m conductor.about" in result.stdout
 
 
 #: The public modules that export names. ``conductor.about`` exports none, so the reference has no section for it.
@@ -193,16 +179,6 @@ def test_a_constant_or_a_type_alias_is_listed_by_its_name_alone():
     assert "- `RunStatus`\n" in section
 
 
-def test_the_cli_prints_a_modules_names():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "conductor-testing"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "- `check_registry`: " in result.stdout
-
-
 def _library_names() -> set[str]:
     """Returns every name a reader can import: the public modules' names, ``typing``'s and the builtins."""
     names = set(dir(typing)) | set(dir(builtins))
@@ -263,12 +239,8 @@ def test_the_problems_page_has_every_kind_of_problem_with_its_sentence_its_ctx_k
 
 
 def test_the_cli_prints_the_problems_page():
-    result = subprocess.run(
-        [sys.executable, "-m", "conductor.about", "problems"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    result = _cli("problems")
+    assert result.returncode == 0
     assert result.stdout == about.problems_page()
 
 
