@@ -12,10 +12,7 @@ saved from another graph with ``saved_run_of_another_graph``. ``to_json`` refuse
 import datetime as dt
 import json
 import math
-import os
 import struct
-import subprocess
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -61,7 +58,7 @@ from pydantic.alias_generators import to_camel
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from pytest import MonkeyPatch
 
-from tests.test_core.nodes import input_entry, registry_of
+from tests.test_core.nodes import input_entry, jsonb, printed_in_processes, registry_of
 
 
 @pytest.fixture(autouse=True)
@@ -163,13 +160,11 @@ def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:
     }
     if per_item:
         nodes["split"] = {"node": "split", "inputs": {"text": {"graph_input": "text"}}}
-    record = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": nodes,
-            "outputs": {"result": {"node": "s", "output": "result"}},
-        }
-    )
+    record = {
+        "inputs": {"text": {}},
+        "nodes": nodes,
+        "outputs": {"result": {"node": "s", "output": "result"}},
+    }
     graph = Graph.compile(record, registry_of(split, definition, check, see))
     return graph, seen
 
@@ -246,15 +241,7 @@ def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
         return None
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "m": {"node": "maybe-readings", "inputs": {"text": {"graph_input": "text"}}}
-                },
-                "outputs": {"result": {"node": "m", "output": "result"}},
-            }
-        ),
+        make_graph(("m", maybe_readings)),
         registry_of(maybe_readings),
     ).run({"text": "x"})
 
@@ -421,25 +408,11 @@ def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_s
         return checked
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "e": {"node": "everything", "inputs": {"text": {"graph_input": "text"}}},
-                    "c": {
-                        "node": "check-table",
-                        "inputs": {"rows": {"sources": [{"node": "e", "output": "result"}]}},
-                    },
-                    "t": {
-                        "node": "take",
-                        "inputs": {
-                            "rows": {"sources": [{"node": "e", "output": "result"}]},
-                            "checked": {"sources": [{"node": "c", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "t", "output": "result"}},
-            }
+        make_graph(
+            ("e", everything),
+            ("c", check_table),
+            ("t", take),
+            edges=[("e.result", "c.rows"), ("e.result", "t.rows"), ("c.result", "t.checked")],
         ),
         registry_of(everything, check_table, take),
     )
@@ -903,18 +876,12 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
         return pl.DataFrame({"age": [30, 40, 50]})
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"n_text": {}, "a_text": {}},
-                "nodes": {
-                    "n": {"node": "names", "inputs": {"text": {"graph_input": "n_text"}}},
-                    "a": {"node": "ages", "inputs": {"text": {"graph_input": "a_text"}}},
-                },
-                "outputs": {
-                    "a_result": {"node": "a", "output": "result"},
-                    "n_result": {"node": "n", "output": "result"},
-                },
-            }
+        make_graph(
+            ("n", names),
+            ("a", ages),
+            edges=[],
+            inputs={"n_text": "n.text", "a_text": "a.text"},
+            outputs={"a_result": "a.result", "n_result": "n.result"},
         ),
         registry_of(names, ages),
     ).run({"n_text": "x", "a_text": "y"})
@@ -1246,16 +1213,7 @@ print(Graph.compile(make_graph(blobs, count), registry).run({"text": "x"}).to_js
 
 def test_a_call_given_a_binary_column_has_the_same_fingerprint_in_every_process():
     """The table's digest, which the fingerprint of ``count``'s call is made from, hashes the column's base64 text."""
-    saved = {
-        subprocess.run(
-            [sys.executable, "-c", _BLOBS_IN_ANOTHER_PROCESS],
-            env={**os.environ, "PYTHONHASHSEED": seed},
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        for seed in ("1", "2", "3")
-    }
+    saved = printed_in_processes(_BLOBS_IN_ANOTHER_PROCESS, ("1", "2", "3"))
     (one,) = saved
     assert json.loads(one)["outcomes"]["count"]["fingerprints"]
 
@@ -1438,13 +1396,7 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
         return _Opaque()
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"o": {"node": "opaque", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "o", "output": "result"}},
-            }
-        ),
+        make_graph(("o", opaque)),
         registry_of(opaque),
     ).run({"text": "x"})
 
@@ -1494,13 +1446,7 @@ def test_an_input_with_no_json_form_is_refused_where_it_is_given_so_every_run_ca
         return "ok"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"value": {}},
-                "nodes": {"t": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}},
-                "outputs": {"result": {"node": "t", "output": "result"}},
-            }
-        ),
+        make_graph(("t", take)),
         registry_of(take),
     )
 
@@ -1755,21 +1701,19 @@ def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets
 
     from_x = {"x": {"graph_input": "x"}}
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {}, "f": {}},
-                "nodes": {
-                    "whole": {"node": "whole", "inputs": {**from_x, "f": {"graph_input": "f"}}},
-                    "many": {"node": "many", "inputs": from_x},
-                    "one": {"node": "one", "inputs": from_x},
-                    "table": {"node": "table", "inputs": from_x},
-                },
-                "outputs": {
-                    name: {"node": name, "output": "result"}
-                    for name in ("whole", "many", "one", "table")
-                },
-            }
-        ),
+        {
+            "inputs": {"x": {}, "f": {}},
+            "nodes": {
+                "whole": {"node": "whole", "inputs": {**from_x, "f": {"graph_input": "f"}}},
+                "many": {"node": "many", "inputs": from_x},
+                "one": {"node": "one", "inputs": from_x},
+                "table": {"node": "table", "inputs": from_x},
+            },
+            "outputs": {
+                name: {"node": name, "output": "result"}
+                for name in ("whole", "many", "one", "table")
+            },
+        },
         registry_of(whole, many, one, table),
     )
     saved = json.loads(graph.run({"x": 1, "f": 1.0}).to_json())
@@ -1958,19 +1902,7 @@ def _saved_table() -> tuple[Any, dict[str, Any]]:
         return table.height
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "n": {"node": "names", "inputs": {"text": {"graph_input": "text"}}},
-                    "c": {
-                        "node": "count",
-                        "inputs": {"table": {"sources": [{"node": "n", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
+        make_graph(("n", names), ("c", count)),
         registry_of(names, count),
     )
     return graph, json.loads(graph.run({"text": "ida,bo"}).to_json())
@@ -2066,34 +1998,15 @@ def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
             subgraph("inner", title="Inner", description="For a test.")(make_graph(definition)),
         )
 
-    outer = GraphRecord.model_validate(
-        {
-            "inputs": {"text": {}},
-            "nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}},
-        }
-    )
+    outer = {
+        "inputs": {"text": {}},
+        "nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}},
+    }
     saved = Graph.compile(outer, with_inner(shout)).run({"text": "a"}).to_json()
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(outer, with_inner(quiet)))
     assert [p.type for p in refused.value.problems] == ["saved_run_of_another_graph"]
-
-
-def _jsonb(text: str) -> str:
-    """Returns ``text`` the way Postgres ``jsonb`` gives it back, with every object's keys reordered.
-
-    ``jsonb`` puts shorter keys first, then sorts keys of the same length bytewise.
-    """
-
-    def order(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {
-                k: order(value[k])
-                for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))
-            }
-        return [order(v) for v in value] if isinstance(value, list) else value
-
-    return json.dumps(order(json.loads(text)))
 
 
 def _shuffled(text: str, seed: int) -> str:
@@ -2149,7 +2062,7 @@ def column_order(sheet: Table, answers: Series[str]) -> str:
 
 @pytest.mark.parametrize(
     "reorder",
-    [_jsonb, lambda text: _shuffled(text, 1), lambda text: _shuffled(text, 7)],
+    [jsonb, lambda text: _shuffled(text, 1), lambda text: _shuffled(text, 7)],
     ids=["jsonb", "shuffle-1", "shuffle-7"],
 )
 def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_back_and_resume(
@@ -2187,7 +2100,7 @@ def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_
         },
         "outputs": {"result": {"node": "o", "output": "result"}},
     }
-    graph = Graph.compile(GraphRecord.model_validate(record), registry)
+    graph = Graph.compile(record, registry)
     first = graph.run({"text": "ccc,a,bb"})
     ids = [w.id for w in first.waiting]  # what a host stores when the run waits
     answers = {call_id: f"yes {i}" for i, call_id in enumerate(ids)}
@@ -2469,23 +2382,7 @@ def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(
     where: str, damaged: Any
 ) -> None:
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "split": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                    "upper": {
-                        "node": "upper_word",
-                        "inputs": {"word": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                    "ok": {
-                        "node": "ok_word",
-                        "inputs": {"word": {"sources": [{"node": "upper", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "ok", "output": "result"}},
-            }
-        ),
+        make_graph(split, ("upper", upper_word), ("ok", ok_word)),
         registry_of(split, upper_word, ok_word),
     )
     run = graph.run({"text": "a,b"})
@@ -2512,23 +2409,7 @@ def confirm(email: str) -> bool:
 
 def test_a_none_input_and_a_skipped_call_read_back_and_the_resumed_run_lists_the_same_none_inputs():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "a": {"node": "addresses", "inputs": {"text": {"graph_input": "text"}}},
-                    "s": {
-                        "node": "short_or_skipped",
-                        "inputs": {"email": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                    "c": {
-                        "node": "confirm",
-                        "inputs": {"email": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "c", "output": "result"}},
-            }
-        ),
+        make_graph(("a", addresses), ("s", short_or_skipped), ("c", confirm)),
         registry_of(addresses, short_or_skipped, confirm),
     )
     run = graph.run({"text": "ab,,long,cd"})
@@ -2580,16 +2461,7 @@ print(Graph.compile(make_graph(check), registry).run({"kind": "invoice"}).waitin
 
 @pytest.mark.parametrize("seeds", [("1", "2"), ("3", "4")])
 def test_a_waiting_call_has_the_same_id_in_every_process_though_its_node_tests_a_set(seeds):
-    ids = {
-        subprocess.run(
-            [sys.executable, "-c", _SAVED_IN_ANOTHER_PROCESS],
-            env={**os.environ, "PYTHONHASHSEED": seed},
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        for seed in seeds
-    }
+    ids = printed_in_processes(_SAVED_IN_ANOTHER_PROCESS, seeds)
     assert len(ids) == 1
 
 
@@ -2619,16 +2491,7 @@ print(Graph.compile(make_graph(a, b, c, d), registry).run({"text": "x"}).to_json
 
 
 def test_a_run_is_written_to_the_same_bytes_in_every_process():
-    saved = {
-        subprocess.run(
-            [sys.executable, "-c", _WRITTEN_IN_ANOTHER_PROCESS],
-            env={**os.environ, "PYTHONHASHSEED": seed},
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        for seed in ("1", "2", "3", "4")
-    }
+    saved = printed_in_processes(_WRITTEN_IN_ANOTHER_PROCESS, ("1", "2", "3", "4"))
     assert len(saved) == 1
 
 

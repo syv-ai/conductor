@@ -35,6 +35,8 @@ from conductor import (
 )
 from pydantic import MISSING, BaseModel
 
+from tests.test_core.nodes import jsonb, registry_of
+
 
 class Line(TypedDict):
     text: str
@@ -122,8 +124,7 @@ def float_or_text(text: str) -> float | str:
 
 
 def _registry() -> NodeRegistry:
-    registry = NodeRegistry()
-    registry.add(
+    registry = registry_of(
         lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text
     )
     inner = GraphRecord.model_validate(
@@ -223,23 +224,6 @@ def _same(a: Any, b: Any) -> bool:
     return type(a) is type(b) and a == b
 
 
-def _jsonb(text: str) -> str:
-    """Returns ``text`` the way Postgres ``jsonb`` gives it back, with every object's keys reordered.
-
-    ``jsonb`` puts shorter keys first, then sorts keys of the same length bytewise.
-    """
-
-    def order(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {
-                k: order(value[k])
-                for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))
-            }
-        return [order(v) for v in value] if isinstance(value, list) else value
-
-    return json.dumps(order(json.loads(text)))
-
-
 def _finished(run: Any) -> Any:
     while run.status == "waiting":
         for call in run.waiting:
@@ -254,7 +238,7 @@ def test_a_run_reads_back_as_itself_and_resumes_to_the_same_result(text: str) ->
     run = graph.run(_inputs(text))
     saved = run.to_json()
 
-    for written in (saved, saved.encode(), _jsonb(saved)):
+    for written in (saved, saved.encode(), jsonb(saved)):
         read_back = Run.from_json(written, graph)
         assert read_back.status == run.status and [w.id for w in read_back.waiting] == [
             w.id for w in run.waiting
@@ -352,8 +336,7 @@ def _shout_graph(returned: Any) -> Any:
             raise RuntimeError("boom")
         return f"{text} {next(returned)}"
 
-    registry = NodeRegistry()
-    registry.add(each, tag)
+    registry = registry_of(each, tag)
     return Graph.compile(make_graph(each, tag), registry)
 
 
@@ -564,7 +547,7 @@ def test_an_answered_call_keeps_what_its_ask_showed_beside_the_answer_and_reads_
     back = Run.from_json(saved, graph)
     assert back.to_json() == saved
     assert [waiting.loc for waiting in back.waiting] == [("reply", 2)]
-    assert Run.from_json(_jsonb(saved), graph).to_json() == saved
+    assert Run.from_json(jsonb(saved), graph).to_json() == saved
 
 
 def test_an_answered_call_keeps_its_question_once_its_node_stops_asking_in_a_deploy() -> None:
@@ -1265,17 +1248,14 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     def odd(text: str) -> Any:
         return object()
 
-    registry = NodeRegistry()
-    registry.add(odd)
+    registry = registry_of(odd)
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"text": {}},
-                    "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
-                    "outputs": {"result": {"node": "o", "output": "result"}},
-                }
-            ),
+            {
+                "inputs": {"text": {}},
+                "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "o", "output": "result"}},
+            },
             registry,
         ).run({"text": "x"}).outputs_to_json()
     (problem,) = refused.value.problems
@@ -1335,28 +1315,25 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_skipped_branch() -> N
     def listed(text: str) -> list[str]:
         return list(text)
 
-    registry = NodeRegistry()
-    registry.add(listed, letters)
+    registry = registry_of(listed, letters)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"listed_text": {}, "letters_text": {}},
-                "nodes": {
-                    "listed": {
-                        "node": "listed",
-                        "inputs": {"text": {"graph_input": "listed_text"}},
-                    },
-                    "letters": {
-                        "node": "letters",
-                        "inputs": {"text": {"graph_input": "letters_text"}},
-                    },
+        {
+            "inputs": {"listed_text": {}, "letters_text": {}},
+            "nodes": {
+                "listed": {
+                    "node": "listed",
+                    "inputs": {"text": {"graph_input": "listed_text"}},
                 },
-                "outputs": {
-                    "letters_result": {"node": "letters", "output": "result"},
-                    "listed_result": {"node": "listed", "output": "result"},
+                "letters": {
+                    "node": "letters",
+                    "inputs": {"text": {"graph_input": "letters_text"}},
                 },
-            }
-        ),
+            },
+            "outputs": {
+                "letters_result": {"node": "letters", "output": "result"},
+                "listed_result": {"node": "listed", "output": "result"},
+            },
+        },
         registry,
     )
     run = graph.run({"listed_text": "ax", "letters_text": "ax"})

@@ -93,17 +93,15 @@ def _per_item(definition: Any, items: int, *more: Any) -> Any:
     """Returns a graph in which ``split`` returns ``items`` items, and ``definition``, as node ``slow``, is called once
     per item."""
     return Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "split": {"node": "split", "inputs": {"text": {"constant": _numbers(items)}}},
-                    "slow": {
-                        "node": definition.id,
-                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                }
+        {
+            "nodes": {
+                "split": {"node": "split", "inputs": {"text": {"constant": _numbers(items)}}},
+                "slow": {
+                    "node": definition.id,
+                    "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
+                },
             }
-        ),
+        },
         registry_of(split, definition, *more),
     )
 
@@ -179,29 +177,17 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
         return f"{a}|{b}"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "source", "inputs": {"text": {"graph_input": "text"}}},
-                    "l": {
-                        "node": "left",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "r": {
-                        "node": "right",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "m": {
-                        "node": "meet",
-                        "inputs": {
-                            "a": {"sources": [{"node": "l", "output": "result"}]},
-                            "b": {"sources": [{"node": "r", "output": "result"}]},
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "m", "output": "result"}},
-            }
+        make_graph(
+            ("s", source),
+            ("l", left),
+            ("r", right),
+            ("m", meet),
+            edges=[
+                ("s.result", "l.text"),
+                ("s.result", "r.text"),
+                ("l.result", "m.a"),
+                ("r.result", "m.b"),
+            ],
         ),
         registry_of(source, left, right, meet),
     )
@@ -301,13 +287,7 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
         return text
 
     skipping = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"o": {"node": "only-short", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "o", "output": "result"}},
-            }
-        ),
+        make_graph(("o", only_short)),
         registry_of(only_short),
     )
     assert skipping.run({"text": "long"}).outputs == {"result": None}
@@ -415,35 +395,31 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
 
     registry = registry_of(fetch_two)
     pinned = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "f": {
-                        "node": "fetch",
-                        "version": 1,
-                        "inputs": {"text": {"graph_input": "text"}},
-                    }
-                },
-                "outputs": {"result": {"node": "f", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "f": {
+                    "node": "fetch",
+                    "version": 1,
+                    "inputs": {"text": {"graph_input": "text"}},
+                }
+            },
+            "outputs": {"result": {"node": "f", "output": "result"}},
+        },
         registry,
     )
     newest = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "f": {
-                        "node": "fetch",
-                        "version": 2,
-                        "inputs": {"text": {"graph_input": "text"}},
-                    }
-                },
-                "outputs": {"result": {"node": "f", "output": "result"}},
-            }
-        ),
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "f": {
+                    "node": "fetch",
+                    "version": 2,
+                    "inputs": {"text": {"graph_input": "text"}},
+                }
+            },
+            "outputs": {"result": {"node": "f", "output": "result"}},
+        },
         registry,
     )
 
@@ -513,22 +489,20 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
         return "now"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "split": {"node": "split", "inputs": {"text": {"constant": _numbers(40)}}},
-                    "slow": {
-                        "node": "sleeper",
-                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                    "i": {
-                        "node": "instant",
-                        "inputs": {"texts": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
+        {
+            "nodes": {
+                "split": {"node": "split", "inputs": {"text": {"constant": _numbers(40)}}},
+                "slow": {
+                    "node": "sleeper",
+                    "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "i", "output": "result"}},
-            }
-        ),
+                "i": {
+                    "node": "instant",
+                    "inputs": {"texts": {"sources": [{"node": "split", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "i", "output": "result"}},
+        },
         registry_of(split, sleeper, instant),
     )
 
@@ -556,21 +530,19 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
         return text
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "split": {"node": "split", "inputs": {"text": {"constant": _numbers(4)}}},
-                    "slow": {
-                        "node": "first-is-last",
-                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                    "after": {
-                        "node": "needs-text",
-                        "inputs": {"text": {"sources": [{"node": "slow", "output": "result"}]}},
-                    },
-                }
+        {
+            "nodes": {
+                "split": {"node": "split", "inputs": {"text": {"constant": _numbers(4)}}},
+                "slow": {
+                    "node": "first-is-last",
+                    "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
+                },
+                "after": {
+                    "node": "needs-text",
+                    "inputs": {"text": {"sources": [{"node": "slow", "output": "result"}]}},
+                },
             }
-        ),
+        },
         registry_of(split, first_is_last, needs_text),
     )
     in_item_order = [("after", 0), ("after", 1), ("after", 2), ("after", 3)]
@@ -747,15 +719,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
         return "done"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "slow-second", "inputs": {"text": {"graph_input": "text"}}}
-                },
-                "outputs": {"result": {"node": "s", "output": "result"}},
-            }
-        ),
+        make_graph(("s", slow_second)),
         registry_of(slow_second),
     )
 
@@ -1366,13 +1330,7 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
         raise raised
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"r": {"node": "raises", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "r", "output": "result"}},
-            }
-        ),
+        make_graph(("r", raises)),
         registry_of(raises),
     )
 
@@ -1980,13 +1938,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
         raise ExternalError("try again")
 
     prepared = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"f": {"node": "flaky", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "f", "output": "result"}},
-            }
-        ),
+        make_graph(("f", flaky)),
         registry_of(flaky),
     ).with_inputs({"text": "x"})
 
@@ -2199,26 +2151,11 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
         return table.to_dicts()
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
-                    "r": {
-                        "node": "records",
-                        "inputs": {"table": {"sources": [{"node": "c", "output": "result"}]}},
-                    },
-                    "m": {
-                        "node": "send",
-                        "inputs": {
-                            "email": {
-                                "sources": [{"node": "r", "output": "result", "field": "email"}]
-                            }
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "m", "output": "result"}},
-            }
+        make_graph(
+            ("c", contacts),
+            ("r", records),
+            ("m", send),
+            edges=[("c.result", "r.table"), ("r.result.email", "m.email")],
         ),
         registry_of(contacts, records, send),
     )
@@ -2270,18 +2207,12 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
         return ["a", "b", "c", "d"]
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"b_text": {}, "m_text": {}},
-                "nodes": {
-                    "b": {"node": "boom", "inputs": {"text": {"graph_input": "b_text"}}},
-                    "m": {"node": "many", "inputs": {"text": {"graph_input": "m_text"}}},
-                },
-                "outputs": {
-                    "b_result": {"node": "b", "output": "result"},
-                    "m_result": {"node": "m", "output": "result"},
-                },
-            }
+        make_graph(
+            ("b", boom),
+            ("m", many),
+            edges=[],
+            inputs={"b_text": "b.text", "m_text": "m.text"},
+            outputs={"b_result": "b.result", "m_result": "m.result"},
         ),
         registry_of(boom, many),
     )
@@ -2310,18 +2241,12 @@ def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_ne
         return text
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"l_text": {}, "o_text": {}},
-                "nodes": {
-                    "l": {"node": "late", "inputs": {"text": {"graph_input": "l_text"}}},
-                    "o": {"node": "long", "inputs": {"text": {"graph_input": "o_text"}}},
-                },
-                "outputs": {
-                    "l_result": {"node": "l", "output": "result"},
-                    "o_result": {"node": "o", "output": "result"},
-                },
-            }
+        make_graph(
+            ("l", late),
+            ("o", long),
+            edges=[],
+            inputs={"l_text": "l.text", "o_text": "o.text"},
+            outputs={"l_result": "l.result", "o_result": "o.result"},
         ),
         registry_of(late, long),
     )
@@ -2691,19 +2616,7 @@ def test_a_none_into_a_subgraph_node_makes_its_inner_nodes_none_input_calls_as_i
         )
     )
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
-                    "sub": {
-                        "node": "twice",
-                        "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "sub", "output": "result"}},
-            }
-        ),
+        make_graph(("w", words), ("sub", inner)),
         registry_of(words, upper, inner),
     )
     events = _events(graph.with_inputs({"text": "a _ b _"}))

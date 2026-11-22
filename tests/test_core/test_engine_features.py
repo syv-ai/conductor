@@ -30,6 +30,7 @@ from conductor import (
     Series,
     Table,
     host_type,
+    make_graph,
     node,
     subgraph,
 )
@@ -124,7 +125,7 @@ def chain(*ids, then_join=None):
 
 
 def test_events_in_order():
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "upper", then_join=True)), reg)
+    graph = Graph.compile(chain("split", "upper", then_join=True), reg)
     events = collect(graph.with_inputs({"text": "a,b,c"}))
     kinds = [e.type for e in events]
     assert kinds[0] == "run_start" and kinds[-1] == "run_end" and events[-1].status == "complete", (
@@ -149,9 +150,7 @@ def test_concurrency_eight_calls_of_a_node_run_at_once():
         eight.wait(_BOUND)  # times out and fails the call if fewer than eight run at once
         return text * 2
 
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "together")), registry_of(split, together)
-    )
+    graph = Graph.compile(chain("split", "together"), registry_of(split, together))
     run = graph.run({"text": ",".join("abcdefgh")})
     assert run.status == "complete", run.cause
     assert run.results["together"]["result"] == [c * 2 for c in "abcdefgh"]
@@ -178,7 +177,7 @@ def test_pipelining_two_nodes():
         return text + "!"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "first", "second", then_join=True)),
+        chain("split", "first", "second", then_join=True),
         registry_of(split, first, second, join),
     )
     run = graph.run({"text": ",".join("abcdefghijklmnop")})
@@ -200,9 +199,7 @@ def test_stream_leaves_the_event_loop_free():
         started.set()
         return released.wait(timeout=30)
 
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "held")), registry_of(split, held)
-    )
+    graph = Graph.compile(chain("split", "held"), registry_of(split, held))
 
     async def go():
         async def release():
@@ -221,25 +218,12 @@ def test_stream_leaves_the_event_loop_free():
 
 def test_waiting_and_skipped_events():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "split": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                    "gate": {
-                        "node": "gate",
-                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                    "never": {
-                        "node": "never",
-                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
-                    },
-                },
-                "outputs": {
-                    "gate_result": {"node": "gate", "output": "result"},
-                    "never_result": {"node": "never", "output": "result"},
-                },
-            }
+        make_graph(
+            split,
+            gate,
+            never,
+            edges=[("split.result", "gate.text"), ("split.result", "never.text")],
+            outputs={"gate_result": "gate.result", "never_result": "never.result"},
         ),
         reg,
     )
@@ -257,7 +241,7 @@ def test_waiting_and_skipped_events():
 
 
 def test_failure_keeps_calls_already_made():
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "boom")), reg)
+    graph = Graph.compile(chain("split", "boom"), reg)
     run = graph.run({"text": "a,b,c,d"})
     assert run.status == "failed" and run.cause.loc == ("boom", 2), run.cause
     # d was already running on its thread when c failed, and it finished
@@ -271,9 +255,7 @@ def test_failure_keeps_calls_already_made():
 
     again = Run.from_json(
         run.to_json(),
-        Graph.compile(
-            GraphRecord.model_validate(chain("split", "boom")), registry_of(split, fixed)
-        ),
+        Graph.compile(chain("split", "boom"), registry_of(split, fixed)),
     ).resume()
     assert again.status == "complete" and seen == ["c"], seen  # only the failed call runs again
 
@@ -287,9 +269,7 @@ def test_a_timed_out_run_keeps_the_calls_already_on_threads():
         sent.append(text)
         return text
 
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4)
-    )
+    graph = Graph.compile(chain("split", "mail4"), registry_of(split, mail4))
     # four calls are running on threads when time runs out, and four never start
     stopped = graph.with_inputs({"text": "a,b,c,d,e,f,g,h"}).resume(timeout=0.05)
     assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
@@ -320,19 +300,7 @@ def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
         return n
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"n": {}},
-                "nodes": {
-                    "n": {"node": "numbers", "inputs": {"n": {"graph_input": "n"}}},
-                    "e": {
-                        "node": "each",
-                        "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
-        ),
+        make_graph(("n", numbers), ("e", each)),
         registry_of(numbers, each),
     ).run({"n": [0, 1, 2]})
 
@@ -346,9 +314,7 @@ def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
 
 
 def test_the_last_progress_event_of_a_node_is_always_sent():
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "upper")), registry_of(split, upper)
-    )
+    graph = Graph.compile(chain("split", "upper"), registry_of(split, upper))
     events = collect(graph.with_inputs({"text": ",".join(str(i) for i in range(3000))}))
 
     progress = [(e.count.finished, e.count.total) for e in events if e.type == "node_progress"]
@@ -372,9 +338,7 @@ def test_an_exit_a_node_raises_ends_the_run_with_it_wherever_the_node_is_called(
         raise SystemExit(3)
 
     with pytest.raises(SystemExit):
-        Graph.compile(GraphRecord.model_validate(chain("leave")), registry_of(leave)).run(
-            {"text": "a"}
-        )
+        Graph.compile(chain("leave"), registry_of(leave)).run({"text": "a"})
 
 
 @pytest.mark.timeout(10)
@@ -392,9 +356,7 @@ def test_a_defect_in_an_output_types_own_check_ends_the_run_with_it_wherever_the
         return text
 
     with pytest.raises(RuntimeError, match="has a bug"):
-        Graph.compile(GraphRecord.model_validate(chain("work")), registry_of(work)).run(
-            {"text": "a"}
-        )
+        Graph.compile(chain("work"), registry_of(work)).run({"text": "a"})
 
 
 def test_retries_external_failures_then_succeeds():
@@ -425,7 +387,7 @@ def test_retries_external_failures_then_succeeds():
         return text + "!"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "fetch", "client")),
+        chain("split", "fetch", "client"),
         registry_of(split, fetch, client),
     )
     events = collect(graph.with_inputs({"text": "a,b"}))
@@ -465,13 +427,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
         raise KeyError(text)
 
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"down": {"node": "down", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "down", "output": "result"}},
-            }
-        ),
+        make_graph(down),
         registry_of(down),
     ).run({"text": "x"})
     assert run.status == "failed" and run.cause.type == "external_failed" and calls == ["x", "x"], (
@@ -480,13 +436,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
     )
     calls.clear()
     run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"bug": {"node": "bug", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "bug", "output": "result"}},
-            }
-        ),
+        make_graph(bug),
         registry_of(bug),
     ).run({"text": "x"})
     assert run.status == "failed" and run.cause.type == "execution_failed" and calls == ["bug"]
@@ -510,15 +460,7 @@ def test_attempt_timeout_is_final():
 
     try:
         run = Graph.compile(
-            GraphRecord.model_validate(
-                {
-                    "inputs": {"text": {}},
-                    "nodes": {
-                        "hang": {"node": "hang", "inputs": {"text": {"graph_input": "text"}}}
-                    },
-                    "outputs": {"result": {"node": "hang", "output": "result"}},
-                }
-            ),
+            make_graph(hang),
             registry_of(hang),
         ).run({"text": "x"})
         waited_for_the_call = returned.is_set()
@@ -547,9 +489,7 @@ def test_reuse_when_inputs_match_false_calls_again():
         calls.append(text)
         return text
 
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "rate", "upper")), registry_of(split, rate, upper)
-    )
+    graph = Graph.compile(chain("split", "rate", "upper"), registry_of(split, rate, upper))
     first = graph.run({"text": "a,b"})
     calls.clear()
     first.again({"text": "a,b"})
@@ -575,7 +515,7 @@ def test_a_saved_run_is_held_to_the_reuse_policy_its_node_has_when_it_is_read():
         description="For a test.",
         policy=Policy(reuse_when_inputs_match=False),
     )(rate)
-    record = GraphRecord.model_validate(chain("split", "rate", "upper"))
+    record = chain("split", "rate", "upper")
     reusing = Graph.compile(record, registry_of(split, reuses, upper))
     saved = reusing.with_inputs({"text": "a,b"}, previous=reusing.run({"text": "a,b"})).to_json()
 
@@ -628,23 +568,21 @@ def half(x: float) -> float:
 def test_added_inputs_follow_the_formula_constant():
     reg3 = registry_of(number, formula)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "n": {"node": "number", "inputs": {"text": {"graph_input": "text"}}},
-                    "f": {
-                        "node": "formula",
-                        "inputs": {
-                            "formula": {"constant": "{a} * 10 + {b}"},
-                            "b": {"constant": 2},
-                            "a": {"sources": [{"node": "n", "output": "result"}]},
-                        },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "n": {"node": "number", "inputs": {"text": {"graph_input": "text"}}},
+                "f": {
+                    "node": "formula",
+                    "inputs": {
+                        "formula": {"constant": "{a} * 10 + {b}"},
+                        "b": {"constant": 2},
+                        "a": {"sources": [{"node": "n", "output": "result"}]},
                     },
                 },
-                "outputs": {"result": {"node": "f", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "f", "output": "result"}},
+        },
         reg3,
     )
     assert not graph.problems, graph.problems
@@ -652,21 +590,19 @@ def test_added_inputs_follow_the_formula_constant():
     run = graph.run({"text": "abc"})
     assert run.outputs["result"] == 32.0, run.outputs
     broken = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"a": {}},
-                "nodes": {
-                    "f": {
-                        "node": "formula",
-                        "inputs": {"formula": {"constant": "{a}"}, "a": {"graph_input": "a"}},
-                    },
-                    "g": {
-                        "node": "formula",
-                        "inputs": {"zz": {"sources": [{"node": "f", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"a": {}},
+            "nodes": {
+                "f": {
+                    "node": "formula",
+                    "inputs": {"formula": {"constant": "{a}"}, "a": {"graph_input": "a"}},
                 },
-            }
-        ),
+                "g": {
+                    "node": "formula",
+                    "inputs": {"zz": {"sources": [{"node": "f", "output": "result"}]}},
+                },
+            },
+        },
         reg3,
     )
     assert [p.type for p in broken.problems] == ["unknown_input"], broken.problems
@@ -675,58 +611,29 @@ def test_added_inputs_follow_the_formula_constant():
 def test_computed_outputs_take_the_type_that_arrives_on_their_input():
     reg3 = registry_of(split, number, route, half, upper)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
-                    "n": {
-                        "node": "number",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "r": {
-                        "node": "route",
-                        "inputs": {
-                            "cases": {"constant": ["3"]},
-                            "value": {"sources": [{"node": "n", "output": "result"}]},
-                        },
-                    },
-                    "h": {
-                        "node": "half",
-                        "inputs": {
-                            "x": {
-                                "sources": [
-                                    {"node": "r", "output": "3"},
-                                    {"node": "r", "output": "otherwise"},
-                                ]
-                            }
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "h", "output": "result"}},
-            }
+        make_graph(
+            ("s", split),
+            ("n", number),
+            ("r", route),
+            ("h", half),
+            edges=[
+                ("s.result", "n.text"),
+                ("n.result", "r.value"),
+                ("r.3", "h.x"),
+                ("r.otherwise", "h.x"),
+            ],
+            constants={"r.cases": ["3"]},
         ),
         reg3,
     )
     assert not graph.problems, graph.problems
     assert graph.run({"text": "abc,de"}).results["h"]["result"] == [1.5, 1.0]
     wrong = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "n": {"node": "number", "inputs": {"text": {"graph_input": "text"}}},
-                    "r": {
-                        "node": "route",
-                        "inputs": {"value": {"sources": [{"node": "n", "output": "result"}]}},
-                    },
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "r", "output": "otherwise"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
+        make_graph(
+            ("n", number),
+            ("r", route),
+            ("u", upper),
+            edges=[("n.result", "r.value"), ("r.otherwise", "u.text")],
         ),
         reg3,
     )
@@ -742,18 +649,7 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
         return "called"
 
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "h": {"node": "hooky"},
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "h", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
+        make_graph(("h", hooky), ("u", upper)),
         registry_of(hooky, upper),
     )
 
@@ -774,7 +670,7 @@ def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_no
         return {name: "x"}
 
     graph = Graph.compile(
-        GraphRecord.model_validate({"nodes": {"d": {"node": "dotted"}}, "outputs": {}}),
+        {"nodes": {"d": {"node": "dotted"}}, "outputs": {}},
         registry_of(dotted),
     )
 
@@ -787,7 +683,7 @@ def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_no
         return 1
 
     added = Graph.compile(
-        GraphRecord.model_validate({"nodes": {"a": {"node": "adds"}}, "outputs": {}}),
+        {"nodes": {"a": {"node": "adds"}}, "outputs": {}},
         registry_of(adds),
     )
     assert [(p.type, p.loc, p.ctx["errors"][0]["type"]) for p in added.problems] == [
@@ -863,27 +759,25 @@ def size(f: File) -> int:
 def test_own_types_accept_and_round_trip():
     reg4 = registry_of(count, double, attach, size, upper)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "c": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
-                    "d": {
-                        "node": "double",
-                        "inputs": {"x": {"sources": [{"node": "c", "output": "result"}]}},
-                    },
-                    "a": {
-                        "node": "attach",
-                        "inputs": {"x": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
-                    "s": {
-                        "node": "size",
-                        "inputs": {"f": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "c": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
+                "d": {
+                    "node": "double",
+                    "inputs": {"x": {"sources": [{"node": "c", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "s", "output": "result"}},
-            }
-        ),
+                "a": {
+                    "node": "attach",
+                    "inputs": {"x": {"sources": [{"node": "d", "output": "result"}]}},
+                },
+                "s": {
+                    "node": "size",
+                    "inputs": {"f": {"sources": [{"node": "a", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "s", "output": "result"}},
+        },
         reg4,
     )
     assert not graph.problems, graph.problems
@@ -892,27 +786,23 @@ def test_own_types_accept_and_round_trip():
     again = Run.from_json(run.to_json(), graph)
     assert again.results["a"]["result"].content == b"6.0"
     assert Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"d": {"node": "double", "inputs": {"x": {"constant": "1,5"}}}},
-                "outputs": {"result": {"node": "d", "output": "result"}},
-            }
-        ),
+        {
+            "nodes": {"d": {"node": "double", "inputs": {"x": {"constant": "1,5"}}}},
+            "outputs": {"result": {"node": "d", "output": "result"}},
+        },
         reg4,
     ).run().outputs == {"result": 3.0}
     wrong = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"x": {}},
-                "nodes": {
-                    "d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}},
-                    "c": {
-                        "node": "count",
-                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"x": {}},
+            "nodes": {
+                "d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}},
+                "c": {
+                    "node": "count",
+                    "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
                 },
-            }
-        ),
+            },
+        },
         reg4,
     )
     assert [p.type for p in wrong.problems] == ["type_mismatch"]
@@ -963,19 +853,7 @@ def parse_json(text: str) -> JsonValue:
 
 def _edge(source: Any, target: Any) -> Any:
     return Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "a": {"node": source.id, "inputs": {"text": {"graph_input": "text"}}},
-                    "b": {
-                        "node": target.id,
-                        "inputs": {"value": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+        make_graph(("a", source), ("b", target)),
         registry_of(source, target),
     )
 
@@ -1353,23 +1231,7 @@ def test_an_edge_from_a_host_models_field_that_doesnt_fit_is_a_type_mismatch():
     """A host model's own fields are its own to check, so ``@node`` doesn't read them, and naming such a field's type
     in a message never raises: compiling reports, as for any other edge."""
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "a": {"node": "give-tint-model", "inputs": {"text": {"graph_input": "text"}}},
-                    "b": {
-                        "node": "take-int",
-                        "inputs": {
-                            "value": {
-                                "sources": [{"node": "a", "output": "result", "field": "tint"}]
-                            }
-                        },
-                    },
-                },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+        make_graph(("a", give_tint_model), ("b", take_int), edges=[("a.result.tint", "b.value")]),
         registry_of(give_tint_model, take_int),
     )
 
@@ -1477,10 +1339,10 @@ def test_two_series_on_different_branches_refused():
         },
         "outputs": {"result": {"node": "p", "output": "result"}},
     }
-    graph = Graph.compile(GraphRecord.model_validate(record), reg6)
+    graph = Graph.compile(record, reg6)
     assert [p.type for p in graph.problems] == ["series_from_different_branches"], graph.problems
     record["nodes"]["p"]["node"] = "pair-optional"
-    graph = Graph.compile(GraphRecord.model_validate(record), reg6)
+    graph = Graph.compile(record, reg6)
     assert not graph.problems
     assert graph.run({"text": "yes,no"}).outputs == {"result": "['YES', None]|[None, 'no']"}
 
@@ -1504,22 +1366,20 @@ def test_a_registrys_description_has_each_nodes_hooks_branches_and_the_types_eac
 def test_a_compiled_graph_describes_a_nodes_added_inputs_with_one_that_no_edge_reaches():
     reg7 = registry_of(count, formula)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "c": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
-                    "f": {
-                        "node": "formula",
-                        "inputs": {
-                            "formula": {"constant": "{a}+{b}"},
-                            "a": {"sources": [{"node": "c", "output": "result"}]},
-                        },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "c": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
+                "f": {
+                    "node": "formula",
+                    "inputs": {
+                        "formula": {"constant": "{a}+{b}"},
+                        "a": {"sources": [{"node": "c", "output": "result"}]},
                     },
                 },
-                "outputs": {"result": {"node": "f", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "f", "output": "result"}},
+        },
         reg7,
     )
     described = json.loads(graph.describe().model_dump_json())["nodes"]
@@ -1550,12 +1410,7 @@ def test_an_input_hint_written_as_optional_annotated_any_or_bare_series_is_descr
     assert ports["maybe"].title == "Maybe" and not ports["maybe"].is_series
     assert ports["many"].is_series and ports["some"].is_series
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"k": {"node": "kinds", "inputs": {}}},
-                "outputs": {"result": {"node": "k", "output": "result"}},
-            }
-        ),
+        make_graph(("k", kinds)),
         registry_of(kinds),
     )
     assert graph.run().outputs == {"result": "Whole"}
@@ -1565,7 +1420,6 @@ def test_an_input_hint_written_as_optional_annotated_any_or_bare_series_is_descr
 
 
 def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():
-    from conductor import GraphRecord
 
     calls = {"mark": 0, "confirm": 0}
 
@@ -1595,21 +1449,7 @@ def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_re
         )
     )
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"a": {}, "b": {}},
-                "nodes": {
-                    "e": {
-                        "node": "two",
-                        "inputs": {"a": {"graph_input": "a"}, "b": {"graph_input": "b"}},
-                    }
-                },
-                "outputs": {
-                    "x_result": {"node": "e", "output": "x_result"},
-                    "y_result": {"node": "e", "output": "y_result"},
-                },
-            }
-        ),
+        make_graph(("e", box)),
         registry_of(mark, confirm, box),
     )
     first = graph.run({"a": "1", "b": "2"})

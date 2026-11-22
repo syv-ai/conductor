@@ -152,9 +152,7 @@ def test_node_used_twice():
 
 def test_per_item_reuse_on_again():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            invoices_then({"mail": {"node": "mail", "inputs": {"email": each_field("email")}}})
-        ),
+        invoices_then({"mail": {"node": "mail", "inputs": {"email": each_field("email")}}}),
         invoicing,
     )
     first, before = calls(lambda: graph.run({"text": CSV}))
@@ -167,16 +165,14 @@ def test_per_item_reuse_on_again():
 
 def test_answer_stays_with_its_item_on_again():
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            invoices_then(
-                {
-                    "approve": {
-                        "node": "approve",
-                        "inputs": {"name": each_field("name"), "amount": each_field("amount")},
-                    },
-                    "summary": {"node": "summary", "inputs": {"decisions": edge_from("approve")}},
-                }
-            )
+        invoices_then(
+            {
+                "approve": {
+                    "node": "approve",
+                    "inputs": {"name": each_field("name"), "amount": each_field("amount")},
+                },
+                "summary": {"node": "summary", "inputs": {"decisions": edge_from("approve")}},
+            }
         ),
         invoicing,
     )
@@ -212,7 +208,7 @@ def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to
             },
         }
     )
-    graph = Graph.compile(GraphRecord.model_validate(record), invoicing)
+    graph = Graph.compile(record, invoicing)
     found = sorted((p.type, p.loc) for p in graph.problems)
     assert found == [
         ("edge_names_missing_node", ("approve", "amount")),
@@ -226,13 +222,7 @@ def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to
     except InvalidCallError as error:
         assert len(error.problems) == 4
     open_first = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "a", "output": "result"}},
-            }
-        ),
+        make_graph(("a", upper)),
         registry,
     )
     assert open_first.problems == [] and list(open_first.inputs) == ["text"]
@@ -245,19 +235,17 @@ def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to
 
 def test_every_problem_of_one_node_is_reported_at_once():
     later = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "b": {
-                        "node": "repeat",
-                        "inputs": {"times": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
+        {
+            "inputs": {"text": {}},
+            "nodes": {
+                "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                "b": {
+                    "node": "repeat",
+                    "inputs": {"times": {"sources": [{"node": "a", "output": "result"}]}},
                 },
-                "outputs": {"result": {"node": "b", "output": "result"}},
-            }
-        ),
+            },
+            "outputs": {"result": {"node": "b", "output": "result"}},
+        },
         registry,
     )
     assert [(p.type, p.loc) for p in later.problems] == [
@@ -265,21 +253,19 @@ def test_every_problem_of_one_node_is_reported_at_once():
         ("type_mismatch", ("b", "times")),
     ]
     unbound = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "a": {"node": "upper"},
-                    "b": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "a", "output": "result"}]}},
-                    },
-                    "c": {
-                        "node": "repeat",
-                        "inputs": {"times": {"sources": [{"node": "b", "output": "result"}]}},
-                    },
-                }
+        {
+            "nodes": {
+                "a": {"node": "upper"},
+                "b": {
+                    "node": "join",
+                    "inputs": {"texts": {"sources": [{"node": "a", "output": "result"}]}},
+                },
+                "c": {
+                    "node": "repeat",
+                    "inputs": {"times": {"sources": [{"node": "b", "output": "result"}]}},
+                },
             }
-        ),
+        },
         registry,
     )
     assert "type_mismatch" in [p.type for p in unbound.problems]
@@ -317,7 +303,7 @@ def test_nested_loops_are_collected_one_level_at_a_time():
             "per_doc_result": {"node": "per_doc", "output": "result"},
         },
     }
-    graph = Graph.compile(GraphRecord.model_validate(record), registry)
+    graph = Graph.compile(record, registry)
     assert {k: v.per_item_of for k, v in graph.describe().nodes.items()} == {
         "docs": None,
         "lines": "docs.result",
@@ -356,7 +342,7 @@ def test_items_of_two_series_at_one_node_are_refused():
         },
         "outputs": {"result": {"node": "r", "output": "result"}},
     }
-    graph = Graph.compile(GraphRecord.model_validate(record), registry)
+    graph = Graph.compile(record, registry)
     assert [p.type for p in graph.problems] == ["type_mismatch"]
     record["nodes"]["r"] = {"node": "pair", "inputs": {"a": edge_from("a"), "b": edge_from("b")}}
 
@@ -364,7 +350,7 @@ def test_items_of_two_series_at_one_node_are_refused():
     def pair(a: str, b: str) -> str:
         return a + b
 
-    graph = Graph.compile(GraphRecord.model_validate(record), registry_of(split, pair))
+    graph = Graph.compile(record, registry_of(split, pair))
     assert [(p.type, p.ctx["series"]) for p in graph.problems] == [
         ("series_not_nested", ["a.result", "b.result"])
     ], graph.problems
@@ -378,46 +364,21 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
 
     reg = registry_of(split, route, upper, join, pick, mail)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "sep": {"default": ","}},
-                "nodes": {
-                    "s": {
-                        "node": "split",
-                        "inputs": {
-                            "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep"},
-                        },
-                    },
-                    "r": {
-                        "node": "route",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "L": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "r", "output": "long"}]}},
-                    },
-                    "J": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "L", "output": "result"}]}},
-                    },
-                    "both": {
-                        "node": "join",
-                        "inputs": {
-                            "texts": {
-                                "sources": [
-                                    {"node": "L", "output": "result"},
-                                    {"node": "r", "output": "short"},
-                                ]
-                            }
-                        },
-                    },
-                },
-                "outputs": {
-                    "J_result": {"node": "J", "output": "result"},
-                    "both_result": {"node": "both", "output": "result"},
-                },
-            }
+        make_graph(
+            ("s", split),
+            ("r", route),
+            ("L", upper),
+            ("J", join),
+            ("both", join),
+            edges=[
+                ("s.result", "r.text"),
+                ("r.long", "L.text"),
+                ("L.result", "J.texts"),
+                ("L.result", "both.texts"),
+                ("r.short", "both.texts"),
+            ],
+            defaults={"s.sep": ","},
+            outputs={"J_result": "J.result", "both_result": "both.result"},
         ),
         reg,
     )
@@ -427,9 +388,7 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     # the values from both branches of one node are joined in item order
     assert run.results["both"]["result"] == "ABCD+ab+XYZZY"
     with_none = Graph.compile(
-        GraphRecord.model_validate(
-            invoices_then({"mail": {"node": "mail", "inputs": {"email": each_field("email")}}})
-        ),
+        invoices_then({"mail": {"node": "mail", "inputs": {"email": each_field("email")}}}),
         registry_of(read_csv, each_invoice, mail),
     )
     run = with_none.run({"text": "name,email,amount\nIda,ida@a.dk,1\nBo,,2\n"})
@@ -560,41 +519,20 @@ def test_ask_forms_and_several():
 
     reg = registry_of(split, review, tags, pick, join)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}, "sep": {"default": ","}},
-                "nodes": {
-                    "s": {
-                        "node": "split",
-                        "inputs": {
-                            "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep"},
-                        },
-                    },
-                    "r": {
-                        "node": "review",
-                        "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "t": {
-                        "node": "tags",
-                        "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "p": {
-                        "node": "pick",
-                        "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                    "j": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "t", "output": "result"}]}},
-                    },
-                },
-                "outputs": {
-                    "p_result": {"node": "p", "output": "result"},
-                    "approved": {"node": "r", "output": "approved"},
-                    "note": {"node": "r", "output": "note"},
-                    "j_result": {"node": "j", "output": "result"},
-                },
-            }
+        make_graph(
+            ("s", split),
+            ("r", review),
+            ("t", tags),
+            ("p", pick),
+            ("j", join),
+            edges=[
+                ("s.result", "r.name"),
+                ("s.result", "t.name"),
+                ("s.result", "p.name"),
+                ("t.result", "j.texts"),
+            ],
+            defaults={"s.sep": ","},
+            outputs={"p_result": "p.result", "j_result": "j.result"},
         ),
         reg,
     )
@@ -638,29 +576,12 @@ def test_pause_on_a_nested_item():
 
     reg = registry_of(split, check, join)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "inputs": {"text": {}},
-                "nodes": {
-                    "docs": {
-                        "node": "split",
-                        "inputs": {"sep": {"constant": ";"}, "text": {"graph_input": "text"}},
-                    },
-                    "lines": {
-                        "node": "split",
-                        "inputs": {"text": {"sources": [{"node": "docs", "output": "result"}]}},
-                    },
-                    "c": {
-                        "node": "check",
-                        "inputs": {"text": {"sources": [{"node": "lines", "output": "result"}]}},
-                    },
-                    "j": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "c", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "j", "output": "result"}},
-            }
+        make_graph(
+            ("docs", split),
+            ("lines", split),
+            ("c", check),
+            ("j", join),
+            constants={"docs.sep": ";"},
         ),
         reg,
     )
@@ -682,16 +603,14 @@ def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
 
     reg = registry_of(read_csv, each_invoice, gate, mail)
     graph = Graph.compile(
-        GraphRecord.model_validate(
-            invoices_then(
-                {
-                    "g": {
-                        "node": "gate",
-                        "inputs": {"name": each_field("name"), "email": each_field("email")},
-                    },
-                    "m": {"node": "mail", "inputs": {"email": edge_from("g")}},
-                }
-            )
+        invoices_then(
+            {
+                "g": {
+                    "node": "gate",
+                    "inputs": {"name": each_field("name"), "email": each_field("email")},
+                },
+                "m": {"node": "mail", "inputs": {"email": edge_from("g")}},
+            }
         ),
         reg,
     )
