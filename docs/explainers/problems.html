@@ -128,6 +128,14 @@ section { padding-top: var(--section); }
 .field .v.json { white-space: pre-wrap; }
 .field .w { color: var(--ink-2); font-size: .9375rem; min-width: 0; }
 @media (max-width: 760px) { .field { grid-template-columns: minmax(0, 1fr); } }
+/* wide: under the title, the hero's text on the left and the Problem it shows on the right, so the hero fits one screen */
+@media (min-width: 901px) {
+  header.hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); column-gap: 3rem; row-gap: 1.1rem; align-items: start; }
+  header.hero .field { padding-block: .65rem; }
+  header.hero > * { grid-column: 1; }
+  header.hero > :is(.eyebrow, h1) { grid-column: 1 / -1; }
+  header.hero > .anatomy { grid-column: 2; grid-row: 3 / span 4; margin-top: 0; }
+}
 
 /* ---------- code ---------- */
 pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
@@ -141,6 +149,35 @@ pre.out { color: var(--ink-2); background: transparent; padding: .25rem 0 0 1rem
 .tk-d { color: var(--ink-2); }
 
 /* ---------- walk-through (the four moments) ---------- */
+/* wide: the moments' head beside their diagram; the walk's head beside its rail, and its code in two columns */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1.5rem 3rem; align-items: start; }
+.split > * { min-width: 0; }
+.split > .section-head { margin-bottom: 0; }
+@media (min-width: 901px) {
+  .split.pagefig { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr); }
+  .split.entry { grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr); }
+  .out.cols { column-count: 2; column-gap: 2rem; }
+  .wide-prose { max-width: 130ch; margin-top: 1.5rem; }
+}
+@media (min-width: 901px) { .split.cats { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); row-gap: 1rem; } }
+@media (min-width: 901px) { .split.grid2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); row-gap: 2rem; } }
+.walk-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 1rem 3rem; align-items: end; }
+.walk-head .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .split, .walk-head { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 901px) {
+  #moments-walk .stage { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  #moments-walk .stage-text .cap { display: block; column-count: 3; column-gap: 2rem; max-width: none; }
+  #moments-walk .stage-text .cap p { break-inside: avoid; margin-bottom: .6rem; }
+  #moments-walk .stage-text .cap p:last-child { margin-bottom: 0; }
+  #moments-walk .walk { gap: 1rem; }
+  /* each sample's code on the left, what it prints on the right */
+  #moments-walk .stage-code > .panel:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: .75rem 1.5rem; align-items: start; }
+  /* the moment with two samples: three columns, the first sample and what it prints, the second, what it prints */
+  #moments-walk .stage-code > .panel:has(> pre[data-lang="py"] ~ pre[data-lang="py"]) { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.15fr) minmax(0, .9fr); }
+  #moments-walk .panel:has(> pre[data-lang="py"] ~ pre[data-lang="py"]) > * { grid-column: 1; }
+  #moments-walk .panel > pre[data-lang="py"] ~ pre[data-lang="py"] { grid-column: 2; grid-row: 1 / span 2; }
+  #moments-walk .panel > pre[data-lang="py"] ~ pre[data-lang="py"] ~ .said { grid-column: 3; grid-row: 1 / span 2; }
+}
 .walk { display: grid; gap: 1.5rem; }
 .rail { display: flex; flex-wrap: wrap; gap: .35rem; padding-bottom: .25rem; }
 .rail button { flex: 1 0 auto; min-width: 7rem; text-align: left; font: inherit; font-size: .8125rem; color: var(--ink-2); background: none; border: 0; border-top: 2px solid var(--rule); padding: .6rem .25rem 0; cursor: pointer; }
@@ -189,10 +226,19 @@ figcaption { font-size: var(--step--1); color: var(--ink-3); max-width: var(--co
 @media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); gap: 1rem; } }
 
 /* ---------- signature map ---------- */
-.sig { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+.sig { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem 2rem; align-items: start; }
+.sig > .section-head { margin-bottom: 0; }
+/* wide: the head, the diagram and the picked rule's output side by side, and the six rules across under them */
+@media (min-width: 901px) {
+  .sig > .stack { display: contents; }
+  .sig > .stack > .sig-rules { grid-column: 1 / -1; grid-row: 2; grid-template-columns: repeat(6, minmax(0, 1fr)); column-gap: 1rem; }
+  .sig > .stack > #sig-out { grid-column: 3; grid-row: 1; }
+  .sig-rules .rule-btn { padding: .6rem .5rem; border-top: 1px solid var(--rule); }
+  .sig-rules .rule-btn span { font-size: .875rem; }
+}
 @media (max-width: 900px) { .sig { grid-template-columns: minmax(0, 1fr); } }
 .sig-rules { display: grid; gap: .25rem; }
-.rule-btn { text-align: left; font: inherit; color: var(--ink); background: none; border: 0; border-top: 1px solid var(--rule); padding: .9rem .25rem; cursor: pointer; display: grid; gap: .25rem; }
+.rule-btn { align-content: start; text-align: left; font: inherit; color: var(--ink); background: none; border: 0; border-top: 1px solid var(--rule); padding: .9rem .25rem; cursor: pointer; display: grid; gap: .25rem; }
 .rule-btn:first-child { border-top: 0; }
 .rule-btn b { font-weight: 600; }
 .rule-btn span { color: var(--ink-2); font-size: .9375rem; }
@@ -209,7 +255,30 @@ figcaption { font-size: var(--step--1); color: var(--ink-3); max-width: var(--co
 .verdict > div { min-width: 0; display: grid; gap: .3rem; align-content: start; }
 .verdict dt { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
 .verdict dd { margin: 0; font-size: .9375rem; }
-.fail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; margin-top: 1.5rem; }
+.fail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 2rem; align-items: start; margin-top: 1.5rem; }
+/* wide: the head runs across, and a pick's code and what it prints stand side by side under its verdict */
+@media (min-width: 901px) {
+  /* the head, the picks and the pick's code and output on the left; the diagram and the verdict on the right */
+  .fail-wide { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: .75rem 2.5rem; align-items: start; }
+  .fail-wide > * { grid-column: 1; min-width: 0; }
+  .fail-wide > .section-head { margin-bottom: 0; max-width: none; }
+  .fail-wide > .fail-grid { display: contents; }
+  .fail-wide .fail-side { grid-column: 2; grid-row: 1 / span 3; display: grid; gap: .5rem; min-width: 0; }
+  .fail-side .diagram { padding: .4rem; }
+  .fail-side figure { gap: .4rem; }
+  .fail-side .verdict { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+  .fail-side #fail-verdict { gap: .5rem; }
+  .fail-wide #fail-out { grid-column: 1; grid-row: 3; }
+  .fail-side .verdict dd { font-size: .875rem; line-height: 1.45; }
+  /* each answer runs on after its label */
+  .fail-side .verdict > div { display: block; font-size: .875rem; line-height: 1.5; }
+  .fail-side .verdict dt { display: inline; margin-right: .4rem; }
+  .fail-side .verdict dd { display: inline; }
+  #fail-out > .panel:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); gap: .75rem 1.25rem; align-items: start; }
+  .fail-wide .picks { gap: .3rem; }
+  .fail-wide .pick { padding: .4rem .55rem; font-size: .75rem; }
+  #fail-out .said, #moments-walk .said { display: grid; gap: .3rem; min-width: 0; }
+}
 @media (max-width: 900px) { .fail-grid { grid-template-columns: minmax(0, 1fr); } }
 .fail-grid > * { min-width: 0; }
 
@@ -231,6 +300,19 @@ figcaption { font-size: var(--step--1); color: var(--ink-3); max-width: var(--co
 .cat-item small { font-family: var(--font-body); font-weight: 400; color: var(--ink-3); font-size: .75rem; }
 .cat-item[aria-current="true"] { background: var(--accent-soft); }
 .cat-detail { min-width: 0; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; display: grid; gap: 1.1rem; align-content: start; }
+.cat-half { display: grid; gap: 1.1rem; align-content: start; min-width: 0; }
+/* wide: the catalogue's head beside its search, the list beside the kind, and the kind in two halves */
+@media (min-width: 901px) {
+  .cat-detail { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); column-gap: 1.5rem; padding: 1.25rem; }
+  .cat { grid-template-columns: 19rem minmax(0, 1fr); gap: 1.5rem; }
+  .cat-item { overflow-wrap: anywhere; }
+  .cat-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem 2.5rem; align-items: end; }
+  .cat-top .section-head, .cat-top .cat-tools { margin-bottom: 0; }
+  #catalogue .cat { margin-top: 1.25rem; }
+  /* the list and the kind are one screen's browser: each keeps the same height and scrolls inside */
+  .cat-list { max-height: 27rem; }
+  .cat-detail { max-height: 27rem; overflow-y: auto; scrollbar-width: thin; }
+}
 .cat-detail h3 { font-family: var(--font-mono); font-weight: 500; font-size: 1.25rem; word-break: break-word; }
 .cat-where { font-size: var(--step--1); color: var(--ink-3); }
 .sentence { font-size: 1rem; line-height: 1.55; padding-left: 1rem; border-left: 2px solid var(--accent); }
@@ -252,6 +334,14 @@ figcaption { font-size: var(--step--1); color: var(--ink-3); max-width: var(--co
 
 /* ---------- choices ---------- */
 .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+/* wide: the choices run in three columns, each card whole */
+@media (min-width: 901px) {
+  .choices { display: block; column-count: 3; column-gap: 2.5rem; }
+  .choice { display: block; padding-block: 1rem; }
+  .choice > * + * { margin-top: .5rem; }
+  .choice h3, .choice p { break-inside: avoid; }
+  .choice h3 { break-after: avoid; }
+}
 @media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
 .choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
 .choice h3 { font-size: 1.125rem; }
@@ -492,6 +582,7 @@ body { margin: 0; }
 
 <!-- ============================ FOUR MOMENTS ============================ -->
 <section id="moments" aria-labelledby="moments-h">
+  <div class="split">
   <div class="section-head prose">
     <p class="eyebrow">When a problem is found</p>
     <h2 id="moments-h">A problem reaches you at one of four moments <span class="lvl pub">Public</span></h2>
@@ -499,7 +590,6 @@ body { margin: 0; }
     <p class="muted">What a declaration checks is on <a href="nodes-and-types.html">the node and types page</a>, and what compiling checks on <a href="graph-record-and-compiling.html">the graph and compiling page</a>. This page is about how either one tells you.</p>
   </div>
 
-  <div class="walk">
     <figure>
       <div class="diagram">
         <svg viewBox="0 0 880 210" id="moments-svg" role="img" aria-label="Four moments on a line: importing a node raises NodeDeclarationError, compiling lists graph.problems, a refused call raises InvalidCallError, and a run that stops keeps run.cause.">
@@ -542,10 +632,22 @@ body { margin: 0; }
           </g>
         </svg>
       </div>
-      <figcaption>Orange boxes raise an exception that carries the problems. Blue boxes keep the problems as data and raise nothing. Tap a moment to see real code and what it prints.</figcaption>
+      <figcaption>Orange boxes raise an exception that carries the problems. Blue boxes keep the problems as data and raise nothing. Tap a moment to open it in the next section, with real code and what it prints.</figcaption>
     </figure>
+  </div>
+</section>
 
-    <nav class="rail" id="moment-rail" aria-label="Moments"></nav>
+<div class="staff" aria-hidden="true"></div>
+
+<section id="moments-walk" aria-labelledby="moments-walk-h">
+  <div class="walk">
+    <div class="walk-head">
+      <div class="section-head">
+        <p class="eyebrow">When a problem is found</p>
+        <h2 id="moments-walk-h">Each moment with real code</h2>
+      </div>
+      <nav class="rail" id="moment-rail" aria-label="Moments"></nav>
+    </div>
     <div class="stage">
       <div class="stage-text" id="moment-text"></div>
       <div class="stage-code" id="moment-code"><script type="text/x-python">
@@ -594,9 +696,9 @@ def dumps(value, indent=0):
 except NodeDeclarationError as error:
     print(isinstance(error, TypeError))
     print(error)
-    print(repr(error.problems[0]))</pre><p class="out-label">prints</p><pre class="out">True
+    print(repr(error.problems[0]))</pre><div class="said"><p class="out-label">prints</p><pre class="out">True
 fetch_async (version 1): a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads.
-Problem(type='async_run', loc=('fetch_async',), msg='a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads.')</pre></div><div class="panel" data-i="1" hidden><pre data-lang="py"># count returns an int, and its result is wired into upper's text, a str
+Problem(type='async_run', loc=('fetch_async',), msg='a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads.')</pre></div></div><div class="panel" data-i="1" hidden><pre data-lang="py"># count returns an int, and its result is wired into upper's text, a str
 record = {"inputs": {"n": {}}, "nodes": {
     "c": {"node": "count", "inputs": {"n": {"graph_input": "n"}}},
     "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result"}]}}},
@@ -609,76 +711,39 @@ for p in graph.problems:
 try:
     graph.run({"n": 1})
 except InvalidCallError as error:
-    print("InvalidCallError:", error)</pre><p class="out-label">prints</p><pre class="out">False
+    print("InvalidCallError:", error)</pre><div class="said"><p class="out-label">prints</p><pre class="out">False
 Problem(type='type_mismatch', loc=('u', 'text'), msg="'c.result' gives int, but 'u.text' takes str. Wire an output that gives str, or convert the value in a node in between.", ctx={'node_id': 'u', 'input': 'text', 'source': 'c.result', 'got': 'int', 'expected': 'str'})
 InvalidCallError: 1 problem(s):
-  u.text — type_mismatch: 'c.result' gives int, but 'u.text' takes str. Wire an output that gives str, or convert the value in a node in between.</pre></div><div class="panel" data-i="2" hidden><pre data-lang="py">counting = Graph.compile(make_graph(count), registry)
+  u.text — type_mismatch: 'c.result' gives int, but 'u.text' takes str. Wire an output that gives str, or convert the value in a node in between.</pre></div></div><div class="panel" data-i="2" hidden><pre data-lang="py">counting = Graph.compile(make_graph(count), registry)
 try:
     counting.run({"n": "many", "m": 2})
 except InvalidCallError as error:
     print(isinstance(error, ValidationError), isinstance(error, ValueError))
     print(error)
     for p in error.problems:
-        print(repr(p))</pre><p class="out-label">prints</p><pre class="out">True True
+        print(repr(p))</pre><div class="said"><p class="out-label">prints</p><pre class="out">True True
 2 problem(s):
   inputs.m — unknown_graph_input: The graph has no input 'm'. Its inputs are n.
   inputs.n — invalid_input: The value given for 'n' isn't valid: Input should be a valid integer. Give a value of the input's type.
 Problem(type='unknown_graph_input', loc=('inputs', 'm'), msg="The graph has no input 'm'. Its inputs are n.", ctx={'name': 'm', 'inputs': ['n']})
-Problem(type='invalid_input', loc=('inputs', 'n'), msg="The value given for 'n' isn't valid: Input should be a valid integer. Give a value of the input's type.", ctx={'name': 'n', 'reason': 'Input should be a valid integer', 'errors': [{'type': 'int_type', 'loc': [], 'msg': 'Input should be a valid integer'}]})</pre></div><div class="panel" data-i="3" hidden><pre data-lang="py">@registry.node("read_pdf", title="Read PDF", description="Reads a PDF, and fails.")
+Problem(type='invalid_input', loc=('inputs', 'n'), msg="The value given for 'n' isn't valid: Input should be a valid integer. Give a value of the input's type.", ctx={'name': 'n', 'reason': 'Input should be a valid integer', 'errors': [{'type': 'int_type', 'loc': [], 'msg': 'Input should be a valid integer'}]})</pre></div></div><div class="panel" data-i="3" hidden><pre data-lang="py">@registry.node("read_pdf", title="Read PDF", description="Reads a PDF, and fails.")
 def read_pdf(path: str) -&gt; str:
     raise NodeError("The document could not be read.", code="unreadable", ctx={"pages": 0})
 
-
 run = Graph.compile(make_graph(read_pdf), registry).run({"path": "a.pdf"})
 print(run.status)
-print(repr(run.cause))</pre><p class="out-label">prints</p><pre class="out">failed
-Problem(type='unreadable', loc=('read_pdf',), msg='The document could not be read.', ctx={'pages': 0})</pre><pre data-lang="py">@registry.node("fetch_always", title="Fetch", description="Fetches a page, and fails.",
+print(repr(run.cause))</pre><div class="said"><p class="out-label">prints</p><pre class="out">failed
+Problem(type='unreadable', loc=('read_pdf',), msg='The document could not be read.', ctx={'pages': 0})</pre></div><pre data-lang="py">@registry.node("fetch_always", title="Fetch", description="Fetches a page, and fails.",
                policy=Policy(retries=1, retry_delay=0.01))
 def fetch_always(url: str) -&gt; str:
     raise ExternalError("The server didn't answer.", ctx={"status": 503})
 
-
 started = Graph.compile(make_graph(fetch_always), registry).with_inputs({"url": "https://example.com"})
-# dumps is the formatter this page writes its JSON with
 async for event in started.stream():
     if event.type in ("node_retry", "node_failed", "run_end"):
-        print(dumps(json.loads(event.model_dump_json(exclude={"run"}))))</pre><p class="out-label">prints</p><pre data-lang="json" class="out">{
-  "loc": ["fetch_always"],
-  "type": "node_retry",
-  "attempt": 1,
-  "retries": 1,
-  "delay": 0.01,
-  "cause": {
-    "type": "external_failed",
-    "loc": ["fetch_always"],
-    "msg": "The server didn't answer.",
-    "ctx": {
-      "status": 503
-    }
-  }
-}</pre><pre data-lang="json" class="out">{
-  "loc": ["fetch_always"],
-  "type": "node_failed",
-  "cause": {
-    "type": "external_failed",
-    "loc": ["fetch_always"],
-    "msg": "The server didn't answer.",
-    "ctx": {
-      "status": 503
-    }
-  }
-}</pre><pre data-lang="json" class="out">{
-  "type": "run_end",
-  "status": "failed",
-  "cause": {
-    "type": "external_failed",
-    "loc": ["fetch_always"],
-    "msg": "The server didn't answer.",
-    "ctx": {
-      "status": 503
-    }
-  }
-}</pre></div></div>
+        print(json.dumps(event.model_dump(mode="json", exclude={"run"})))</pre><div class="said"><p class="out-label">prints</p><pre data-lang="json" class="out">{"loc": ["fetch_always"], "type": "node_retry", "attempt": 1, "retries": 1, "delay": 0.01, "cause": {"type": "external_failed", "loc": ["fetch_always"], "msg": "The server didn't answer.", "ctx": {"status": 503}}}
+{"loc": ["fetch_always"], "type": "node_failed", "cause": {"type": "external_failed", "loc": ["fetch_always"], "msg": "The server didn't answer.", "ctx": {"status": 503}}}
+{"type": "run_end", "status": "failed", "cause": {"type": "external_failed", "loc": ["fetch_always"], "msg": "The server didn't answer.", "ctx": {"status": 503}}}</pre></div></div></div>
     </div>
   </div>
 </section>
@@ -687,14 +752,13 @@ async for event in started.stream():
 
 <!-- ============================ A KIND IS A FUNCTION ============================ -->
 <section id="kinds" aria-labelledby="kinds-h">
-  <div class="section-head prose">
-    <p class="eyebrow">How a kind of problem is declared</p>
-    <h2 id="kinds-h">A kind of problem is a small function <span class="lvl pub">Public</span></h2>
-    <p class="muted">Each kind of problem, such as <code>unknown_input</code>, is a plain function under <code>@catalogue.problem</code>. The catalogue is a <code>ProblemCatalogue</code>. The function's parameters are the <code>loc</code> and the <code>ctx</code>. It returns the message. Calling it makes the <code>Problem</code>. A package that reports problems of its own declares them the same way, as <a href="serving-runs.html#pieces">conductor-providers</a> does.</p>
-    <p class="muted">Pick a rule to see where each part of the signature goes. The rules are written once, in the reference: <code>python -m conductor.about problem-and-error-codes</code>.</p>
-  </div>
-
   <div class="sig">
+    <div class="section-head prose">
+      <p class="eyebrow">How a kind of problem is declared</p>
+      <h2 id="kinds-h">A kind of problem is a small function <span class="lvl pub">Public</span></h2>
+      <p class="muted">Each kind of problem, such as <code>unknown_input</code>, is a plain function under <code>@catalogue.problem</code>. The catalogue is a <code>ProblemCatalogue</code>. The function's parameters are the <code>loc</code> and the <code>ctx</code>. It returns the message. Calling it makes the <code>Problem</code>. A package that reports problems of its own declares them the same way, as <a href="serving-runs.html#pieces">conductor-providers</a> does.</p>
+      <p class="muted">Pick a rule to see where each part of the signature goes. The rules are written once, in the reference: <code>python -m conductor.about problem-and-error-codes</code>.</p>
+    </div>
     <figure>
       <div class="diagram narrow">
         <svg viewBox="0 0 560 330" id="sig-svg" role="img" aria-label="The signature of unknown_shelf, with each part mapped to a field of the Problem it makes: the name to type, the positional-only parameters to loc and ctx, the keyword-only parameters to ctx, and the returned text to msg.">
@@ -750,9 +814,15 @@ print(repr(room_closed("study", 2, until="noon")))</pre><pre class="out">Problem
     </div>
   </div>
 
-  <div class="two" style="margin-top:3rem">
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="kinds-codes" aria-labelledby="kinds-codes-h">
+  <div class="split grid2">
   <div class="stack">
-    <h3>Each mistake has a code of its own</h3>
+    <p class="eyebrow">How a kind of problem is declared</p>
+    <h2 id="kinds-codes-h">Each mistake has a code of its own</h2>
     <p class="muted">Some mistakes are common enough to deserve a message of their own. Each is a kind of its own, with its own code. Kinds that belong together share the start of their code, and the end names the cause. A second kind with a code the catalogue already has is refused with a <code>TypeError</code> where it is declared, so the module that declares it fails to import.</p>
     <p class="muted">Conductor's own <a href="graph-record-and-compiling.html#fit"><code>type_mismatch</code></a> works this way. It is for any two types that don't meet. <code>type_mismatch_whole_table_or_list</code> is for a whole table or list wired into an input that takes one value, <code>type_mismatch_missing_column</code> for a table that lacks a column the input needs, <code>type_mismatch_series_given_one_value</code> for a <a href="series-and-tables.html#loop"><code>Series</code></a> input wired to one value per call, and <code>type_mismatch_series_into_list</code> for a <code>Series</code> wired into a <code>list[T]</code> input that should be declared <code>Series[T]</code>. The catalogue below has each of them.</p>
   </div>
@@ -768,11 +838,15 @@ def unknown_shelf(room: str, shelf: str, /) -> str:
     return ""</pre>
     <pre class="out">TypeError: unknown_shelf: a kind with this code is declared before it; give the function another name</pre>
   </div>
-  </div>
+</section>
 
-  <div class="two" style="margin-top:3rem">
+<div class="staff" aria-hidden="true"></div>
+
+<section id="messages" aria-labelledby="messages-h">
+  <div class="split grid2">
   <div class="stack">
-    <h3>A host that writes its own messages</h3>
+    <p class="eyebrow">How a kind of problem is declared</p>
+    <h2 id="messages-h">A host that writes its own messages</h2>
     <p class="muted">The message is in English. A host that shows another language looks up the kind by <code>type</code>, and fills its own sentence from <code>ctx</code>. The kind's <code>sentence</code> is the English template, with a slot for each <code>ctx</code> value.</p>
   </div>
   <div class="stack">
@@ -795,6 +869,7 @@ print(DANISH[problem.type].format(**problem.ctx))</pre>
 
 <!-- ============================ CATALOGUES ============================ -->
 <section id="catalogues" aria-labelledby="cats-h">
+  <div class="split cats">
   <div class="section-head prose">
     <p class="eyebrow">Where the kinds live</p>
     <h2 id="cats-h">The kinds are kept in catalogues</h2>
@@ -826,7 +901,6 @@ print(DANISH[problem.type].format(**problem.ctx))</pre>
     <p class="d-key-line"><span><i></i>public: in an <code>__all__</code></span><span><i class="int"></i>internal</span></p>
     <figcaption>A kind is one function with one code. The declaration and <code>check_registry</code> catalogues stay apart from <code>PROBLEMS</code>, since neither is a problem of a graph, a call or a run.</figcaption>
   </figure>
-  <div class="two" style="margin-top:2.5rem">
   <div class="stack">
     <h3>A test keeps a host's translations complete <span class="lvl pub">Public</span></h3>
     <p class="muted"><code>PROBLEMS.codes</code> is every code conductor's core reports for a graph, a call or a run. Any other code there is a node's own, from <code>NodeError(code=...)</code>, or a companion's, like the worker's <a href="serving-runs.html#routes"><code>raised_outside_a_node</code></a>. <a href="overview.html#choices">The reference</a> suggests a test that keeps a host's translations complete when conductor adds a code. It asks for a translation of every code in <code>PROBLEMS</code>, and lets a host also translate the declaration and <code>check_registry</code> codes.</p>
@@ -846,6 +920,7 @@ print(DANISH[problem.type].format(**problem.ctx))</pre>
 
 <!-- ============================ NODE FAILURES ============================ -->
 <section id="failures" aria-labelledby="fail-h">
+  <div class="fail-wide">
   <div class="section-head prose">
     <p class="eyebrow">When a node fails</p>
     <h2 id="fail-h">What a node raises decides its problem <span class="lvl pub">Public</span></h2>
@@ -855,6 +930,7 @@ print(DANISH[problem.type].format(**problem.ctx))</pre>
   <div class="picks" id="fail-picks" role="group" aria-label="What the node raised"></div>
 
   <div class="fail-grid">
+    <div class="fail-side">
     <figure>
       <div class="diagram narrow">
         <svg viewBox="0 0 520 400" id="fail-svg" role="img" aria-label="A decision path. An Ask is not retried and is ask_not_declared when the node didn't declare it, with nothing logged. Otherwise, an ExternalError is retried and the problem is external_failed by default. Another NodeError is not retried and the problem is the node's own. A class named in retry_on is retried and the problem is external_failed. Anything else is execution_failed, not retried, and logged.">
@@ -884,9 +960,11 @@ print(DANISH[problem.type].format(**problem.ctx))</pre>
           <g data-p="other"><rect class="d-box" x="424" y="294" width="94" height="84" rx="8"/><text class="d-label" x="471" y="316" text-anchor="middle">not retried</text><text class="d-sub" x="471" y="336" text-anchor="middle">execution_</text><text class="d-sub" x="471" y="352" text-anchor="middle">failed</text><text class="d-sub" x="471" y="368" text-anchor="middle">text to the log</text></g>
         </svg>
       </div>
-      <figcaption>The path the selected case takes is drawn in blue. With <a href="asking-a-person.html#walk"><code>asks=True</code></a>, an <a href="asking-a-person.html#walk"><code>Ask</code></a> is no failure. The call waits for a person, which has its own page. It is here for a node that didn't declare it.</figcaption>
+      <figcaption>The path the picked case takes is drawn in blue.</figcaption>
     </figure>
-    <div class="stack" id="fail-out"><div id="fail-verdict" class="stack"></div><div class="panel" data-i="0" hidden><script type="text/x-python">
+    <div id="fail-verdict" class="stack"></div>
+    </div>
+    <div class="stack" id="fail-out"><div class="panel" data-i="0" hidden><script type="text/x-python">
 registry = NodeRegistry()
 </script><pre data-lang="py">@registry.node("read_pdf", title="Read PDF", description="Reads a PDF, and fails.")
 def read_pdf(path: str) -&gt; str:
@@ -895,11 +973,10 @@ def read_pdf(path: str) -&gt; str:
 
 run = Graph.compile(make_graph(read_pdf), registry).run({"path": "a.pdf"})
 print(run.status)
-print(repr(run.cause))</pre><p class="out-label">prints</p><pre class="out">failed
-Problem(type='unreadable', loc=('read_pdf',), msg='The document could not be read.', ctx={'pages': 0})</pre></div><div class="panel" data-i="1" hidden><script type="text/x-python">
+print(repr(run.cause))</pre><div class="said"><p class="out-label">prints</p><pre class="out">failed
+Problem(type='unreadable', loc=('read_pdf',), msg='The document could not be read.', ctx={'pages': 0})</pre></div></div><div class="panel" data-i="1" hidden><script type="text/x-python">
 registry = NodeRegistry()
 </script><pre data-lang="py">tries = []
-
 
 @registry.node("fetch", title="Fetch", description="Fetches a page, and fails twice.",
                policy=Policy(retries=2, retry_delay=0.01))
@@ -909,43 +986,12 @@ def fetch(url: str) -&gt; str:
         raise ExternalError("The server didn't answer.", ctx={"status": 503})
     return "&lt;html&gt;"
 
-
 started = Graph.compile(make_graph(fetch), registry).with_inputs({"url": "https://example.com"})
 async for event in started.stream():
     if event.type in ("node_retry", "node_failed", "run_end"):
-        print(dumps(json.loads(event.model_dump_json(exclude={"run"}))))</pre><p class="out-label">prints</p><pre data-lang="json" class="out">{
-  "loc": ["fetch"],
-  "type": "node_retry",
-  "attempt": 1,
-  "retries": 2,
-  "delay": 0.01,
-  "cause": {
-    "type": "external_failed",
-    "loc": ["fetch"],
-    "msg": "The server didn't answer.",
-    "ctx": {
-      "status": 503
-    }
-  }
-}</pre><pre data-lang="json" class="out">{
-  "loc": ["fetch"],
-  "type": "node_retry",
-  "attempt": 2,
-  "retries": 2,
-  "delay": 0.02,
-  "cause": {
-    "type": "external_failed",
-    "loc": ["fetch"],
-    "msg": "The server didn't answer.",
-    "ctx": {
-      "status": 503
-    }
-  }
-}</pre><pre data-lang="json" class="out">{
-  "type": "run_end",
-  "status": "complete",
-  "cause": null
-}</pre></div><div class="panel" data-i="2" hidden><script type="text/x-python">
+        print(json.dumps(event.model_dump(mode="json", exclude={"run"})))</pre><div class="said"><p class="out-label">prints</p><pre data-lang="json" class="out">{"loc": ["fetch"], "type": "node_retry", "attempt": 1, "retries": 2, "delay": 0.01, "cause": {"type": "external_failed", "loc": ["fetch"], "msg": "The server didn't answer.", "ctx": {"status": 503}}}
+{"loc": ["fetch"], "type": "node_retry", "attempt": 2, "retries": 2, "delay": 0.02, "cause": {"type": "external_failed", "loc": ["fetch"], "msg": "The server didn't answer.", "ctx": {"status": 503}}}
+{"type": "run_end", "status": "complete", "cause": null}</pre></div></div><div class="panel" data-i="2" hidden><script type="text/x-python">
 registry = NodeRegistry()
 </script><pre data-lang="py">@registry.node("fetch", title="Fetch", description="Fetches a page, and fails.",
                policy=Policy(retry_on=(ConnectionError,)))
@@ -953,7 +999,7 @@ def fetch(url: str) -&gt; str:
     raise ConnectionError(url)
 
 
-print(repr(why_it_stopped(Graph.compile(make_graph(fetch), registry).run({"url": "https://example.com"}))))</pre><p class="out-label">prints</p><pre class="out">Problem(type='external_failed', loc=('fetch',), msg='A call to an outside service failed.', ctx={'error': 'ConnectionError'})</pre></div><div class="panel" data-i="3" hidden><script type="text/x-python">
+print(repr(why_it_stopped(Graph.compile(make_graph(fetch), registry).run({"url": "https://example.com"}))))</pre><div class="said"><p class="out-label">prints</p><pre class="out">Problem(type='external_failed', loc=('fetch',), msg='A call to an outside service failed.', ctx={'error': 'ConnectionError'})</pre></div></div><div class="panel" data-i="3" hidden><script type="text/x-python">
 registry = NodeRegistry()
 </script><pre data-lang="py">@registry.node("divide", title="Divide", description="Divides one by a number.")
 def divide(n: int) -&gt; float:
@@ -961,7 +1007,7 @@ def divide(n: int) -&gt; float:
 
 
 run = Graph.compile(make_graph(divide), registry).run({"n": 0})
-print(run.status, repr(run.cause))</pre><p class="out-label">prints</p><pre class="out">failed Problem(type='execution_failed', loc=('divide',), msg="The node raised ZeroDivisionError, which isn't retried: only an ExternalError, or a class in Policy(retry_on=), is. Its developer can find the details in the conductor log.", ctx={'error': 'ZeroDivisionError'})</pre></div><div class="panel" data-i="4" hidden><script type="text/x-python">
+print(run.status, repr(run.cause))</pre><div class="said"><p class="out-label">prints</p><pre class="out">failed Problem(type='execution_failed', loc=('divide',), msg="The node raised ZeroDivisionError, which isn't retried: only an ExternalError, or a class in Policy(retry_on=), is. Its developer can find the details in the conductor log.", ctx={'error': 'ZeroDivisionError'})</pre></div></div><div class="panel" data-i="4" hidden><script type="text/x-python">
 registry = NodeRegistry()
 </script><pre data-lang="py">def ask_if_sure() -&gt; bool:
     raise Ask("Sure?")
@@ -972,11 +1018,20 @@ def confirm_quietly(text: str) -&gt; bool:
     return ask_if_sure()
 
 
-print(repr(why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run({"text": "a"}))))</pre><p class="out-label">prints</p><pre class="out">Problem(type='ask_not_declared', loc=('confirm_quietly',), msg="The node asked a person, but its @node doesn't say it may. Add asks=True to its @node.")</pre></div></div>
+print(repr(why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run({"text": "a"}))))</pre><div class="said"><p class="out-label">prints</p><pre class="out">Problem(type='ask_not_declared', loc=('confirm_quietly',), msg="The node asked a person, but its @node doesn't say it may. Add asks=True to its @node.")</pre></div></div></div>
+  </div>
   </div>
 
-  <div class="two" style="margin-top:3rem">
-    <h3 style="grid-column:1/-1" id="node-error">Two classes a node raises</h3>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="node-error" aria-labelledby="node-error-h">
+  <div class="section-head prose">
+    <p class="eyebrow">When a node fails</p>
+    <h2 id="node-error-h">Two classes a node raises</h2>
+  </div>
+  <div class="two">
     <p class="muted"><code>NodeError(message, code=..., ctx=...)</code> is a node's own failure, with a message written for people. It carries one problem, made when it is raised, with an empty <code>loc</code>. Conductor fills in the call's <code>loc</code>. Without a <code>code</code>, the code is <code>node_error</code>. The <code>ctx</code> takes JSON values only. A set, say, raises pydantic's <code>ValidationError</code> from the node's own <code>raise</code>, and the call fails with <code>execution_failed</code>, naming <code>ValidationError</code>.</p>
     <p class="muted"><code>ExternalError</code> is a <code>NodeError</code> for a failure of the outside world, such as a network error, a rate limit or a server error. It is retried as the node's <a href="nodes-and-types.html#policy"><code>Policy</code></a> says. Retry <code>n</code> waits <a href="running-and-streaming.html#retried"><code>retry_delay * 2 ** (n - 1)</code></a> seconds, so with <code>retry_delay=0.01</code> the waits above are 0.01 and 0.02. A call that runs past its <a href="running-and-streaming.html#policy"><code>attempt_timeout</code></a> fails with <a href="running-and-streaming.html#limits"><code>timeout</code></a> and isn't retried. The events are on <a href="running-and-streaming.html">the running and streaming page</a>.</p>
   </div>
@@ -986,6 +1041,7 @@ print(repr(why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).r
 
 <!-- ============================ THE PAGE FROM THE CODE ============================ -->
 <section id="page" aria-labelledby="page-h">
+  <div class="split pagefig">
   <div class="section-head prose">
     <p class="eyebrow">The problems page</p>
     <h2 id="page-h">The problems page is written from the code</h2>
@@ -1024,18 +1080,29 @@ print(repr(why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).r
     <p class="d-key-line"><span><i></i>public: what you run and read</span><span><i class="int"></i>internal</span></p>
     <figcaption>The test, in <code class="int" title="Internal">tests/test_core/test_problems_page.py</code>, checks that each example makes problems of its own kind and of no other. Except for <code>node_error</code>, whose message is the node's own, it also checks that each message is one the kind's sentence could write.</figcaption>
   </figure>
-  <div class="two" style="margin-top:2.5rem">
-  <div class="stack">
-    <p class="muted">The examples use four helpers from the page's setup, one for each moment. <code>declaration_refused(lambda: ...)</code> catches a <a href="nodes-and-types.html#faults"><code>NodeDeclarationError</code></a>, <code>problems(record)</code> compiles a <a href="graph-record-and-compiling.html#record">graph record</a>, <code>refused(lambda: ...)</code> catches an <code>InvalidCallError</code>, and <code>why_it_stopped(run)</code> returns <a href="running-and-streaming.html#status"><code>run.cause</code></a>. In the four core sections, an example's last line calls its section's helper, so the problem turns up where the section's text says a host finds it.</p>
-    <p class="muted">One entry prints on its own by its slug. The slug is the code with hyphens.</p>
   </div>
+  <div class="prose wide-prose">
+    <p class="muted">The examples use four helpers from the page's setup, one for each moment. <code>declaration_refused(lambda: ...)</code> catches a <a href="nodes-and-types.html#faults"><code>NodeDeclarationError</code></a>, <code>problems(record)</code> compiles a <a href="graph-record-and-compiling.html#record">graph record</a>, <code>refused(lambda: ...)</code> catches an <code>InvalidCallError</code>, and <code>why_it_stopped(run)</code> returns <a href="running-and-streaming.html#status"><code>run.cause</code></a>. In the four core sections, an example's last line calls its section's helper, so the problem turns up where the section's text says a host finds it.</p>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="page-entry" aria-labelledby="page-entry-h">
+  <div class="split entry">
   <div class="stack">
+    <p class="eyebrow">The problems page</p>
+    <h2 id="page-entry-h">One entry, printed by its slug</h2>
+    <p class="muted">One entry prints on its own by its slug. The slug is the code with hyphens.</p>
     <pre data-lang="sh">python -m conductor.about context-missing</pre>
     <script type="text/x-python">
 from conductor.about import get_section
 
 print(get_section("context-missing"))
-</script><pre class="out" id="about-out">### `context_missing`
+</script>
+  </div>
+  <div class="stack">
+    <pre class="out cols" id="about-out">### `context_missing`
 
 A node takes the run's context, and the call that starts or resumes the run gives no `context`.
 
@@ -1065,6 +1132,7 @@ refused(lambda: Graph.compile(make_graph(who), registry).run())
 
 <!-- ============================ CATALOGUE ============================ -->
 <section id="catalogue" aria-labelledby="catalogue-h">
+  <div class="cat-top">
   <div class="section-head prose">
     <p class="eyebrow">Every kind of problem</p>
     <h2 id="catalogue-h">The catalogue <span class="lvl pub">Public</span></h2>
@@ -1073,6 +1141,7 @@ refused(lambda: Graph.compile(make_graph(who), registry).run())
   <div class="cat-tools">
     <input id="cat-search" type="search" placeholder="Search codes and messages" aria-label="Search the catalogue">
     <div class="picks" id="cat-filters" role="group" aria-label="Section"></div>
+  </div>
   </div>
   <div class="cat">
     <div class="cat-list" id="cat-list" aria-label="Kinds of problem"></div>
@@ -1138,6 +1207,17 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
       <h3>Each moment reports in its own way.</h3>
       <p>A graph's faults are data, so an editor shows them while the graph is drawn. A refused call raises with every fault it found in what it checked, before anything changes. A run that stops keeps its cause, so it can be saved and resumed.</p>
     </article>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="choices-more" aria-labelledby="choices-more-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="choices-more-h">Two choices about faults in a declaration and in a value</h2>
+  </div>
+  <div class="choices">
     <article class="choice">
       <h3>A declaration fault raises where it is declared.</h3>
       <p>That is usually at import. The fault is in code, so it fails where the developer will see it. It is also a <code>TypeError</code>, as <code>InvalidCallError</code> is pydantic's <code>ValidationError</code> and so a <code>ValueError</code>, so an <code>except</code> a developer already writes still catches it.</p>
@@ -1149,6 +1229,17 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
       <p class="note">A problem may name what a developer or a host wrote: ids, input and output names (a hook's too), field names, places, <a href="asking-a-person.html#ids">waiting ids</a>, a type's limits, a host's decline reason and where a JSON text stops being JSON, which is the position text <a href="graph-record-and-compiling.html#walls"><code>invalid_record</code></a> gives for text that isn't JSON. A <code>NodeError</code> keeps its message and its <code>ctx</code>, since its developer wrote them for people.</p>
       <p class="cost"><b>The cost</b> is that the details of an exception are in the log, not in the problem.</p>
     </article>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<section id="choices-last" aria-labelledby="choices-last-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="choices-last-h">The last three design choices</h2>
+  </div>
+  <div class="choices">
     <article class="choice">
       <h3>Only what the node marks as the outside world's is retried.</h3>
       <p>That is an <code>ExternalError</code>, or a class the node names in <a href="running-and-streaming.html#retried"><code>retry_on</code></a>. A network error or a rate limit may pass on the next try, which a bug or bad data won't. A <code>NodeError</code> other than an <code>ExternalError</code>, a refused output and an <a href="asking-a-person.html#walk"><code>Ask</code></a> never are.</p>
@@ -1264,7 +1355,7 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
   });
   function showMoment(i) {
     const s = MOMENTS[i];
-    mText.innerHTML = '<p class="eyebrow">Moment ' + (i + 1) + " of 4</p><h3>" + esc(s.title) + '</h3><div class="cap">' + s.cap.map((c) => "<p>" + linked(c) + "</p>").join("") + "</div>";
+    mText.innerHTML = "<h3>" + esc(s.title) + '</h3><div class="cap">' + s.cap.map((c) => "<p>" + linked(c) + "</p>").join("") + "</div>";
     showPanel(mCode, i);
     [mText, mCode].forEach((el) => { if (!reduced) { el.classList.remove("fade"); void el.offsetWidth; el.classList.add("fade"); } });
     mRail.querySelectorAll("button").forEach((b, j) => { if (j === i) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
@@ -1308,7 +1399,7 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
     { id: "ext", label: "ExternalError", retried: "Yes. It is retried as many times as [Policy](nodes-and-types.html#policy)(retries=) allows. Here it fails twice, and the third try works.", code: "It is external_failed, unless the node gives a code of its own.", told: "They see the node's own message and ctx on each [node_retry](running-and-streaming.html#stream) event." },
     { id: "retryon", label: "ConnectionError in retry_on", retried: "Yes. It is retried as many times as Policy(retries=) allows. This node sets none, so it fails at once.", code: "It is external_failed. The class name is in ctx.error.", told: "They see a general message. The exception's text and traceback go to the [conductor logger](running-and-streaming.html#log)." },
     { id: "other", label: "ZeroDivisionError", retried: "No. An exception of a class the node doesn't name in retry_on fails the call at once.", code: "It is execution_failed. The class name is in ctx.error.", told: "They see only the class name. The text might quote a value, so it goes to the [conductor logger](running-and-streaming.html#log) with the traceback." },
-    { id: "ask", label: "Ask, without asks=True", retried: "No. An Ask is never retried, even when retry_on names it. With asks=True, an Ask is no failure. The call waits for a person.", code: "It is [ask_not_declared](asking-a-person.html#host). A function whose own code has a raise Ask(...) is refused before that, where @node declares it, as ask_not_declared_in_source. So this node asks from a helper.", told: "They see a message with the fix, which is to add asks=True to the @node. Then a host knows before a run which graphs can pause. Nothing is logged." },
+    { id: "ask", label: "Ask, without asks=True", retried: "No. An Ask is never retried, even when retry_on names it. With asks=True, an Ask is no failure. The call waits for a person, as [Asking a person](asking-a-person.html) shows.", code: "It is [ask_not_declared](asking-a-person.html#host). A function whose own code has a raise Ask(...) is refused before that, where @node declares it, as ask_not_declared_in_source. So this node asks from a helper.", told: "They see a message with the fix, which is to add asks=True to the @node. Then a host knows before a run which graphs can pause. Nothing is logged." },
   ];
   const picks = $("#fail-picks"), failOut = $("#fail-out"), failVerdict = $("#fail-verdict"), failSvg = $("#fail-svg");
   FAILS.forEach((f, i) => {
@@ -1326,8 +1417,7 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
       g.querySelectorAll(".d-line, .d-box").forEach((l) => l.classList.toggle("acc", on));
     });
     failVerdict.innerHTML = '<dl class="verdict"><div><dt>Retried?</dt><dd>' + linked(f.retried) + "</dd></div><div><dt>The code</dt><dd>" + linked(f.code) +
-      "</dd></div><div><dt>What a person is told</dt><dd>" + linked(f.told) + "</dd></div></dl>" +
-      (f.id === "ask" ? '<p class="muted">Asking a person, with <code>asks=True</code>, has <a href="asking-a-person.html">its own page</a>.</p>' : "");
+      "</dd></div><div><dt>What a person is told</dt><dd>" + linked(f.told) + "</dd></div></dl>";
     showPanel(failOut, i);
   }
   showFail(0);
@@ -1335,6 +1425,10 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
 
   /* ======================= THE CATALOGUE ======================= */
   const KINDS = JSON.parse($("#catalogue-data").textContent);
+  /* a problem's JSON on as few lines as it wraps to, with a space after each comma and colon */
+  const inline = (v) => Array.isArray(v) ? "[" + v.map(inline).join(", ") + "]"
+    : v && typeof v === "object" ? "{" + Object.entries(v).map(([key, x]) => JSON.stringify(key) + ": " + inline(x)).join(", ") + "}"
+    : JSON.stringify(v);
   if (!KINDS.length) {
     /* the docs build writes the catalogue from the code; a copy of the page opened from disk has none */
     $(".cat-tools").hidden = true;
@@ -1398,15 +1492,16 @@ Problem(type='example_run_failed', loc=('divide', 1), msg="The example's run end
     list.querySelectorAll(".cat-item").forEach((b) => { if (Number(b.dataset.i) === i) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current"); });
     const k = KINDS[i], s = secById[k.section];
     const rows = k.ctx.map((c) => "<tr><td>" + esc(c.key) + "</td><td>" + esc(c.type) + "</td><td>" + (c.always ? "always" : "when it applies") + "</td></tr>").join("");
-    detail.innerHTML =
+    const raised = k.raised && k.raised.length ? '<div class="stack" style="gap:.4rem"><p class="out-label">The error\'s text</p><pre class="out">' + esc(k.raised[0]) + "</pre></div>" : "";
+    detail.innerHTML = '<div class="cat-half">' +
       "<div><h3>" + esc(k.code) + '</h3><p class="cat-where">' + esc(s.name) + " &middot; " + linked(s.where) + "</p></div>" +
       "<p>" + esc(k.summary).replace(/`([^`]+)`/g, "<code>$1</code>") + "</p>" +
       '<div class="stack" style="gap:.4rem"><p class="out-label">Message</p><p class="sentence">' + sentenceHtml(k.sentence) + "</p></div>" +
       (rows ? '<div class="ctx-wrap"><table class="ctx-table"><thead><tr><th>ctx key</th><th>type</th><th>given</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<p class="small">No ctx keys.</p>') +
+      raised + '</div><div class="cat-half">' +
       '<div class="stack" style="gap:.4rem"><p class="out-label">Example</p><pre data-lang="py">' + highlight(k.example, "py") + "</pre></div>" +
       '<div class="stack" style="gap:.4rem"><p class="out-label">What it makes' + (k.made.length > 1 ? " (" + k.made.length + " problems)" : "") + "</p>" +
-      k.made.map((p) => '<pre data-lang="json">' + highlight(p, "json") + "</pre>").join("") + "</div>" +
-      (k.raised && k.raised.length ? '<div class="stack" style="gap:.4rem"><p class="out-label">The error\'s text</p><pre class="out">' + esc(k.raised[0]) + "</pre></div>" : "");
+      k.made.map((p) => '<pre data-lang="json">' + highlight(inline(JSON.parse(p)), "json") + "</pre>").join("") + "</div></div>";
     hangAll(detail);
   }
   renderList();
