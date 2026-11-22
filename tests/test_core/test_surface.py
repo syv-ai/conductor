@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import copy
+import functools
 import json
 import math
 import pickle
@@ -18,6 +19,7 @@ import sys
 import tomllib
 import typing
 from ast import Import, ImportFrom
+from collections.abc import Mapping
 from importlib import metadata
 from importlib.resources import files
 from pathlib import Path
@@ -821,8 +823,15 @@ def _distribution_of(module: str) -> str:
     for pyproject in PACKAGES.glob("*/pyproject.toml"):
         if (pyproject.parent / "src" / module).is_dir():
             return _requirement_name(_project(pyproject.parent.name)["name"])
-    (distribution, *_) = metadata.packages_distributions()[module]
+    (distribution, *_) = _installed_modules()[module]
     return _requirement_name(distribution)
+
+
+@functools.cache
+def _installed_modules() -> Mapping[str, list[str]]:
+    """The environment's top-level modules, each with the distributions that install it. Reading it takes a tenth of
+    a second, so it is read once."""
+    return metadata.packages_distributions()
 
 
 @pytest.mark.parametrize("package", IMPORTS)
@@ -846,12 +855,14 @@ def test_each_package_installs_every_distribution_its_source_imports(package):
     """What a package's source imports is read from the source itself, so a dependency dropped from its
     ``pyproject.toml`` while the code still imports it fails here. Beside the check above, a dependency is both
     allowed and needed: declared within what is allowed, and every import declared."""
-    imported = {
-        _distribution_of(name.split(".")[0])
+    modules = {
+        name.split(".")[0]
         for source in sorted((PACKAGES / package / "src").rglob("*.py"))
         for name in _imported(source.read_text(encoding="utf-8"))
-        if name.split(".")[0] not in sys.stdlib_module_names
-    } - {_requirement_name(_project(package)["name"])}
+    } - sys.stdlib_module_names
+    imported = {_distribution_of(module) for module in modules} - {
+        _requirement_name(_project(package)["name"])
+    }
 
     assert sorted(imported - _installed_with(package)) == []
 
