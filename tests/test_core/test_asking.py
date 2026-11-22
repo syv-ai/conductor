@@ -671,8 +671,9 @@ def test_a_lone_output_is_titled_by_its_own_param_never_by_the_node():
     def named() -> Annotated[str, Param(title="Decision", description="What you decided")]:
         raise Ask("?")
 
-    # a lone output is asked under the title describe shows for it, which is its own
-    assert _once(ask)[1].waiting[0].questions[0].title is ask.describe().outputs[0].title is None
+    # a lone output is asked under the title the compiled graph's describe shows for it, which is its own
+    graph, run = _once(ask)
+    assert run.waiting[0].questions[0].title is graph.describe().nodes["q"].outputs[0].title is None
     question = _once(named)[1].waiting[0].questions[0]
     assert (question.title, question.description) == ("Decision", "What you decided")
 
