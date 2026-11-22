@@ -108,7 +108,16 @@ code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
 .muted { color: var(--ink-2); }
 .small { font-size: var(--step--1); color: var(--ink-3); }
 section { padding-top: var(--section); }
-.section-head { display: grid; gap: .75rem; margin-bottom: 2.25rem; }
+.section-head { display: grid; gap: .75rem; margin-bottom: 1.5rem; }
+/* a section whose parts stand side by side, so it fits on one screen: .cols has two columns, .cols.three three;
+   .l and .r make the left or the right one wider. At 900px and below they stack. */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem 2rem; align-items: start; }
+.cols.l { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.cols.r { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
+.cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); column-gap: 1.5rem; }
+.cols > * { min-width: 0; }
+.cols .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .cols, .cols.l, .cols.r, .cols.three { grid-template-columns: minmax(0, 1fr); } }
 .staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
 
 /* hero */
@@ -122,7 +131,7 @@ section { padding-top: var(--section); }
 @media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
 
 /* code */
-pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.6; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
 .tk-k { color: var(--code-key); }
 .tk-s { color: var(--code-str); }
 .tk-c { color: var(--code-com); font-style: italic; }
@@ -145,6 +154,11 @@ figure { margin: 0; display: grid; gap: .8rem; min-width: 0; }
 /* a JSON block a hidden step prints, so it is checked, shown as any JSON block is */
 pre.out.record { color: var(--ink); background: var(--code-bg); padding: .9rem 1rem; border-left: 0; border-radius: 8px; }
 pre.out.record::before { display: none; }
+@media (min-width: 901px) { pre.out.record-flow { columns: 2; column-gap: 2rem; } }
+/* a long printout flows down three columns, so it fits on one screen */
+@media (min-width: 901px) { pre.out.flow { columns: 3; column-gap: 2rem; } }
+/* a long JSON record flows down two columns beside its code, so the section fits on one screen */
+@media (min-width: 901px) { pre.out.record.two-up { columns: 2; column-gap: 2rem; column-rule: 1px solid var(--rule); } }
 .ln { display: block; }
 figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
 .d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
@@ -190,18 +204,19 @@ figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
 .codes { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
 
 /* ---------- the bench (break the record) ---------- */
-.bench { display: grid; gap: 1.5rem; }
+.bench { gap: 1.5rem 2rem; }
+.bench.cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+@media (max-width: 900px) { .bench.cols { grid-template-columns: minmax(0, 1fr); } }
 .picks { display: grid; gap: 1rem; }
 .pick-group { display: grid; gap: .5rem; }
 .pick-row { display: flex; flex-wrap: wrap; gap: .45rem; }
-.pick { font: 500 .8125rem/1.25 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .45rem .85rem; cursor: pointer; text-align: left; }
+.pick { font: 500 .8125rem/1.25 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .35rem .75rem; cursor: pointer; text-align: left; }
 .pick:hover { border-color: var(--ink-3); }
 .pick[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
-.bench-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
-@media (max-width: 960px) { .bench-stage { grid-template-columns: minmax(0, 1fr); } }
-.bench-stage > * { min-width: 0; }
 .rec { font-family: var(--font-mono); font-size: .78rem; line-height: 1.65; background: var(--code-bg); border-radius: 8px; padding: .8rem 0; overflow-x: visible; }
-.rec div { padding: 0 1rem 0 3rem; text-indent: -2rem; white-space: pre-wrap; overflow-wrap: break-word; }
+.rec div { padding: 0 1rem 0 3rem; text-indent: -2rem; white-space: pre-wrap; overflow-wrap: break-word; break-inside: avoid; }
+/* the record flows down three columns, so it fits on one screen */
+@media (min-width: 901px) { .rec { columns: 3; column-gap: 0; column-rule: 1px solid var(--rule); } }
 .rec div.changed { background: var(--slow-soft); box-shadow: inset 3px 0 0 var(--slow); }
 .verdict { display: grid; gap: .9rem; }
 .state { display: inline-flex; align-items: center; gap: .55rem; font-family: var(--font-mono); font-size: .9375rem; font-weight: 500; }
@@ -209,6 +224,7 @@ figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
 .state.bad i { background: var(--slow); }
 .state.raised i { background: var(--slow); border-radius: 2px; }
 .plist { list-style: none; padding: 0; display: grid; gap: .8rem; }
+@media (min-width: 901px) { .verdict .plist { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem 1.5rem; } }
 .plist li { display: grid; gap: .2rem; padding-left: .85rem; border-left: 2px solid var(--slow); }
 .plist .ptype { font-family: var(--font-mono); font-size: .875rem; font-weight: 500; }
 .plist .ploc { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
@@ -478,12 +494,6 @@ body { margin: 0; }
 
 <!-- ============================ THE RECORD ============================ -->
 <section id="record" aria-labelledby="rec-h">
-  <div class="section-head prose">
-    <p class="eyebrow">The record</p>
-    <h2 id="rec-h">A record lists the nodes and what each input gets <span class="lvl pub">Public</span></h2>
-    <p class="muted">The example graph on this page has the three nodes in the first sample.</p>
-  </div>
-
   <script type="text/x-python">
 import json
 from typing import Any, TypedDict, TypeVar
@@ -509,8 +519,13 @@ def dumps(value, depth=0, head=""):
 
 registry = NodeRegistry()
   </script>
-  <div class="pair">
+  <div class="cols r">
     <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">The record</p>
+    <h2 id="rec-h">A record lists the nodes and what each input gets <span class="lvl pub">Public</span></h2>
+    <p class="muted">The example graph on this page has the three nodes in the first sample.</p>
+  </div>
       <pre data-lang="py">@registry.node("lines", title="Lines", description="Splits a text into lines.")
 def lines(text: str) -> Series[str]:
     return text.split("\n")
@@ -529,7 +544,8 @@ for entry in data["nodes"].values():  # make_graph doesn't keep an order of a no
     entry["inputs"] = dict(sorted(entry["inputs"].items()))
 print(dumps(data))
       </script>
-      <pre data-lang="json" class="out record">{
+    </div>
+    <pre data-lang="json" class="out record two-up">{
   "inputs": {
     "text": {}
   },
@@ -569,21 +585,25 @@ print(dumps(data))
     }
   }
 }</pre>
-    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ ENTRIES ============================ -->
+<section id="entries" aria-labelledby="entries-h">
+  <div class="cols">
     <div class="stack">
-      <p>This record is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>inputs</code>, <code>nodes</code> and <code>outputs</code>. <code>inputs</code> declares each graph input once, by name, with its <code>default</code> if it has one: <code>{"text": {}}</code> here, or <code>{"text": {"default": "a"}}</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
+      <div class="section-head">
+        <p class="eyebrow">The record</p>
+        <h2 id="entries-h">Its parts, and what each input gets <span class="lvl pub">Public</span></h2>
+      </div>
+      <p>The record above is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>inputs</code>, <code>nodes</code> and <code>outputs</code>. <code>inputs</code> declares each graph input once, by name, with its <code>default</code> if it has one: <code>{"text": {}}</code> here, or <code>{"text": {"default": "a"}}</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
       <p>A <code>NodeRecord</code> names the node it uses in <code>node</code>, its <code>version</code> (1 unless it says otherwise), its <code>inputs</code>, and <code>display</code>. That last one is the host's own data, like a position on a canvas. Conductor saves it and doesn't read it, and it's left out of the <a href="saved-runs-and-reuse.html#keys">graph's fingerprint</a>.</p>
-      <p>Each input's entry, an <code>InputEntry</code>, is one of three kinds, and the one key it has says which (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
-      <ul class="muted" style="display:grid;gap:.4rem;padding-left:1.1rem">
-        <li><code>{"constant": "?"}</code>: the same value on every call of every run.</li>
-        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. The name is one the record declares in <code>inputs</code>, with the default for when the caller gives none. Several inputs may name one graph input and share its value and its one default.</li>
-        <li><code>{"sources": [...]}</code>: the outputs whose edges lead into this input. Several sources are alternatives, from different <a href="nodes-and-types.html#outputs">branches</a> of one node.</li>
-      </ul>
       <p>An input the record leaves out takes the node's own default. <code>shout.mark</code> would be <code>"!"</code>.</p>
     </div>
-  </div>
-
-  <figure style="margin-top:2.5rem">
+    <div class="stack">
+      <figure>
     <div class="fig">
       <svg viewBox="0 0 760 250" role="img" aria-label="The record stores each edge on the input it leads into. The caller's text goes into lines, lines.result goes to shout.line, shout.result to join.texts, and join.result is the graph output result.">
         <defs>
@@ -624,6 +644,14 @@ print(dumps(data))
     </div>
     <figcaption>An edge has no record of its own. It's a <code>Source</code> in the <code>sources</code> of the input it leads into. A graph input exists where an entry names it, and a graph output only in <code>outputs</code>.</figcaption>
   </figure>
+      <p>Each input's entry, an <code>InputEntry</code>, is one of three kinds, and the one key it has says which (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
+      <ul class="muted" style="display:grid;gap:.4rem;padding-left:1.1rem">
+        <li><code>{"constant": "?"}</code>: the same value on every call of every run.</li>
+        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. The name is one the record declares in <code>inputs</code>, with the default for when the caller gives none. Several inputs may name one graph input and share its value and its one default.</li>
+        <li><code>{"sources": [...]}</code>: the outputs whose edges lead into this input. Several sources are alternatives, from different <a href="nodes-and-types.html#outputs">branches</a> of one node.</li>
+      </ul>
+    </div>
+  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
@@ -648,13 +676,18 @@ print(dumps(data))
 
 <!-- ============================ TWO WALLS ============================ -->
 <section id="walls" aria-labelledby="walls-h">
-  <div class="section-head prose">
+  <div class="cols r">
+    <div class="stack">
+      <div class="section-head">
     <p class="eyebrow">Reading a record</p>
     <h2 id="walls-h">Which faults raise and which become problems</h2>
     <p class="muted"><code>Graph.compile</code> takes a <code>GraphRecord</code>, its JSON text, or that JSON as plain data.</p>
   </div>
 
-  <figure>
+    <figcaption>Getting the shape right is the caller's job, so a wrong shape raises <a href="problems.html#moments"><code>InvalidCallError</code></a> with one <code>invalid_record</code> <a href="problems.html">problem</a> per fault, at <code>("record", *where)</code>. Each problem's <code>ctx.errors</code> holds the fault's one error, such as <code>extra_forbidden</code> or <code>repeated_key</code>. A record of the right shape can still be a wrong graph. That's the graph's business, so it becomes a <code>Problem</code> and an editor can keep showing the graph while a person draws it.</figcaption>
+    <p class="small">Solid boxes are public. The dashed boxes are internal.</p>
+    </div>
+    <div class="stack">
     <div class="fig">
       <svg viewBox="0 0 900 230" role="img" aria-label="JSON text goes through read_json and the internal RecordValidator, which raise invalid_record for a wrong shape. The GraphRecord then goes to the internal Compiler, which lists faults as problems on the Graph. graph.run raises only if the Graph has problems.">
         <defs>
@@ -704,12 +737,6 @@ print(dumps(data))
         <text class="d-small" x="886" y="184" text-anchor="end">problems isn't empty</text>
       </svg>
     </div>
-    <figcaption>Getting the shape right is the caller's job, so a wrong shape raises <a href="problems.html#moments"><code>InvalidCallError</code></a> with one <code>invalid_record</code> <a href="problems.html">problem</a> per fault, at <code>("record", *where)</code>. Each problem's <code>ctx.errors</code> holds the fault's one error, such as <code>extra_forbidden</code> or <code>repeated_key</code>. A record of the right shape can still be a wrong graph. That's the graph's business, so it becomes a <code>Problem</code> and an editor can keep showing the graph while a person draws it.</figcaption>
-    <p class="small">Solid boxes are public. The dashed boxes are internal.</p>
-  </figure>
-
-  <div class="pair" style="margin-top:2.5rem">
-    <div class="stack">
       <h3 id="read-json">Why <code>read_json</code> exists</h3>
       <p class="muted">Plain <code>json.loads</code> keeps only the last of two equal keys. In a record that would drop a node without a word. <code>read_json</code> parses with every key seen, and it's what <code>Graph.compile</code> uses for text. A host can call it on a request body too.</p>
       <pre data-lang="py">text = '{"nodes": {"a": {"node": "lines"}, "a": {"node": "join"}}}'
@@ -722,8 +749,19 @@ except InvalidCallError as error:
       <pre class="out">{'nodes': {'a': {'node': 'join'}}}
 invalid_record ('record',) repeated_key</pre>
     </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ SHAPE AND GRAPH ============================ -->
+<section id="shape-and-graph" aria-labelledby="shape-and-graph-h">
+  <div class="cols">
     <div class="stack">
-      <h3>A shape fault and a graph fault</h3>
+      <div class="section-head">
+        <p class="eyebrow">Reading a record</p>
+        <h2 id="shape-and-graph-h">A shape fault and a graph fault</h2>
+      </div>
       <pre data-lang="py">try:
     Graph.compile({"nodes": {"s": {"node": "shout", "inputs": {
         "line": {"constant": "a", "graph_input": "line"}}}}}, registry)
@@ -733,6 +771,8 @@ except InvalidCallError as error:
     print(p.msg)</pre>
       <pre class="out">invalid_record ('record', 'nodes', 's', 'inputs', 'line') one_of_constant_graph_input_sources
 This isn't a valid graph record. At 'nodes.s.inputs.line': an input must get exactly one of a constant, a graph input or sources. Fix the record's JSON.</pre>
+    </div>
+    <div class="stack">
       <pre data-lang="py">half = Graph.compile({"nodes": {"s": {"node": "shout"}, "j": {"node": "join",
     "inputs": {"texts": {"sources": [{"node": "s", "output": "result"}]}}}}}, registry)
 print(half)
@@ -749,26 +789,24 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
 ['input_has_no_value', 'type_mismatch_series_given_one_value']</pre>
     </div>
   </div>
-  <p class="prose muted" style="margin-top:1.5rem">The half-drawn graph has two problems, and each is true of it as drawn. With no edge into <code>s.line</code>, <code>s</code> is in no <a href="series-and-tables.html#loop">loop</a>. So it gives <code>j</code> one value, and <code>j.texts</code> takes a <code>Series</code>.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ BENCH ============================ -->
 <section id="bench" aria-labelledby="bench-h">
-  <div class="section-head prose">
-    <p class="eyebrow">Try it</p>
-    <h2 id="bench-h">Break the record and see what compiling says <span class="lvl pub">Public</span></h2>
-    <p class="muted">Each button changes one thing in the example record. The drawing is the graph as <code>describe()</code> shows it. In the drawing, a node outlined in orange has a <a href="problems.html">problem</a>, a faded orange node with its id struck through didn't compile, and a dashed orange edge leads into an input whose source is <code>missing</code>, into a node that didn't compile, or to a graph output that isn't there. Every result was printed by compiling that record against the three nodes above and <code>count</code>, which <a href="#fit">the section on edges</a> defines. The results are written into the page from the code when the docs are built.</p>
-  </div>
-  <div class="bench">
-    <div class="picks" id="picks"></div>
-    <div class="fig" id="drawing" aria-live="polite"></div>
-    <div class="bench-stage">
-      <div class="stack">
-        <p class="eyebrow">The record</p>
-        <div class="rec" id="rec" aria-live="polite"></div>
+  <div class="bench cols r">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Try it</p>
+        <h2 id="bench-h">Break the record and see what compiling says <span class="lvl pub">Public</span></h2>
+        <p class="muted">Each button changes one thing in the example record. Every result was printed by compiling that record against the three nodes above and <code>count</code>, which <a href="#fit">the section on edges</a> defines. The results are written into the page from the code when the docs are built. The record itself, with the change marked, is in the <a href="#bench-record">next section</a>.</p>
       </div>
+      <div class="picks" id="picks"></div>
+      <p class="small">The drawing is the graph as <code>describe()</code> shows it. A node outlined in orange has a <a href="problems.html">problem</a>, a faded orange node with its id struck through didn't compile, and a dashed orange edge leads into an input whose source is <code>missing</code>, into a node that didn't compile, or to a graph output that isn't there.</p>
+    </div>
+    <div class="stack">
+      <div class="fig" id="drawing" aria-live="polite"></div>
       <div class="verdict" id="verdict" aria-live="polite"></div>
     </div>
   </div>
@@ -776,14 +814,31 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
 
 <div class="staff" aria-hidden="true"></div>
 
+<!-- ============================ THE BROKEN RECORD ============================ -->
+<section id="bench-record" aria-labelledby="bench-record-h">
+  <div class="section-head">
+    <p class="eyebrow">Try it</p>
+    <h2 id="bench-record-h">The record the button changed</h2>
+    <p class="muted">A line the picked button edited, added or took a key out of is marked.</p>
+  </div>
+  <div class="rec" id="rec" aria-live="polite"></div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
 <!-- ============================ COMPILING ============================ -->
 <section id="compiling" aria-labelledby="comp-h">
-  <div class="section-head prose">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
     <p class="eyebrow">Compiling</p>
     <h2 id="comp-h">What compiling does</h2>
     <p class="muted"><code>Graph.compile</code> checks every node and edge against the definitions. It also works out, once for every run, where each input gets its value and which <a href="series-and-tables.html#loop">loops</a> each node is in.</p>
   </div>
-  <div class="pair">
+      <p>A <a href="subgraphs.html#open">subgraph</a> used as a node is compiled on its own record. Its problems become this graph's problems, each <a href="subgraphs.html#places"><code>loc</code></a> starting with the subgraph node's id. Subgraphs have <a href="subgraphs.html">a page of their own</a>.</p>
+      <p>A node is left out of the compiled nodes when its definition isn't found, its <a href="nodes-and-types.html#hooks">hook</a> fails or can't be called, or it is a subgraph with problems of its own. Every other node is kept, even with a problem on one of its inputs, so an editor can still draw it.</p>
+      <p>An edge from a node that didn't compile gets no second problem. The input it leads into has no value, and the first problem says why.</p>
+    </div>
     <div>
     <div class="steps-head">
       <p class="label">The steps of the <code class="int" title="Internal">Compiler</code> <span class="lvl int">Internal</span></p>
@@ -799,25 +854,37 @@ type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call o
       <li><div><p><b>Check the graph outputs.</b> Each must name an output of a node the graph has.</p></div></li>
     </ol>
     </div>
-    <div class="stack">
-      <p>A <a href="subgraphs.html#open">subgraph</a> used as a node is compiled on its own record. Its problems become this graph's problems, each <a href="subgraphs.html#places"><code>loc</code></a> starting with the subgraph node's id. Subgraphs have <a href="subgraphs.html">a page of their own</a>.</p>
-      <p>A node is left out of the compiled nodes when its definition isn't found, its <a href="nodes-and-types.html#hooks">hook</a> fails or can't be called, or it is a subgraph with problems of its own. Every other node is kept, even with a problem on one of its inputs, so an editor can still draw it.</p>
-      <p>An edge from a node that didn't compile gets no second problem. The input it leads into has no value, and the first problem says why.</p>
-    </div>
   </div>
+</section>
 
-  <h3 id="input-kinds" style="margin-top:3.5rem">Where each input gets its value</h3>
-  <p class="prose muted" style="margin-top:.5rem">Inside, each input of a compiled node is one of the frozen dataclasses in <code class="int" title="Internal">graph/input.py</code>. Each says where the value comes from. You see them in <code>describe()</code>, as the <code>mode</code> of the input's <code>InputSource</code>. Each card names the dataclass and the modes it shows as.</p>
-  <div class="kinds five" style="margin-top:1.5rem">
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ INPUT KINDS ============================ -->
+<section id="inputs-compiled" aria-labelledby="input-kinds">
+  <div class="section-head">
+    <p class="eyebrow">Compiling</p>
+    <h2 id="input-kinds">Where each input gets its value</h2>
+    <p class="muted prose">Inside, each input of a compiled node is one of the frozen dataclasses in <code class="int" title="Internal">graph/input.py</code>. Each says where the value comes from. You see them in <code>describe()</code>, as the <code>mode</code> of the input's <code>InputSource</code>. Each card names the dataclass and the modes it shows as.</p>
+  </div>
+  <div class="kinds five">
     <div class="kind"><b><code class="int" title="Internal">ConstantInput</code></b><span class="mode">mode: constant</span><p>It is the record's constant, checked by the input's type when compiling, or else the node's own default, as for <code>shout.mark</code>.</p></div>
     <div class="kind"><b><code class="int" title="Internal">GraphInput</code></b><span class="mode">mode: graph_input</span><p>The caller gives it, by the graph input's name, as for <code>lines.text</code>.</p></div>
     <div class="kind"><b><code class="int" title="Internal">EdgeInput</code></b><span class="mode">mode: item, one_value or outer_value</span><p>It gets one value per call through its edges. <code>shout.line</code> gets one item of <code>lines.result</code> per call. One value is never a list of one: a <a href="series-and-tables.html#loop"><code>Series</code></a> input wired to one value per call is <code>type_mismatch_series_given_one_value</code>.</p></div>
     <div class="kind"><b><code class="int" title="Internal">CollectingInput</code></b><span class="mode">mode: collected</span><p>It is a <code>Series</code> input that gets one value per item of a loop, as a list, as <code>join.texts</code> does.</p></div>
     <div class="kind missing"><b><code class="int" title="Internal">MissingInput</code></b><span class="mode">mode: missing</span><p>It has no value, because the graph has a problem there. The node is kept, so an editor can draw this input as unset.</p></div>
   </div>
+</section>
 
-  <div class="pair" style="margin-top:2.5rem">
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ THE COMPILED GRAPH ============================ -->
+<section id="compiled" aria-labelledby="compiled-h">
+  <div class="cols">
     <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Compiling</p>
+        <h2 id="compiled-h">The example graph, compiled</h2>
+      </div>
       <pre data-lang="py">graph = Graph.compile(record, registry)   # the record above
 print(graph)
 print(list(graph.inputs), {name: port.type for name, port in graph.outputs.items()})
@@ -870,13 +937,17 @@ shout lines.result [('line', 'item', 'lines.result'), ('mark', 'constant', None)
 
 <!-- ============================ FIT ============================ -->
 <section id="fit" aria-labelledby="fit-h">
-  <div class="section-head prose">
+  <div class="cols three">
+    <div class="stack">
+      <div class="section-head">
     <p class="eyebrow">Edges</p>
     <h2 id="fit-h">Whether an edge's types fit <span class="lvl pub">Public</span></h2>
     <p class="muted">Compiling checks whether a value of an edge's output type can go to its input's type, from the declared types alone. An edge that doesn't fit is the <a href="problems.html">problem</a> <code>type_mismatch</code>, before anything runs. A few common mistakes have a <a href="problems.html#kinds">kind of their own</a>, whose message says the fix.</p>
   </div>
-  <div class="pair">
-    <pre data-lang="py" data-name="bench-nodes">@registry.node("count", title="Count", description="Counts the characters of a text.")
+      <p class="muted">An input can ask for more than its source promises, such as a limit on the input. Then the value is checked when it arrives at run time. That check is on <a href="running-and-streaming.html">the running and streaming page</a>. An edge whose source already satisfies its input isn't checked at all.</p>
+      <p class="muted">Compiling reads only these nodes' types, so most of their bodies are <code>...</code>. The <a href="#fit-results">next section</a> wires them together and prints what compiling says.</p>
+    </div>
+    <pre data-lang="py">@registry.node("count", title="Count", description="Counts the characters of a text.")
 def count(text: str) -> int:
     return len(text)
 
@@ -899,9 +970,8 @@ def numbers() -> list[int]: ...
 def person() -> Person: ...
 
 @node("half", title="Half", description="Halves a number.")
-def half(n: float) -> float: ...
-
-@node("anything", title="Anything", description="Takes any value.")
+def half(n: float) -> float: ...</pre>
+    <pre data-lang="py" data-name="bench-nodes">@node("anything", title="Anything", description="Takes any value.")
 def anything(value: Any) -> Any: ...
 
 @node("first", title="First", description="Gives the first item of a list.")
@@ -914,8 +984,21 @@ def joinlist(texts: list[str]) -> str: ...
 def greet(who: Named) -> str: ...
 
 r = NodeRegistry()
-r.add(count, flag, numbers, person, lines, shout, half, anything, first, joinlist, greet)
-edges = {
+r.add(count, flag, numbers, person, lines, shout, half, anything, first, joinlist, greet)</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ EDGES, COMPILED ============================ -->
+<section id="fit-results" aria-labelledby="fit-results-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Edges</p>
+        <h2 id="fit-results-h">Which of these edges fit</h2>
+      </div>
+      <pre data-lang="py">edges = {
     "int -> float": (count, half),
     "bool -> float": (flag, half),
     "int -> str": (count, shout),
@@ -930,7 +1013,9 @@ for label, found in problems.items():
     print(label, [p.type for p in found])
 print(problems["bool -> float"][0].msg)
 print(problems["Series[str] -> list[str]"][0].msg)</pre>
-    <pre class="out">int -&gt; float []
+    </div>
+    <div class="stack">
+      <pre class="out">int -&gt; float []
 bool -&gt; float ['type_mismatch']
 int -&gt; str ['type_mismatch']
 str -&gt; Any []
@@ -940,23 +1025,22 @@ Series[str] -&gt; list[str] ['type_mismatch_series_into_list']
 Person -&gt; Named []
 'flag.result' gives bool, but 'half.n' takes float. Wire an output that gives float, or convert the value in a node in between.
 'lines.result' gives Series[str], but 'joinlist.texts' takes list[str]. To take every item as one list, declare the input Series[str] in place of list[str].</pre>
+      <p class="muted">An empty list means the edge fits. An <code>int</code> is widened to a <code>float</code>, but a yes or no isn't a number. <code>Any</code> fits either way. <code>list[int]</code> binds <code>T</code> to <code>int</code> for that node, and a <code>TypedDict</code> fits by its keys. A <code>Series</code> into a <code>list</code> has a kind of its own, whose message says the fix. The rules are in <code>python -m conductor.about types</code>, under "What lands where".</p>
+    </div>
   </div>
-  <p class="prose muted" style="margin-top:1.5rem">An empty list means the edge fits. An <code>int</code> is widened to a <code>float</code>, but a yes or no isn't a number. <code>Any</code> fits either way. <code>list[int]</code> binds <code>T</code> to <code>int</code> for that node, and a <code>TypedDict</code> fits by its keys. A <code>Series</code> into a <code>list</code> has a kind of its own, whose message says the fix. The rules are in <code>python -m conductor.about types</code>, under "What lands where".</p>
-  <p class="prose muted" style="margin-top:1.5rem">An input can ask for more than its source promises, such as a limit on the input. Then the value is checked when it arrives at run time. That check is on <a href="running-and-streaming.html">the running and streaming page</a>. An edge whose source already satisfies its input isn't checked at all.</p>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ MAKE_GRAPH ============================ -->
 <section id="make" aria-labelledby="make-h">
-  <div class="section-head prose">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
     <p class="eyebrow">From Python</p>
     <h2 id="make-h"><code>make_graph</code> writes the same record <span class="lvl pub">Public</span></h2>
     <p class="muted"><code>make_graph(*nodes, edges=None, constants={}, defaults={}, inputs={}, outputs={})</code> writes a <code>GraphRecord</code>. It follows scikit-learn's <code>make_pipeline</code>. With no <code>edges</code>, the nodes form a chain. It declares the graph's inputs and outputs, and compiles nothing.</p>
   </div>
-  <div class="pair">
-    <div class="stack">
-      <p class="small">The sample prints each record with <code>dumps</code>, a small JSON formatter that isn't part of conductor. Every JSON block on these pages is laid out this way: two spaces of indent, one key per line, and a list on one line when it fits.</p>
       <pre data-lang="py">record = make_graph(lines, shout, join)
 print(dumps(json.loads(record.model_dump_json())))
 print(Graph.compile(record, registry).run({"text": "a\nb"}).outputs)
@@ -974,7 +1058,27 @@ try:
     make_graph(lines, shout, edges=[("lines", "shout.line")])
 except InvalidCallError as error:
     print([(p.type, p.loc) for p in error.problems])</pre>
-      <pre class="out">{
+    </div>
+    <div class="stack">
+      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that <code>constants=</code>, <code>defaults=</code> and <code>inputs=</code> don't name. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose ports a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
+      <p><b>Graph inputs and outputs.</b> Each required input that gets nothing becomes a graph input under its own name (<code>text</code>), unless it <a href="nodes-and-types.html#hooks">takes only a constant</a>. So does each key of <code>defaults</code>. Each output of a node that no edge leaves becomes a graph output (<code>result</code>). <code>inputs=</code> and <code>outputs=</code> name others. An optional input that <code>inputs=</code> names keeps its own default, so <code>m</code> above defaults to <code>"!"</code> and isn't required. A key of <code>defaults</code> gives its own. A node with a <code>compute_outputs</code> hook that no edge leaves needs <code>outputs=</code> to name what the graph returns from it. Without that, <code>make_graph</code> raises <code>hook_outputs_not_named</code>.</p>
+      <p><b>Ids.</b> A definition used twice gets <code>shout-1</code> and <code>shout-2</code>, so no node keeps the bare id <code>shout</code> for another to take over.</p>
+      <p><b>What it raises.</b> <code>make_graph</code> raises one <a href="problems.html#moments"><code>InvalidCallError</code></a> with every fault it can see while writing. In the last call, <code>"lines"</code> isn't <code>"node.name"</code>, so it is <code>invalid_place</code> and that edge isn't written. With an edge left out, <code>make_graph</code> makes no automatic graph inputs or outputs, so a name clash that would only follow from the gap isn't listed.</p>
+      <p><b>What it leaves to compiling.</b> It writes some faults as given: an input a node doesn't have, a value its type refuses, types that don't fit. <code>Graph.compile(...).problems</code> reports them.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WHAT MAKE_GRAPH WROTE ============================ -->
+<section id="make-printed" aria-labelledby="make-printed-h">
+  <div class="section-head">
+    <p class="eyebrow">From Python</p>
+    <h2 id="make-printed-h">What the <code>make_graph</code> sample prints</h2>
+    <p class="small">The sample prints each record with <code>dumps</code>, a small JSON formatter that isn't part of conductor. Every JSON block on these pages is laid out this way: two spaces of indent, one key per line, and a list on one line when it fits.</p>
+  </div>
+  <pre class="out flow">{
   "inputs": {
     "text": {}
   },
@@ -1026,28 +1130,23 @@ except InvalidCallError as error:
   "line": {}
 }
 [('invalid_place', ('edges', 0, 0))]</pre>
-    </div>
-    <div class="stack">
-      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that <code>constants=</code>, <code>defaults=</code> and <code>inputs=</code> don't name. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose ports a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
-      <p><b>Graph inputs and outputs.</b> Each required input that gets nothing becomes a graph input under its own name (<code>text</code>), unless it <a href="nodes-and-types.html#hooks">takes only a constant</a>. So does each key of <code>defaults</code>. Each output of a node that no edge leaves becomes a graph output (<code>result</code>). <code>inputs=</code> and <code>outputs=</code> name others. An optional input that <code>inputs=</code> names keeps its own default, so <code>m</code> above defaults to <code>"!"</code> and isn't required. A key of <code>defaults</code> gives its own. A node with a <code>compute_outputs</code> hook that no edge leaves needs <code>outputs=</code> to name what the graph returns from it. Without that, <code>make_graph</code> raises <code>hook_outputs_not_named</code>.</p>
-      <p><b>Ids.</b> A definition used twice gets <code>shout-1</code> and <code>shout-2</code>, so no node keeps the bare id <code>shout</code> for another to take over.</p>
-      <p><b>What it raises.</b> <code>make_graph</code> raises one <a href="problems.html#moments"><code>InvalidCallError</code></a> with every fault it can see while writing. In the last call, <code>"lines"</code> isn't <code>"node.name"</code>, so it is <code>invalid_place</code> and that edge isn't written. With an edge left out, <code>make_graph</code> makes no automatic graph inputs or outputs, so a name clash that would only follow from the gap isn't listed.</p>
-      <p><b>What it leaves to compiling.</b> It writes some faults as given: an input a node doesn't have, a value its type refuses, types that don't fit. <code>Graph.compile(...).problems</code> reports them.</p>
-    </div>
-  </div>
 </section>
 
 <div class="staff" aria-hidden="true"></div>
 
 <!-- ============================ HOOKS ============================ -->
 <section id="hooks" aria-labelledby="hooks-h">
-  <div class="section-head prose">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
     <p class="eyebrow">Hooks</p>
     <h2 id="hooks-h">Compiling works out the inputs and outputs a graph decides <span class="lvl pub">Public</span></h2>
     <p class="muted">A node can have a <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a> or <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> <a href="nodes-and-types.html#hooks">hook</a>. Compiling calls it with the constant, or else the declared default, of each input it names. For a parameter annotated <code>type</code>, <code>compute_outputs</code> gets the type the edge into that input carries. A hook that raises an exception is a <a href="problems.html">problem</a> on its node, not an exception from <code>Graph.compile</code>. The hooks themselves are on <a href="nodes-and-types.html">the page about nodes</a>.</p>
   </div>
-  <div class="pair">
-    <pre data-lang="py">calls = []
+      <p class="muted">The hook ran once, while compiling, with the constant <code>"small,big"</code> and the type <code>int</code> that <code>count.result</code> carries. Each output it returns defaults to <code>SKIPPED</code>, so the two are <a href="nodes-and-types.html#outputs">branches</a> and not required.</p>
+    </div>
+    <div class="stack">
+      <pre data-lang="py">calls = []
 
 def branch_outputs(names: str, value: type) -> dict[str, Any]:
     calls.append((names, value))
@@ -1066,8 +1165,25 @@ graph = Graph.compile(make_graph(count, route,
 print(calls)
 print([(f.name, f.type, f.required) for f in graph.describe().nodes["route"].outputs])
 print(graph.run({"text": "hello", "chosen": "big"}).outputs)
+</pre>
+      <pre class="out">[('small,big', &lt;class 'int'&gt;)]
+[('small', 'int', False), ('big', 'int', False)]
+{'big': 5, 'small': None}</pre>
+    </div>
+  </div>
+</section>
 
-broken = Graph.compile({"inputs": {"text": {}, "chosen": {}}, "nodes": {   # the record by hand: no graph outputs
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ A HOOK THAT RAISES ============================ -->
+<section id="hook-raises" aria-labelledby="hook-raises-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Hooks</p>
+        <h2 id="hook-raises-h">A hook that raises is a problem of its node</h2>
+      </div>
+      <pre data-lang="py">broken = Graph.compile({"inputs": {"text": {}, "chosen": {}}, "nodes": {   # the record by hand: no graph outputs
     "count": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
     "route": {"node": "route", "inputs": {
         "value": {"sources": [{"node": "count", "output": "result"}]},
@@ -1075,13 +1191,11 @@ broken = Graph.compile({"inputs": {"text": {}, "chosen": {}}, "nodes": {   # the
 for p in broken.problems:
     print(p.type, p.loc, p.ctx["error"], "|", p.msg)
 print(broken.describe().nodes["route"].found)</pre>
+    </div>
     <div class="stack">
-      <pre class="out">[('small,big', &lt;class 'int'&gt;)]
-[('small', 'int', False), ('big', 'int', False)]
-{'big': 5, 'small': None}
-compute_hook_raised ('route',) ValueError | The node couldn't work out its inputs and outputs: its hook raised ValueError. Check the node's constants and what is wired into it; its developer can find the details in the conductor log.
+      <pre class="out">compute_hook_raised ('route',) ValueError | The node couldn't work out its inputs and outputs: its hook raised ValueError. Check the node's constants and what is wired into it; its developer can find the details in the conductor log.
 False</pre>
-      <p class="muted">The hook ran once, while compiling, with the constant <code>"small,big"</code> and the type <code>int</code> that <code>count.result</code> carries. Each output it returns defaults to <code>SKIPPED</code>, so the two are <a href="nodes-and-types.html#outputs">branches</a> and not required. When it raised its own <code>ValueError</code>, the problem was <code>compute_hook_raised</code>. Its <code>ctx.error</code> is only the class name, and its message doesn't quote the exception's text, since that text might quote a value. The text and the traceback went to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. <code>route</code> was left out, so <code>describe()</code> gives it <code>found</code> false.</p>
+      <p class="muted">When the hook raised its own <code>ValueError</code>, the problem was <code>compute_hook_raised</code>. Its <code>ctx.error</code> is only the class name, and its message doesn't quote the exception's text, since that text might quote a value. The text and the traceback went to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. <code>route</code> was left out, so <code>describe()</code> gives it <code>found</code> false.</p>
     </div>
   </div>
 </section>
@@ -1090,12 +1204,14 @@ False</pre>
 
 <!-- ============================ UPGRADE ============================ -->
 <section id="upgrade" aria-labelledby="up-h">
-  <div class="section-head prose">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
     <p class="eyebrow">Versions</p>
     <h2 id="up-h"><code>registry.upgrade</code> moves one node of a saved record <span class="lvl pub">Public</span></h2>
     <p class="muted">A record names each node's version, and compiling uses that version. To move it, a host calls <code>registry.upgrade(record, node_id, *, to=None)</code>, which runs each newer version's <a href="nodes-and-types.html#versions"><code>Upgrade</code></a> in turn and returns a new record. It compiles nothing.</p>
   </div>
-  <div class="pair">
+    </div>
     <pre data-lang="py">@node("shout", title="Shout", description="Shouts one text.")
 def shout_v1(text: str, mark: str = "!") -> str:
     return text.upper() + mark
@@ -1117,8 +1233,27 @@ moved = versions.upgrade(saved, "s")
 print(dumps(json.loads(moved.model_dump_json())))
 print(Graph.compile(moved, versions).run({"text": "hi"}).outputs)
 print(versions.upgrade(moved, "s") is moved)</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WHAT AN UPGRADE WRITES ============================ -->
+<section id="upgraded" aria-labelledby="upgraded-h">
+  <div class="cols">
     <div class="stack">
-      <pre class="out">True {'result': 'HI?'}
+      <div class="section-head">
+        <p class="eyebrow">Versions</p>
+        <h2 id="upgraded-h">What the upgrade wrote</h2>
+      </div>
+      <ul class="muted" style="display:grid;gap:.45rem;padding-left:1.1rem">
+        <li>A renamed input takes what it got along with it. Here that is the graph input <code>text</code>, which keeps its name for the caller.</li>
+        <li>A <code>rewrite</code> gets the node's constants as one dict, and every key it returns becomes a constant. A graph input's default belongs to the whole graph, so no rewrite changes it.</li>
+        <li>An input the newer version neither has nor renames is dropped. Edges and graph outputs from a renamed output move to its new name.</li>
+        <li>After each step the new record's shape is checked again, so a step can't write a record of the wrong shape. A node already at the target version comes back as the same object.</li>
+      </ul>
+    </div>
+    <pre class="out record-flow">True {'result': 'HI?'}
 {
   "inputs": {
     "text": {}
@@ -1146,13 +1281,6 @@ print(versions.upgrade(moved, "s") is moved)</pre>
 }
 {'result': 'HI?'}
 True</pre>
-      <ul class="muted" style="display:grid;gap:.45rem;padding-left:1.1rem">
-        <li>A renamed input takes what it got along with it. Here that is the graph input <code>text</code>, which keeps its name for the caller.</li>
-        <li>A <code>rewrite</code> gets the node's constants as one dict, and every key it returns becomes a constant. A graph input's default belongs to the whole graph, so no rewrite changes it.</li>
-        <li>An input the newer version neither has nor renames is dropped. Edges and graph outputs from a renamed output move to its new name.</li>
-        <li>After each step the new record's shape is checked again, so a step can't write a record of the wrong shape. A node already at the target version comes back as the same object.</li>
-      </ul>
-    </div>
   </div>
 </section>
 
