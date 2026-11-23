@@ -1835,6 +1835,17 @@ def test_a_null_item_in_a_saved_series_whose_items_take_no_none_is_refused_unles
     ]
 
 
+def test_a_null_item_in_a_saved_series_listed_skipped_as_a_whole_reads_back_skipped():
+    """A Series output listed under ``skipped`` was ``SKIPPED`` as a whole, so the items saved beside it aren't read
+    as what the node returned, and a ``null`` among them is no ``None`` its items refuse."""
+    graph = Graph.compile(make_graph(split), registry_of(split))
+    saved = json.loads(graph.run({"text": "a,b"}).to_json())
+    saved["outcomes"]["split"]["outputs"]["result"] = [["a", None]]
+    saved["outcomes"]["split"]["skipped"] = {"result": [0]}
+
+    assert Run.from_json(json.dumps(saved), graph).results["split"]["result"] is None
+
+
 def _not_none(value: Any) -> Any:
     if value is None:
         raise ValueError("no None here")
