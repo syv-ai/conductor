@@ -936,7 +936,7 @@ Retries live on the node's `Policy`, and are counted per call.
 
 - A `timeout` or `checkpoint_every` that is not a finite number of seconds above 0, a `bool` included, is `invalid_limit_seconds`, at the call.
 - A `max_items` of `True` is `invalid_limit` too.
-- Its `ctx.limit` names the limit, and `ctx.errors` has pydantic's error, such as `greater_than` or `finite_number`, without the value.
+- Its `ctx.limit` names the limit, an `invalid_limit`'s `ctx.must_be` says in words what the limit takes, and `ctx.errors` has pydantic's error, such as `greater_than` or `finite_number`, without the value.
 - Seconds given as another kind of number, such as a `decimal.Decimal`, are read as a `float`.
 
 **Cancelling.** `run.resume(cancel=threading.Event())`, `graph.run(cancel=...)` and `run.stream(cancel=...)` end the run `cancelled` once the event is set (provisional for `resume` and `graph.run`). An `asyncio.Event` works too, and a host may also put a `threading.Event` in the context for a node to read.

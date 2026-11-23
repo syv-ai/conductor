@@ -201,8 +201,8 @@ class Run[C]:
 
         Raises:
             InvalidCallError: ``invalid_limit_seconds`` if ``timeout`` isn't a number of seconds above 0, and
-                ``invalid_limit`` if ``cancel`` isn't an event. ``invalid_context`` if ``context`` isn't an instance of the registry's ``context_type``, and
-                ``context_missing`` if it is ``None`` while a node takes it.
+                ``invalid_limit`` if ``cancel`` isn't an event. ``invalid_context`` if ``context`` isn't an instance
+                of the registry's ``context_type``, and ``context_missing`` if it is ``None`` while a node takes it.
         """
         limits = LimitsValidator()({"timeout": timeout, "cancel": cancel})
         return self._run_scheduler(

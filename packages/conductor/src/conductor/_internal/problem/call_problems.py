@@ -431,30 +431,26 @@ def invalid_input_list_for_one_value(*loc: str | int, name: str, expected: str, 
 
 
 @CALL_PROBLEMS.problem
-def invalid_limit(limit: str, /, *, errors: list[dict[str, Any]]) -> str:
-    """A call gives ``max_items`` a value that isn't a whole number of at least 1, such as ``0``, ``2.5`` or ``True``.
+def invalid_limit(limit: str, /, *, must_be: str, errors: list[dict[str, Any]]) -> str:
+    """A call gives a limit or a stop event a value it doesn't take.
 
-    A yes or no isn't a number, so ``True`` is refused too. ``ctx.errors`` has pydantic's error, such as
-    ``greater_than_equal`` for ``0`` or ``int_type`` for ``True``, without the value.
+    ``max_items`` is a whole number of at least 1, so ``0``, ``2.5`` and ``True`` are refused: a yes or no isn't a
+    number. ``cancel`` is an ``asyncio.Event`` or a ``threading.Event``, and ``hand_back`` an ``asyncio.Event``.
+    ``ctx.errors`` has pydantic's error, such as ``greater_than_equal`` for ``max_items=0``, ``int_type`` for
+    ``max_items=True`` or ``is_instance_of`` for ``cancel=True``, without the value.
 
-    To fix it, give a whole number of 1 or more. Or leave it out, for no limit on items.
-
-    The events that stop a run are refused the same way: a ``cancel`` that isn't an ``asyncio.Event`` or a
-    ``threading.Event``, and a ``hand_back`` that isn't an ``asyncio.Event``, each with pydantic's ``is_instance_of``.
+    To fix it, give a value of the kind the message names. Or leave it out: no limit on items, or no event.
 
     Args:
         limit: ``max_items``, ``cancel`` or ``hand_back``.
+        must_be: What the limit takes, in words, such as ``a whole number of 1 or more``.
         errors: What pydantic refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the
             value.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run({"text": "a"}, max_items=0))
     """
-    if limit == "cancel":
-        return "cancel must be an asyncio.Event or a threading.Event. Leave it out if nothing cancels the run."
-    if limit == "hand_back":
-        return "hand_back must be an asyncio.Event. Leave it out if the run is never handed back."
-    return f"{limit} must be a whole number of 1 or more. Leave it out for no limit on items."
+    return f"{limit} must be {must_be}. Leave it out if the run needs none."
 
 
 @CALL_PROBLEMS.problem

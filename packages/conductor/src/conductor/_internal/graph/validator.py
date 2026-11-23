@@ -150,8 +150,13 @@ def _event_schema(named: str, *classes: type) -> core_schema.CoreSchema:
     )
 
 
-#: The limits that are seconds, refused as ``invalid_limit_seconds``; any other is ``invalid_limit``.
-_SECONDS = frozenset({"timeout", "checkpoint_every"})
+#: What each limit refused as ``invalid_limit`` must be, in words. The two in seconds, ``timeout`` and
+#: ``checkpoint_every``, aren't here: they are refused as ``invalid_limit_seconds``.
+_MUST_BE = {
+    "max_items": "a whole number of 1 or more",
+    "cancel": "an asyncio.Event or a threading.Event",
+    "hand_back": "an asyncio.Event",
+}
 
 #: Checks the limits a caller gives a run. A limit left out is ``None``, which isn't checked.
 _LIMITS = SchemaValidator(
@@ -211,16 +216,15 @@ class LimitsValidator(Validator[Limits, Limits]):
             return cast(Limits, _LIMITS.validate_python(given))
         except ValidationError as error:
             refused = dict.fromkeys(str(e["loc"][0]) for e in error.errors())
-            raise InvalidCallError(
-                [
-                    (
-                        call_problems.invalid_limit_seconds
-                        if name in _SECONDS
-                        else call_problems.invalid_limit
-                    )(name, errors=Type(Any).refusal(error, (name,))["errors"])
-                    for name in refused
-                ]
-            ) from None
+            raise InvalidCallError([_refusal(name, error) for name in refused]) from None
+
+
+def _refusal(limit: str, error: ValidationError) -> Problem:
+    """The problem for one limit that ``error`` refused: ``invalid_limit``, or ``invalid_limit_seconds`` for seconds."""
+    errors = Type(Any).refusal(error, (limit,))["errors"]
+    if limit in _MUST_BE:
+        return call_problems.invalid_limit(limit, must_be=_MUST_BE[limit], errors=errors)
+    return call_problems.invalid_limit_seconds(limit, errors=errors)
 
 
 class ConstantValidator(Validator[JsonValue, Any]):

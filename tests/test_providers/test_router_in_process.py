@@ -414,6 +414,7 @@ async def test_every_action_answers_with_the_run_as_it_wrote_it() -> None:
                 ["max_items"],
                 {
                     "limit": "max_items",
+                    "must_be": "a whole number of 1 or more",
                     "errors": [
                         {
                             "type": "greater_than_equal",

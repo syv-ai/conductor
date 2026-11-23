@@ -2893,7 +2893,15 @@ def test_max_items_is_a_whole_number_of_at_least_one_and_a_bool_is_not_one(
             call()
         refusal = refused.value.problems[0].ctx["errors"][0]
         assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
-            ("invalid_limit", ("max_items",), {"limit": "max_items", "errors": [refusal]})
+            (
+                "invalid_limit",
+                ("max_items",),
+                {
+                    "limit": "max_items",
+                    "must_be": "a whole number of 1 or more",
+                    "errors": [refusal],
+                },
+            )
         ]
         assert refusal["type"] == error and "value" not in refused.value.problems[0].ctx
 
