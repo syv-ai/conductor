@@ -25,11 +25,13 @@ without quoting the value. A record stores JSON, so a value is read strictly, as
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from typing import Any, TypedDict, cast
 
 from pydantic import JsonValue, ValidationError
 from pydantic_core import SchemaValidator, core_schema
+from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED, Validator
 from conductor._internal.port import Port
@@ -38,6 +40,7 @@ from conductor._internal.problem import (
     Problem,
     call_problems,
     compile_problems,
+    raised_again,
 )
 from conductor._internal.table import own_copy
 from conductor._internal.types import Type, read_as_argument
@@ -48,7 +51,8 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     """The validator for the graph inputs a caller gives, by name.
 
     It returns the value of every graph input. One is built per graph. An input with no default must be given, and
-    nothing else may be.
+    nothing else may be. The inputs are read by one schema, a typed dict of the graph's inputs that forbids any
+    other key, as a person's answer and a node's return are read by their outputs.
 
     Each value is read by its input's type strictly, the way its JSON text would be, as a person's answer is
     (``read_as_argument``). So a value given from Python and the same value sent over HTTP read the same, and so does
@@ -75,6 +79,12 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
                 and is ``REQUIRED`` when there is none.
         """
         self._inputs = dict(inputs)
+        self._schema = SchemaValidator(
+            core_schema.typed_dict_schema(
+                {name: _input_field(port) for name, port in self._inputs.items()},
+                extra_behavior="forbid",
+            )
+        )
 
     def __call__(self, given: Mapping[Any, Any]) -> dict[str, Any]:
         """Checks ``given`` and returns the value of every graph input, by name, in the graph's order.
@@ -87,38 +97,82 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         Raises:
             InvalidCallError: See the class.
         """
-        problems = [
-            call_problems.unknown_graph_input(
-                "inputs", name, name=str(name), inputs=list(self._inputs)
-            )
-            for name in given
-            if name not in self._inputs
-        ]
-        values: dict[str, Any] = {}
-        for name, port in self._inputs.items():
-            if name in given:
-                try:
-                    values[name] = read_as_argument(port.whole, given[name])
-                except ValidationError as error:
-                    problems.append(_refused(port, given[name], error))
-            elif port.default is REQUIRED:
-                problems.append(call_problems.missing_input("inputs", name, name=name))
-            else:
-                # the run's own copy, so a node that changes it can't change a later run
-                values[name] = own_copy(port.default)
-        if problems:
-            raise InvalidCallError(problems)
+        try:
+            values: dict[str, Any] = self._schema.validate_python(given)
+        except ValidationError as error:
+            raise InvalidCallError(self._problems(error, given)) from None
         return values
+
+    def _problems(self, error: ValidationError, given: Mapping[Any, Any]) -> list[Problem]:
+        """Turns what the schema refused into one problem per graph input, each name the graph lacks first.
+
+        Pydantic gives a fault of each input in the graph's order, then each name it lacks in the order given: a text
+        one as ``extra_forbidden`` and any other as ``invalid_key``. A fault with a longer ``loc`` is inside an
+        input's value, whatever its type.
+        """
+        unknown: list[Problem] = []
+        problems: list[Problem] = []
+        for fault in error.errors():
+            name, *inside = fault["loc"]
+            if not inside and fault["type"] in ("extra_forbidden", "invalid_key"):
+                unknown.append(
+                    call_problems.unknown_graph_input(
+                        "inputs", name, name=str(name), inputs=list(self._inputs)
+                    )
+                )
+            elif not inside and fault["type"] == "missing":
+                problems.append(call_problems.missing_input("inputs", name, name=str(name)))
+            # every fault of one input's value is explained by its first
+            elif not problems or problems[-1].loc != ("inputs", name):
+                problems.append(_refused(self._inputs[str(name)], given[name], error))
+        return [*unknown, *problems]
+
+
+def _input_field(port: Port) -> TypedDictField:
+    """Returns how a caller's graph input is read: by its type, strictly (``_read_input``), and when left out, as
+    the run's own copy of its default, so a node that changes it can't change a later run (``own_copy``)."""
+    schema = core_schema.no_info_plain_validator_function(
+        functools.partial(_read_input, port.whole)
+    )
+    if port.default is REQUIRED:
+        return core_schema.typed_dict_field(schema)
+    return core_schema.typed_dict_field(
+        core_schema.with_default_schema(
+            schema, default_factory=functools.partial(own_copy, port.default)
+        ),
+        required=False,
+    )
+
+
+def _read_input(whole: Type, value: Any) -> Any:
+    """Reads one graph input's value by its type, strictly (``read_as_argument``).
+
+    Its faults are raised again as the reader worded them (``raised_again``). The reader reads the value from its
+    JSON text, and pydantic words some faults by what it reads: a ``Series`` given text is "Input should be a valid
+    array", where the same fault raised as it is inside the inputs' schema would be reworded for a Python value.
+    """
+    try:
+        return read_as_argument(whole, value)
+    except ValidationError as error:
+        raise ValidationError.from_exception_data(
+            error.title, [raised_again(fault) for fault in error.errors()]
+        ) from None
 
 
 def _refused(port: Port, value: Any, error: ValidationError) -> Problem:
-    """Returns the problem of a graph input whose value its type refuses."""
+    """Returns the problem of a graph input whose value its type refuses.
+
+    Args:
+        port: The graph input.
+        value: The value the caller gave it.
+        error: What the inputs' schema refused, each fault's ``loc`` starting with an input's name.
+    """
     if type(value) is list and not port.is_series and port.whole.refuses_as_a_list(value):
         return call_problems.invalid_input_list_for_one_value(
             "inputs", port.name, name=port.name, expected=port.whole.id, length=len(value)
         )  # the one mistake whose fix is in the graph, not in the value
     return call_problems.invalid_input(
-        "inputs", port.name, name=port.name, **port.whole.refusal(error)
+        "inputs", port.name, name=port.name, **port.whole.refusal(error, under=(port.name,))
     )
 
 
