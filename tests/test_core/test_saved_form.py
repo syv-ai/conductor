@@ -699,6 +699,10 @@ def _declined_naming_no_output(saved: dict[str, Any]) -> None:
     saved["ended_early"]["declined"]["question"]["defaults"] = {"nope": "x"}
 
 
+def _declined_offering_no_choice(saved: dict[str, Any]) -> None:
+    saved["ended_early"]["declined"]["question"]["choices"] = {"result": []}
+
+
 @pytest.mark.parametrize(
     "damage",
     [
@@ -711,6 +715,7 @@ def _declined_naming_no_output(saved: dict[str, Any]) -> None:
         _declined_at_an_item_index_written_as_text,
         _declined_at_a_call_with_an_outcome,
         _declined_naming_no_output,
+        _declined_offering_no_choice,
     ],
 )
 def test_a_saved_declined_call_no_decline_could_have_left_is_refused(damage: Any) -> None:
@@ -735,21 +740,44 @@ def _a_skipped_call(reply: dict[str, Any]) -> None:
     reply["fingerprints"] = [None]
 
 
+#: Choices a saved question gives an output ``reply`` doesn't have.
+_CHOICES_OF_NOPE = {"nope": [{"id": "x", "title": "x"}]}
+
+
+@pytest.mark.parametrize(
+    ("choices", "error"),
+    [
+        ([], "too_short"),
+        ([{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}], "choice_twice"),
+    ],
+    ids=["no choice", "one choice twice"],
+)
+def test_a_saved_question_offers_at_least_one_choice_and_none_twice_as_an_ask_does(
+    choices: list[dict[str, str]], error: str
+) -> None:
+    """A saved question's choices are held to the rule an ``Ask``'s are, with its codes, at the output's choices."""
+    graph = _draft_graph()
+    saved = json.loads(graph.run({"text": "a"}).to_json())
+    saved["outcomes"]["reply"]["questions"]["0"]["choices"] = {"result": choices}
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+
+    ((problem,),) = [refused.value.problems]
+    assert (problem.type, problem.ctx["where"], [e["type"] for e in problem.ctx["errors"]]) == (
+        "saved_run_unreadable",
+        "outcomes.reply.questions.0.choices.result",
+        [error],
+    )
+
+
 @pytest.mark.parametrize(
     ("answered", "damage"),
     [
         (False, lambda reply: reply["questions"]["0"].__setitem__("defaults", {"nope": "x"})),
-        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", {"nope": []})),
+        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", _CHOICES_OF_NOPE)),
         (True, lambda reply: reply["questions"]["0"].__setitem__("defaults", {"nope": "x"})),
-        (True, lambda reply: reply["questions"]["0"].__setitem__("choices", {"nope": []})),
-        (False, lambda reply: reply["questions"]["0"].__setitem__("choices", {"result": []})),
-        (
-            False,
-            lambda reply: reply["questions"]["0"].__setitem__(
-                "choices",
-                {"result": [{"id": "Yes", "title": "Yes"}, {"id": "Yes", "title": "Again"}]},
-            ),
-        ),
+        (True, lambda reply: reply["questions"]["0"].__setitem__("choices", _CHOICES_OF_NOPE)),
         (True, _a_skipped_call),
     ],
     ids=[
@@ -757,16 +785,14 @@ def _a_skipped_call(reply: dict[str, Any]) -> None:
         "choices for an output the node lacks, waiting",
         "a default for an output the node lacks, answered",
         "choices for an output the node lacks, answered",
-        "no choice",
-        "one choice twice",
         "a question at a skipped call",
     ],
 )
 def test_a_saved_question_no_deploy_explains_is_refused(
     answered: bool, damage: Callable[[dict[str, Any]], Any]
 ) -> None:
-    """A question gives choices and defaults only to its node's outputs, offers at least one choice and none twice,
-    and is kept only by a call that asked: a waiting one, or one a person answered. No deploy explains another."""
+    """A question gives choices and defaults only to its node's outputs, and is kept only by a call that asked: a
+    waiting one, or one a person answered. No deploy explains another."""
     graph = _draft_graph()
     run = graph.run({"text": "a"})
     if answered:
