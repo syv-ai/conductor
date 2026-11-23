@@ -1,0 +1,1586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Graph Record and Compiling</title>
+<style>[hidden]:not([hidden=until-found i]){display:none!important} img{max-width:100%}</style>
+<style>
+/* =====================================================================
+   DESIGN TOKENS: the look of the conductor series.
+   Layout: one reading column (about 68ch) that widens to 1120px for the
+   figures and the break-it bench; sections are separated by space and
+   a faint staff of rules, never by boxes.
+   ===================================================================== */
+:root {
+  --paper: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #142033;
+  --ink-2: #48566a;
+  --ink-3: #75839a;
+  --rule: #dbe1ea;
+  --accent: #2a4fd6;
+  --accent-soft: #e3e9fc;
+  --old: #a3adbb;
+  --slow: #b1530b;
+  --slow-soft: #fbeadb;
+  --ok: #1d7a4e;
+  --ok-soft: #dff1e7;
+  --code-bg: #f8f9fb;
+  --code-key: #2a4fd6;
+  --code-str: #1d7a4e;
+  --code-com: #7b8798;
+  --pkg-core: #2a4fd6; --pkg-nodes: #0f8a83; --pkg-providers: #8a4fd0;
+
+  --font-display: "Iowan Old Style", Georgia, serif;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+  --step-4: clamp(2.75rem, 7vw, 4.75rem);
+
+  --col: 76ch;
+  --wide: 1360px;
+  --gap: 1.25rem;
+  --section: clamp(4.5rem, 10vw, 8rem);
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(20, 32, 51, .05), 0 6px 24px rgba(20, 32, 51, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+    --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+    --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --ok-soft: #12291f; --code-bg: #111821;
+    --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+    --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0d131b; --surface: #141c27; --ink: #e5ebf3; --ink-2: #a8b4c4; --ink-3: #7c8a9c;
+  --rule: #243041; --accent: #8aa2ff; --accent-soft: #1c2747; --old: #566377;
+  --slow: #f2a463; --slow-soft: #33220f; --ok: #5cc79a; --ok-soft: #12291f; --code-bg: #111821;
+  --code-key: #9db1ff; --code-str: #7fd3aa; --code-com: #6f7d90;
+  --pkg-core: #8aa2ff; --pkg-nodes: #4fd1c5; --pkg-providers: #c19bff;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 24px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+/* ===================== end of design tokens ===================== */
+:root { --int: #6b7689; --int-soft: #eef1f5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --int: #9aa5b8; --int-soft: #1d2533; } }
+:root[data-theme="dark"] { --int: #9aa5b8; --int-soft: #1d2533; }
+.lvl { display: inline-block; font-family: var(--font-body); font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: .15rem .45rem; border-radius: 4px; vertical-align: .15em; margin-left: .5rem; }
+.lvl.pub { background: var(--accent-soft); color: var(--ink); }
+.lvl.int { background: var(--int-soft); color: var(--int); }
+code.int { color: var(--int); text-decoration: underline dotted; text-underline-offset: .2em; }
+.levels { display: flex; flex-wrap: wrap; gap: .5rem 2rem; margin-top: 2.5rem; font-size: var(--step--1); color: var(--ink-2); }
+.levels p { display: flex; align-items: baseline; gap: .6rem; }
+.levels .lvl, .label .lvl:first-child { margin-left: 0; }
+.label code { text-transform: none; letter-spacing: 0; }
+.label { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.page { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 4rem; }
+.wrap { max-width: var(--wide); margin-inline: auto; }
+.prose { max-width: var(--col); }
+.prose > * + * { margin-top: 1rem; }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-weight: 400; }
+h1 { font-family: var(--font-display); font-size: var(--step-4); line-height: 1.02; letter-spacing: -0.01em; }
+h2 { font-family: var(--font-display); font-size: var(--step-3); line-height: 1.1; }
+h3 { font-family: var(--font-body); font-size: var(--step-1); font-weight: 600; line-height: 1.3; }
+p { margin: 0; }
+ul, ol { margin: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.eyebrow { font-size: var(--step--1); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.lede { font-size: var(--step-1); color: var(--ink-2); line-height: 1.55; }
+.muted { color: var(--ink-2); }
+.small { font-size: var(--step--1); color: var(--ink-3); }
+section { padding-top: var(--section); }
+.section-head { display: grid; gap: .75rem; margin-bottom: 1.5rem; }
+/* a section whose parts stand side by side, so it fits on one screen: .cols has two columns, .cols.three three;
+   .l and .r make the left or the right one wider. At 900px and below they stack. */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem 2rem; align-items: start; }
+.cols.l { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+.cols.r { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
+.cols.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); column-gap: 1.5rem; }
+.cols > * { min-width: 0; }
+.cols .section-head { margin-bottom: 0; }
+@media (max-width: 900px) { .cols, .cols.l, .cols.r, .cols.three { grid-template-columns: minmax(0, 1fr); } }
+.staff { height: 25px; background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 6px); opacity: .9; margin-top: var(--section); }
+
+/* hero */
+.hero { padding-top: clamp(3rem, 8vw, 6rem); display: grid; gap: 1.75rem; }
+.hero h1 em { font-style: italic; color: var(--accent); }
+.crumbs { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font-size: .9375rem; }
+.idea { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); margin-top: 1rem; }
+.idea > div { min-width: 0; display: grid; gap: .5rem; align-content: start; }
+.idea .term { font-family: var(--font-display); font-size: var(--step-2); line-height: 1.15; }
+.idea .term b { font-weight: 400; color: var(--accent); }
+@media (max-width: 820px) { .idea { grid-template-columns: minmax(0, 1fr); } }
+
+/* code */
+pre { font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; background: var(--code-bg); color: var(--ink); padding: .9rem 1rem; border-radius: 8px; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; margin: 0; tab-size: 4; }
+.tk-k { color: var(--code-key); }
+.tk-s { color: var(--code-str); }
+.tk-c { color: var(--code-com); font-style: italic; }
+.tk-d { color: var(--ink-2); }
+.out { font-family: var(--font-mono); font-size: .8125rem; color: var(--ink-2); background: none; padding: .25rem 0 0 1rem; border-left: 2px solid var(--ok); border-radius: 0; white-space: pre-wrap; overflow-wrap: break-word; overflow-x: visible; }
+.out::before { content: "printed"; display: block; font-family: var(--font-body); font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ok); font-weight: 600; margin-bottom: .15rem; }
+
+/* two-column sample blocks */
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+@media (max-width: 900px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+.pair > * { min-width: 0; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: .9rem; min-width: 0; }
+
+/* figures */
+figure { margin: 0; display: grid; gap: .8rem; min-width: 0; }
+.fig { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; overflow-x: auto; }
+.fig svg { width: 100%; height: auto; display: block; }
+@media (max-width: 900px) { .fig svg { min-width: 560px; } }
+.out.labelled::before { display: none; }
+/* a JSON block a hidden step prints, so it is checked, shown as any JSON block is */
+pre.out.record { color: var(--ink); background: var(--code-bg); padding: .9rem 1rem; border-left: 0; border-radius: 8px; }
+pre.out.record::before { display: none; }
+@media (min-width: 901px) { pre.out.record-flow { columns: 2; column-gap: 2rem; } }
+/* a long printout flows down three columns, so it fits on one screen */
+@media (min-width: 901px) { pre.out.flow { columns: 3; column-gap: 2rem; } }
+/* a long JSON record flows down two columns beside its code, so the section fits on one screen */
+@media (min-width: 901px) { pre.out.record.two-up { columns: 2; column-gap: 2rem; column-rule: 1px solid var(--rule); } }
+.ln { display: block; }
+figcaption { font-size: .875rem; color: var(--ink-2); max-width: var(--col); }
+.d-label { font: 500 12px var(--font-mono); fill: var(--ink); }
+.d-sub { font: 400 11px var(--font-body); fill: var(--ink-3); }
+.d-small { font: 400 10.5px var(--font-mono); fill: var(--ink-2); }
+.d-title { font: 600 10.5px var(--font-body); fill: var(--ink-3); letter-spacing: .08em; text-transform: uppercase; }
+.d-box { fill: var(--paper); stroke: var(--rule); stroke-width: 1.5; }
+.d-box.acc { fill: var(--accent-soft); stroke: var(--accent); }
+.d-box.bad { fill: var(--slow-soft); stroke: var(--slow); }
+.d-box.gone { fill: var(--slow-soft); fill-opacity: .5; stroke: var(--slow); stroke-opacity: .45; }
+.d-gone-text { font: 500 12px var(--font-mono); fill: var(--slow); text-decoration: line-through; }
+.d-box.int { fill: var(--paper); stroke: var(--int); stroke-dasharray: 5 4; }
+.d-line { stroke: var(--ink-3); stroke-width: 1.5; fill: none; }
+.d-line.acc { stroke: var(--accent); }
+.d-line.bad { stroke: var(--slow); stroke-dasharray: 5 4; }
+.d-arrow { fill: var(--ink-3); }
+.d-arrow.acc { fill: var(--accent); }
+.d-arrow.bad { fill: var(--slow); }
+.d-bad-text { font: 600 11px var(--font-mono); fill: var(--slow); }
+.d-acc-text { font: 600 11px var(--font-mono); fill: var(--accent); }
+.d-ok-text { font: 600 11px var(--font-mono); fill: var(--ok); }
+.d-band { fill: var(--accent-soft); opacity: .55; }
+
+/* the kinds grid */
+.kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1.5rem 2rem; }
+.kind { display: grid; gap: .35rem; align-content: start; padding-top: .9rem; border-top: 2px solid var(--rule); min-width: 0; }
+.kind b { font-family: var(--font-mono); font-weight: 500; font-size: .9375rem; }
+.kind b code { font-size: inherit; }
+.kind .mode { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.kind p { font-size: .9375rem; color: var(--ink-2); }
+.kind.missing { border-top-color: var(--slow); }
+.kinds.five { grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 1.5rem 1.5rem; }
+/* a card's one track is as wide as the card, so a long code name wraps inside it instead of running into the next card */
+.kind { grid-template-columns: minmax(0, 1fr); }
+.kind code { overflow-wrap: anywhere; }
+
+/* steps */
+.steps { list-style: none; padding: 0; display: grid; gap: 1.1rem; counter-reset: st; }
+.steps li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .75rem; counter-increment: st; }
+.steps li::before { content: counter(st); font-family: var(--font-display); font-size: var(--step-2); line-height: 1; color: var(--accent); }
+.steps li p { color: var(--ink-2); }
+.steps li p b { color: var(--ink); font-weight: 600; }
+.codes { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+
+/* ---------- the bench (break the record) ---------- */
+.bench { gap: 1.5rem 2rem; }
+.bench.cols { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+@media (max-width: 900px) { .bench.cols { grid-template-columns: minmax(0, 1fr); } }
+.picks { display: grid; gap: 1rem; }
+.pick-group { display: grid; gap: .5rem; }
+.pick-row { display: flex; flex-wrap: wrap; gap: .45rem; }
+.pick { font: 500 .8125rem/1.25 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 999px; padding: .35rem .75rem; cursor: pointer; text-align: left; }
+.pick:hover { border-color: var(--ink-3); }
+.pick[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.rec { font-family: var(--font-mono); font-size: .78rem; line-height: 1.65; background: var(--code-bg); border-radius: 8px; padding: .8rem 0; overflow-x: visible; }
+.rec div { padding: 0 1rem 0 3rem; text-indent: -2rem; white-space: pre-wrap; overflow-wrap: break-word; break-inside: avoid; }
+/* the record flows down three columns, so it fits on one screen */
+@media (min-width: 901px) { .rec { columns: 3; column-gap: 0; column-rule: 1px solid var(--rule); } }
+.rec div.changed { background: var(--slow-soft); box-shadow: inset 3px 0 0 var(--slow); }
+.verdict { display: grid; gap: .9rem; }
+.state { display: inline-flex; align-items: center; gap: .55rem; font-family: var(--font-mono); font-size: .9375rem; font-weight: 500; }
+.state i { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
+.state.bad i { background: var(--slow); }
+.state.raised i { background: var(--slow); border-radius: 2px; }
+.plist { list-style: none; padding: 0; display: grid; gap: .8rem; }
+@media (min-width: 901px) { .verdict .plist { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem 1.5rem; } }
+.plist li { display: grid; gap: .2rem; padding-left: .85rem; border-left: 2px solid var(--slow); }
+.plist .ptype { font-family: var(--font-mono); font-size: .875rem; font-weight: 500; }
+.plist .ploc { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.plist .pmsg { font-size: .9375rem; color: var(--ink-2); }
+.note { font-size: .9375rem; color: var(--ink); background: var(--accent-soft); padding: .7rem .9rem; border-radius: 8px; }
+.fade { animation: fade .4s ease both; }
+@keyframes fade { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* fit table */
+.fit { display: grid; gap: 0; max-width: 46rem; }
+.fit-row { display: grid; grid-template-columns: 8rem 1.5rem 8rem minmax(0, 1fr); gap: .5rem 1rem; align-items: baseline; padding: .7rem 0; border-top: 1px solid var(--rule); }
+.fit-row:last-child { border-bottom: 1px solid var(--rule); }
+.fit-row code { font-size: .875rem; }
+.fit-row .yes { color: var(--ok); font-weight: 600; font-size: .875rem; }
+.fit-row .no { color: var(--slow); font-weight: 600; font-size: .875rem; }
+.fit-row span:last-child { color: var(--ink-2); font-size: .9375rem; }
+@media (max-width: 620px) { .fit-row { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); } .fit-row span:last-child { grid-column: 1 / -1; } }
+
+/* choices */
+.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 3rem; }
+@media (max-width: 820px) { .choices { grid-template-columns: minmax(0, 1fr); } }
+.choice { padding-block: 1.4rem; border-top: 1px solid var(--rule); display: grid; gap: .5rem; align-content: start; min-width: 0; }
+.choice h3 { font-size: 1.125rem; }
+.steps-head { display: grid; gap: .4rem; margin-bottom: 1.25rem; }
+.choice p { color: var(--ink-2); }
+.cost { font-size: .875rem; color: var(--ink); background: var(--slow-soft); padding: .55rem .75rem; border-radius: 6px; }
+.cost b { font-weight: 600; }
+
+/* series */
+.series { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .5rem 1.5rem; margin-top: 1rem; padding: 0; margin-bottom: 0; }
+.series li { list-style: none; padding: .6rem 0; border-bottom: 1px dashed var(--rule); display: flex; justify-content: space-between; gap: 1rem; font-size: .9375rem; }
+.series li span { color: var(--ink-3); font-size: .8125rem; white-space: nowrap; }
+.series li.here { color: var(--accent); font-weight: 600; }
+.series li a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .2em; }
+.series li a:hover { color: var(--accent); text-decoration-color: currentColor; }
+footer { margin-top: var(--section); padding-top: 1.5rem; border-top: 1px solid var(--rule); font-size: var(--step--1); color: var(--ink-3); display: grid; gap: .6rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!-- the series bar: the reading order and back/next, the same on every page of the series -->
+<style id="series-bar-css">
+:root { --bar-h: 44px; }
+html { scroll-padding-top: calc(var(--bar-h) + 12px); }
+body { margin: 0; }
+.sbar { position: sticky; top: 0; z-index: 60; height: var(--bar-h); display: flex; align-items: center; gap: .75rem; padding: 0 max(16px, calc((100vw - var(--wide, 1360px)) / 2)); background: color-mix(in srgb, var(--paper) 88%, transparent); -webkit-backdrop-filter: saturate(1.4) blur(10px); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--rule); font-family: var(--font-body); font-size: .8125rem; color: var(--ink-2); }
+.sbar a { color: inherit; text-decoration: none; }
+.sbar a:hover { color: var(--accent); }
+.sbar-home { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.sbar-order { position: relative; flex: 1; min-width: 0; display: flex; justify-content: center; }
+.sbar-btn { font: inherit; color: var(--ink); background: none; border: 0; padding: .35rem .6rem; border-radius: 6px; cursor: pointer; display: inline-flex; gap: .5rem; align-items: baseline; max-width: 100%; }
+.sbar-btn:hover, .sbar-btn[aria-expanded="true"] { background: var(--accent-soft); }
+.sbar-num { font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); }
+.sbar-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbar-caret { color: var(--ink-3); font-size: .7rem; }
+.sbar-list { position: absolute; top: calc(var(--bar-h) - 6px); left: 50%; transform: translateX(-50%); width: min(26rem, calc(100vw - 32px)); margin: 0; padding: .4rem; list-style: none; background: var(--surface); border-radius: 10px; box-shadow: 0 8px 32px rgba(20, 32, 51, .18); counter-reset: sb; }
+.sbar-list[hidden] { display: none; }
+.sbar-list li { counter-increment: sb; }
+.sbar-list a { display: flex; gap: .75rem; padding: .45rem .6rem; border-radius: 6px; color: var(--ink); }
+.sbar-list a::before { content: counter(sb); font-family: var(--font-mono); font-size: .75rem; color: var(--ink-3); min-width: 1.25rem; text-align: right; }
+.sbar-list a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-list a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.sbar-list small { margin-left: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: .7rem; }
+.sbar-step { display: flex; gap: .25rem; white-space: nowrap; }
+.sbar-step a, .sbar-step span { padding: .35rem .6rem; border-radius: 6px; }
+.sbar-step a:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-step span { color: var(--ink-3); opacity: .5; }
+@media (max-width: 640px) { .sbar-home { display: none; } .sbar-order { position: static; } .sbar-title { max-width: 9rem; } .sbar-step .sbar-word { display: none; } }
+@media print { .sbar { display: none; } }
+</style>
+<style id="series-layout">
+/* Columns side by side end level: a row is as tall as its tallest column, and the box at the foot of each
+   shorter column grows to the row's bottom. Rows are the pages' classes for columns side by side; a box is a
+   code block (pre), an output (.out), a figure or a cost (.cost). A diagram or a pre that is a column on its
+   own just stretches with the row. Inside a row, a column's own prose goes above its box; text about the
+   whole row goes below the row. At 900px and below the columns stack, and no height is forced. */
+@media (min-width: 901px) {
+  :is(.idea, .two, .pair, .split, .beside, .stage, .ex-body, .choices, figure.side, .viewer, .sig, .fail-grid, .ctrl-row, .facts, .shape) {
+    /* Every column stretches to the row's height. A text column with no box just stretches. */
+    align-items: stretch;
+    /* A stretched column keeps its parts packed at the top, as they were; the spare height goes below them. */
+    & > * { align-content: start; }
+    /* A column that ends in a box, and a figure that is a column, stack their parts so one can grow. */
+    & > :where(:has(> :is(pre, .out, figure, .cost):last-child), figure),
+    & > * > :where(figure:last-child) { display: flex; flex-direction: column; }
+    /* The box grows only when it ends its column: text or a control under a box would leave a gap above it.
+       A row with a pre as a column on its own (a long JSON beside a short sample) or with a live widget's
+       .controls is left out, so its short box keeps its own height. */
+    &:not(:has(> pre, .controls)) > * > :is(pre, .out, figure, .cost):last-child { flex-grow: 1; }
+    /* A figure hands its spare height to the diagram in it, above its caption. */
+    & > figure > :not(figcaption, p),
+    & > * > figure:last-child > :not(figcaption, p) { flex-grow: 1; }
+    /* Columns of a label, a box and a note (.ex-body, and a row marked .labelled) share the row's three
+       tracks, so the boxes start and end level even when the labels or notes above and under them differ. */
+    &:is(.ex-body, .labelled) > div { display: grid; grid-template-rows: subgrid; grid-row: span 3; }
+  }
+}
+</style>
+<!-- the sections: how the page scrolls from one section to the next, the same on every page of the series -->
+<style id="series-sections-css">
+/* Three ways, cycled by the button in the series bar and kept per viewer: snap (the default) stops at each
+   section, stack pins each section and slides the next over it, free scrolls freely. Each top-level block (the
+   hero, every section) is one screen tall at most. Up to 960px wide, and when the viewer asks for less motion,
+   scrolling is free whatever is picked, and the button is gone. */
+.sbar-mode { font: inherit; color: var(--ink-2); background: none; border: 1px solid var(--rule); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: .45rem; }
+.sbar-mode:hover { background: var(--accent-soft); color: var(--ink); }
+.sbar-mode svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.sbar-mode b { font-weight: 600; color: var(--ink); }
+@media (max-width: 960px), (prefers-reduced-motion: reduce) { .sbar-mode { display: none; } }
+@media (min-width: 961px) and (prefers-reduced-motion: no-preference) {
+  html:is([data-sections="snap"], [data-sections="stack"]) {
+    scroll-padding-top: var(--bar-h);
+    & .page > .wrap > :is(.hero, section) { box-sizing: border-box; min-height: calc(100vh - var(--bar-h)); padding-block: 2rem; }
+    & .page > .wrap > .staff { display: none; }
+    & .page > .wrap > footer { margin-top: 0; }
+  }
+  /* Up to 1199px wide some sections outgrow the screen, so snapping only pulls to a section near the screen's top
+     and never holds a reader at the foot of a tall one; wider, it always stops at a section. */
+  html[data-sections="snap"] {
+    scroll-snap-type: y proximity;
+    & .page > .wrap > :is(.hero, section) { scroll-snap-align: start; }
+    & .page > .wrap > footer { scroll-snap-align: end; }
+    @media (min-width: 1200px) { scroll-snap-type: y mandatory; }
+  }
+  /* A pinned block sits under the bar; one taller than the screen pins where its foot meets the screen's (--stick,
+     set by the script). Its paper and the hairline on its top run the page's whole width. */
+  html[data-sections="stack"] .page > .wrap > :is(.hero, section, footer) {
+    position: sticky; top: var(--stick, var(--bar-h));
+    border-image: linear-gradient(to bottom, var(--rule) 0 1px, var(--paper) 1px) fill 0 / / 0 100vmax;
+  }
+  html[data-sections="stack"] .page > .wrap > .hero { border-image: linear-gradient(var(--paper) 0 0) fill 0 / / 0 100vmax; }
+}
+</style>
+</head>
+<body>
+<nav class="sbar" aria-label="Conductor series" data-page="3">
+  <a class="sbar-home" href="overview.html">Conductor</a>
+  <div class="sbar-order">
+    <button class="sbar-btn" type="button" aria-expanded="false" aria-controls="sbar-list"><span class="sbar-num"></span><span class="sbar-title"></span><span class="sbar-caret" aria-hidden="true">▾</span></button>
+    <ol class="sbar-list" id="sbar-list" hidden></ol>
+  </div>
+  <div class="sbar-step"></div>
+</nav>
+<script id="series-bar-js">
+(function () {
+  var PAGES = [
+    ["Overview", "overview.html"],
+    ["A node and its types", "nodes-and-types.html"],
+    ["The graph record and compiling", "graph-record-and-compiling.html"],
+    ["Series and tables", "series-and-tables.html"],
+    ["Asking a person", "asking-a-person.html"],
+    ["Subgraphs", "subgraphs.html"],
+    ["Saved runs and reuse", "saved-runs-and-reuse.html"],
+    ["Running and streaming", "running-and-streaming.html"],
+    ["Problems", "problems.html"],
+    ["The standard nodes", "standard-nodes.html"],
+    ["Serving runs", "serving-runs.html"]
+  ];
+  var bar = document.querySelector(".sbar");
+  if (!bar) return;
+  var here = parseInt(bar.getAttribute("data-page"), 10) - 1;
+  var url = function (i) { return PAGES[i][1]; };
+  bar.querySelector(".sbar-num").textContent = (here + 1) + " / " + PAGES.length;
+  bar.querySelector(".sbar-title").textContent = PAGES[here][0];
+  var list = bar.querySelector(".sbar-list");
+  PAGES.forEach(function (p, i) {
+    var li = document.createElement("li"), a = document.createElement("a");
+    a.href = url(i);
+    a.textContent = p[0];
+    if (i === here) a.setAttribute("aria-current", "page");
+    li.appendChild(a); list.appendChild(li);
+  });
+  var step = bar.querySelector(".sbar-step");
+  var link = function (i, label, word, rel) {
+    var html = label.replace("WORD", '<span class="sbar-word">' + word + "</span>");
+    if (i < 0 || i >= PAGES.length) { var s = document.createElement("span"); s.innerHTML = html; s.setAttribute("aria-hidden", "true"); return s; }
+    var a = document.createElement("a"); a.href = url(i); a.rel = rel;
+    a.title = PAGES[i][0]; a.innerHTML = html;
+    return a;
+  };
+  step.appendChild(link(here - 1, "← WORD", "Back", "prev"));
+  step.appendChild(link(here + 1, "WORD →", "Next", "next"));
+  var btn = bar.querySelector(".sbar-btn");
+  var open = function (yes) { list.hidden = !yes; btn.setAttribute("aria-expanded", yes ? "true" : "false"); };
+  btn.addEventListener("click", function (e) { e.stopPropagation(); open(list.hidden); });
+  document.addEventListener("click", function (e) { if (!bar.contains(e.target)) open(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
+})();
+</script>
+<script id="series-sections-js">
+(function () {
+  var MODES = { snap: ["Snap", "stack"], stack: ["Stack", "free"], free: ["Scroll freely", "snap"] };
+  var KEY = "conductor-sections";
+  var root = document.documentElement, bar = document.querySelector(".sbar");
+  var mode = "snap";
+  try { var kept = localStorage.getItem(KEY); if (MODES[kept]) mode = kept; } catch (e) { /* no storage: snap */ }
+  root.setAttribute("data-sections", mode);
+  if (!bar) return;
+  var btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sbar-mode";
+  btn.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2" width="11" height="5" rx="1"/><rect x="2.5" y="9" width="11" height="5" rx="1"/></svg><span>Sections: <b></b></span>';
+  var show = function () {
+    btn.querySelector("b").textContent = MODES[mode][0];
+    btn.title = "How the page scrolls: " + MODES[mode][0].toLowerCase() + ". Click for " + MODES[MODES[mode][1]][0].toLowerCase() + ".";
+  };
+  btn.addEventListener("click", function () {
+    mode = MODES[mode][1];
+    root.setAttribute("data-sections", mode);
+    try { localStorage.setItem(KEY, mode); } catch (e) { /* kept for this visit only */ }
+    show(); pin();
+  });
+  show();
+  bar.insertBefore(btn, bar.querySelector(".sbar-step"));
+  /* In stack, a block taller than the screen pins where its foot meets the screen's foot, so all of it is read. */
+  var blocks = [];
+  var pin = function () {
+    var room = window.innerHeight - bar.offsetHeight;
+    blocks.forEach(function (b) {
+      var h = b.offsetHeight;
+      if (h > room) b.style.setProperty("--stick", (window.innerHeight - h) + "px");
+      else b.style.removeProperty("--stick");
+    });
+  };
+  /* A link to a place inside a section lands on that section: snapping would carry the place past the screen's
+     top to the next section, and in stack the place's section may be pinned under another. */
+  var arranged = window.matchMedia("(min-width: 961px) and (prefers-reduced-motion: no-preference)");
+  var land = function () {
+    if (mode === "free" || !arranged.matches || !location.hash) return;
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var block = target && target.closest(".page > .wrap > :is(.hero, section, footer)");
+    if (!block) return;
+    block.style.position = "static"; /* where it stands in the page, not where stack pins it */
+    var top = block.getBoundingClientRect().top + window.scrollY - bar.offsetHeight;
+    block.style.position = "";
+    window.scrollTo({ top: top, behavior: "instant" });
+  };
+  window.addEventListener("hashchange", land);
+  window.addEventListener("load", function () { requestAnimationFrame(land); });
+  document.addEventListener("DOMContentLoaded", function () {
+    blocks = Array.prototype.slice.call(document.querySelectorAll(".page > .wrap > :is(.hero, section, footer)"));
+    pin();
+    window.addEventListener("resize", pin);
+    if (window.ResizeObserver) { var ro = new ResizeObserver(pin); blocks.forEach(function (b) { ro.observe(b); }); }
+  });
+})();
+</script>
+<!-- /series-bar -->
+<div class="page">
+<div class="wrap">
+
+<!-- ============================ HERO ============================ -->
+<header class="hero">
+  <p class="eyebrow">Conductor &middot; the core, <code>syv-conductor</code> &middot; page 3 of 11</p>
+  <h1>The graph record and <em>compiling</em></h1>
+  <div class="prose">
+    <p class="lede">A graph reaches conductor as data. It is a small JSON record that says which nodes there are and what each of their inputs gets. Compiling checks that record against the nodes a registry has, works out how the graph will run, and lists whatever is wrong with it. The result is a <code>Graph</code>, which a host keeps and starts runs from.</p>
+  </div>
+  <nav class="crumbs" aria-label="Related pages">
+    <a href="overview.html">&larr; The overview</a>
+  </nav>
+  <div class="idea" aria-label="The ideas of this page">
+    <div>
+      <p class="term">A graph is <b>plain data</b>.</p>
+      <p class="muted">An editor saves it, and <code>make_graph</code> writes the same record from Python. There's no <code>@graph</code>.</p>
+    </div>
+    <div>
+      <p class="term">Each input's entry is <b>one kind</b>.</p>
+      <p class="muted">It is a constant, a graph input the caller gives, or the sources of the edges into it. So a record can't give one input a constant and an edge at once.</p>
+    </div>
+    <div>
+      <p class="term">Compiling <b>reports</b> what is wrong.</p>
+      <p class="muted">A wrong graph still compiles, and its faults are in <code>graph.problems</code>. A <a href="nodes-and-types.html#hooks">hook</a> that raises is one of them. A record of the wrong shape raises.</p>
+    </div>
+  </div>
+</header>
+
+<div class="levels" aria-label="Public and internal">
+  <p><span class="lvl pub">Public</span>what you import, write or read back</p>
+  <p><span class="lvl int">Internal</span>how conductor does it inside; you never import it, and it can change in any release</p>
+</div>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ THE RECORD ============================ -->
+<section id="record" aria-labelledby="rec-h">
+  <script type="text/x-python">
+import json
+from typing import Any, TypedDict, TypeVar
+
+from conductor import (
+    SKIPPED, Graph, GraphRecord, InvalidCallError, NodeRegistry, Series, Upgrade, make_graph, node, read_json,
+)
+
+
+def dumps(value, depth=0, head=""):
+    """Lays JSON out as these pages do: two spaces of indent, one key per line, a list on one line if it fits."""
+    pad = "  " * depth
+    if isinstance(value, dict) and value:
+        inner = ",\n".join(dumps(v, depth + 1, json.dumps(k) + ": ") for k, v in value.items())
+        return pad + head + "{\n" + inner + "\n" + pad + "}"
+    if isinstance(value, list) and value:
+        one = json.dumps(value)
+        if len(pad + head) + len(one) + 1 <= 80:
+            return pad + head + one
+        return pad + head + "[\n" + ",\n".join(dumps(v, depth + 1) for v in value) + "\n" + pad + "]"
+    return pad + head + json.dumps(value)
+
+
+registry = NodeRegistry()
+  </script>
+  <div class="cols r">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">The record</p>
+    <h2 id="rec-h">A record lists the nodes and what each input gets <span class="lvl pub">Public</span></h2>
+    <p class="muted">The example graph on this page has the three nodes in the first sample.</p>
+  </div>
+      <pre data-lang="py">@registry.node("lines", title="Lines", description="Splits a text into lines.")
+def lines(text: str) -> Series[str]:
+    return text.split("\n")
+
+@registry.node("shout", title="Shout", description="Shouts one line.")
+def shout(line: str, mark: str = "!") -> str:
+    return line.upper() + mark
+
+@registry.node("join", title="Join", description="Joins texts with a plus.")
+def join(texts: Series[str]) -> str:
+    return "+".join(texts)</pre>
+      <script type="text/x-python" data-name="bench-record">
+record = make_graph(lines, shout, join, constants={"shout.mark": "?"})
+data = json.loads(record.model_dump_json())
+for entry in data["nodes"].values():  # make_graph doesn't keep an order of a node's inputs, so show them by name
+    entry["inputs"] = dict(sorted(entry["inputs"].items()))
+print(dumps(data))
+      </script>
+    </div>
+    <pre data-lang="json" class="out record two-up">{
+  "inputs": {
+    "text": {}
+  },
+  "nodes": {
+    "lines": {
+      "node": "lines",
+      "inputs": {
+        "text": {
+          "graph_input": "text"
+        }
+      }
+    },
+    "shout": {
+      "node": "shout",
+      "inputs": {
+        "line": {
+          "sources": [{"node": "lines", "output": "result"}]
+        },
+        "mark": {
+          "constant": "?"
+        }
+      }
+    },
+    "join": {
+      "node": "join",
+      "inputs": {
+        "texts": {
+          "sources": [{"node": "shout", "output": "result"}]
+        }
+      }
+    }
+  },
+  "outputs": {
+    "result": {
+      "node": "join",
+      "output": "result"
+    }
+  }
+}</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ ENTRIES ============================ -->
+<section id="entries" aria-labelledby="entries-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">The record</p>
+        <h2 id="entries-h">Its parts, and what each input gets <span class="lvl pub">Public</span></h2>
+      </div>
+      <p>The record above is what <code>make_graph</code> writes for the three nodes, with the constant <code>"?"</code> for <code>shout.mark</code>. A <code>GraphRecord</code> has <code>inputs</code>, <code>nodes</code> and <code>outputs</code>. <code>inputs</code> declares each graph input once, by name, with its <code>default</code> if it has one: <code>{"text": {}}</code> here, or <code>{"text": {"default": "a"}}</code>. <code>nodes</code> maps each node's id to a <code>NodeRecord</code>, and <code>outputs</code> maps each graph output's name to the node output it is. The record has no order of its nodes. Where order matters, conductor takes them by id.</p>
+      <p>A <code>NodeRecord</code> names the node it uses in <code>node</code>, its <code>version</code> (1 unless it says otherwise), its <code>inputs</code>, and <code>display</code>. That last one is the host's own data, like a position on a canvas. Conductor saves it and doesn't read it, and it's left out of the <a href="saved-runs-and-reuse.html#keys">graph's fingerprint</a>.</p>
+      <p>An input the record leaves out takes the node's own default. <code>shout.mark</code> would be <code>"!"</code>.</p>
+    </div>
+    <div class="stack">
+      <figure>
+    <div class="fig">
+      <svg viewBox="0 0 760 250" role="img" aria-label="The record stores each edge on the input it leads into. The caller's text goes into lines, lines.result goes to shout.line, shout.result to join.texts, and join.result is the graph output result.">
+        <defs>
+          <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 L10 5 L0 10 z"/></marker>
+          <marker id="ar1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow acc" d="M0 0 L10 5 L0 10 z"/></marker>
+        </defs>
+        <text class="d-title" x="14" y="24">caller</text>
+        <text class="d-label" x="14" y="104">text: "a\nb"</text>
+        <path class="d-line" d="M100 100 L148 100" marker-end="url(#ar1)"/>
+        <text class="d-sub" x="14" y="124">graph_input</text>
+
+        <rect class="d-box" x="150" y="60" width="150" height="110" rx="8"/>
+        <text class="d-label" x="166" y="84">lines</text>
+        <text class="d-small" x="166" y="104">text  &#8592; graph_input</text>
+        <text class="d-sub" x="166" y="156">result: Series[str]</text>
+
+        <rect class="d-box" x="360" y="60" width="170" height="110" rx="8"/>
+        <text class="d-label" x="376" y="84">shout</text>
+        <rect class="d-box acc" x="370" y="94" width="150" height="22" rx="5"/>
+        <text class="d-small" x="378" y="109">line  &#8592; sources</text>
+        <text class="d-small" x="378" y="134">mark  &#8592; constant "?"</text>
+        <text class="d-sub" x="376" y="156">result: str</text>
+
+        <rect class="d-box" x="590" y="60" width="140" height="110" rx="8"/>
+        <text class="d-label" x="606" y="84">join</text>
+        <text class="d-small" x="606" y="109">texts &#8592; sources</text>
+        <text class="d-sub" x="606" y="156">result: str</text>
+
+        <path class="d-line acc" d="M300 152 C 335 152, 335 105, 368 105" marker-end="url(#ar1a)"/>
+        <path class="d-line" d="M530 152 C 560 152, 560 105, 598 105" marker-end="url(#ar1)"/>
+        <path class="d-line" d="M730 150 L 730 205 L 690 205" marker-end="url(#ar1)"/>
+        <text class="d-label" x="610" y="209">result</text>
+        <text class="d-title" x="560" y="236">graph output</text>
+
+        <text class="d-acc-text" x="360" y="206">{"node": "lines", "output": "result"}</text>
+        <text class="d-sub" x="360" y="224">written on shout.line, the input the edge leads into</text>
+      </svg>
+    </div>
+    <figcaption>An edge has no record of its own. It's a <code>Source</code> in the <code>sources</code> of the input it leads into. A graph input exists where an entry names it, and a graph output only in <code>outputs</code>.</figcaption>
+  </figure>
+      <p>Each input's entry, an <code>InputEntry</code>, is one of three kinds, and the one key it has says which (the full shape is in <code>python -m conductor.about the-graph-record</code>):</p>
+      <ul class="muted" style="display:grid;gap:.4rem;padding-left:1.1rem">
+        <li><code>{"constant": "?"}</code>: the same value on every call of every run.</li>
+        <li><code>{"graph_input": "text"}</code>: the caller gives it when a run starts, as <a href="running-and-streaming.html#start"><code>graph.run({"text": ...})</code></a>. The name is one the record declares in <code>inputs</code>, with the default for when the caller gives none. Several inputs may name one graph input and share its value and its one default.</li>
+        <li><code>{"sources": [...]}</code>: the outputs whose edges lead into this input. Several sources are alternatives, from different <a href="nodes-and-types.html#outputs">branches</a> of one node.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ PLACES ============================ -->
+<section id="places" aria-labelledby="pl-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Places</p>
+    <h2 id="pl-h">How a place in a graph is written <span class="lvl pub">Public</span></h2>
+    <p class="muted"><a href="problems.html">Problems</a>, events and <a href="saved-runs-and-reuse.html#saved">saved runs</a> all need to say where something is. <code class="int" title="Internal">base/place.py</code> has one way to write each place, as a tuple for code and as text for people.</p>
+  </div>
+  <div class="kinds">
+    <div class="kind"><b>lines.result</b><span class="mode">Source("lines", "result")</span><p>It is an output of a node, written as its id, a dot and the output's name. This is where an edge or a graph output reads from.</p></div>
+    <div class="kind"><b>read.result.email</b><span class="mode">Source("read", "result", "email")</span><p>It is one field of the value an output returns. A field's name may itself have dots, as in <code>"Amount in USD."</code>, but it can't start with one.</p></div>
+    <div class="kind"><b>loud/shout</b><span class="mode">("loud", "shout")</span><p>A <a href="subgraphs.html#places">node path</a> names the node <code>shout</code> inside the <a href="subgraphs.html#open">subgraph node</a> <code>loud</code>. Only the engine and its problems write one. A graph record never does.</p></div>
+    <div class="kind"><b>a name</b><span class="mode">"shout", "text-split"</span><p>Every node id, input, output, graph input and graph output in a record is a name. <code>"a.b"</code> and <code>"loud/shout"</code> aren't names, since places are written with those characters. The rule is in <code>python -m conductor.about the-graph-record</code>.</p></div>
+  </div>
+  <p class="prose muted" style="margin-top:1.75rem"><code>make_graph</code> is the one place that reads a place written as dotted text. A record stores a source as separate fields, <code>{"node", "output", "field"}</code>, so nothing parses it there. A graph output must be a whole output. One with a <code>field</code> is refused as <code>invalid_record</code>, and the one error in its <code>ctx.errors</code> is <code>output_has_field</code>.</p>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ TWO WALLS ============================ -->
+<section id="walls" aria-labelledby="walls-h">
+  <div class="cols r">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">Reading a record</p>
+    <h2 id="walls-h">Which faults raise and which become problems</h2>
+    <p class="muted"><code>Graph.compile</code> takes a <code>GraphRecord</code>, its JSON text, or that JSON as plain data.</p>
+  </div>
+
+    <figcaption>Getting the shape right is the caller's job, so a wrong shape raises <a href="problems.html#moments"><code>InvalidCallError</code></a> with one <code>invalid_record</code> <a href="problems.html">problem</a> per fault, at <code>("record", *where)</code>. Each problem's <code>ctx.errors</code> holds the fault's one error, such as <code>extra_forbidden</code> or <code>repeated_key</code>. A record of the right shape can still be a wrong graph. That's the graph's business, so it becomes a <code>Problem</code> and an editor can keep showing the graph while a person draws it.</figcaption>
+    <p class="small">Solid boxes are public. The dashed boxes are internal.</p>
+    </div>
+    <div class="stack">
+    <div class="fig">
+      <svg viewBox="0 0 900 230" role="img" aria-label="JSON text goes through read_json and the internal RecordValidator, which raise invalid_record for a wrong shape. The GraphRecord then goes to the internal Compiler, which lists faults as problems on the Graph. graph.run raises only if the Graph has problems.">
+        <defs>
+          <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 L10 5 L0 10 z"/></marker>
+          <marker id="ar2b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow bad" d="M0 0 L10 5 L0 10 z"/></marker>
+        </defs>
+        <text class="d-title" x="20" y="28">the record's shape</text>
+        <text class="d-title" x="470" y="28">what the record says</text>
+        <line x1="452" y1="16" x2="452" y2="214" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="3 5"/>
+
+        <rect class="d-box" x="20" y="60" width="86" height="44" rx="8"/>
+        <text class="d-label" x="63" y="87" text-anchor="middle">JSON text</text>
+        <path class="d-line" d="M106 82 L134 82" marker-end="url(#ar2)"/>
+        <rect class="d-box" x="136" y="60" width="96" height="44" rx="8"/>
+        <text class="d-label" x="184" y="87" text-anchor="middle">read_json</text>
+        <path class="d-line" d="M232 82 L258 82" marker-end="url(#ar2)"/>
+        <rect class="d-box int" x="260" y="60" width="140" height="44" rx="8"/>
+        <text class="d-label" x="330" y="87" text-anchor="middle">RecordValidator</text>
+        <path class="d-line" d="M400 82 L470 82" marker-end="url(#ar2)"/>
+        <text class="d-small" x="436" y="50" text-anchor="middle">GraphRecord</text>
+
+        <path class="d-line bad" d="M184 104 L184 150" marker-end="url(#ar2b)"/>
+        <text class="d-bad-text" x="140" y="168">raises</text>
+        <text class="d-small" x="140" y="184">key written twice,</text>
+        <text class="d-small" x="140" y="198">not JSON</text>
+        <path class="d-line bad" d="M330 104 L330 150" marker-end="url(#ar2b)"/>
+        <text class="d-bad-text" x="278" y="168">raises invalid_record</text>
+        <text class="d-small" x="278" y="184">two kinds in one entry,</text>
+        <text class="d-small" x="278" y="198">a name with a dot, ...</text>
+
+        <rect class="d-box int" x="472" y="60" width="150" height="44" rx="8"/>
+        <text class="d-label" x="547" y="80" text-anchor="middle">Compiler</text>
+        <text class="d-sub" x="547" y="96" text-anchor="middle">against the registry</text>
+        <path class="d-line" d="M622 82 L650 82" marker-end="url(#ar2)"/>
+        <rect class="d-box" x="652" y="60" width="104" height="44" rx="8"/>
+        <text class="d-label" x="704" y="80" text-anchor="middle">Graph</text>
+        <text class="d-sub" x="704" y="96" text-anchor="middle">.problems</text>
+        <path class="d-line" d="M756 82 L784 82" marker-end="url(#ar2)"/>
+        <rect class="d-box" x="786" y="60" width="100" height="44" rx="8"/>
+        <text class="d-label" x="836" y="87" text-anchor="middle">graph.run</text>
+
+        <text class="d-acc-text" x="480" y="140">lists a Problem per fault</text>
+        <text class="d-small" x="480" y="156">unknown node, edge from nowhere,</text>
+        <text class="d-small" x="480" y="170">types that don't fit, a cycle, ...</text>
+        <path class="d-line bad" d="M836 104 L836 150" marker-end="url(#ar2b)"/>
+        <text class="d-bad-text" x="886" y="168" text-anchor="end">raises if</text>
+        <text class="d-small" x="886" y="184" text-anchor="end">problems isn't empty</text>
+      </svg>
+    </div>
+      <h3 id="read-json">Why <code>read_json</code> exists</h3>
+      <p class="muted">Plain <code>json.loads</code> keeps only the last of two equal keys. In a record that would drop a node without a word. <code>read_json</code> parses with every key seen, and it's what <code>Graph.compile</code> uses for text. A host can call it on a request body too.</p>
+      <pre data-lang="py">text = '{"nodes": {"a": {"node": "lines"}, "a": {"node": "join"}}}'
+print(json.loads(text))
+try:
+    read_json(text)
+except InvalidCallError as error:
+    (p,) = error.problems
+    print(p.type, p.loc, p.ctx["errors"][0]["type"])</pre>
+      <pre class="out">{'nodes': {'a': {'node': 'join'}}}
+invalid_record ('record',) repeated_key</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ SHAPE AND GRAPH ============================ -->
+<section id="shape-and-graph" aria-labelledby="shape-and-graph-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Reading a record</p>
+        <h2 id="shape-and-graph-h">A shape fault and a graph fault</h2>
+      </div>
+      <pre data-lang="py">try:
+    Graph.compile({"nodes": {"s": {"node": "shout", "inputs": {
+        "line": {"constant": "a", "graph_input": "line"}}}}}, registry)
+except InvalidCallError as error:
+    (p,) = error.problems
+    print(p.type, p.loc, p.ctx["errors"][0]["type"])
+    print(p.msg)</pre>
+      <pre class="out">invalid_record ('record', 'nodes', 's', 'inputs', 'line') one_of_constant_graph_input_sources
+This isn't a valid graph record. At 'nodes.s.inputs.line': an input must get exactly one of a constant, a graph input or sources. Fix the record's JSON.</pre>
+    </div>
+    <div class="stack">
+      <pre data-lang="py">half = Graph.compile({"nodes": {"s": {"node": "shout"}, "j": {"node": "join",
+    "inputs": {"texts": {"sources": [{"node": "s", "output": "result"}]}}}}}, registry)
+print(half)
+for p in half.problems:
+    print(p.type, p.loc, p.msg)
+try:
+    half.run()
+except InvalidCallError as error:
+    print([p.type for p in error.problems])</pre>
+      <p class="label">printed &middot; the first line is <code>Graph</code>'s repr <span class="lvl int">Internal</span></p>
+      <pre class="out labelled">&lt;Graph of 2 nodes, 2 problems&gt;
+input_has_no_value ('s', 'line') 'line' gets no value. Wire an edge into it, give it a constant, or make it a graph input.
+type_mismatch_series_given_one_value ('j', 'texts') 's.result' gives each call of 'j' one str, but 'j.texts' takes a Series of str. To give it every item of a loop, collect them first in a node outside the loop that takes a Series. Else make it an input that takes one str.
+['input_has_no_value', 'type_mismatch_series_given_one_value']</pre>
+      <p class="muted">The half-drawn graph has two problems, and each is true of it as drawn. With no edge into <code>s.line</code>, <code>s</code> is in no <a href="series-and-tables.html#loop">loop</a>. So it gives <code>j</code> one value, and <code>j.texts</code> takes a <code>Series</code>.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ BENCH ============================ -->
+<section id="bench" aria-labelledby="bench-h">
+  <div class="bench cols r">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Try it</p>
+        <h2 id="bench-h">Break the record and see what compiling says <span class="lvl pub">Public</span></h2>
+        <p class="muted">Each button changes one thing in the example record. Every result was printed by compiling that record against the three nodes above and <code>count</code>, which <a href="#fit">the section on edges</a> defines. The results are written into the page from the code when the docs are built. The record itself, with the change marked, is in the <a href="#bench-record">next section</a>.</p>
+      </div>
+      <div class="picks" id="picks"></div>
+      <p class="small">The drawing is the graph as <code>describe()</code> shows it. A node outlined in orange has a <a href="problems.html">problem</a>, a faded orange node with its id struck through didn't compile, and a dashed orange edge leads into an input whose source is <code>missing</code>, into a node that didn't compile, or to a graph output that isn't there.</p>
+    </div>
+    <div class="stack">
+      <div class="fig" id="drawing" aria-live="polite"></div>
+      <div class="verdict" id="verdict" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ THE BROKEN RECORD ============================ -->
+<section id="bench-record" aria-labelledby="bench-record-h">
+  <div class="section-head">
+    <p class="eyebrow">Try it</p>
+    <h2 id="bench-record-h">The record the button changed</h2>
+    <p class="muted">A line the picked button edited, added or took a key out of is marked.</p>
+  </div>
+  <div class="rec" id="rec" aria-live="polite"></div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ COMPILING ============================ -->
+<section id="compiling" aria-labelledby="comp-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">Compiling</p>
+    <h2 id="comp-h">What compiling does</h2>
+    <p class="muted"><code>Graph.compile</code> checks every node and edge against the definitions. It also works out, once for every run, where each input gets its value and which <a href="series-and-tables.html#loop">loops</a> each node is in.</p>
+  </div>
+      <p>A <a href="subgraphs.html#open">subgraph</a> used as a node is compiled on its own record. Its problems become this graph's problems, each <a href="subgraphs.html#places"><code>loc</code></a> starting with the subgraph node's id. Subgraphs have <a href="subgraphs.html">a page of their own</a>.</p>
+      <p>A node is left out of the compiled nodes when its definition isn't found, its <a href="nodes-and-types.html#hooks">hook</a> fails or can't be called, or it is a subgraph with problems of its own. Every other node is kept, even with a problem on one of its inputs, so an editor can still draw it.</p>
+      <p>An edge from a node that didn't compile gets no second problem. The input it leads into has no value, and the first problem says why.</p>
+    </div>
+    <div>
+    <div class="steps-head">
+      <p class="label">The steps of the <code class="int" title="Internal">Compiler</code> <span class="lvl int">Internal</span></p>
+      <p class="small">A wrong shape in step 1 raises. Every fault found after it goes in <code>graph.problems</code>. The kinds of problem each step can find, each with an example, are in the <a href="../problems/">problems page</a>'s section on compiling a graph (<code>python -m conductor.about compiling-a-graph</code>).</p>
+    </div>
+    <ol class="steps">
+      <li><div><p><b>Check the shape.</b> <code class="int" title="Internal">RecordValidator</code> turns the input into a <code>GraphRecord</code>, or raises.</p></div></li>
+      <li><div><p><b>Put the nodes in order.</b> Each node comes after the nodes its edges come from, with ties broken by id. Every node on a cycle gets a problem, and compiling goes on from the first of them by id.</p></div></li>
+      <li><div><p><b>Find each node's definition</b> in the registry, at the version the record names.</p></div></li>
+      <li><div><p><b>Check the node's context</b>, then each constant and default by its input's type. Then call <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a>, if the node has it, with those constants. The inputs it returns join the node's own.</p></div></li>
+      <li><div><p><b>Give each input a compiled input</b>, and check that each edge's type fits the input. The loops a node is in follow from its inputs.</p></div></li>
+      <li><div><p><b>Call <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a></b>, if the node has it, with the constants and the types the edges carry. What it returns replaces the outputs the node declares.</p></div></li>
+      <li><div><p><b>Check the graph outputs.</b> Each must name an output of a node the graph has.</p></div></li>
+    </ol>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ INPUT KINDS ============================ -->
+<section id="inputs-compiled" aria-labelledby="input-kinds">
+  <div class="section-head">
+    <p class="eyebrow">Compiling</p>
+    <h2 id="input-kinds">Where each input gets its value</h2>
+    <p class="muted prose">Inside, each input of a compiled node is one of the frozen dataclasses in <code class="int" title="Internal">graph/input.py</code>. Each says where the value comes from. You see them in <code>describe()</code>, as the <code>mode</code> of the input's <code>InputSource</code>. Each card names the dataclass and the modes it shows as.</p>
+  </div>
+  <div class="kinds five">
+    <div class="kind"><b><code class="int" title="Internal">ConstantInput</code></b><span class="mode">mode: constant</span><p>It is the record's constant, checked by the input's type when compiling, or else the node's own default, as for <code>shout.mark</code>.</p></div>
+    <div class="kind"><b><code class="int" title="Internal">GraphInput</code></b><span class="mode">mode: graph_input</span><p>The caller gives it, by the graph input's name, as for <code>lines.text</code>.</p></div>
+    <div class="kind"><b><code class="int" title="Internal">EdgeInput</code></b><span class="mode">mode: item, one_value or outer_value</span><p>It gets one value per call through its edges. <code>shout.line</code> gets one item of <code>lines.result</code> per call. One value is never a list of one: a <a href="series-and-tables.html#loop"><code>Series</code></a> input wired to one value per call is <code>type_mismatch_series_given_one_value</code>.</p></div>
+    <div class="kind"><b><code class="int" title="Internal">CollectingInput</code></b><span class="mode">mode: collected</span><p>It is a <code>Series</code> input that gets one value per item of a loop, as a list, as <code>join.texts</code> does.</p></div>
+    <div class="kind missing"><b><code class="int" title="Internal">MissingInput</code></b><span class="mode">mode: missing</span><p>It has no value, because the graph has a problem there. The node is kept, so an editor can draw this input as unset.</p></div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ THE COMPILED GRAPH ============================ -->
+<section id="compiled" aria-labelledby="compiled-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Compiling</p>
+        <h2 id="compiled-h">The example graph, compiled</h2>
+      </div>
+      <pre data-lang="py">graph = Graph.compile(record, registry)   # the record above
+print(graph)
+print(list(graph.inputs), {name: port.type for name, port in graph.outputs.items()})
+for node_id, n in graph.describe().nodes.items():
+    print(node_id, n.per_item_of,
+          [(i.port.name, i.source.mode, i.source.series) for i in n.inputs])
+print(graph.run({"text": "a\nb"}).outputs)</pre>
+      <p class="label">printed &middot; the first line is <code>Graph</code>'s repr <span class="lvl int">Internal</span></p>
+      <pre class="out labelled">&lt;Graph of 3 nodes, runnable&gt;
+['text'] {'result': 'str'}
+join None [('texts', 'collected', 'lines.result')]
+lines None [('text', 'graph_input', None)]
+shout lines.result [('line', 'item', 'lines.result'), ('mark', 'constant', None)]
+{'result': 'A?+B?'}</pre>
+    </div>
+    <figure>
+      <div class="fig">
+        <svg viewBox="0 0 520 220" role="img" aria-label="lines is called once, shout is called once per item of lines.result, and join is called once and collects every shout result.">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <rect class="d-band" x="160" y="22" width="190" height="176" rx="12"/>
+          <text class="d-title" x="172" y="42">per item of lines.result</text>
+          <rect class="d-box" x="20" y="88" width="110" height="46" rx="8"/>
+          <text class="d-label" x="75" y="108" text-anchor="middle">lines</text>
+          <text class="d-sub" x="75" y="124" text-anchor="middle">once</text>
+          <rect class="d-box" x="190" y="60" width="130" height="46" rx="8"/>
+          <text class="d-label" x="255" y="80" text-anchor="middle">shout @0</text>
+          <text class="d-sub" x="255" y="96" text-anchor="middle">line="a"</text>
+          <rect class="d-box" x="190" y="130" width="130" height="46" rx="8"/>
+          <text class="d-label" x="255" y="150" text-anchor="middle">shout @1</text>
+          <text class="d-sub" x="255" y="166" text-anchor="middle">line="b"</text>
+          <rect class="d-box" x="390" y="88" width="110" height="46" rx="8"/>
+          <text class="d-label" x="445" y="108" text-anchor="middle">join</text>
+          <text class="d-sub" x="445" y="124" text-anchor="middle">collects</text>
+          <path class="d-line" d="M130 105 C 160 105, 160 83, 188 83" marker-end="url(#ar3)"/>
+          <path class="d-line" d="M130 117 C 160 117, 160 153, 188 153" marker-end="url(#ar3)"/>
+          <path class="d-line" d="M320 83 C 355 83, 355 105, 388 105" marker-end="url(#ar3)"/>
+          <path class="d-line" d="M320 153 C 355 153, 355 117, 388 117" marker-end="url(#ar3)"/>
+          <text class="d-small" x="20" y="160">Series[str]</text>
+          <text class="d-small" x="390" y="160">Series[str] in</text>
+        </svg>
+      </div>
+      <figcaption>A <code>str</code> input wired to a <code>Series[str]</code> output gets one item per call, and a <code>Series[str]</code> input gathers the items back. An editor can show a node's <a href="series-and-tables.html#loop"><code>per_item_of</code></a> before any run. How loops nest is on <a href="series-and-tables.html">the Series and tables page</a>.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ FIT ============================ -->
+<section id="fit" aria-labelledby="fit-h">
+  <div class="cols three">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">Edges</p>
+    <h2 id="fit-h">Whether an edge's types fit <span class="lvl pub">Public</span></h2>
+    <p class="muted">Compiling checks whether a value of an edge's output type can go to its input's type, from the declared types alone. An edge that doesn't fit is the <a href="problems.html">problem</a> <code>type_mismatch</code>, before anything runs. A few common mistakes have a <a href="problems.html#kinds">kind of their own</a>, whose message says the fix.</p>
+  </div>
+      <p class="muted">An input can ask for more than its source promises, such as a limit on the input. Then the value is checked when it arrives at run time. That check is on <a href="running-and-streaming.html">the running and streaming page</a>. An edge whose source already satisfies its input isn't checked at all.</p>
+      <p class="muted">Compiling reads only these nodes' types, so most of their bodies are <code>...</code>. The <a href="#fit-results">next section</a> wires them together and prints what compiling says.</p>
+    </div>
+    <pre data-lang="py">@registry.node("count", title="Count", description="Counts the characters of a text.")
+def count(text: str) -> int:
+    return len(text)
+
+T = TypeVar("T")
+
+class Person(TypedDict):
+    name: str
+    email: str
+
+class Named(TypedDict):
+    name: str
+
+@node("flag", title="Flag", description="Says yes.")
+def flag(text: str) -> bool: ...
+
+@node("numbers", title="Numbers", description="Gives some numbers.")
+def numbers() -> list[int]: ...
+
+@node("person", title="Person", description="Gives a person.")
+def person() -> Person: ...
+
+@node("half", title="Half", description="Halves a number.")
+def half(n: float) -> float: ...</pre>
+    <pre data-lang="py" data-name="bench-nodes">@node("anything", title="Anything", description="Takes any value.")
+def anything(value: Any) -> Any: ...
+
+@node("first", title="First", description="Gives the first item of a list.")
+def first(items: list[T]) -> T: ...
+
+@node("joinlist", title="Join list", description="Joins a list of texts.")
+def joinlist(texts: list[str]) -> str: ...
+
+@node("greet", title="Greet", description="Greets a person by name.")
+def greet(who: Named) -> str: ...
+
+r = NodeRegistry()
+r.add(count, flag, numbers, person, lines, shout, half, anything, first, joinlist, greet)</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ EDGES, COMPILED ============================ -->
+<section id="fit-results" aria-labelledby="fit-results-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Edges</p>
+        <h2 id="fit-results-h">Which of these edges fit</h2>
+      </div>
+      <pre data-lang="py">edges = {
+    "int -> float": (count, half),
+    "bool -> float": (flag, half),
+    "int -> str": (count, shout),
+    "str -> Any": (shout, anything),
+    "Any -> float": (anything, half),
+    "list[int] -> list[T]": (numbers, first),
+    "Series[str] -> list[str]": (lines, joinlist),
+    "Person -> Named": (person, greet),
+}
+problems = {label: Graph.compile(make_graph(*pair), r).problems for label, pair in edges.items()}
+for label, found in problems.items():
+    print(label, [p.type for p in found])
+print(problems["bool -> float"][0].msg)
+print(problems["Series[str] -> list[str]"][0].msg)</pre>
+    </div>
+    <div class="stack">
+      <pre class="out">int -&gt; float []
+bool -&gt; float ['type_mismatch']
+int -&gt; str ['type_mismatch']
+str -&gt; Any []
+Any -&gt; float []
+list[int] -&gt; list[T] []
+Series[str] -&gt; list[str] ['type_mismatch_series_into_list']
+Person -&gt; Named []
+'flag.result' gives bool, but 'half.n' takes float. Wire an output that gives float, or convert the value in a node in between.
+'lines.result' gives Series[str], but 'joinlist.texts' takes list[str]. To take every item as one list, declare the input Series[str] in place of list[str].</pre>
+      <p class="muted">An empty list means the edge fits. An <code>int</code> is widened to a <code>float</code>, but a yes or no isn't a number. <code>Any</code> fits either way. <code>list[int]</code> binds <code>T</code> to <code>int</code> for that node, and a <code>TypedDict</code> fits by its keys. A <code>Series</code> into a <code>list</code> has a kind of its own, whose message says the fix. The rules are in <code>python -m conductor.about types</code>, under "What lands where".</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ MAKE_GRAPH ============================ -->
+<section id="make" aria-labelledby="make-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">From Python</p>
+    <h2 id="make-h"><code>make_graph</code> writes the same record <span class="lvl pub">Public</span></h2>
+    <p class="muted"><code>make_graph(*nodes, edges=None, constants={}, defaults={}, inputs={}, outputs={})</code> writes a <code>GraphRecord</code>. It follows scikit-learn's <code>make_pipeline</code>. With no <code>edges</code>, the nodes form a chain. It declares the graph's inputs and outputs, and compiles nothing.</p>
+  </div>
+      <pre data-lang="py">record = make_graph(lines, shout, join)
+print(dumps(json.loads(record.model_dump_json())))
+print(Graph.compile(record, registry).run({"text": "a\nb"}).outputs)
+
+print(list(make_graph(lines, shout, shout, join).nodes))
+
+wired = make_graph(person, shout, edges=[("person.result.email", "shout.line")])
+print(dumps(json.loads(wired.nodes["shout"].inputs["line"].model_dump_json())))
+
+renamed = make_graph(shout, inputs={"m": "shout.mark"})
+print(dumps(json.loads(renamed.nodes["shout"].inputs["mark"].model_dump_json())))
+print(dumps(json.loads(renamed.model_dump_json())["inputs"]))
+
+try:
+    make_graph(lines, shout, edges=[("lines", "shout.line")])
+except InvalidCallError as error:
+    print([(p.type, p.loc) for p in error.problems])</pre>
+    </div>
+    <div class="stack">
+      <p><b>A chain.</b> Between two nodes, the edge goes from the one output of the first into the one required input of the second that <code>constants=</code>, <code>defaults=</code> and <code>inputs=</code> don't name. A <a href="subgraphs.html#open">subgraph node</a> is chained by the graph inputs and outputs its record declares, so <code>make_graph(lines, loud, join)</code> chains through the subgraph <code>loud</code>. A node whose ports a <a href="nodes-and-types.html#hooks">hook</a> works out takes <code>edges=</code>.</p>
+      <p><b>Graph inputs and outputs.</b> Each required input that gets nothing becomes a graph input under its own name (<code>text</code>), unless it <a href="nodes-and-types.html#hooks">takes only a constant</a>. So does each key of <code>defaults</code>. Each output of a node that no edge leaves becomes a graph output (<code>result</code>). <code>inputs=</code> and <code>outputs=</code> name others. An optional input that <code>inputs=</code> names keeps its own default, so <code>m</code> above defaults to <code>"!"</code> and isn't required. A key of <code>defaults</code> gives its own. A node with a <code>compute_outputs</code> hook that no edge leaves needs <code>outputs=</code> to name what the graph returns from it. Without that, <code>make_graph</code> raises <code>hook_outputs_not_named</code>.</p>
+      <p><b>Ids.</b> A definition used twice gets <code>shout-1</code> and <code>shout-2</code>, so no node keeps the bare id <code>shout</code> for another to take over.</p>
+      <p><b>What it raises.</b> <code>make_graph</code> raises one <a href="problems.html#moments"><code>InvalidCallError</code></a> with every fault it can see while writing. In the last call, <code>"lines"</code> isn't <code>"node.name"</code>, so it is <code>invalid_place</code> and that edge isn't written. With an edge left out, <code>make_graph</code> makes no automatic graph inputs or outputs, so a name clash that would only follow from the gap isn't listed.</p>
+      <p><b>What it leaves to compiling.</b> It writes some faults as given: an input a node doesn't have, a value its type refuses, types that don't fit. <code>Graph.compile(...).problems</code> reports them.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WHAT MAKE_GRAPH WROTE ============================ -->
+<section id="make-printed" aria-labelledby="make-printed-h">
+  <div class="section-head">
+    <p class="eyebrow">From Python</p>
+    <h2 id="make-printed-h">What the <code>make_graph</code> sample prints</h2>
+    <p class="small">The sample prints each record with <code>dumps</code>, a small JSON formatter that isn't part of conductor. Every JSON block on these pages is laid out this way: two spaces of indent, one key per line, and a list on one line when it fits.</p>
+  </div>
+  <pre class="out flow">{
+  "inputs": {
+    "text": {}
+  },
+  "nodes": {
+    "lines": {
+      "node": "lines",
+      "inputs": {
+        "text": {
+          "graph_input": "text"
+        }
+      }
+    },
+    "shout": {
+      "node": "shout",
+      "inputs": {
+        "line": {
+          "sources": [{"node": "lines", "output": "result"}]
+        }
+      }
+    },
+    "join": {
+      "node": "join",
+      "inputs": {
+        "texts": {
+          "sources": [{"node": "shout", "output": "result"}]
+        }
+      }
+    }
+  },
+  "outputs": {
+    "result": {
+      "node": "join",
+      "output": "result"
+    }
+  }
+}
+{'result': 'A!+B!'}
+['lines', 'shout-1', 'shout-2', 'join']
+{
+  "sources": [{"node": "person", "output": "result", "field": "email"}]
+}
+{
+  "graph_input": "m"
+}
+{
+  "m": {
+    "default": "!"
+  },
+  "line": {}
+}
+[('invalid_place', ('edges', 0, 0))]</pre>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ HOOKS ============================ -->
+<section id="hooks" aria-labelledby="hooks-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">Hooks</p>
+    <h2 id="hooks-h">Compiling works out the inputs and outputs a graph decides <span class="lvl pub">Public</span></h2>
+    <p class="muted">A node can have a <a href="nodes-and-types.html#hooks"><code>compute_outputs</code></a> or <a href="nodes-and-types.html#hooks"><code>compute_added_inputs</code></a> <a href="nodes-and-types.html#hooks">hook</a>. Compiling calls it with the constant, or else the declared default, of each input it names. For a parameter annotated <code>type</code>, <code>compute_outputs</code> gets the type the edge into that input carries. A hook that raises an exception is a <a href="problems.html">problem</a> on its node, not an exception from <code>Graph.compile</code>. The hooks themselves are on <a href="nodes-and-types.html">the page about nodes</a>.</p>
+  </div>
+      <p class="muted">The hook ran once, while compiling, with the constant <code>"small,big"</code> and the type <code>int</code> that <code>count.result</code> carries. Each output it returns defaults to <code>SKIPPED</code>, so the two are <a href="nodes-and-types.html#outputs">branches</a> and not required.</p>
+    </div>
+    <div class="stack">
+      <pre data-lang="py">calls = []
+
+def branch_outputs(names: str, value: type) -> dict[str, Any]:
+    calls.append((names, value))
+    if not names:
+        raise ValueError("names is empty")
+    return {name: (value, SKIPPED) for name in names.split(",")}
+
+@registry.node("route", title="Route", description="Gives the value to the output it names.",
+               compute_outputs=branch_outputs)
+def route(value: Any, names: str, chosen: str) -> dict[str, Any]:
+    return {chosen: value}
+
+graph = Graph.compile(make_graph(count, route,
+    edges=[("count.result", "route.value")], constants={"route.names": "small,big"},
+    outputs={"small": "route.small", "big": "route.big"}), registry)
+print(calls)
+print([(f.name, f.type, f.required) for f in graph.describe().nodes["route"].outputs])
+print(graph.run({"text": "hello", "chosen": "big"}).outputs)
+</pre>
+      <pre class="out">[('small,big', &lt;class 'int'&gt;)]
+[('small', 'int', False), ('big', 'int', False)]
+{'big': 5, 'small': None}</pre>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ A HOOK THAT RAISES ============================ -->
+<section id="hook-raises" aria-labelledby="hook-raises-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Hooks</p>
+        <h2 id="hook-raises-h">A hook that raises is a problem of its node</h2>
+      </div>
+      <pre data-lang="py">broken = Graph.compile({"inputs": {"text": {}, "chosen": {}}, "nodes": {   # the record by hand: no graph outputs
+    "count": {"node": "count", "inputs": {"text": {"graph_input": "text"}}},
+    "route": {"node": "route", "inputs": {
+        "value": {"sources": [{"node": "count", "output": "result"}]},
+        "names": {"constant": ""}, "chosen": {"graph_input": "chosen"}}}}}, registry)
+for p in broken.problems:
+    print(p.type, p.loc, p.ctx["error"], "|", p.msg)
+print(broken.describe().nodes["route"].found)</pre>
+    </div>
+    <div class="stack">
+      <pre class="out">compute_hook_raised ('route',) ValueError | The node couldn't work out its inputs and outputs: its hook raised ValueError. Check the node's constants and what is wired into it; its developer can find the details in the conductor log.
+False</pre>
+      <p class="muted">When the hook raised its own <code>ValueError</code>, the problem was <code>compute_hook_raised</code>. Its <code>ctx.error</code> is only the class name, and its message doesn't quote the exception's text, since that text might quote a value. The text and the traceback went to the <a href="running-and-streaming.html#failures"><code>conductor</code> logger</a>. <code>route</code> was left out, so <code>describe()</code> gives it <code>found</code> false.</p>
+    </div>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ UPGRADE ============================ -->
+<section id="upgrade" aria-labelledby="up-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+    <p class="eyebrow">Versions</p>
+    <h2 id="up-h"><code>registry.upgrade</code> moves one node of a saved record <span class="lvl pub">Public</span></h2>
+    <p class="muted">A record names each node's version, and compiling uses that version. To move it, a host calls <code>registry.upgrade(record, node_id, *, to=None)</code>, which runs each newer version's <a href="nodes-and-types.html#versions"><code>Upgrade</code></a> in turn and returns a new record. It compiles nothing.</p>
+  </div>
+    </div>
+    <pre data-lang="py">@node("shout", title="Shout", description="Shouts one text.")
+def shout_v1(text: str, mark: str = "!") -> str:
+    return text.upper() + mark
+
+@node("shout", title="Shout", description="Shouts one line.", replaces=shout_v1,
+      upgrade=Upgrade(renamed_inputs={"text": "line"}))
+def shout_v2(line: str, mark: str = "!") -> str:
+    return line.upper() + mark
+
+versions = NodeRegistry()   # a registry with shout at version 2
+versions.add(shout_v2)
+
+saved = GraphRecord.model_validate({"inputs": {"text": {}}, "nodes": {"s": {"node": "shout", "inputs": {
+    "text": {"graph_input": "text"}, "mark": {"constant": "?"}}}},
+    "outputs": {"result": {"node": "s", "output": "result"}}})
+graph = Graph.compile(saved, versions)
+print(graph.problems == [], graph.run({"text": "hi"}).outputs)
+moved = versions.upgrade(saved, "s")
+print(dumps(json.loads(moved.model_dump_json())))
+print(Graph.compile(moved, versions).run({"text": "hi"}).outputs)
+print(versions.upgrade(moved, "s") is moved)</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ WHAT AN UPGRADE WRITES ============================ -->
+<section id="upgraded" aria-labelledby="upgraded-h">
+  <div class="cols">
+    <div class="stack">
+      <div class="section-head">
+        <p class="eyebrow">Versions</p>
+        <h2 id="upgraded-h">What the upgrade wrote</h2>
+      </div>
+      <ul class="muted" style="display:grid;gap:.45rem;padding-left:1.1rem">
+        <li>A renamed input takes what it got along with it. Here that is the graph input <code>text</code>, which keeps its name for the caller.</li>
+        <li>A <code>rewrite</code> gets the node's constants as one dict, and every key it returns becomes a constant. A graph input's default belongs to the whole graph, so no rewrite changes it.</li>
+        <li>An input the newer version neither has nor renames is dropped. Edges and graph outputs from a renamed output move to its new name.</li>
+        <li>After each step the new record's shape is checked again, so a step can't write a record of the wrong shape. A node already at the target version comes back as the same object.</li>
+      </ul>
+    </div>
+    <pre class="out record-flow">True {'result': 'HI?'}
+{
+  "inputs": {
+    "text": {}
+  },
+  "nodes": {
+    "s": {
+      "node": "shout",
+      "version": 2,
+      "inputs": {
+        "line": {
+          "graph_input": "text"
+        },
+        "mark": {
+          "constant": "?"
+        }
+      }
+    }
+  },
+  "outputs": {
+    "result": {
+      "node": "s",
+      "output": "result"
+    }
+  }
+}
+{'result': 'HI?'}
+True</pre>
+  </div>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ CHOICES ============================ -->
+<section id="choices" aria-labelledby="choices-h">
+  <div class="section-head prose">
+    <p class="eyebrow">Why it's built this way</p>
+    <h2 id="choices-h">The design choices of this part</h2>
+  </div>
+  <p class="prose">The rules are in <code>python -m conductor.about the-graph-record</code>, <code>writing-a-graph-in-python</code> and <code>compiling</code>.</p>
+</section>
+
+<div class="staff" aria-hidden="true"></div>
+
+<!-- ============================ SERIES ============================ -->
+<section id="next" aria-labelledby="next-h">
+  <div class="section-head prose">
+    <p class="eyebrow">The series</p>
+    <h2 id="next-h">One page per part</h2>
+    <p class="muted">Start from <a href="overview.html">the overview</a>.</p>
+  </div>
+  <ul class="series">
+    <li><a href="overview.html">The overview</a> <span>page 1</span></li>
+    <li><a href="nodes-and-types.html">A node and its types</a> <span>page 2</span></li>
+    <li class="here">The graph record and compiling <span>this page</span></li>
+    <li><a href="series-and-tables.html">Series and tables</a> <span>page 4</span></li>
+    <li><a href="asking-a-person.html">Asking a person</a> <span>page 5</span></li>
+    <li><a href="subgraphs.html">Subgraphs</a> <span>page 6</span></li>
+    <li><a href="saved-runs-and-reuse.html">Saved runs and reuse</a> <span>page 7</span></li>
+    <li><a href="running-and-streaming.html">Running and streaming</a> <span>page 8</span></li>
+    <li><a href="problems.html">Problems</a> <span>page 9</span></li>
+    <li><a href="standard-nodes.html">The standard nodes</a> <span>page 10</span></li>
+    <li><a href="serving-runs.html">Serving runs</a> <span>page 11</span></li>
+  </ul>
+</section>
+
+<footer>
+  <p>The samples use public names only. Function bodies that don't change an output are shown as <code>...</code>.</p>
+</footer>
+
+</div>
+</div>
+
+<script type="application/json" id="breaks-data">[]</script>
+<script>
+const BREAKS = JSON.parse(document.getElementById("breaks-data").textContent);
+(function () {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  /* a note may hold [text](url) links to the other pages; everything else in it stays escaped */
+  const linked = (t) => esc(t).replace(/\[([^\]]+)\]\(([a-z0-9-]+\.html(?:#[\w-]+)?)\)/g, '<a href="$2">$1</a>');
+  const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- a small highlighter for Python and JSON ---------- */
+  const PY_KW = /\b(def|return|if|not|raise|from|import|class|for|in|try|except|as|True|False|None|lambda|print)\b/g;
+  function highlight(src, lang) {
+    const out = [];
+    const re = lang === "json"
+      ? /("(?:[^"\\]|\\.)*")(\s*:)?|(\b(?:true|false|null)\b|-?\d+(?:\.\d+)?)/g
+      : /(#[^\n]*)|("""[\s\S]*?"""|f?"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(@[\w.]+)/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      out.push(kw(esc(src.slice(last, m.index)), lang));
+      if (lang === "json") {
+        if (m[1]) out.push(m[2] ? '<span class="tk-k">' + esc(m[1]) + "</span>" + m[2] : '<span class="tk-s">' + esc(m[1]) + "</span>");
+        else out.push('<span class="tk-d">' + esc(m[3]) + "</span>");
+      } else if (m[1]) out.push('<span class="tk-c">' + esc(m[1]) + "</span>");
+      else if (m[2]) out.push('<span class="tk-s">' + esc(m[2]) + "</span>");
+      else out.push('<span class="tk-k">' + esc(m[3]) + "</span>");
+      last = re.lastIndex;
+    }
+    out.push(kw(esc(src.slice(last)), lang));
+    return out.join("");
+  }
+  function kw(html, lang) { return lang === "json" ? html : html.replace(PY_KW, '<span class="tk-k">$1</span>'); }
+  /* each code line hangs: a wrapped line goes on 2ch past its own indent */
+  function hang(pre, html) {
+    const lines = html.split("\n");
+    const balanced = lines.every((l) => (l.match(/<span/g) || []).length === (l.match(/<\/span>/g) || []).length);
+    if (!balanced) { pre.innerHTML = html; return; }
+    pre.innerHTML = lines.map((l) => {
+      const n = l.match(/^ */)[0].length;
+      const h = "min(" + (n + 2) + "ch, 30%)"; /* a deep indent hangs at most 30% in, so a narrow screen still has room for the line */
+      return '<span class="ln" style="padding-left:' + h + ";text-indent:calc(-1 * " + h + ')">' + (l || " ") + "</span>";
+    }).join("");
+  }
+  document.querySelectorAll("pre[data-lang]").forEach((pre) => hang(pre, highlight(pre.textContent, pre.dataset.lang)));
+  document.querySelectorAll("pre.out:not([data-lang])").forEach((pre) => hang(pre, esc(pre.textContent)));
+
+  /* ---------- the bench ---------- */
+  /* its results are written into #breaks-data from the code when the docs are built; a page opened from disk has none */
+  if (!BREAKS.length) {
+    const note = document.createElement("p");
+    note.className = "small";
+    note.textContent = "The bench's results are written in from the code when the docs are built. Build the docs to try it.";
+    $("#picks").append(note);
+    return;
+  }
+  const NOTES = {
+    base: "This is the record as it is. It compiles with no problems, and shout is called [once per item](series-and-tables.html#loop) of lines.result.",
+    unknown_node: "shout isn't compiled, so describe() gives it found false and no inputs. join.texts reads it and has no value, but join gets no [problem](problems.html) of its own.",
+    unknown_version: "The registry has shout at version 1 only. Compiling doesn't fall back to another version, so shout isn't compiled, as for an unknown node.",
+    edge_names_missing_node: "The [problem](problems.html) is on the input the edge leads into, shout.line. shout still compiles, with that one input missing. With no edge into shout.line, shout is in no [loop](series-and-tables.html#loop), so join.texts gets one value where it takes a Series. That is the second problem.",
+    unknown_output: "The message lists the outputs lines does have, so an editor can offer them. shout.line is missing, so shout is in no loop and join.texts gets one value, as when the edge names a missing node.",
+    type_mismatch: "The node lines now uses count, which returns an int. The edge is refused from the declared types alone. Nothing has run. count returns one value, so shout is in no loop and join.texts gets one value too.",
+    invalid_value: "The constant is checked by mark's type while compiling. The message says what the type refused and doesn't quote the value.",
+    unknown_input: "The node has no input colour. Its other inputs keep their sources, and shout still runs per line in describe().",
+    input_has_no_value: "A required input has no entry. The graph still compiles and describe() still draws lines. Running it would raise [InvalidCallError](problems.html#moments) with this [problem](problems.html). lines.text was the last entry that took the graph input text, so deleting it leaves text declared under inputs with nothing that takes it, and that is a problem of its own, graph_input_not_used: remove the declaration too.",
+    several_edges_into_one_input: "A fourth node, more, is added. Several sources on one input must be alternatives, from different [branches](nodes-and-types.html#outputs) of one node. These two can both have a value on the same call. shout.line is missing then, so join.texts gets one value too.",
+    cycle: "Every node on the cycle gets the [problem](problems.html). Compiling goes on from join, the first of them by id, so the edge into join.texts comes from a node not compiled yet, and that input is missing. The cycle wires lines.text to join instead of the graph input text, so text is declared and nothing takes it: graph_input_not_used.",
+    graph_output_not_found: "This [problem](problems.html) belongs to the graph, not to a node, so its [loc](subgraphs.html#places) is empty and no node is marked.",
+    one_of_constant_graph_input_sources: "This is a fault in the record's shape. Graph.compile raises instead of returning a Graph, so there's nothing to draw.",
+    not_a_name: "A name can't contain . / @ or ~, since places are written with them. Reading the record refuses it where it's written.",
+  };
+  const GROUPS = [
+    ["When the graph is wrong, Graph.compile returns a Graph with problems.", (b) => !b.raised],
+    ["When the shape is wrong, Graph.compile raises InvalidCallError.", (b) => !!b.raised],
+  ];
+
+  /* The record is laid out as every JSON block on these pages is: two spaces of indent, one key
+     per line, and a list on one line when that line fits in 80 columns. Each line carries where it is in the
+     record, with an object's keys on its opening line, so a line is marked as changed against the unbroken record
+     wherever it was edited, added to or had a key taken out. */
+  const WIDTH = 80;
+  function flat(v) {
+    if (Array.isArray(v)) return "[" + v.map(flat).join(", ") + "]";
+    if (v && typeof v === "object") return "{" + Object.entries(v).map(([k, x]) => JSON.stringify(k) + ": " + flat(x)).join(", ") + "}";
+    return JSON.stringify(v);
+  }
+  function lines(rec) {
+    const out = [];
+    const write = (v, depth, head, at, comma) => {
+      const pad = "  ".repeat(depth);
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const keys = Object.keys(v);
+        if (!keys.length) { out.push([at, pad + head + "{}" + comma]); return; }
+        out.push([at + " {" + keys.join(","), pad + head + "{"]);
+        keys.forEach((k, i) => write(v[k], depth + 1, JSON.stringify(k) + ": ", at + "/" + k, i < keys.length - 1 ? "," : ""));
+        out.push([at + " }", pad + "}" + comma]);
+      } else if (Array.isArray(v)) {
+        const one = flat(v);
+        if (!v.length || (pad + head).length + one.length + 1 <= WIDTH) { out.push([at, pad + head + one + comma]); return; }
+        out.push([at + " [" + v.length, pad + head + "["]);
+        v.forEach((x, i) => write(x, depth + 1, "", at + "/" + i, i < v.length - 1 ? "," : ""));
+        out.push([at + " ]", pad + "]" + comma]);
+      } else {
+        out.push([at, pad + head + JSON.stringify(v) + comma]);
+      }
+    };
+    write(rec, 0, "", "", "");
+    return out;
+  }
+  const lineKey = ([at, text]) => at + "\u0001" + text.replace(/,$/, "");
+  const baseLines = new Set(lines(BREAKS[0].record).map(lineKey));
+
+  /* the drawing */
+  const COL = { lines: [40, 50], more: [40, 170], shout: [260, 50], join: [480, 50] };
+  const W = 150, H = 66;
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, text) {
+    const e = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function drawGraph(b) {
+    const hasMore = !!b.record.nodes.more;
+    const svg = el("svg", { viewBox: "0 0 760 " + (hasMore ? 280 : 190), role: "img", "aria-label": "The example graph as describe() draws it for this record." });
+    const defs = el("defs", {});
+    [["ar-n", "d-arrow"], ["ar-b", "d-arrow bad"]].forEach(([id, c]) => {
+      const m = el("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
+      m.append(el("path", { class: c, d: "M0 0 L10 5 L0 10 z" })); defs.append(m);
+    });
+    svg.append(defs);
+    const probNodes = new Set((b.problems || []).filter((p) => p.loc.length).map((p) => p.loc[0]));
+    const edgesG = el("g", {}), nodesG = el("g", {});
+    svg.append(edgesG, nodesG);
+    Object.entries(b.record.nodes).forEach(([id, n]) => {
+      const pos = COL[id]; if (!pos) return;
+      const d = b.nodes ? b.nodes[id] : null;
+      const gone = !d || !d.found;
+      const cls = gone ? "d-box gone" : probNodes.has(id) ? "d-box bad" : "d-box";
+      nodesG.append(el("rect", { class: cls, x: pos[0], y: pos[1], width: W, height: H, rx: 8 }));
+      nodesG.append(el("text", { class: gone ? "d-gone-text" : "d-label", x: pos[0] + 12, y: pos[1] + 20 }, id));
+      nodesG.append(el("text", { class: "d-sub", x: pos[0] + W - 10, y: pos[1] + 20, "text-anchor": "end" }, n.node === id && !n.version ? "" : n.node + (n.version ? " v" + n.version : "")));
+      if (d && d.found) {
+        Object.entries(d.inputs).forEach(([name, mode], k) => {
+          nodesG.append(el("text", { class: mode === "missing" ? "d-bad-text" : "d-small", x: pos[0] + 12, y: pos[1] + 38 + k * 14 }, name + " · " + mode));
+        });
+        if (d.per_item_of) nodesG.append(el("text", { class: "d-acc-text", x: pos[0], y: pos[1] - 8 }, "per item of " + d.per_item_of));
+      } else if (d) {
+        nodesG.append(el("text", { class: "d-bad-text", x: pos[0] + 12, y: pos[1] + 44 }, "found: false"));
+      }
+    });
+    // edges
+    Object.entries(b.record.nodes).forEach(([id, n]) => {
+      const to = COL[id]; if (!to) return;
+      Object.entries(n.inputs || {}).forEach(([name, e]) => {
+        const mode = b.nodes && b.nodes[id] && b.nodes[id].found ? b.nodes[id].inputs[name] : null;
+        const bad = b.nodes && (mode === "missing" || !b.nodes[id].found);
+        if (e.graph_input !== undefined) {
+          edgesG.append(el("text", { class: "d-small", x: to[0] - 2, y: to[1] + H + 18 }, "caller: " + e.graph_input));
+          return;
+        }
+        (e.sources || []).forEach((s) => {
+          const from = COL[s.node];
+          const ty = to[1] + 34;
+          if (!from) {
+            edgesG.append(el("path", { class: "d-line bad", d: `M${to[0] - 60} ${ty} L${to[0] - 2} ${ty}`, "marker-end": "url(#ar-b)" }));
+            edgesG.append(el("text", { class: "d-bad-text", x: to[0] - 62, y: ty - 8, "text-anchor": "start" }, s.node + "?"));
+            return;
+          }
+          const fx = from[0] + W, fy = from[1] + 34;
+          let d;
+          if (from[0] < to[0]) d = `M${fx} ${fy} C ${fx + 40} ${fy}, ${to[0] - 40} ${ty}, ${to[0] - 2} ${ty}`;
+          else { const y = Math.max(from[1], to[1]) + H + 40; d = `M${from[0] + W / 2} ${from[1] + H} C ${from[0] + W / 2} ${y}, ${to[0] + W / 2} ${y}, ${to[0] + W / 2} ${to[1] + H + 2}`; }
+          edgesG.append(el("path", { class: bad ? "d-line bad" : "d-line", d, "marker-end": bad ? "url(#ar-b)" : "url(#ar-n)" }));
+        });
+      });
+    });
+    // graph outputs
+    Object.entries(b.record.outputs || {}).forEach(([name, s]) => {
+      const from = COL[s.node]; if (!from) return;
+      const bad = (b.problems || []).some((p) => p.type === "graph_output_not_found");
+      const x = from[0] + W, y = from[1] + 20;
+      edgesG.append(el("path", { class: bad ? "d-line bad" : "d-line", d: `M${x} ${y} L${x + 34} ${y}`, "marker-end": bad ? "url(#ar-b)" : "url(#ar-n)" }));
+      edgesG.append(el("text", { class: bad ? "d-bad-text" : "d-label", x: x + 40, y: y + 4 }, name));
+      edgesG.append(el("text", { class: "d-sub", x: x + 40, y: y + 20 }, s.node + "." + s.output));
+    });
+    return svg;
+  }
+
+  function show(i) {
+    const b = BREAKS[i];
+    document.querySelectorAll(".pick").forEach((p) => p.setAttribute("aria-pressed", String(+p.dataset.i === i)));
+    const rec = $("#rec");
+    rec.innerHTML = lines(b.record).map((l) => '<div class="' + (i && !baseLines.has(lineKey(l)) ? "changed" : "") + '">' + highlight(l[1], "json") + "</div>").join("");
+    const v = $("#verdict");
+    let html = "";
+    if (b.raised) {
+      html += '<p class="state raised"><i></i>Graph.compile raised InvalidCallError</p>';
+    } else {
+      const n = b.problems.length;
+      html += '<p class="state' + (n ? " bad" : "") + '"><i></i>' + (n ? n + (n === 1 ? " problem" : " problems") : "runnable") + "</p>";
+    }
+    html += '<p class="note">' + linked(NOTES[b.key] || "") + "</p>";
+    const ps = b.raised || b.problems;
+    if (ps.length) {
+      html += '<ul class="plist">' + ps.map((p) =>
+        '<li><span class="ptype">' + esc(p.type) + (p.error ? " &middot; " + esc(p.error) : "") + '</span><span class="ploc">loc ' + esc("(" + p.loc.map((x) => JSON.stringify(x)).join(", ") + (p.loc.length === 1 ? "," : "") + ")") + '</span><span class="pmsg">' + esc(p.msg) + "</span></li>").join("") + "</ul>";
+    } else {
+      html += '<p class="small">graph.problems is [].</p>';
+    }
+    v.innerHTML = html;
+    const fig = $("#drawing"); fig.innerHTML = "";
+    if (b.raised) { const p = document.createElement("p"); p.className = "small"; p.style.padding = "2rem 0"; p.style.textAlign = "center"; p.textContent = "There's no Graph to draw. The record was refused as it was read."; fig.append(p); }
+    else fig.append(drawGraph(b));
+    if (!reduced) [rec, v, fig].forEach((e) => { e.classList.remove("fade"); void e.offsetWidth; e.classList.add("fade"); });
+  }
+
+  const picks = $("#picks");
+  GROUPS.forEach(([label, test]) => {
+    const g = document.createElement("div"); g.className = "pick-group";
+    const h = document.createElement("p"); h.className = "small"; h.textContent = label; g.append(h);
+    const row = document.createElement("div"); row.className = "pick-row";
+    BREAKS.forEach((b, i) => {
+      if (!test(b)) return;
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "pick"; btn.dataset.i = i; btn.textContent = b.label;
+      btn.setAttribute("aria-pressed", "false");
+      btn.addEventListener("click", () => show(i));
+      row.append(btn);
+    });
+    g.append(row); picks.append(g);
+  });
+  show(0);
+})();
+</script>
+
+</body>
+</html>

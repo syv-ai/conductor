@@ -1,0 +1,51 @@
+# create-graph reference
+
+One module, on three text nodes declared at the top. Events, errors and serving runs: `python -m conductor.about events` (or `errors`, `serving-runs`).
+
+```python
+from typing import Annotated
+
+from conductor import Ask, Graph, NodeRegistry, Param, Run, Series, node
+from conductor.widgets import Textarea
+
+registry = NodeRegistry(category="text")
+
+
+@registry.node("text-split", title="Split", description="Splits a text at a separator.")
+def split(text: str, separator: str = ",") -> Series[str]:
+    return text.split(separator)
+
+
+@registry.node("text-uppercase", title="Uppercase", description="Turns a text into capital letters.")
+def uppercase(text: str) -> str:
+    return text.upper()
+
+
+# compiling never raises for a bad graph; key on each Problem's type
+broken = Graph.compile({"nodes": {"loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}}}}}, registry)
+assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
+
+
+@node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review", asks=True)
+def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
+    raise Ask("Approve this?", default=proposal)
+
+
+registry.add(approve)
+asking = Graph.compile({"nodes": {
+    "drafts": {"node": "text-split", "inputs": {"text": {"constant": "first,second"}}},
+    "approve": {"node": "approve", "inputs": {"proposal": {"sources": [{"node": "drafts", "output": "result"}]}}},
+}}, registry)
+
+first = asking.run()
+assert first.status == "waiting" and [waiting.inputs["proposal"] for waiting in first.waiting] == ["first", "second"]
+stored = Run.from_json(first.to_json(), asking)               # how a host keeps the run until it is answered
+answered = stored.with_answers(stored.waiting[1].id, "Second, approved")
+second = answered.resume()
+assert [waiting.inputs["proposal"] for waiting in second.waiting] == ["first"]
+```
+
+- An asking node's call waits, with the calls downstream of it; the rest runs on. Each entry of `run.waiting` carries `id`, `loc` (the node, then its item), `prompt`, `inputs` and `questions`: one per output, the `PortDescription` `describe()` writes, with the `choices`, `default` and `widget` the node asked with. A question with no `default` key must be answered when `required` is true, and is a skipped branch when left out otherwise; `"default": null` is the value `None`. A node with one output is answered with its value, so its one question is `required`, a branch too, and its `default` is only the value to fill in.
+- `run.with_answers(waiting, value)` takes an entry of `run.waiting` or its id, and a value of what the node returns (a mapping by output name for several outputs); `run.with_answers({waiting_id: value, ...})` answers several at once. A call not answered goes on waiting and is not called again. `run.with_decline(waiting, reason=...)` ends the run for good instead: it is `declined` with `answer_declined`, nothing more is called, and `run.again()` starts a new run that asks again. `run.asked` lists every call a person answered or declined, an `Asked` with the question as shown (`question`, a `Question`: a `Waiting` without the id, so never an answer's target) and the reply (`answer`, or a decline's `reason`), from a run read back too.
+- A wrong answer raises `InvalidCallError` (`invalid_answer`); so does a run that needs a context and is given none (`context_missing`). `run.again(changed)` reuses the calls whose inputs match, and runs the rest.
+- An event writes itself as JSON (`event.model_dump(mode="json")`). Events carry counts, not values: read a node's values from `run.results`. Setting `cancel=` on `stream`, `resume` or `graph.run` stops the run before its next call, as does leaving a stream's loop once the stream is closed (`async with contextlib.aclosing(run.stream()) as events:`).

@@ -1,171 +1,116 @@
 ---
 name: add-node
-description: Use when adding a new conductor node — any Python function being decorated with @registry.node, any new class extending BaseNode, or when the user asks how to expose a function to a flow. Covers widget selection, multi-output, validation, retries, and versioning. Triggers on phrases like "add a node", "register a node", "new flow node", "expose X as a node".
+description: Writes a conductor node, a Python function under @node. Use when adding or changing a syv-conductor node, or choosing its widgets, types, outputs, branches, versions, retries, Context values or questions to a person; or on "add a node", "register a node", "expose X as a node".
 ---
 
 # Adding a conductor node
 
-Use this skill when the user wants to create a new node in a project that depends on the [`conductor`](https://pypi.org/project/conductor/) library.
+A node is a plain Python function. Its type hints are its interface: each parameter is an input, and the return type is its output. So `def greet(name: str) -> str` under `@node("greet", title="Greet", description="Greets a person.")` is already a node. `Annotated[..., Param(...)]` adds what a person sees in an editor.
 
-## First — pull the authoritative library reference
-
-Conductor ships its own reference text inside the wheel. **Run these before writing code** so your advice matches the installed version, not stale training data:
-
-```bash
-python -m conductor.about sections          # list section slugs
-python -m conductor.about registration      # decorator + metadata
-python -m conductor.about widgets           # widget catalog + type→widget defaults
-python -m conductor.about data-flow         # edges, shared refs, static data, defaults
-python -m conductor.about retry             # node-level and global retries
-python -m conductor.about errors            # error hierarchy + what to raise
-```
-
-Use `python -m conductor.about` (no args) for the full text when section names are uncertain. For class-based nodes: `python -m conductor.about class-based-nodes`.
-
-Programmatic equivalent: `from conductor.about import get_content, list_sections, get_section`.
-
-## Core pattern
-
-A node is a plain Python function decorated with `@registry.node(...)`. Type hints with `Annotated[T, Widget(...)]` drive validation **and** frontend rendering — they are the single source of truth.
+To wire nodes into a graph and run it, use the **create-graph** skill. The installed library is the authority on every rule: `python -m conductor.about node` (or `versions`, `hooks`, `types`).
 
 ```python
 from typing import Annotated
-from conductor import NodeRegistry
-from conductor.widgets import Text, Number, Output
 
-registry = NodeRegistry()  # usually a module-level singleton in the host project
+from conductor import NodeRegistry, Param
 
-@registry.node(
-    "greet",
-    version=1,
-    name="Greet",
-    description="Produces a greeting.",
-)
+registry = NodeRegistry(category="text")   # its nodes' category, unless one sets its own
+
+
+@registry.node("greet", title="Greet", description="Greets a person by name.")               # the id; a graph pins it with a version
 def greet(
-    name: Annotated[str, Text(label="Name")],
-    times: Annotated[int, Number(label="Times", integer_only=True)] = 1,
-) -> Annotated[str, Output(label="Greeting")]:
-    return "hello " + (name + " ") * times
+    name: Annotated[str, Param(title="Name")],
+    times: Annotated[int, Param(title="Times")] = 1,
+) -> str:
+    """Produces a greeting."""
+    return " ".join(f"hello {name}" for _ in range(times))
+
+
+assert greet("Ida") == "hello Ida"    # a node is called like its function
+assert registry["greet"] is greet
 ```
 
-Rules:
+## What `@node` checks
 
-- `base_id` must be unique per version. Versioned as `greet@1`, `greet@2`.
-- First positional arg is the first input; order matches UI order.
-- Default values become the default on the frontend widget.
-- Return annotation describes the output. Use a tuple return for multi-output (see below).
+`@node` checks the declaration when the module is imported. A mistake raises `NodeDeclarationError`. Its `problems` holds one problem, whose `type` is the code.
 
-## Picking a widget
+**Id, title and description.**
+- The id, `title=` and `description=` are all required.
+- The title and description are what a person reads in the palette. Write them for someone who isn't a developer.
+- The docstring is for developers. It's never shown.
+- A port's title is its `Param(title=)`. Without one it's `None`: nothing is guessed from the parameter's name.
 
-Every `Annotated[T, Widget]` is explicit. When a parameter has no widget, conductor infers a default from the Python type:
+**Inputs.**
+- Give an input a widget only where it says more than its type, such as `Param(widget=Textarea())` for a long text. A host's editor picks the control for a `str`, a number, a `bool` or a list from the type, so `TextInput()`, `NumberInput()`, `Switch()` and `ListInput()` there add nothing.
+- A default makes an input optional, and the palette shows it as `default` (`null` means the value `None`). An input without a default is `required` and has no `default` key.
+- `Param(constant_only=True)` makes an input a setting that's fixed when the graph is drawn. An edge never wires it, and a caller never gives it.
+- `Param(ge=0, max_length=31, ...)` sets pydantic's limits on a value. `@node` refuses a limit that can't apply to the type.
+- Never write pydantic's `Field(...)` in a node's hint. It's refused (`pydantic_field_in_hint`). Use `Param` instead.
+- `Any` means a value passed on without being read.
 
-| Type | Default widget |
+**Outputs.**
+- An output whose default is `SKIPPED` is a branch, `(type, SKIPPED)` in a hook. A call gives a value to at most one branch of a node. Only an output can default to `SKIPPED`.
+- `SKIPPED` means a way not taken, and `None` means no value. An output that may be missing beside other outputs is `str | None`, not a branch.
+
+**The function.**
+- It's a plain `def` (not `async def`) that returns a value of its declared type.
+
+## Quick reference
+
+| The node needs | Write (examples in REFERENCE.md) |
 |---|---|
-| `str` | `Text` |
-| `int` | `Number(integer_only=True)` |
-| `float` | `Number` |
-| `bool` | `Checkbox` |
-| `Date` | `DatePicker` |
-| `list[T]` | `List(item_widget=default(T))` |
-| `dict` | `SchemaBuilder` |
-| `Base64Str`, `NamedFile`, `MultiNamedFile` | `FileUpload` |
+| Several outputs | a dataclass with no `@host_type` as the return type. Put `Annotated[str, Param(title=...)]` on a field to say more. A dataclass declared with `@host_type` is one value, the output `result` |
+| To run once per item | return `Series[X]`. A node that takes one `X` from it runs once per item, and so does everything after it |
+| Every item in one call | a `Series[X]` input. It collects the items, in order |
+| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of rows. A `Table` input wired to records collects them |
+| A branch | give each output the default `SKIPPED`, and return a value on at most one of them. Two independent ways to go are two nodes |
+| To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
+| A person's answer | `raise Ask(prompt)`, and `asks=True` on the `@node`, or `@node` refuses the function. The answer becomes the node's outputs. See "Asking a person" below |
+| A client, a clock, the caller | the run's context: `def sign(ctx: Context[HostContext], text: str)`. Name the class once with `NodeRegistry(context_type=HostContext)`, and pass the object as `run.resume(context=HostContext(...))` |
+| Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
+| A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
+| A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
+| Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values`. A parameter annotated `type` gets the arriving type; `type_fields(t)` gives its fields |
+| An email, a web address, a path, an IP address | pydantic's own types and the standard library's need no declaration: `EmailStr`, `HttpUrl`, `AwareDatetime`, `pathlib.Path`, `ipaddress.IPv4Address` |
+| A text or number class of your own | `@host_type("invoice-number", title="Invoice number")` above `class InvoiceNumber(str)` |
+| A model or dataclass of your own | `@host_type("address", title="Address")` above a frozen class: `model_config = ConfigDict(frozen=True)` or `@dataclass(frozen=True)`, or it is refused (`type_not_frozen`). A node never changes a value it is given; it makes a new one with `dataclasses.replace` or `model_copy(update=...)` |
 
-Prefer an explicit `Annotated` when you want a `label`, `description`, `choices`, or other UI config. Leave it off for quick-and-dirty internal nodes.
+### Asking a person
 
-Full widget catalog: `python -m conductor.about widgets` or read `docs/widgets.md` in the conductor repo.
+- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, `-> Annotated[str, Param(choices=["low", "high"])]` one of those values, and a dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
+- The output's `Param` says how the question looks. Fixed choices are part of the type: `Param(choices=[...])` on a plain type, each a value or a `Choice(id, title)` to give it a title, as `Annotated[str, Param(choices=[Choice("low", "Can wait"), Choice("high", "Today")])]`. Write each value once: never a `Literal` that repeats the choices' values.
+- `Ask(prompt, choices=..., default=...)` carries what only the run knows: choices that are data, such as a list on an input, and a proposed answer. Each has the answer's shape. On a node with several outputs, they go by output name.
+- A node that needs the answer reads it through an edge. For example, `approval(invoice) -> bool` asks, and is wired into `pay(invoice, ok: bool)`. To offer the two as one palette entry, put them in a `subgraph`.
 
-## Multi-output
+## Registries
 
-Return a tuple **and** annotate each output:
+- `@registry.node` takes the same arguments as `@node`, and adds the node to the registry.
+- Plain `@node` registers nothing. Add such nodes later with `registry.add(node_a, node_b)`.
+- A module keeps a registry of its own, and the host joins them with `registry.add_subregistry(module_registry)`. `NodeRegistry(category=, tags=, extra=)` sets defaults for its nodes.
+- Two definitions under one id raise. `replace` and `remove` change one. `registry.filter(predicate)` gives a narrower registry.
+- `extra=` is your own JSON about a node: JSON values only, no tuple, date or `inf`. Conductor keeps it and never reads it. Every argument of `@node` is held to its signature's type where the node is declared (`invalid_declaration_argument`), so `tags=["text"]`, never `tags="text"`.
 
-```python
-from conductor.widgets import Output
+## Testing a registry
 
-@registry.node("split", version=1, name="Split", description="Splits a string.")
-def split(
-    s: Annotated[str, Text(label="Input")],
-    sep: Annotated[str, Text(label="Separator")] = ",",
-) -> tuple[
-    Annotated[str, Output(label="Head")],
-    Annotated[str, Output(label="Tail")],
-]:
-    head, _, tail = s.partition(sep)
-    return head, tail
-```
-
-Tuple returns are normalized to `{"output_1": head, "output_2": tail}`. Single returns are `{"result": value}`.
-
-Returning a pydantic `BaseModel` or a `dict` spreads the fields as individual outputs (`DICT_SPREAD`).
-
-## Retries
-
-Add `max_retries` / `retry_delay` on the decorator for transient failures. Raise `NodeConnectionError` (from `conductor.errors`) to signal a retryable failure from node code:
+Calling `greet("Ida")` tests one node. `check_registry` tests what a declaration alone can't show, for a whole registry. `python -m conductor.about testing` lists its checks.
 
 ```python
-from conductor.errors import NodeConnectionError
+from conductor.testing import check_registry
 
-@registry.node(
-    "fetch",
-    version=1,
-    name="Fetch",
-    description="Fetch a URL.",
-    max_retries=3,
-    retry_delay=0.5,  # delay doubles each attempt
-)
-def fetch(url: Annotated[str, Text(label="URL")]) -> Annotated[str, Output(label="Body")]:
-    try:
-        return _http_get(url)
-    except TimeoutError as e:
-        raise NodeConnectionError(str(e)) from e
+assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 ```
 
-`NodeValidationError` is never retried. `HumanInputRequired` short-circuits retries to pause the flow.
+- A node's body is only called for a node you give an example (a node may send mail). It's called once per example, through the engine.
+- A body that changes a value it was given, as `items.append(x)` does, is `changed_its_inputs`. Make a new value instead: `[*items, x]`, `dataclasses.replace`, `model_copy(update=...)`, `frame.with_columns(...)`.
+- `("greet", 1)` as a key gives examples for an older version.
+- `context=HostContext(...)` gives the examples the run's context, the same way `graph.run` takes it.
+- A known failure goes in a test of its own, over `registry.filter(...)`, marked `pytest.mark.xfail(strict=True)`. `python -m conductor.about example-run-failed` shows one.
 
-## Human-in-the-loop
+## Common mistakes
 
-Pause a flow to collect input from a user:
-
-```python
-from conductor.errors import HumanInputRequired
-
-@registry.node("approve", version=1, name="Approve", description="Ask for approval.")
-def approve(text: Annotated[str, Text(label="Text")]) -> Annotated[bool, Output(label="Approved")]:
-    raise HumanInputRequired(
-        prompt=f"Approve this text? {text}",
-        schema={"type": "object", "properties": {"approved": {"type": "boolean"}}},
-    )
-    # On resume, the node is re-invoked with the response available via
-    # FlowStore or by reading conductor.about about section "hitl".
-```
-
-Full HITL contract: `python -m conductor.about hitl`.
-
-## Class-based nodes
-
-When a node needs persistent state, custom dispatch, or dynamic I/O, extend `BaseNode` and register via `registry.register_class(MyNode)`. This is a minority case — check `python -m conductor.about class-based-nodes` before reaching for it.
-
-## Shared references
-
-Declared at graph-build time on the `GraphNode`, not on the decorated function. See the create-flow skill or `python -m conductor.about shared-references`.
-
-## Where to register
-
-Most projects keep one module-level `registry = NodeRegistry()` and import it from each file that defines nodes. Compose with pre-built libraries via `registry.merge(other_registry)`:
-
-```python
-import conductor_nodes
-registry.merge(conductor_nodes.get_default_registry())
-```
-
-## Checklist before shipping a node
-
-- [ ] Unique `base_id@version` within the target registry.
-- [ ] Every parameter and every return has a type annotation.
-- [ ] Explicit widgets where UI needs a label/choices/constraint; implicit where a default suffices.
-- [ ] External calls wrapped to raise `NodeConnectionError` and have `max_retries` set.
-- [ ] Invalid input raises `NodeValidationError` (or let pydantic do it automatically).
-- [ ] Tests cover: happy path, invalid input, retryable failure, multi-output ordering.
-
-## When your advice diverges from the installed version
-
-The library is the source of truth. If a user reports behavior that contradicts this skill, run `python -m conductor.about` first and trust the output. Skill docs are a shortcut; the packaged reference is authoritative.
+| Mistake | Fix |
+|---|---|
+| A retry loop inside the node | use `Policy(retries=...)`, and raise `ExternalError` or set `retry_on` |
+| "flow" in a docstring or message | conductor's word is graph |
+| Catching `Exception` around an `Ask` | `Ask` is a `BaseException`, so `except Exception` lets it through. Don't catch `BaseException` |
+| `Ask(default=value)` on a node with several outputs | write `default={"output_name": value}`, by output name, as the answer is. An `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |
