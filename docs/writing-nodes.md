@@ -264,7 +264,9 @@ def reachable(contacts: Table[Contact]) -> Table[Contact]:
 
 
 run = Graph.compile(make_graph(contacts, reachable), registry).run({"csv": "name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n"})
-print(run.outputs["result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
+reached = run.outputs["result"]
+assert isinstance(reached, pl.DataFrame)  # an output is typed object: narrow it to use it as a table
+print(reached.to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
 ```
 
 The CSV had a `phone` column, which `Contact` doesn't name, so it was dropped. A `Table[Contact]` always has exactly the columns `Contact` names. A missing column is refused, and a column may hold `None` only if its type says `| None`, as `email` does.

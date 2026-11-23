@@ -122,7 +122,7 @@ class Run[C]:
     _complete_nodes: frozenset[NodePath] = frozenset()
 
     @property
-    def inputs(self) -> Mapping[str, Any]:
+    def inputs(self) -> Mapping[str, object]:
         """The graph inputs the caller gave, by name. The run's outcomes hold them, read-only."""
         return self._outcomes.graph_inputs
 
@@ -358,12 +358,14 @@ class Run[C]:
         return run
 
     @overload
-    def with_answers(self, waiting: Waiting | str, value: Any, /) -> Run[C]: ...
+    def with_answers(self, waiting: Waiting | str, value: object, /) -> Run[C]: ...
 
     @overload
-    def with_answers(self, answers: Mapping[str, Any], /) -> Run[C]: ...
+    def with_answers(self, answers: Mapping[str, object], /) -> Run[C]: ...
 
-    def with_answers(self, waiting: Waiting | str | Mapping[str, Any], /, *value: Any) -> Run[C]:
+    def with_answers(
+        self, waiting: Waiting | str | Mapping[str, object], /, *value: object
+    ) -> Run[C]:
         """Returns a new run with these answers given to the calls waiting for them. No node is called.
 
         ``run.with_answers(waiting, value)`` answers one call, and ``run.with_answers({waiting_id: value, ...})``
@@ -392,7 +394,7 @@ class Run[C]:
         """
         match waiting, value:
             case Mapping(), ():
-                given: Mapping[str, Any] = waiting
+                given: Mapping[str, object] = waiting
                 parts = WaitingIdValidator(
                     function="run.with_answers", argument="answers", keyed=True
                 )(waiting)
@@ -499,7 +501,7 @@ class Run[C]:
         )
 
     @staticmethod
-    def declines_as_json(declines: Mapping[str, Any]) -> dict[str, str | None]:
+    def declines_as_json(declines: Mapping[str, object]) -> dict[str, str | None]:
         """Turns the declines a host queues for a run into the reasons the run will be given.
 
         A server can't give a running run a decline, so it queues it as JSON until the run stops, as it queues an
@@ -616,7 +618,7 @@ class Run[C]:
 
     def with_inputs(
         self,
-        inputs: Mapping[str, Any] = MappingProxyType({}),
+        inputs: Mapping[str, object] = MappingProxyType({}),
         *,
         max_items: int | None = None,
     ) -> Run[C]:
@@ -652,7 +654,7 @@ class Run[C]:
 
     def again(
         self,
-        inputs: Mapping[str, Any] = MappingProxyType({}),
+        inputs: Mapping[str, object] = MappingProxyType({}),
         *,
         max_items: int | None = None,
         context: C | None = None,
@@ -724,7 +726,7 @@ class Run[C]:
         ]
 
     @property
-    def results(self) -> dict[str, dict[str, Any]]:
+    def results(self) -> dict[str, dict[str, object]]:
         """Every node's outputs so far, by node id and output name. It works whatever the run's status.
 
         A node called once shows what it returned. A node called per item shows a list with one entry per item, and
@@ -737,7 +739,7 @@ class Run[C]:
         return results_of(self.graph, self._outcomes)
 
     @property
-    def outputs(self) -> dict[str, Any]:
+    def outputs(self) -> dict[str, object]:
         """The graph's outputs by name, once the run is complete.
 
         ``results`` works on a run that isn't complete.
@@ -796,7 +798,7 @@ class Run[C]:
 
 
 def make_run[C](
-    graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None
+    graph: Graph[C], inputs: dict[str, object], max_items: int | None, previous: Run[Any] | None
 ) -> Run[C]:
     """Returns a run of ``graph`` that hasn't started: what ``graph.with_inputs({"text": "a\\nb"})`` returns.
 

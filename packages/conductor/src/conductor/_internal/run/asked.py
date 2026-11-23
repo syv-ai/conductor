@@ -16,8 +16,6 @@ ended (``EndedEarly.declined``, a ``Declined``), so both read the same from a ru
 
 from __future__ import annotations
 
-from typing import Any
-
 from conductor._internal.base import ConductorModel
 
 from .json import SavedRun, answer_to_json
@@ -42,7 +40,7 @@ class Asked(ConductorModel):
     """
 
     question: Question
-    answer: dict[str, Any] | None
+    answer: dict[str, object] | None
     reason: str | None
 
 

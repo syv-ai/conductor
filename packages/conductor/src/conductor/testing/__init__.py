@@ -81,7 +81,7 @@ def check_registry[C](
     registry: NodeRegistry[C],
     /,
     *,
-    examples: Mapping[str | tuple[str, int], Sequence[Mapping[str, Any]]] = MappingProxyType({}),
+    examples: Mapping[str | tuple[str, int], Sequence[Mapping[str, object]]] = MappingProxyType({}),
     context: C | None = None,
 ) -> list[Problem]:
     """Checks every node of a registry, and returns every problem it finds.

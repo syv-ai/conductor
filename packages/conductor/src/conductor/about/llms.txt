@@ -991,7 +991,9 @@ def research(ctx: Context[Session], words: list[str]) -> list[str]:
         end = asyncio.run(_finished(look_up_graph.with_inputs({"word": word}), ctx))
         if end.status != "complete":
             raise ExternalError(f"The look-up ended {end.status}.")
-        results.append(end.run.outputs["result"])
+        found = end.run.outputs["result"]
+        assert isinstance(found, str)
+        results.append(found)
     return results
 
 
@@ -1206,6 +1208,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 **The rest of a run.**
 
 - `run.outputs` is the graph's outputs, by the names `graph.outputs` lists. It is there on a `complete` run only, and is `run_not_complete` otherwise.
+- A value a graph gives or is given is typed `object`: `run.outputs`, `run.results`, `run.inputs`, a `Waiting`'s `inputs` and an `Asked`'s `answer`. Its type is the graph's, which a type checker can't know. Printing, comparing and saving one need nothing; to use one as its type, narrow it first: `table = run.outputs["result"]`, then `assert isinstance(table, pl.DataFrame)`. What a host gives, such as `graph.run`'s inputs, `run.with_answers`' answers and `make_graph`'s constants, is a `Mapping[str, object]`, so a dict of any values fits.
 - `run.waiting` (each a `Waiting`), `run.none_input_calls` (each a `NoneInputCall`, with `loc` and `input`), `run.status` and `run.cause`.
 
 **The status.** One rule gives the status, from the outcomes and from how the last `resume()` left the run. The first that applies wins:

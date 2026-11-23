@@ -17,7 +17,7 @@ import functools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, Self
 
 from pydantic import MISSING, ConfigDict, JsonValue
 
@@ -84,7 +84,7 @@ class Upgrade:
 
     renamed_inputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
     renamed_outputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
-    rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
+    rewrite: Callable[[dict[str, JsonValue]], Mapping[str, object]] | None = None
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -354,7 +354,7 @@ class SubgraphDefinition(_Version):
 
 
 #: One version of a node: a function, or a subgraph.
-type NodeDefinition = FunctionDefinition[..., Any] | SubgraphDefinition
+type NodeDefinition = FunctionDefinition[..., object] | SubgraphDefinition
 
 
 def version_number(version: int | None, replaces: NodeDefinition | None) -> int:

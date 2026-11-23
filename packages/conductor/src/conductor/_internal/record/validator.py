@@ -62,7 +62,7 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return read
 
 
-def read_json(text: str | bytes) -> Any:
+def read_json(text: str | bytes) -> JsonValue:
     """Parses JSON text into plain data, and refuses a key written twice in one object.
 
     This is how conductor parses a graph record's text. Plain ``json.loads`` would keep only the last of two equal
@@ -108,7 +108,9 @@ def refused_record(
     )
 
 
-class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], GraphRecord]):
+class RecordValidator(
+    Validator[GraphRecord | str | bytes | Mapping[str, object] | JsonValue, GraphRecord]
+):
     """A validator for a graph record a host hands in.
 
     It returns a ``GraphRecord``. A ``GraphRecord`` is returned as it is. JSON text is parsed with ``read_json``.
@@ -129,7 +131,9 @@ class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], G
         """
         self._written_by = written_by
 
-    def __call__(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:
+    def __call__(
+        self, record: GraphRecord | str | bytes | Mapping[str, object] | JsonValue
+    ) -> GraphRecord:
         """Checks ``record`` and returns it as a ``GraphRecord``.
 
         Raises:

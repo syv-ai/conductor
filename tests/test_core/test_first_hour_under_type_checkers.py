@@ -2,7 +2,9 @@
 
 These are the README's program, the custom widget from ``docs/writing-nodes.md``, and a few small programs below.
 A new user's editor runs a type checker, so a red squiggle on the first example would be a bad start. One of the
-programs checks that a ``Table[R]`` keeps its row type ``R`` for the checker.
+programs checks that a ``Table[R]`` keeps its row type ``R`` for the checker. Another, a host's file, calls every
+public signature whose values depend on the graph, and passes mypy's ``--disallow-any-expr`` too: conductor types
+those values ``object``, so no ``Any`` reaches a host's code.
 """
 
 from __future__ import annotations
@@ -52,7 +54,9 @@ def rows(table: Table) -> int:
 
 graph = Graph.compile(make_graph(sales, first_row, rows), registry)
 results = graph.run().results
-assert results["first-row"]["result"]["region"].to_list() == ["north"]
+first = results["first-row"]["result"]
+assert isinstance(first, pl.DataFrame)
+assert first["region"].to_list() == ["north"]
 assert results["rows"]["result"] == 1
 """
 
@@ -76,6 +80,160 @@ clean = subgraph("clean", title="Clean", description="For a test.")(make_graph(t
 base.add(clean)
 outer = make_graph(clean, upper, edges=[("clean.result", "upper.text")], constants={"clean.text": "  hi  "})
 assert Graph.compile(outer, base).run().outputs == {"result": "HI"}
+"""
+
+
+#: A host's file that calls every public signature whose values depend on the graph: what it gives in, and what it
+#: reads back, which it narrows with ``isinstance`` before using a value as its type.
+_A_HOST = """
+import asyncio
+from typing import Annotated, TypedDict
+
+from conductor import (
+    Ask,
+    Choice,
+    Graph,
+    NodeRegistry,
+    Param,
+    Run,
+    Series,
+    Upgrade,
+    make_graph,
+    node,
+    read_json,
+    type_fields,
+)
+from conductor.events import RunEnd
+from conductor.testing import check_registry
+from conductor_providers.fastapi import Worker
+
+registry = NodeRegistry()
+answers = [True, False]
+
+
+class Invoice(TypedDict):
+    name: str
+    amount: int
+
+
+@registry.node("read", title="Read", description="Reads invoices from a CSV text.")
+def read(csv: str) -> Series[Invoice]:
+    found = [line.split(",") for line in csv.splitlines()[1:]]
+    return [Invoice(name=name, amount=int(amount)) for name, amount in found]
+
+
+@registry.node("approve", title="Approve", description="Approves an invoice, or asks a person to.", asks=True)
+def approve(name: str, amount: int) -> bool:
+    if amount < 1000:
+        return True
+    raise Ask(f"Approve {name}, {amount} kr.?", choices=answers, default=False)
+
+
+@registry.node("summary", title="Summary", description="Tells how many invoices were approved.")
+def summary(approved: Series[bool]) -> str:
+    return f"{sum(approved)} of {len(approved)} approved"
+
+
+class Contact(TypedDict):
+    name: str
+
+
+def fields_of(value: type) -> dict[str, object]:
+    return type_fields(value)
+
+
+@node("fields", title="Fields", description="Gives each field of a value.", compute_outputs=fields_of)
+def fields(value: Contact) -> dict[str, str]:
+    return {"name": value["name"]}
+
+
+@node("repeat", title="Repeat", description="Repeats a text.")
+def repeat_v1(text: str, times: int = 1) -> str:
+    return text * times
+
+
+counts = [1, 2, 3]
+
+
+@node(
+    "repeat",
+    title="Repeat",
+    description="Repeats a text.",
+    replaces=repeat_v1,
+    upgrade=Upgrade(rewrite=lambda constants: {"times": constants.get("times", 1)}),
+)
+def repeat(text: str, times: Annotated[int, Param(choices=counts)] = 1) -> str:
+    return text * times
+
+
+record = make_graph(
+    read,
+    approve,
+    summary,
+    edges=[
+        ("read.result.name", "approve.name"),
+        ("read.result.amount", "approve.amount"),
+        ("approve.result", "summary.approved"),
+    ],
+    defaults={"read.csv": "name,amount\\n"},
+)
+make_graph(repeat, constants={"repeat.text": "ho", "repeat.times": 2})
+graph = Graph.compile(read_json(record.model_dump_json()), registry)
+
+csv: dict[str, str] = {"csv": "name,amount\\nIda,100\\nBo,5000\\n"}
+run = graph.run(csv)
+given = run.inputs["csv"]
+assert isinstance(given, str)
+for waiting in run.waiting:
+    shown = waiting.inputs["name"]
+    assert isinstance(shown, str)
+
+queued = graph.answers_as_json({run.waiting[0].id: True})
+Run.declines_as_json({run.waiting[0].id: "Not today"})
+run.with_answers(queued).resume()
+run.with_decline(run.waiting[0], reason="No").resume()
+answered = Run.from_json(run.with_answers(run.waiting[0], True).resume().to_json(), graph)
+for asked in answered.asked:
+    if asked.answer is not None:
+        assert asked.answer["result"] is True
+
+summed = answered.outputs["result"]
+assert isinstance(summed, str)
+assert summed.startswith("2 of 2")
+assert answered.results["approve"]["result"] == [True, True]
+answered.again({"csv": "name,amount\\n"})
+answered.with_inputs({"csv": "name,amount\\n"}, max_items=10)
+
+for port in registry.describe().nodes[0].inputs:
+    assert port.json_schema and port.widget is None
+for definition in registry:
+    assert registry[definition.id] is definition
+assert Param(ge=0).limits
+assert not check_registry(registry, examples={"read": [csv]})
+assert Choice(True, "Yes", colour="green").id is True
+
+
+async def streamed() -> None:
+    async for event in graph.with_inputs(csv).stream():
+        if isinstance(event, RunEnd):
+            assert event.status == "waiting"
+
+
+asyncio.run(streamed())
+
+
+def everyone(metadata: dict[str, str]) -> bool:
+    return True
+
+
+async def served(worker: Worker[dict[str, str], None]) -> None:
+    view = await worker.create(read_json(record.model_dump_json()), csv, {"by": "ida"}, allows=everyone)
+    await worker.estimate(record, csv, {"by": "ida"}, allows=everyone)
+    view = await worker.again(view.id, csv, {"by": "ida"}, allows=everyone)
+    for waiting in view.waiting:
+        view = await worker.answer(view.id, {waiting.id: True}, allows=everyone)
+    if view.outputs is not None:
+        print(view.outputs["result"], view.metadata["by"])
 """
 
 
@@ -133,6 +291,7 @@ def _programs() -> dict[str, str]:
         "a_frame_in_and_out.py": _A_FRAME_IN_AND_OUT,
         "a_subgraph.py": _A_SUBGRAPH,
         "a_table_keeps_its_row_type.py": _A_TABLE_KEEPS_ITS_ROW_TYPE,
+        "a_host.py": _A_HOST,
         "docs_custom_widget.py": next(
             block
             for block in re.findall(r"```python\n(.*?)```", _WRITING_NODES.read_text(), re.S)
@@ -172,6 +331,26 @@ def test_the_first_hour_programs_pass_mypy_strict(programs: list[Path], tmp_path
         capture_output=True,
         text=True,
         cwd=programs[0].parent,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_a_host_meets_no_any(programs: list[Path], tmp_path: Path) -> None:
+    host = next(path for path in programs if path.name == "a_host.py")
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--strict",
+            "--disallow-any-expr",
+            "--cache-dir",
+            str(tmp_path),
+            str(host),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=host.parent,
     )
     assert done.returncode == 0, done.stdout + done.stderr
 

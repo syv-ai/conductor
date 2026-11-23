@@ -6,8 +6,7 @@ stops and waits, and the person's answer becomes the node's outputs. The class b
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
 
 from conductor._internal.base import REQUIRED
 
@@ -66,12 +65,16 @@ class Ask(BaseException):
         default: The proposed answer as given, or ``REQUIRED`` when none was.
     """
 
-    def __init__(
+    prompt: str
+    choices: Sequence[object] | Mapping[str, Sequence[object]] | None
+    default: object
+
+    def __init__[T](
         self,
         prompt: str,
         *,
-        choices: list[Any] | Mapping[str, list[Any]] | None = None,
-        default: Any = REQUIRED,
+        choices: list[T] | Mapping[str, list[T]] | None = None,
+        default: object = REQUIRED,
     ) -> None:
         super().__init__(prompt)
         self.prompt = prompt

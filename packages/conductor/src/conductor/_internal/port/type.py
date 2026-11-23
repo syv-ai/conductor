@@ -217,7 +217,7 @@ class Port:
         taken = tuple(choice for choice in asked if self.takes(choice.id, item=True))
         return taken or None
 
-    def takes(self, value: JsonValue, *, item: bool = False) -> bool:
+    def takes(self, value: object, *, item: bool = False) -> bool:
         """Says whether the port's type takes ``value``, in its JSON form, as a person's answer is read.
 
         A question saved before a deploy may hold a choice or a default the type refuses now; a form offers only
