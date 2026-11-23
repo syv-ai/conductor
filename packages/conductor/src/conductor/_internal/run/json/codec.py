@@ -222,8 +222,9 @@ def run_codec(
     the one key ``result``, a list of ``str | None``.
 
     Each node gets a subclass of ``SavedOutcomes``, whose ``outputs``, ``skipped`` and ``skipped_items`` are keyed by
-    the node's outputs. It also gets a subclass of ``SavedReusable`` with the same fields, and ``item_indexes``.
-    Nodes whose outputs have the same names and types share both classes. The codec keeps them by node in
+    the node's outputs, and whose ``takes_none`` says which outputs, and which outputs' items, take ``None``. It also
+    gets a subclass of ``SavedReusable`` with the same fields, and ``item_indexes``. Nodes whose outputs have the
+    same names, types and ``takes_none`` share both classes. The codec keeps them by node in
     ``outcomes_classes`` and ``reusable_classes``, and a run is written with them. So a run written and the run read
     back from it use the same classes. Each class's name ends with the graph's fingerprint.
 
@@ -233,15 +234,22 @@ def run_codec(
         outputs: The outputs of each function node, by the node's name in a saved run.
         nodes: The name in a saved run of every function node.
     """
-    # keyed by what a node's classes depend on: each output's name, its type, and whether it is a Series
+    # keyed by what a node's classes depend on: each output's name, its type, whether it is a Series, and whether
+    # it and its items take None
     of_same_outputs: dict[
-        tuple[tuple[str, Type, bool], ...], tuple[type[SavedOutcomes], type[SavedReusable]]
+        tuple[tuple[str, Type, bool, tuple[bool, bool]], ...],
+        tuple[type[SavedOutcomes], type[SavedReusable]],
     ] = {}
     outcomes_classes, reusable_classes = {}, {}
     for node, node_outputs in outputs.items():
         value_types = {name: saved_type(output) for name, output in node_outputs.items()}
+        takes_none = {
+            name: (output.whole.optional, output.type.optional)
+            for name, output in node_outputs.items()
+        }
         same_outputs = tuple(
-            (name, value_types[name], output.is_series) for name, output in node_outputs.items()
+            (name, value_types[name], output.is_series, takes_none[name])
+            for name, output in node_outputs.items()
         )
         if same_outputs not in of_same_outputs:
             suffix = f"{len(of_same_outputs)}_{fingerprint}"
@@ -270,12 +278,20 @@ def run_codec(
                     PydanticField(default_factory=dict),
                 ),
             }
-            of_node = create_model(
-                f"SavedOutcomes_{suffix}", __base__=SavedOutcomes, **fields_of_node
-            )
+            namespace = {"takes_none": MappingProxyType(takes_none)}
             of_same_outputs[same_outputs] = (
-                of_node,
-                create_model(f"SavedReusable_{suffix}", __base__=SavedReusable, **fields_of_node),
+                create_model(
+                    f"SavedOutcomes_{suffix}",
+                    __base__=SavedOutcomes,
+                    __namespace__=namespace,
+                    **fields_of_node,
+                ),
+                create_model(
+                    f"SavedReusable_{suffix}",
+                    __base__=SavedReusable,
+                    __namespace__=namespace,
+                    **fields_of_node,
+                ),
             )
         outcomes_classes[node], reusable_classes[node] = of_same_outputs[same_outputs]
     names = tuple(nodes)
@@ -290,9 +306,9 @@ def run_codec(
         "reusable": _ExactKeys({}, reusable_classes),
         "complete": complete,
     }
-    namespace = {"outcomes_classes": outcomes_classes, "reusable_classes": reusable_classes}
+    classes = {"outcomes_classes": outcomes_classes, "reusable_classes": reusable_classes}
     return create_model(
-        f"SavedRun_{fingerprint}", __base__=SavedRun, __namespace__=namespace, **fields_of_run
+        f"SavedRun_{fingerprint}", __base__=SavedRun, __namespace__=classes, **fields_of_run
     )
 
 

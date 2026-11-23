@@ -6,12 +6,15 @@ which narrows the fields to that graph's own node names and value types.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal, get_args
+from collections.abc import Iterable, Mapping
+from typing import Any, ClassVar, Literal, Self, get_args
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt
+from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt, model_validator
 from pydantic import Field as PydanticField
 
 from conductor._internal.base import JSON_CONFIG
+from conductor._internal.problem import conductor_error
+from conductor._internal.series import SeriesItems
 
 from ..outcome import Unanswered
 from ..state import EndedEarly
@@ -69,6 +72,15 @@ class SavedOutcomes(BaseModel):
 
     A key after ``outputs`` is left out of the JSON when it is empty.
 
+    The lists hold together as a run writes them, or the saved run is refused with ``saved_lists_disagree`` at the
+    node (``_lists_agree``). Each output's list and ``fingerprints`` are as long as ``states``. ``skipped``,
+    ``skipped_items``, ``questions`` and ``none_inputs`` name only calls that can have them: ``skipped_items`` an
+    item of a ``Series`` saved as a list, ``questions`` a call that is done or waiting, and ``none_inputs`` a call
+    with no state and no question. Only a done or a waiting call has a fingerprint. A question names only the node's
+    outputs (``question_disagreement``). And a done call has ``null`` where its output's type, or its items', takes
+    no ``None`` only where ``skipped`` or ``skipped_items`` says the node returned ``SKIPPED`` there
+    (``takes_none``): a node that returned ``None`` there would have failed with ``invalid_output``.
+
     Attributes:
         states: For each call: ``"done"`` when its function returned or a person answered, ``"skipped"`` when it was
             skipped, and ``None`` otherwise.
@@ -82,6 +94,8 @@ class SavedOutcomes(BaseModel):
             made.
         skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for that output.
         skipped_items: By output name and call number, the indexes of the ``SKIPPED`` items in a returned series.
+        takes_none: In a graph's codec, by output name, whether the output's type takes ``None``, and whether its
+            items do: ``(False, True)`` for ``Series[str | None]``.
     """
 
     model_config = _SAVED
@@ -94,6 +108,103 @@ class SavedOutcomes(BaseModel):
     skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] = PydanticField(
         default_factory=dict
     )
+    takes_none: ClassVar[Mapping[str, tuple[bool, bool]]]
+
+    @model_validator(mode="after")
+    def _lists_agree(self) -> Self:
+        """Refuses lists no run writes, as the class says.
+
+        Raises:
+            PydanticCustomError: ``saved_lists_disagree``, since only a saved run can give one: its message names
+                outputs, call numbers and keys, and no value.
+        """
+        if (wrong := self._disagreement()) is not None:
+            raise conductor_error("saved_lists_disagree", wrong)
+        return self
+
+    def _disagreement(self) -> str | None:
+        """Returns what in the lists disagrees, the first fault in the order the class says them, or ``None``."""
+        calls = len(self.states)
+        if any(len(values) != calls for values in self.outputs.values()):
+            return "the list of an output is not as long as 'states'"
+        if len(self.fingerprints) != calls:
+            return "'fingerprints' is not as long as 'states'"
+        if not self._calls_can_have_them():
+            return (
+                "'skipped', 'skipped_items', 'questions' or 'none_inputs' names a call that does not exist or "
+                "cannot have it"
+            )
+        for question in self.questions.values():
+            if (wrong := question_disagreement(question, self.outputs)) is not None:
+                return wrong
+        if any(
+            fingerprint is not None
+            and self.states[call_number] != SAVED_DONE
+            and call_number not in self.questions
+            for call_number, fingerprint in enumerate(self.fingerprints)
+        ):
+            return "a call that is neither done nor waiting has a fingerprint"
+        return self._null_where_none_is_refused()
+
+    def _calls_can_have_them(self) -> bool:
+        """Says whether each call number under ``skipped``, ``skipped_items``, ``questions`` and ``none_inputs`` is
+        a call that can have that entry, as the class says."""
+        calls = len(self.states)
+        if any(n >= calls for numbers in self.skipped.values() for n in numbers):
+            return False
+        for name, by_call_number in self.skipped_items.items():
+            skipped = set(self.skipped.get(name, ()))
+            for call_number, indexes in by_call_number.items():
+                # only a Series saved as a list, and not skipped as a whole, has its items listed
+                items = self.outputs[name][call_number] if call_number < calls else None
+                if call_number in skipped or not isinstance(items, SeriesItems):
+                    return False
+                if any(index >= len(items) for index in indexes):
+                    return False
+        if any(
+            n >= calls or self.states[n] == SAVED_SKIPPED for n in self.questions
+        ):  # a question is kept by a call that is done or waiting
+            return False
+        return not any(
+            n >= calls or self.states[n] is not None or n in self.questions
+            for n in self.none_inputs
+        )
+
+    def _null_where_none_is_refused(self) -> str | None:
+        """Returns where a done call has ``null`` that the output's type, or its items', takes as no ``None``.
+
+        A saved run writes ``SKIPPED`` as ``null``, so the codec takes ``null`` for every output and every item of
+        a ``Series``. A ``null`` that ``skipped`` or ``skipped_items`` doesn't list is a ``None`` the node returned.
+        Say ``split`` returns ``Series[str]``, and its saved ``["a", null]`` lists no skipped item: it is refused.
+        """
+        for name, values in self.outputs.items():
+            takes_none, items_take_none = self.takes_none[name]
+            # an output whose value and items may be None has nothing to refuse
+            if takes_none and items_take_none:
+                continue
+            skipped = set(self.skipped.get(name, ()))
+            skipped_items = self.skipped_items.get(name, {})
+            for call_number, value in enumerate(values):
+                # most values are not None, so a call's state is looked up only for a value that may be refused
+                if (
+                    value is None
+                    and not takes_none
+                    and self.states[call_number] == SAVED_DONE
+                    and call_number not in skipped
+                ):
+                    return f"call {call_number} is done and has null for '{name}', whose type takes no None"
+                if (
+                    not items_take_none
+                    and type(value) is SeriesItems
+                    and self.states[call_number] == SAVED_DONE
+                    and any(item is None for item in value)
+                ):
+                    listed = set(skipped_items.get(call_number, ()))
+                    if any(
+                        item is None and index not in listed for index, item in enumerate(value)
+                    ):
+                        return f"call {call_number} is done and has null for an item of '{name}', whose items take no None"
+        return None
 
 
 class SavedReusable(SavedOutcomes):
@@ -125,6 +236,19 @@ class SavedReusable(SavedOutcomes):
 
     fingerprints: list[str]  # type: ignore[assignment]  # narrower than SavedOutcomes': no outcome here lacks one
     item_indexes: list[tuple[NonNegativeInt, ...]]
+
+    @model_validator(mode="after")
+    def _one_call_each(self) -> Self:
+        """Refuses ``item_indexes`` that aren't one per outcome, once the lists agree (``_lists_agree``).
+
+        Raises:
+            PydanticCustomError: ``saved_lists_disagree``.
+        """
+        if len(self.item_indexes) != len(self.states):
+            raise conductor_error(
+                "saved_lists_disagree", "'item_indexes' is not as long as 'states'"
+            )
+        return self
 
 
 class SavedRun(BaseModel):
@@ -172,3 +296,17 @@ class SavedRun(BaseModel):
     complete: list[str]
     outcomes_classes: ClassVar[dict[str, type[SavedOutcomes]]]
     reusable_classes: ClassVar[dict[str, type[SavedReusable]]]
+
+
+def question_disagreement(question: Unanswered, outputs: Iterable[str]) -> str | None:
+    """Returns why a saved question isn't one an ``Ask`` of a node with these outputs gives, or ``None`` if it is.
+
+    An ``Ask`` gives choices and defaults only for the node's outputs. A saved question is a record of what a person
+    was shown, so its values are kept as they were saved, and never read again by the output's type: a deploy may
+    have changed the type, and the person was shown them all the same. The codec checks the rest of its shape: a
+    prompt and titles as text, choices and defaults by output name, at least one choice and none twice
+    (``Choices``), values as JSON. An output the node doesn't have is what no deploy explains.
+    """
+    if not {*question.choices, *question.defaults} <= set(outputs):
+        return "a question names an output the node does not have"
+    return None
