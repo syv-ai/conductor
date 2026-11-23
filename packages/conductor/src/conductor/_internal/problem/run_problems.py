@@ -349,7 +349,7 @@ def question_unwritable(*loc: str | int, error: str, input: str) -> str:
 
 @RUN_PROBLEMS.problem
 def run_cancelled() -> str:
-    """The ``cancel`` event given to ``run.stream`` was set.
+    """The run's ``cancel`` event, given to ``resume``, ``graph.run`` or ``stream``, was set.
 
     Calls that returned before the cancel are kept. To go on, save the run and call ``resume()`` on it.
 

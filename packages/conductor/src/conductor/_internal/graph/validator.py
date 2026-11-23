@@ -12,9 +12,10 @@ Inputs. Take ``make_graph(shout, defaults={"shout.mark": "!"})``, a graph of one
 ``{"line": 3, "colour": "red"}``, it raises ``InvalidCallError`` with both faults at once: ``unknown_graph_input`` for
 ``colour``, then ``invalid_input`` for ``line``.
 
-Limits. These are ``max_items``, ``timeout`` and ``checkpoint_every``. They're the same for every graph, so
-``LimitsValidator`` is built with no arguments. A yes or no isn't a number, so ``max_items=True`` is refused, and so
-is ``max_items=2.5``.
+Limits. These are ``max_items``, ``timeout``, ``checkpoint_every``, and the events that stop a run, ``cancel`` and
+``hand_back``. They're the same for every graph, so ``LimitsValidator`` is built with no arguments. A yes or no isn't
+a number, so ``max_items=True`` is refused, and so is ``max_items=2.5``. Nor is it an event: ``cancel=True`` is
+refused.
 
 Constants. These are checked by their input's type when the graph is compiled. Take ``shout(line: str, mark: str =
 "!")`` with ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``. It gets ``"?"`` on every call. The
@@ -25,7 +26,9 @@ without quoting the value. A record stores JSON, so a value is read strictly, as
 
 from __future__ import annotations
 
+from asyncio import Event as AsyncioEvent
 from collections.abc import Mapping
+from threading import Event as ThreadEvent
 from typing import Any, TypedDict, cast
 
 from pydantic import JsonValue, ValidationError
@@ -126,13 +129,29 @@ class Limits(TypedDict, total=False):
     """A run's limits, by name.
 
     This is what a caller gives ``LimitsValidator``, and what it returns. A limit left out, or given as ``None``, is
-    one the caller didn't set. What the validator returns has all three, with ``None`` for each one not set.
+    one the caller didn't set. What the validator returns has every limit, with ``None`` for each one not set.
     """
 
     max_items: int | None
     timeout: float | None
     checkpoint_every: float | None
+    cancel: AsyncioEvent | ThreadEvent | None
+    hand_back: AsyncioEvent | None
 
+
+def _event_schema(named: str, *classes: type) -> core_schema.CoreSchema:
+    """An instance of one of ``classes``, refused as pydantic's ``is_instance_of`` with ``named`` as its class."""
+    return core_schema.nullable_schema(
+        core_schema.union_schema(
+            [core_schema.is_instance_schema(cls) for cls in classes],
+            custom_error_type="is_instance_of",
+            custom_error_context={"class": named},
+        )
+    )
+
+
+#: The limits that are seconds, refused as ``invalid_limit_seconds``; any other is ``invalid_limit``.
+_SECONDS = frozenset({"timeout", "checkpoint_every"})
 
 #: Checks the limits a caller gives a run. A limit left out is ``None``, which isn't checked.
 _LIMITS = SchemaValidator(
@@ -151,6 +170,10 @@ _LIMITS = SchemaValidator(
                     core_schema.float_schema(strict=True, gt=0, allow_inf_nan=False)
                 )
             ),
+            "cancel": core_schema.typed_dict_field(
+                _event_schema("asyncio.Event or threading.Event", AsyncioEvent, ThreadEvent)
+            ),
+            "hand_back": core_schema.typed_dict_field(_event_schema("asyncio.Event", AsyncioEvent)),
         }
     )
 )
@@ -160,7 +183,8 @@ class LimitsValidator(Validator[Limits, Limits]):
     """The validator for the limits a caller gives a run.
 
     ``max_items`` must be a whole number of at least 1. ``timeout`` and ``checkpoint_every`` are seconds, finite and
-    above 0. A yes or no is none of these. So ``LimitsValidator()({"max_items": 0})`` raises.
+    above 0. ``cancel`` is an ``asyncio.Event`` or a ``threading.Event``, and ``hand_back`` an ``asyncio.Event``. A yes
+    or no is none of these. So ``LimitsValidator()({"max_items": 0})`` raises.
 
     It returns ``timeout`` and ``checkpoint_every`` as a ``float``, so ``timeout=Decimal("1.5")`` becomes ``1.5``.
 
@@ -182,11 +206,7 @@ class LimitsValidator(Validator[Limits, Limits]):
                 f"a run has no limit {unknown[0]!r}; its limits are "
                 f"{comma_separated(Limits.__annotations__)}"
             )
-        given = {
-            "max_items": limits.get("max_items"),
-            "timeout": limits.get("timeout"),
-            "checkpoint_every": limits.get("checkpoint_every"),
-        }
+        given = {name: limits.get(name) for name in Limits.__annotations__}
         try:
             return cast(Limits, _LIMITS.validate_python(given))
         except ValidationError as error:
@@ -194,9 +214,9 @@ class LimitsValidator(Validator[Limits, Limits]):
             raise InvalidCallError(
                 [
                     (
-                        call_problems.invalid_limit
-                        if name == "max_items"
-                        else call_problems.invalid_limit_seconds
+                        call_problems.invalid_limit_seconds
+                        if name in _SECONDS
+                        else call_problems.invalid_limit
                     )(name, errors=Type(Any).refusal(error, (name,))["errors"])
                     for name in refused
                 ]

@@ -107,7 +107,7 @@ class EndedEarly(ConductorModel):
 
     Attributes:
         status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
-            ``cancelled`` when the stream's ``cancel`` was set, ``timed_out`` when the ``timeout`` passed, and
+            ``cancelled`` when the run's ``cancel`` (given to ``resume``, ``graph.run`` or ``stream``) was set, ``timed_out`` when the ``timeout`` passed, and
             ``declined`` when a person declined to answer a question.
         cause: The problem that ended the run, with its ``loc`` and code. ``None`` for a ``declined`` run.
         declined: For a ``declined`` run, the call declined. ``None`` for any other status.

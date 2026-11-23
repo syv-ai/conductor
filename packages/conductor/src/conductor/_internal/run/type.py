@@ -174,9 +174,8 @@ class Run[C]:
     ) -> Run[C]:
         """Calls every node that is ready, and returns a new run once it has to stop.
 
-        It stops when the run is complete, waits for a person, fails, or reaches its item limit or its ``timeout``,
-        or once ``cancel`` is set.
-        A ``declined`` run has ended for good: it calls no node, and stays ``declined``.
+        It stops when the run is complete, waits for a person, fails, reaches its item limit or its ``timeout``, or
+        once ``cancel`` is set. A ``declined`` run has ended for good: it calls no node, and stays ``declined``.
 
         The context isn't saved with a run, so pass it again on every call. Once ``timeout`` has passed, no new call
         starts. The calls already running on threads are waited for, up to their ``attempt_timeout``, and their
@@ -201,15 +200,15 @@ class Run[C]:
             A new run, after those calls. The run you called it on is left as it was, so keep this one.
 
         Raises:
-            InvalidCallError: ``invalid_limit_seconds`` if ``timeout`` isn't a number of seconds above 0.
-                ``invalid_context`` if ``context`` isn't an instance of the registry's ``context_type``, and
+            InvalidCallError: ``invalid_limit_seconds`` if ``timeout`` isn't a number of seconds above 0, and
+                ``invalid_limit`` if ``cancel`` isn't an event. ``invalid_context`` if ``context`` isn't an instance of the registry's ``context_type``, and
                 ``context_missing`` if it is ``None`` while a node takes it.
         """
-        limits = LimitsValidator()({"timeout": timeout})
+        limits = LimitsValidator()({"timeout": timeout, "cancel": cancel})
         return self._run_scheduler(
             self.graph._context_validator(context),
             None,
-            stop_check(limits["timeout"], cancel),
+            stop_check(limits["timeout"], limits["cancel"]),
             only_costs_nothing=only_costs_nothing,
         )
 
@@ -226,8 +225,8 @@ class Run[C]:
         """Does what ``resume`` does, and yields an event for each thing that happens.
 
         Use it as ``async for event in run.stream(context=...): ...``. It takes ``context``, ``timeout``,
-        ``only_costs_nothing`` and ``cancel`` as ``resume`` does. The nodes are called on a thread of their own, so a slow node never
-        blocks the event loop. The last event is a ``RunEnd``, whose ``run`` is the run as it ends.
+        ``only_costs_nothing`` and ``cancel`` as ``resume`` does. The nodes are called on a thread of their own, so a
+        slow node never blocks the event loop. The last event is a ``RunEnd``, whose ``run`` is the run as it ends.
 
         It can also stop in three ways a host controls:
 
@@ -243,17 +242,25 @@ class Run[C]:
           checkpoint loses the calls in flight, and the outcomes recorded since the last checkpoint.
 
         Raises:
-            InvalidCallError: Whatever ``resume`` raises, and ``invalid_limit_seconds`` if ``checkpoint_every`` isn't a number
-                of seconds above 0. Both are raised at this call, before any event.
+            InvalidCallError: Whatever ``resume`` raises, ``invalid_limit_seconds`` if ``checkpoint_every`` isn't a
+                number of seconds above 0, and ``invalid_limit`` if ``hand_back`` isn't an ``asyncio.Event``. All are
+                raised at this call, before any event.
         """
-        limits = LimitsValidator()({"timeout": timeout, "checkpoint_every": checkpoint_every})
+        limits = LimitsValidator()(
+            {
+                "timeout": timeout,
+                "checkpoint_every": checkpoint_every,
+                "cancel": cancel,
+                "hand_back": hand_back,
+            }
+        )
         run_scheduler = functools.partial(
             self._run_scheduler,
             self.graph._context_validator(context),
             checkpoint_every=limits["checkpoint_every"],
             only_costs_nothing=only_costs_nothing,
         )
-        return stream(run_scheduler, limits["timeout"], cancel, hand_back)
+        return stream(run_scheduler, limits["timeout"], limits["cancel"], limits["hand_back"])
 
     def _run_scheduler(
         self,

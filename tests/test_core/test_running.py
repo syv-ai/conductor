@@ -2514,6 +2514,24 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
         assert "value" not in refused.value.problems[0].ctx
 
 
+@pytest.mark.parametrize("event", [True, "stop", object()])
+def test_a_cancel_or_hand_back_that_is_not_an_event_is_refused_at_the_call(event: Any) -> None:
+    graph = Graph.compile(make_graph(split), registry_of(split))
+    calls: list[tuple[str, Callable[[], Any]]] = [
+        ("cancel", lambda: graph.run({"text": "a"}, cancel=event)),
+        ("cancel", lambda: graph.with_inputs({"text": "a"}).resume(cancel=event)),
+        ("cancel", lambda: graph.with_inputs({"text": "a"}).stream(cancel=event)),
+        ("hand_back", lambda: graph.with_inputs({"text": "a"}).stream(hand_back=event)),
+    ]
+    for limit, call in calls:
+        with pytest.raises(InvalidCallError) as refused:
+            call()
+        assert [(p.type, p.loc, p.ctx["limit"]) for p in refused.value.problems] == [
+            ("invalid_limit", (limit,), limit)
+        ]
+        assert "value" not in refused.value.problems[0].ctx
+
+
 def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_order_of_the_limits():
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:

@@ -439,14 +439,21 @@ def invalid_limit(limit: str, /, *, errors: list[dict[str, Any]]) -> str:
 
     To fix it, give a whole number of 1 or more. Or leave it out, for no limit on items.
 
+    The events that stop a run are refused the same way: a ``cancel`` that isn't an ``asyncio.Event`` or a
+    ``threading.Event``, and a ``hand_back`` that isn't an ``asyncio.Event``, each with pydantic's ``is_instance_of``.
+
     Args:
-        limit: ``max_items``.
+        limit: ``max_items``, ``cancel`` or ``hand_back``.
         errors: What pydantic refused, each with its ``type``, ``loc``, ``msg`` and maybe ``ctx``, none quoting the
             value.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run({"text": "a"}, max_items=0))
     """
+    if limit == "cancel":
+        return "cancel must be an asyncio.Event or a threading.Event. Leave it out if nothing cancels the run."
+    if limit == "hand_back":
+        return "hand_back must be an asyncio.Event. Leave it out if the run is never handed back."
     return f"{limit} must be a whole number of 1 or more. Leave it out for no limit on items."
 
 
