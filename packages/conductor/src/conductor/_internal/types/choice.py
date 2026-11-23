@@ -6,7 +6,8 @@ can offer choices too. Each one is a ``Choice``, an id with a title::
     Annotated[str, Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])]
 
 Two steps use them. First, the choices are checked against the type and converted to JSON (``choices_schema``,
-which ``read_choices`` checks by).
+which ``read_choices`` checks by). A list of choices offers at least one and none twice (``choice_list``), and a
+question a saved run keeps declares its choices as ``Choices``, held to that rule too.
 Later, each value is checked against the choices. That second step compares JSON texts: ``choice_texts`` gives
 the text of each choice, ``pick_texts`` the text of each value picked, and ``check_one_of`` refuses a pick that
 isn't one of the choices. A message names the choices with ``choices_in_message``.
@@ -16,9 +17,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence, Set
 from enum import Enum
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
-from pydantic import ConfigDict, JsonValue, ValidationError
+from pydantic import ConfigDict, GetPydanticSchema, JsonValue, ValidationError
 from pydantic_core import (
     CoreSchema,
     PydanticKnownError,
@@ -151,20 +152,45 @@ def choices_schema(
             Choice(written, str(written) if isinstance(choice, Enum) else str(choice)),
         )
 
+    return core_schema.no_info_before_validator_function(
+        a_list, choice_list(core_schema.no_info_plain_validator_function(one))
+    )
+
+
+def choice_list(choice: CoreSchema) -> CoreSchema:
+    """Builds the schema of a list of choices, each read by ``choice``: the one rule that a list offers at least one
+    choice and none twice.
+
+    It gives the choices back as a tuple, and writes them as a list. Two choices are the same when their ids' JSON
+    texts match (``choice_texts``).
+
+    Returns:
+        A schema whose error of the whole list is pydantic's ``too_short`` for no choices, or ``choice_twice`` for an
+        id given twice, at the list's own place.
+    """
+
     def each_once(chosen: list[Choice]) -> tuple[Choice, ...]:
         if len(choice_texts(chosen)) != len(chosen):
             raise conductor_error("choice_twice", "a choice is given twice")
         return tuple(chosen)
 
-    return core_schema.no_info_before_validator_function(
-        a_list,
-        core_schema.no_info_after_validator_function(
-            each_once,
-            core_schema.list_schema(
-                core_schema.no_info_plain_validator_function(one), min_length=1
-            ),
+    return core_schema.no_info_after_validator_function(
+        each_once,
+        core_schema.list_schema(choice, min_length=1),
+        # what the list schema writes, given the tuple each_once returns
+        serialization=core_schema.plain_serializer_function_ser_schema(
+            list, return_schema=core_schema.list_schema(choice)
         ),
     )
+
+
+#: The choices a question offers for one output, as a run keeps them: at least one, none twice (``choice_list``).
+#: ``Unanswered`` declares its choices with it, so a question a saved run reads back is held to the rule an ``Ask``'s
+#: choices are. A question the run makes in memory is a plain dataclass, and isn't checked again.
+Choices = Annotated[
+    tuple[Choice, ...],
+    GetPydanticSchema(lambda _source, handler: choice_list(handler.generate_schema(Choice))),
+]
 
 
 def read_choices(

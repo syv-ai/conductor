@@ -14,6 +14,7 @@ one-field models, so a mapping is read as the model whose field is its one key. 
 
 from .choice import (
     Choice,
+    Choices,
     check_one_of,
     choice_texts,
     choices_in_message,
@@ -44,6 +45,7 @@ __all__ = [
     "NAMES",
     "SIZED",
     "Choice",
+    "Choices",
     "KindByKey",
     "UnreadableFieldError",
     "NotBlank",
