@@ -27,7 +27,6 @@ from conductor._internal.problem import (
     value_free_errors,
 )
 from conductor._internal.series import SeriesItems
-from conductor._internal.types import choice_texts
 
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..outcomes import RunOutcomes
@@ -169,23 +168,19 @@ def _checked_ending(ended_early: EndedEarly, outcomes: RunOutcomes) -> EndedEarl
 
 
 def _check_question(outputs: Mapping[str, Port], question: Unanswered) -> None:
-    """Checks that a saved question has the shape an ``Ask`` gives: choices and defaults only for outputs the node
-    has, and for each output at least one choice, none given twice.
+    """Checks that a saved question gives choices and defaults only for outputs the node has, as an ``Ask`` does.
 
     A saved question is a record of what a person was shown, so its values are kept as they were saved, and never
     read again by the output's type: a deploy may have changed the type, and the person was shown them all the
     same. The codec checks the rest of its shape: a prompt and titles as text, choices and defaults by output
-    name, values as JSON. An output the node doesn't have, and a list of choices no ``Ask`` could give, are what no
-    deploy explains.
+    name, at least one choice and none twice (``Choices``), values as JSON. An output the node doesn't have is what
+    no deploy explains.
 
     Raises:
-        ValueError: Any of that doesn't hold. The message names no value.
+        ValueError: It names an output the node doesn't have. The message names no value.
     """
     if not {*question.choices, *question.defaults} <= outputs.keys():
         raise ValueError("a question names an output the node does not have")
-    for offered in question.choices.values():
-        if not offered or len(choice_texts(offered)) != len(offered):
-            raise ValueError("a question offers no choice, or one choice twice, for an output")
 
 
 def _lists_disagree(where: str, reason: str) -> Problem:

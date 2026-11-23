@@ -851,7 +851,8 @@ def saved_run_unreadable(
     form that doesn't read back. ``ctx.where`` says where the saved run stops fitting. ``ctx.errors`` has the fault's
     one error, with ``loc`` ``[]``: pydantic's, such as ``int_parsing`` or ``bytes_invalid_encoding``, without the
     value, or ``saved_lists_disagree`` where the saved lists of a node don't agree with each other or with the graph,
-    such as an output's list longer than its calls.
+    such as an output's list longer than its calls. A saved question that offers an output no choice, or one choice
+    twice, is refused as an ``Ask`` is, with ``too_short`` or ``choice_twice`` at that output's choices.
 
     To fix it, start a new run.
 

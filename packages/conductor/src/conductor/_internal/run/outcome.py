@@ -53,7 +53,7 @@ from typing import Annotated, Any, ClassVar, Literal, final
 from pydantic import Field as PydanticField
 from pydantic import JsonValue
 
-from conductor._internal.types import Choice
+from conductor._internal.types import Choices
 
 
 class NotReady(Enum):
@@ -166,8 +166,8 @@ class Unanswered:
 
     Attributes:
         prompt: The text the person reads.
-        choices: The choices the ``Ask`` offered, by output name, each id in its JSON form. An output the ``Ask``
-            set no choices for isn't named.
+        choices: The choices the ``Ask`` offered, by output name, each id in its JSON form: at least one, none
+            twice (``Choices``). An output the ``Ask`` set no choices for isn't named.
         defaults: The answer the ``Ask`` proposed, by output name, in its JSON form. An output it proposed nothing
             for isn't named.
         fingerprint: The call's fingerprint, or ``None`` when its items can't be written as JSON. A saved run writes
@@ -176,7 +176,7 @@ class Unanswered:
     """
 
     prompt: str
-    choices: Mapping[str, tuple[Choice, ...]] = dataclasses.field(default_factory=dict)
+    choices: Mapping[str, Choices] = dataclasses.field(default_factory=dict)
     defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
     # Required when an Unanswered is made. Pydantic's default is only for a question read from a saved run, whose
     # JSON leaves the fingerprint out: read.py puts the one from the node's fingerprints list in its place.
