@@ -21,7 +21,7 @@ from threading import Event
 from types import MappingProxyType
 from typing import Any, Generic
 
-from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
+from conductor import Graph, GraphRecord, InvalidCallError, NodeRegistry, Run, RunProgress
 from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
@@ -147,8 +147,8 @@ class Worker(Generic[M, X]):
 
     async def create(
         self,
-        graph: Any,
-        inputs: Mapping[str, Any],
+        graph: GraphRecord | str | bytes | Mapping[str, object],
+        inputs: Mapping[str, object],
         metadata: M,
         *,
         previous: str | None = None,
@@ -189,8 +189,8 @@ class Worker(Generic[M, X]):
 
     async def estimate(
         self,
-        graph: Any,
-        inputs: Mapping[str, Any],
+        graph: GraphRecord | str | bytes | Mapping[str, object],
+        inputs: Mapping[str, object],
         metadata: M,
         *,
         previous: str | None = None,
@@ -230,7 +230,7 @@ class Worker(Generic[M, X]):
     async def again(
         self,
         run_id: str,
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, object],
         metadata: M,
         *,
         allows: Callable[[M], bool],
@@ -265,7 +265,7 @@ class Worker(Generic[M, X]):
     async def answer(
         self,
         run_id: str,
-        answers: Mapping[str, Any],
+        answers: Mapping[str, object],
         *,
         allows: Callable[[M], bool],
     ) -> RunView:
@@ -559,8 +559,8 @@ class Worker(Generic[M, X]):
 
     async def _ready(
         self,
-        graph: Any,
-        inputs: Mapping[str, Any],
+        graph: GraphRecord | str | bytes | Mapping[str, object],
+        inputs: Mapping[str, object],
         metadata: M,
         previous: str | None,
         allows: Callable[[M], bool],
@@ -682,7 +682,7 @@ class Worker(Generic[M, X]):
         self,
         row: RunRow[M],
         *,
-        answers: Mapping[str, Any] = MappingProxyType({}),
+        answers: Mapping[str, object] = MappingProxyType({}),
         max_items: int | None = None,
     ) -> RunRow[M] | None:
         """One try at giving a run this call's answers, or its higher ceiling: ``answer`` and ``resume`` both come

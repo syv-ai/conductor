@@ -14,13 +14,23 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import functools
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from re import Pattern
 from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
 
-from annotated_types import Ge, GroupedMetadata, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
+from annotated_types import (
+    BaseMetadata,
+    Ge,
+    GroupedMetadata,
+    Gt,
+    Le,
+    Lt,
+    MaxLen,
+    MinLen,
+    MultipleOf,
+)
 from pydantic import (
     ConfigDict,
     GetCoreSchemaHandler,
@@ -56,7 +66,7 @@ from .host_type import NotBlank
 #: The limits ``Param`` takes: by the keyword that writes each, the class pydantic is handed it as, whose attribute
 #: of that name is its value. ``Param(ge=0)`` is handed over as ``Ge(ge=0)``, and ``Param(pattern="x")`` as
 #: pydantic's own ``StringConstraints(pattern="x")``, since annotated-types has no pattern.
-LIMITS: dict[str, type[Any]] = {
+LIMITS: dict[str, type[BaseMetadata | StringConstraints]] = {
     "ge": Ge,
     "gt": Gt,
     "le": Le,
@@ -142,7 +152,7 @@ class Param:
     description: NotBlank | None = None
     widget: Widget | None = None
     constant_only: bool | None = None
-    choices: list[Any] | tuple[Any, ...] | None = None
+    choices: Sequence[object] | None = None
     ge: _Bound | None = None
     gt: _Bound | None = None
     le: _Bound | None = None
@@ -211,7 +221,7 @@ class Param:
         )
 
     @functools.cached_property
-    def limits(self) -> tuple[Any, ...]:
+    def limits(self) -> tuple[BaseMetadata | StringConstraints, ...]:
         """The limits that are set, as the objects pydantic is handed: ``(Ge(ge=0), MaxLen(max_length=8))``.
 
         Each is an annotated-types limit, and a pattern pydantic's ``StringConstraints``.

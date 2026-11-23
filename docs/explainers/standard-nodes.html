@@ -1014,7 +1014,9 @@ contacts = Graph.compile(make_graph(
 d = contacts.describe()
 print({n: d.nodes[n].per_item_of for n in ("series-split", "greet", "table-collect")})
 print([(i.port.name, i.port.type) for i in d.nodes["table-collect"].inputs])
-print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())</pre>
+greeted = contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"]
+assert isinstance(greeted, pl.DataFrame)
+print(greeted.to_dicts())</pre>
       <pre class="out">{'series-split': None, 'greet': 'series-split.result', 'table-collect': None}
 [('rows', 'Table'), ('columns', 'list[str]'), ('constant_columns', 'list[str]'), ('greeting', 'Any')]
 [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]</pre>

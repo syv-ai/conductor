@@ -991,7 +991,9 @@ def research(ctx: Context[Session], words: list[str]) -> list[str]:
         run = look_up_graph.run({"word": word}, context=ctx, cancel=ctx.cancel, timeout=60)
         if run.cause is not None:
             raise NodeError(f"The look-up ended {run.status}.", code="look_up_ended", ctx={"cause": run.cause.model_dump(mode="json")})
-        results.append(run.outputs["result"])
+        found = run.outputs["result"]
+        assert isinstance(found, str)
+        results.append(found)
     return results
 
 
@@ -1207,6 +1209,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 **The rest of a run.**
 
 - `run.outputs` is the graph's outputs, by the names `graph.outputs` lists. It is there on a `complete` run only, and is `run_not_complete` otherwise.
+- Every value whose type is the graph's is typed `object`, since a type checker can't know the graph. That is what a run hands back, such as its outputs, results and inputs, and what a host hands in, as a `Mapping[str, object]` that a dict of any values fits. Printing, comparing and saving a value need nothing. To use one as its type, check it first, so the checker narrows it and a wrong value fails loud: `if not isinstance(table, pl.DataFrame): raise TypeError(...)`. An `assert` narrows it too, as the examples here do, but Python leaves asserts out under `-O`.
 - `run.waiting` (each a `Waiting`), `run.none_input_calls` (each a `NoneInputCall`, with `loc` and `input`), `run.status` and `run.cause`.
 
 **The status.** One rule gives the status, from the outcomes and from how the last `resume()` left the run. The first that applies wins:

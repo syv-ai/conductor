@@ -248,7 +248,7 @@ def types_and_left_out(fields: Mapping[str, Any]) -> dict[str, tuple[Any, bool]]
     }
 
 
-def type_fields(hint: Any) -> dict[str, Any]:
+def type_fields(hint: object) -> dict[str, object]:
     """Returns the type of each field a pydantic model, a dataclass or a ``TypedDict`` declares, by name.
 
     It is empty for any other type, such as ``str`` or ``dict[str, int]``. A ``compute_outputs`` hook calls it on a

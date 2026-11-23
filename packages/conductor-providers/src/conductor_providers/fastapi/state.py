@@ -28,7 +28,7 @@ from conductor import (
     RunStatus,
     Waiting,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from pydantic_core import from_json
 
 from conductor_providers.fastapi.problems import raised_outside_a_node
@@ -51,7 +51,7 @@ class RunOutcome(BaseModel):
     """
 
     waiting: list[Waiting]
-    outputs: dict[str, Any] | None
+    outputs: dict[str, object] | None
     progress: RunProgress | None
 
     @classmethod
@@ -160,7 +160,7 @@ class RunState(BaseModel):
 
     def with_queued(
         self,
-        answers: Mapping[str, Any] = MappingProxyType({}),
+        answers: Mapping[str, JsonValue] = MappingProxyType({}),
         /,
         *,
         declines: Mapping[str, str | None] = MappingProxyType({}),
@@ -357,7 +357,7 @@ class RunView(RunOutcome):
     """
 
     id: str
-    metadata: dict[str, Any]
+    metadata: dict[str, object]
     status: RunStatus
     cause: Problem | None
     refused: dict[str, list[Problem]]

@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
-from pydantic import MISSING
+from pydantic import MISSING, JsonValue
 
 from conductor._internal.ask import AnswerAsJsonValidator
 from conductor._internal.base import Loc, json_hash, place_text
@@ -120,7 +120,8 @@ class Graph[C]:
 
     @staticmethod
     def compile[R](
-        record: GraphRecord | str | bytes | Mapping[str, Any], registry: Definitions[R]
+        record: GraphRecord | str | bytes | Mapping[str, object],
+        registry: Definitions[R],
     ) -> Graph[R]:
         """Compiles a graph record against the node definitions in ``registry``, a ``NodeRegistry``.
 
@@ -348,7 +349,7 @@ class Graph[C]:
 
     # -- what a host calls to run it ---------------------------------------------
 
-    def answers_as_json(self, answers: Mapping[str, Any]) -> dict[str, Any]:
+    def answers_as_json(self, answers: Mapping[str, object]) -> dict[str, JsonValue]:
         """Turns the answers a host queues for a run of this graph into the JSON data the run will be given.
 
         A server can't give a running run an answer, so it queues it as JSON until the run stops. Each answer
@@ -386,7 +387,7 @@ class Graph[C]:
             function="graph.answers_as_json", argument="answers", keyed=True
         )(answers)
         problems: list[Problem] = []
-        queued: dict[str, Any] = {}
+        queued: dict[str, JsonValue] = {}
         for waiting_id, answer in answers.items():
             loc, node_path, _, _ = parts[waiting_id]
             # None when the id names a subgraph, a node the graph doesn't have, or no node at all
@@ -405,7 +406,7 @@ class Graph[C]:
 
     def with_inputs(
         self,
-        inputs: Mapping[str, Any] = MappingProxyType({}),
+        inputs: Mapping[str, object] = MappingProxyType({}),
         *,
         max_items: int | None = None,
         previous: Run[Any] | None = None,
@@ -437,7 +438,7 @@ class Graph[C]:
 
     def run(
         self,
-        inputs: Mapping[str, Any] = MappingProxyType({}),
+        inputs: Mapping[str, object] = MappingProxyType({}),
         *,
         max_items: int | None = None,
         previous: Run[Any] | None = None,

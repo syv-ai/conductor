@@ -62,7 +62,7 @@ def fetch(address: Annotated[str, Param(title="Address")]) -> Annotated[str, Par
     return f"<html>{address}</html>"
 
 
-def columns_outputs(names: str) -> dict[str, Any]:
+def columns_outputs(names: str) -> dict[str, object]:
     if not names:
         raise ValueError("Type at least one column name.")   # a problem on the node when a graph is compiled, not an exception
     return {name: str for name in names.split(",")}

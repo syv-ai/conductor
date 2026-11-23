@@ -14,7 +14,7 @@ So a host can draw a question with the same code that draws an input.
 
 from __future__ import annotations
 
-from typing import Any, assert_never
+from typing import assert_never
 
 from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, json_hash, write_waiting_id
@@ -49,7 +49,7 @@ class Question(ConductorModel):
     loc: tuple[str | int, ...]
     prompt: str
     questions: list[PortDescription]
-    inputs: dict[str, Any]
+    inputs: dict[str, object]
 
 
 class Waiting(Question):
@@ -139,7 +139,7 @@ def question_fingerprint(node: BlueprintFunctionNode, waiting: Unanswered) -> st
 
 def _arguments(
     node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcomes: RunOutcomes
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Returns the arguments a waiting call was given, for the ``inputs`` a host is shown.
 
     The arguments aren't stored with the call, only their fingerprint: storing them would write every upstream value

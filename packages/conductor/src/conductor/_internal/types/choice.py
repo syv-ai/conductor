@@ -60,10 +60,10 @@ class Choice(ConductorModel):
 
     model_config = ConfigDict(extra="allow")
 
-    id: Any
+    id: object
     title: str
 
-    def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  "id" is what a host calls it
+    def __init__(self, id: object, title: str, **more: object) -> None:  # noqa: A002  "id" is what a host calls it
         """Makes a choice from its id and title, given in that order.
 
         Args:
@@ -71,7 +71,7 @@ class Choice(ConductorModel):
             title: What a person sees for it.
             **more: Any other fields a host gives it.
         """
-        fields: dict[str, Any] = {
+        fields: dict[str, object] = {
             "id": id,
             "title": title,
             **more,

@@ -50,8 +50,8 @@ _WRITTEN_BY = "make_graph's arguments"
 def make_graph(
     *nodes: NodeDefinition | tuple[str, NodeDefinition],
     edges: Sequence[tuple[str, str]] | None = None,
-    constants: Mapping[str, Any] = MappingProxyType({}),
-    defaults: Mapping[str, Any] = MappingProxyType({}),
+    constants: Mapping[str, object] = MappingProxyType({}),
+    defaults: Mapping[str, object] = MappingProxyType({}),
     inputs: Mapping[str, str | Sequence[str]] = MappingProxyType({}),
     outputs: Mapping[str, str] = MappingProxyType({}),
 ) -> GraphRecord:

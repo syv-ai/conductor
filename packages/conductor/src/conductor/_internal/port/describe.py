@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Self
 
 from pydantic import MISSING, JsonValue, model_validator
 
@@ -72,11 +72,11 @@ class PortDescription(ConductorModel):
     is_series: bool
     type: str
     type_variables: list[str] = []
-    json_schema: dict[str, Any]
+    json_schema: dict[str, object]
     required: bool
     default: JsonValue | MISSING = MISSING
     choices: tuple[Choice, ...] | None = None
-    widget: dict[str, Any] | None = None
+    widget: dict[str, object] | None = None
     constant_only: bool = False
     loops: list[str] = []
 

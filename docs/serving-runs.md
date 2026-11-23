@@ -314,8 +314,6 @@ The worker's docstrings have the finer points, such as a cancel during a take-ov
 The router is a thin layer over the `Worker`, and you can call the worker from routes of your own. Here is a route that offers a saved graph by name, so an end user fills in its inputs and never sends a graph:
 
 ```python
-from typing import Any
-
 from conductor import GraphRecord
 from conductor_providers.fastapi import RefusalRoute, RunView
 from fastapi import APIRouter, Body, HTTPException
@@ -327,7 +325,7 @@ own_routes = APIRouter(prefix="/saved", route_class=RefusalRoute)
 @own_routes.post("/{name}/runs", status_code=202)
 async def start_saved_graph(
     name: str,
-    inputs: Annotated[dict[str, Any], Body()],
+    inputs: Annotated[dict[str, object], Body()],
     metadata: Annotated[dict[str, str], Depends(run_metadata)],
     allows: Annotated[Callable[[dict[str, str]], bool], Depends(own_runs)],
 ) -> RunView:

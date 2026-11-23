@@ -88,7 +88,9 @@ contacts = Graph.compile(
     ),
     registry,
 )
-print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
+greeted = contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"]
+assert isinstance(greeted, pl.DataFrame)
+print(greeted.to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 
 A few things to notice:
