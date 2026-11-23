@@ -962,7 +962,7 @@ print(run.status, run.cause.model_dump(mode="json"))</pre>
       <div class="section-head">
         <p class="eyebrow">When a node raises</p>
         <h2 id="failures-h">A failure is a <code>Problem</code>, and the run stops starting calls <span class="lvl pub">Public</span></h2>
-        <p class="muted">The first call that fails, and isn't retried, ends the run as <code>failed</code>. Its <a href="problems.html">problem</a> is <code>run.cause</code>. The failed call stores nothing, so the next <code>resume()</code> makes it again. If the stream's <code>cancel</code> was set by then, the run ends <code>cancelled</code> instead. A call past its <code>attempt_timeout</code> still ends it <code>failed</code>, since the timeout isn't the cancel's doing. A node may stop a slow call by raising when it sees the cancel.</p>
+        <p class="muted">The first call that fails, and isn't retried, ends the run as <code>failed</code>. Its <a href="problems.html">problem</a> is <code>run.cause</code>. The failed call stores nothing, so the next <code>resume()</code> makes it again. If the run's <code>cancel</code> was set by then, the run ends <code>cancelled</code> instead. A call past its <code>attempt_timeout</code> still ends it <code>failed</code>, since the timeout isn't the cancel's doing. A node may stop a slow call by raising when it sees the cancel.</p>
       </div>
       <p class="muted">The third line of <code>parse</code> was never called. With <code>parse</code>'s default policy its calls go in item order on one thread, and the failure of item 1 stopped the run before item 2.</p>
     </div>
@@ -1109,7 +1109,7 @@ asyncio.run(follow())</pre>
   <div class="section-head prose">
     <p class="eyebrow">Limits and checkpoints</p>
     <h2 id="limits-h">A run can stop early and go on later <span class="lvl pub">Public</span></h2>
-    <p class="muted">Besides finishing, a run ends early when a call fails, a series goes over <a href="series-and-tables.html#limit"><code>max_items</code></a>, the stream is cancelled, or <code>timeout</code> passes. Each is a status with a <code>cause</code>. In each case no new call starts, and the calls on threads are waited for, each up to its <code>attempt_timeout</code>, and kept. A later <code>resume()</code> goes on from there, though a run stopped at the item limit needs a higher one first.</p>
+    <p class="muted">Besides finishing, a run ends early when a call fails, a series goes over <a href="series-and-tables.html#limit"><code>max_items</code></a>, the host cancels it, or <code>timeout</code> passes. Each is a status with a <code>cause</code>. In each case no new call starts, and the calls on threads are waited for, each up to its <code>attempt_timeout</code>, and kept. A later <code>resume()</code> goes on from there, though a run stopped at the item limit needs a higher one first.</p>
   </div>
 
   <div class="two">

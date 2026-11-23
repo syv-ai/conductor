@@ -1834,6 +1834,26 @@ def test_a_cancel_set_mid_run_ends_the_run_cancelled_at_once():
     assert after < 0.3 and len(calls) < 20, (after, len(calls))
 
 
+def test_a_cancel_given_to_resume_ends_the_run_cancelled_before_the_next_call_and_a_resume_without_it_goes_on():
+    """``resume(cancel=)`` stops as ``stream(cancel=)`` does: no new call once the event is set.
+
+    The first call of ``slow`` sets the event, so no other item is called, and the call that set it is kept.
+    """
+    cancel, calls = ThreadEvent(), []
+
+    @node("cancels", title="Cancels", description="For a test: sets the cancel on its first call.")
+    def cancels(text: str) -> str:
+        calls.append(text)
+        cancel.set()
+        return text
+
+    stopped = _per_item(cancels, 3).with_inputs().resume(cancel=cancel)
+    assert (stopped.status, stopped.cause.type, len(calls)) == ("cancelled", "run_cancelled", 1)
+
+    finished = stopped.resume()
+    assert finished.status == "complete" and len(calls) == 3
+
+
 def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run_before_the_remaining_items():
     """A cancel set while the previous run's outcomes are being reused ends the run before the remaining items.
 

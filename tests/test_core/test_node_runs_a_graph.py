@@ -2,16 +2,17 @@
 
 Conductor has no feature for this: the node compiles the inner graph once and runs it with the public API, passing
 on the run's context. These tests pin that it works: the outer run completes and saves, the inner run gets the same
-context object, a cancel event the host puts in the context stops both runs, a node with ``concurrency`` set may be
-used in both graphs, and a retried outer call runs its inner graph again.
+context object, a cancel event the host puts in the context and gives both runs as ``cancel=`` stops both, a node
+with ``concurrency`` set may be used in both graphs, and a retried outer call runs its inner graph again.
 
 Each inner run is given a ``timeout``, so a run that waits forever ends ``timed_out`` and fails the test instead of
 hanging it.
 """
 
-import asyncio
+import time
 from dataclasses import dataclass, field
 from threading import Event as ThreadEvent
+from threading import Thread
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from conductor import (
     Context,
     ExternalError,
     Graph,
+    NodeError,
     NodeRegistry,
     Policy,
     Run,
@@ -26,7 +28,6 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor.events import RunEnd
 
 #: How many seconds an inner run may take. Past this it ends ``timed_out`` instead of waiting forever.
 _BOUND = 10.0
@@ -100,54 +101,45 @@ def wait(ctx: Context[Agent], word: str) -> str:
 
 #: ``wait``, then ``lookup``. A cancel set while ``wait`` runs stops the run before ``lookup`` is called.
 WAITING_TOOL = Graph.compile(make_graph(wait, lookup), _registry(wait, lookup))
-INNER_ENDS: list[RunEnd] = []
-
-
-async def _last(run: Run[Agent], context: Agent) -> RunEnd:
-    async for event in run.stream(context=context, cancel=context.cancel, timeout=_BOUND):
-        if isinstance(event, RunEnd):
-            return event
-    raise AssertionError("a stream ends with a RunEnd")
+INNER_RUNS: list[Run[Agent]] = []
 
 
 @node("cancellable_agent", title="Cancellable agent", description="For a test.")
 def cancellable_agent(ctx: Context[Agent], word: str) -> str:
-    end = asyncio.run(_last(WAITING_TOOL.with_inputs({"word": word}), ctx))
-    INNER_ENDS.append(end)
-    if end.status != "complete":
-        raise ExternalError(f"The tool ended {end.status}.")
-    return end.run.outputs["result"]
+    run = WAITING_TOOL.run({"word": word}, context=ctx, cancel=ctx.cancel, timeout=_BOUND)
+    INNER_RUNS.append(run)
+    if run.cause is not None:
+        raise NodeError(
+            f"The tool ended {run.status}.", ctx={"cause": run.cause.model_dump(mode="json")}
+        )
+    return run.outputs["result"]
 
 
 def test_a_cancel_event_in_the_context_stops_the_inner_run_and_the_outer_run_ends_cancelled():
-    INNER_ENDS.clear()
+    INNER_RUNS.clear()
     graph = Graph.compile(make_graph(cancellable_agent), _registry(cancellable_agent))
     context = Agent()
+    outer: list[Run[Agent]] = []
+    thread = Thread(
+        target=lambda: outer.append(
+            graph.run({"word": "a"}, context=context, cancel=context.cancel, timeout=_BOUND)
+        )
+    )
 
-    async def go() -> RunEnd:
-        events = graph.with_inputs({"word": "a"}).stream(context=context, cancel=context.cancel)
-        async for event in events:
-            if isinstance(event, RunEnd):
-                return event
-        raise AssertionError("a stream ends with a RunEnd")
+    thread.start()
+    until = time.monotonic() + _BOUND
+    while not context.costs and time.monotonic() < until:
+        time.sleep(0.01)
+    context.cancel.set()
+    thread.join(_BOUND)
 
-    async def cancel_once_started() -> None:
-        while not context.costs:
-            await asyncio.sleep(0.01)
-        context.cancel.set()
-
-    async def both() -> RunEnd:
-        end, _ = await asyncio.wait_for(asyncio.gather(go(), cancel_once_started()), _BOUND)
-        return end
-
-    end = asyncio.run(both())
-
-    assert [inner.status for inner in INNER_ENDS] == ["cancelled"]
+    assert [inner.status for inner in INNER_RUNS] == ["cancelled"]
     assert context.costs == ["started"]  # lookup was never called
     # The outer call raised once the cancel was set, so the run ends cancelled, and the call has no outcome.
+    (end,) = outer
     assert end.status == "cancelled"
     assert end.cause is not None and end.cause.type == "run_cancelled"
-    assert end.run.progress.nodes["cancellable_agent"].finished == 0
+    assert end.progress.nodes["cancellable_agent"].finished == 0
 
 
 # -- a node with concurrency used in both graphs ------------------------------------------------

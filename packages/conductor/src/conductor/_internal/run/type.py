@@ -60,9 +60,9 @@ from .state import (
     EndedEarly,
     LastResume,
     RunStatus,
-    deadline,
     kept_by_an_answer,
     status_of,
+    stop_check,
 )
 from .stream import stream
 from .validator import ForgetValidator, WaitingIdValidator
@@ -170,10 +170,12 @@ class Run[C]:
         context: C | None = None,
         timeout: float | None = None,
         only_costs_nothing: bool = False,
+        cancel: AsyncioEvent | ThreadEvent | None = None,
     ) -> Run[C]:
         """Calls every node that is ready, and returns a new run once it has to stop.
 
-        It stops when the run is complete, waits for a person, fails, or reaches its item limit or its ``timeout``.
+        It stops when the run is complete, waits for a person, fails, or reaches its item limit or its ``timeout``,
+        or once ``cancel`` is set.
         A ``declined`` run has ended for good: it calls no node, and stays ``declined``.
 
         The context isn't saved with a run, so pass it again on every call. Once ``timeout`` has passed, no new call
@@ -192,6 +194,8 @@ class Run[C]:
             context: The run's context, given to every node that takes ``Context[...]``.
             timeout: The seconds after which no new call starts. ``None`` means no limit.
             only_costs_nothing: Whether to call only the nodes whose ``Policy`` says ``costs_nothing``.
+            cancel: An ``asyncio.Event`` or a ``threading.Event``. Once it is set, no new call starts, and the run
+                ends ``cancelled`` (provisional).
 
         Returns:
             A new run, after those calls. The run you called it on is left as it was, so keep this one.
@@ -205,7 +209,7 @@ class Run[C]:
         return self._run_scheduler(
             self.graph._context_validator(context),
             None,
-            deadline(limits["timeout"]),
+            stop_check(limits["timeout"], cancel),
             only_costs_nothing=only_costs_nothing,
         )
 
@@ -221,17 +225,16 @@ class Run[C]:
     ) -> AsyncGenerator[Event]:
         """Does what ``resume`` does, and yields an event for each thing that happens.
 
-        Use it as ``async for event in run.stream(context=...): ...``. It takes ``context``, ``timeout`` and
-        ``only_costs_nothing`` as ``resume`` does. The nodes are called on a thread of their own, so a slow node never
+        Use it as ``async for event in run.stream(context=...): ...``. It takes ``context``, ``timeout``,
+        ``only_costs_nothing`` and ``cancel`` as ``resume`` does. The nodes are called on a thread of their own, so a slow node never
         blocks the event loop. The last event is a ``RunEnd``, whose ``run`` is the run as it ends.
 
         It can also stop in three ways a host controls:
 
         - Set ``cancel`` to stop before the next call. Leaving the loop early stops it too, once the generator is
           closed. Python only closes an async generator when it is garbage collected, so close it yourself:
-          ``async with contextlib.aclosing(run.stream()) as events:``, then loop over ``events``. ``cancel`` can be an
-          ``asyncio.Event`` or a ``threading.Event``. A ``threading.Event`` can go in the context too, so a slow node
-          can check it from any thread.
+          ``async with contextlib.aclosing(run.stream()) as events:``, then loop over ``events``. A
+          ``threading.Event`` can go in the context too, so a slow node can check it from any thread.
         - Set ``hand_back`` to stop the same way but leave the run running. This is for a host that shuts down and lets
           another process go on. The calls on threads are waited for and kept. The last event is then a
           ``RunCheckpoint`` whose run is ``running``, and there is no ``RunEnd``. If ``cancel`` is set as well, it wins.

@@ -16,14 +16,12 @@ from threading import Event as ThreadEvent
 from threading import Thread
 from typing import Any
 
-from conductor._internal.problem import run_problems
-
 from .events import Event, EventBase
-from .state import EndedEarly, LastResume, deadline
+from .state import LastResume, stop_check
 
 
 async def stream(
-    run_scheduler: Callable[[Callable[[EventBase], None], Callable[[], LastResume]], object],
+    run_scheduler: Callable[[Callable[[EventBase], None], Callable[[], LastResume] | None], object],
     timeout: float | None,
     cancel: AsyncioEvent | ThreadEvent | None,
     hand_back: AsyncioEvent | None,
@@ -35,22 +33,15 @@ async def stream(
 
     ``run_scheduler`` is the streamed run's ``Run._run_scheduler``, with the run's context and settings already
     given. It is called with two things: the function to hand each event to, and the check to make before each
-    call. The check is built here, from ``cancel``, ``hand_back`` and ``timeout``. ``Run.stream`` says what each
+    call. The check is ``stop_check``'s, from ``cancel``, ``hand_back`` and ``timeout``. ``Run.stream`` says what each
     argument does.
 
     If the host stops iterating, the run is cancelled. If the scheduler itself raises, the stream raises the same
     exception once the events before it are given out.
     """
     loop, events = asyncio.get_running_loop(), Queue["Event | None"]()
-    cancelled = ThreadEvent()
-    check_deadline = deadline(timeout)
-
-    def stop() -> LastResume:
-        if cancelled.is_set() or (cancel is not None and cancel.is_set()):
-            return EndedEarly(status="cancelled", cause=run_problems.run_cancelled())
-        if hand_back is not None and hand_back.is_set():
-            return "running"  # the scheduler stops, and another process goes on with the run
-        return check_deadline() if check_deadline is not None else None
+    cancelled = ThreadEvent()  # set once the host stops iterating
+    stop = stop_check(timeout, cancelled, cancel, hand_back=hand_back)
 
     failed: list[BaseException] = []
 

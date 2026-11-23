@@ -57,6 +57,9 @@ from .node import (
 from .validator import InputsValidator, LimitsValidator
 
 if TYPE_CHECKING:
+    from asyncio import Event as AsyncioEvent
+    from threading import Event as ThreadEvent
+
     from conductor._internal.run import Run, RunBlueprint, SavedRun
 
 
@@ -440,12 +443,13 @@ class Graph[C]:
         previous: Run[Any] | None = None,
         context: C | None = None,
         timeout: float | None = None,
+        cancel: AsyncioEvent | ThreadEvent | None = None,
     ) -> Run[C]:
         """Runs the graph with these inputs until it's done, waits for a person, fails or stops.
 
         It's the same as ``graph.with_inputs(inputs, max_items=max_items, previous=previous).resume(context=context,
-        timeout=timeout)``.
+        timeout=timeout, cancel=cancel)``.
         """
         return self.with_inputs(inputs, max_items=max_items, previous=previous).resume(
-            context=context, timeout=timeout
+            context=context, timeout=timeout, cancel=cancel
         )

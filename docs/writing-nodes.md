@@ -726,6 +726,8 @@ The call failed twice and worked the third time. `Policy` has a few more setting
 
 By default a node has no such limit, so a server with ten runs open may call it ten times at once. The rules are in `python -m conductor.about versions-and-policies` and `python -m conductor.about retries-and-timeouts`.
 
+A node may run another graph inside its call, as an agent runs whole graphs as its tools. [`examples/07_a_node_that_runs_graphs.ipynb`](https://github.com/syv-ai/conductor/tree/main/examples/07_a_node_that_runs_graphs.ipynb) builds one, and `python -m conductor.about retries-and-timeouts` has the rules, under "A node that runs a graph".
+
 ## A node that costs nothing
 
 A host often wants to tell a person what a run will cost before it starts, such as "this will make 3 calls to a language model". But how many calls a node gets depends on how many items the node before it returns. The host only knows that once that node has run.

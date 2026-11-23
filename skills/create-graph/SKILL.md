@@ -129,8 +129,9 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 | To answer a node that asked | `run = run.with_answers(run.waiting[0], answer)`, or `run.with_answers({waiting.id: answer, ...})` for several, then `run.resume()` |
 | To refuse to answer it | `run = run.with_decline(run.waiting[0], reason="...")`: the run is `declined` with `answer_declined`, and has ended for good; `run.again()` starts a new run that asks again |
 | A service or the caller inside a node | `graph.run(context=HostContext(caller=caller))`, with the class named on the registry: `NodeRegistry(context_type=HostContext)` |
-| A limit on a run | `run.resume(timeout=60)`; `run.stream(cancel=asyncio.Event())`; `run.stream(hand_back=asyncio.Event())` to stop and leave the run going for another process; `graph.run(max_items=1000)` |
+| A limit on a run | `run.resume(timeout=60)`; `run.resume(cancel=threading.Event())`, or the same on `graph.run` and `run.stream`; `run.stream(hand_back=asyncio.Event())` to stop and leave the run going for another process; `graph.run(max_items=1000)` |
 | To save | `graph.record.model_dump_json()`, the record as a `GraphRecord`. A run: `run.to_json()`, and `Run.from_json(saved, graph)` to read it back |
+| A node that runs another graph, as an agent runs its tools | compile the graph once, outside the node, and in its function `graph.run(inputs, context=ctx, cancel=ctx.cancel)`; offer only a graph whose `asks` is false. See `examples/07_a_node_that_runs_graphs.ipynb` |
 | What an editor draws from | `graph.describe()`, and `registry.describe()` for the palette |
 | A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*definitions)` |
 | HTTP routes | `worker = Worker(store, nodes_for=)`, then `app.include_router(run_router(worker, metadata=, run_filter=))`, both from `conductor_providers.fastapi`. See `docs/serving-runs.md` |

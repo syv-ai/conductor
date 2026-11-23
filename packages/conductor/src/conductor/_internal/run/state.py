@@ -6,8 +6,8 @@ person, the run is ``waiting``. Once that call is answered, the run is ``ready``
 is left to call.
 
 The rest comes from how the last ``resume()`` ended, which the run stores beside its outcomes. A resume can end
-early in four ways: a call failed (``failed``), a series had more items than the limit (``stopped``), the stream
-was cancelled (``cancelled``), or the timeout passed (``timed_out``). The next ``resume()`` goes on from there. A
+early in four ways: a call failed (``failed``), a series had more items than the limit (``stopped``), the host
+cancelled it (``cancelled``), or the timeout passed (``timed_out``). The next ``resume()`` goes on from there. A
 copy of the run made while a resume is still going is ``running``. That copy only exists in memory, and a saved run
 never says ``running``.
 
@@ -22,8 +22,10 @@ to that one resume, so once a call is answered, the status comes from the outcom
 from __future__ import annotations
 
 import time
+from asyncio import Event as AsyncioEvent
 from collections.abc import Callable
 from dataclasses import dataclass
+from threading import Event as ThreadEvent
 from typing import ClassVar, Literal, Self
 
 from pydantic import ConfigDict, model_validator
@@ -200,11 +202,37 @@ def kept_by_an_answer(last_resume: LastResume) -> LastResume:
     )
 
 
-def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
+def stop_check(
+    timeout: float | None,
+    *cancels: AsyncioEvent | ThreadEvent | None,
+    hand_back: AsyncioEvent | None = None,
+) -> Callable[[], LastResume] | None:
+    """Returns the check the scheduler asks before each call: whether the run must stop now, and how it ends.
+
+    It says ``cancelled`` once any of ``cancels`` is set, then ``"running"`` once ``hand_back`` is set, so a cancel
+    set as well wins, then ``timed_out`` once ``timeout`` seconds have passed since this was called. Before that it
+    says ``None``. With no event and no timeout there is nothing to check, so it returns ``None`` itself.
+    """
+    events = [event for event in cancels if event is not None]
+    timed_out = _deadline(timeout)
+    if not events and hand_back is None and timed_out is None:
+        return None
+
+    def check() -> LastResume:
+        if any(event.is_set() for event in events):
+            return EndedEarly(status="cancelled", cause=run_problems.run_cancelled())
+        if hand_back is not None and hand_back.is_set():
+            return "running"  # the scheduler stops, and another process goes on with the run
+        return timed_out() if timed_out is not None else None
+
+    return check
+
+
+def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     """Returns a check that says when ``timeout`` seconds have passed, or ``None`` when there is no timeout.
 
-    The clock starts when this is called. The scheduler calls the check before each call. It returns
-    ``EndedEarly(status="timed_out", ...)`` once the time is up, and ``None`` before that.
+    The clock starts when this is called. It returns ``EndedEarly(status="timed_out", ...)`` once the time is up, and
+    ``None`` before that.
     """
     if timeout is None:
         return None

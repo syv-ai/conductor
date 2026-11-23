@@ -939,7 +939,7 @@ Retries live on the node's `Policy`, and are counted per call.
 - Its `ctx.limit` names the limit, and `ctx.errors` has pydantic's error, such as `greater_than` or `finite_number`, without the value.
 - Seconds given as another kind of number, such as a `decimal.Decimal`, are read as a `float`.
 
-**Cancelling.** `run.stream(cancel=asyncio.Event())` ends the run `cancelled` when the event is set. A `threading.Event` works too, and a host may also put one in the context for a node to read.
+**Cancelling.** `run.resume(cancel=threading.Event())`, `graph.run(cancel=...)` and `run.stream(cancel=...)` end the run `cancelled` once the event is set (provisional for `resume` and `graph.run`). An `asyncio.Event` works too, and a host may also put a `threading.Event` in the context for a node to read.
 
 - Leaving the loop once the stream is closed cancels too. But Python closes an async generator left early only when it is collected. So hold it with `async with contextlib.aclosing(run.stream()) as events:`, and loop over `events`.
 - Either way, the calls already made finish and are kept, so resuming repeats none of them.
@@ -952,13 +952,18 @@ Retries live on the node's `Policy`, and are counted per call.
 - There is no `run_end`, since the run didn't end.
 - A `cancel` set as well wins.
 
-**A node that runs a graph.** A node's function may run another graph inside its call, as a host runs an agent's tools. It compiles the graph once, and runs it with its own context, so what the host keeps there, such as a cost so far, is the same object in both runs. The inner graph's registry names the context's class too. A cancel event the host puts in the context goes to the inner run as `cancel=`. Once it is set, the inner run ends `cancelled`, the node raises, and the outer run ends `cancelled` too (above). The inner run is the node's own business: its calls are not in the outer run's events or saved run, and a retry, or a call made again, runs the inner graph again. A node with `concurrency` may be used in both graphs, but not by a node that runs a graph using itself ("Versions and Policies").
+**A node that runs a graph.** A node's function may run another graph inside its call, as an agent runs whole graphs as its tools. Conductor has no feature for it: the node runs the graph with the same calls a host makes.
+
+- Compile the inner graph once, outside the function, and check its `problems` there, since running a graph with problems raises. Every call and every run then shares it.
+- Run it with `graph.run(inputs, context=ctx, cancel=ctx.cancel)`. The context is the same object in both runs, so what the host keeps there, such as a cost so far, adds up across them. The inner graph's registry names the context's class too, and one registry for both graphs is simplest. A host that keeps its cancel event in the context and gives the same event to the outer run stops both: the inner run ends `cancelled`, the node raises, and the outer run ends `cancelled` too ("Cancelling"). The outer run's `timeout` starts no new call, but it doesn't stop an inner run going on, so give the inner run a `timeout` of its own.
+- Read the inner run as a host does. A `complete` run has its values in `run.outputs`. A run that ended early has the `Problem` that ended it in `run.cause`. The node says what that means for its own call: it raises a `NodeError` with the problem in its `ctx`, as `run.cause.model_dump(mode="json")`, or an agent hands the problem back to its model as the tool's answer. Inputs the node makes up, such as a model's tool arguments, may be refused: `graph.run` raises `InvalidCallError`, whose `problems` say what is wrong with each. A node that lets it escape fails its call as `execution_failed` ("Errors").
+- Run only a graph whose `asks` is false. An inner run that asks would end `waiting` inside the call, and nothing outside the node can answer it.
+- The inner run is the node's own business. Its calls are not in the outer run's events or saved run, and a retry, or a call made again, runs the inner graph again from the start. Reuse matches the outer call by its own inputs and code, and the inner graph is outside that code ("What the code leaves out"). So after the inner graph changes, a run made from a previous one reuses the old outcome until the node is forgotten or gets a new version.
+- An editor shows the node as one node with its own inputs and outputs, not the graphs it runs. An input that names the graphs it may run, such as `tools: list[Literal["look_up", "count"]]`, lists them in its `json_schema`. `graph.inputs` describes an inner graph's inputs the way a node's are described, each with its `json_schema`, which an agent can give its model as the tool's parameters.
+- A node with `concurrency` may be used in both graphs, but not by a node that runs a graph using itself ("Versions and Policies").
 
 ```python
-import asyncio
 import threading
-
-from conductor.events import RunEnd
 
 
 @dataclass(frozen=True)
@@ -975,27 +980,22 @@ def look_up(ctx: Context[Session], word: str) -> str:
 
 
 look_up_graph = Graph.compile(make_graph(look_up), tools)
-
-
-async def _finished(run: Run[Session], ctx: Session) -> RunEnd:
-    async for event in run.stream(context=ctx, cancel=ctx.cancel):
-        if isinstance(event, RunEnd):
-            return event
-    raise AssertionError("a stream ends with run_end")
+assert look_up_graph.is_runnable and not look_up_graph.asks
 
 
 @tools.node("research", title="Research", description="Looks up each word with a graph.")
 def research(ctx: Context[Session], words: list[str]) -> list[str]:
     results = []
     for word in words:
-        end = asyncio.run(_finished(look_up_graph.with_inputs({"word": word}), ctx))
-        if end.status != "complete":
-            raise ExternalError(f"The look-up ended {end.status}.")
-        results.append(end.run.outputs["result"])
+        run = look_up_graph.run({"word": word}, context=ctx, cancel=ctx.cancel, timeout=60)
+        if run.cause is not None:
+            raise NodeError(f"The look-up ended {run.status}.", code="look_up_ended", ctx={"cause": run.cause.model_dump(mode="json")})
+        results.append(run.outputs["result"])
     return results
 
 
-researched = Graph.compile(make_graph(research), tools).run({"words": ["a", "b"]}, context=Session(threading.Event()))
+session = Session(threading.Event())
+researched = Graph.compile(make_graph(research), tools).run({"words": ["a", "b"]}, context=session, cancel=session.cancel)
 print(researched.outputs)  # {'result': ['A', 'B']}
 ```
 
@@ -1149,7 +1149,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 **Starting a run.** A graph's inputs are given as one mapping, by name: `graph.run({"text": "a b"})`. Every other argument is a setting of the call, by keyword.
 
-- `graph.run(inputs={}, *, max_items=None, previous=None, context=None, timeout=None)` calls every node that is ready, from the start, until the run is complete, waits or ends early. It returns the `Run`. A pause or a failure is a `status`, not an exception.
+- `graph.run(inputs={}, *, max_items=None, previous=None, context=None, timeout=None, cancel=None)` calls every node that is ready, from the start, until the run is complete, waits or ends early. It returns the `Run`. A pause or a failure is a `status`, not an exception.
 - `graph.with_inputs(inputs={}, *, max_items=None, previous=None)` is a `Run` with its inputs checked, not started. `previous=` reuses an earlier run's outcomes (see "Running again").
   - It raises `InvalidCallError` with every fault in the inputs at once: a name it doesn't offer (`unknown_graph_input`), a required one left out (`missing_input`), and a value its type can't read (`invalid_input`).
   - One rule reads every value that enters a graph: a caller's graph input, a person's answer ("Answering"), a constant or a graph input's default in the record ("The graph record"), and a node's own default where it is declared ("Inputs"). Each value is read strictly, the way its JSON text would be. So a value given from Python, the same value sent over HTTP, the value a record holds and the value a saved run reads back all read alike. `3` is an `int`, but `"3"` and `3.0` are refused; `True` is a `bool`, but `"yes"` and `1` are refused; a `datetime` is not a `date`. A date may be given as a `date` or as its ISO text, a model or a dataclass as itself or as a mapping of its fields, a host's class as itself (written by its own schema) or as its JSON, and `None` where the type takes it. A host's own check that raises, such as a `TypeError`, refuses the value (`value_error` in `ctx.errors`). It is provisional.
@@ -1162,8 +1162,8 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 **Going on.**
 
-- `run.resume(*, context=None, timeout=None, only_costs_nothing=False)` goes on from where the run stopped, the same way.
-- `run.stream(...)` takes the same arguments, plus `cancel=`, `hand_back=` and `checkpoint_every=`. It does the same, and yields its events.
+- `run.resume(*, context=None, timeout=None, only_costs_nothing=False, cancel=None)` goes on from where the run stopped, the same way.
+- `run.stream(...)` takes the same arguments, plus `hand_back=` and `checkpoint_every=`. It does the same, and yields its events.
 - `run.with_max_items(n)` is the same run under another item limit, not started. A run `stopped` at its item limit goes on with `run.with_max_items(100).resume()`. `run.with_max_items(None)` removes the limit; `max_items=None` on `run.with_inputs` and `run.again` keeps the run's own.
 - `run.with_answers(waiting, value)` or `run.with_answers({waiting_id: value})` answers waiting calls (see "Asking a person").
 - `run.with_inputs(inputs={}, *, max_items=None)` is a run that reuses this one's outcomes, to resume or stream.
